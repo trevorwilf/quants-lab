@@ -1,0 +1,159 @@
+# =============================================================================
+# quantslab_desktop_compose.yaml
+#
+# Quants Lab + Optuna optimization stack for PMM Dynamic parameter tuning.
+# Runs on a SEPARATE machine from the Hummingbot Trading Pod.
+#
+# MongoDB lives on the Trading Pod (behind VPN).  This stack connects
+# to it over the LAN.  Set TRUENAS_LAN_IP in your .env or shell before
+# running compose.
+#
+# Place this file in the ROOT of the cloned hummingbot/quants-lab repo
+# (same folder as Dockerfile + environment.yml).
+#
+# PREREQUISITES:
+#   1. Trading pod is running with hummingbot_App_mongodb.yaml overlay
+#   2. Port 27017 is punched through Gluetun on the trading pod
+#   3. Set TRUENAS_LAN_IP in a local .env file (e.g. 192.168.1.50)
+#
+# Usage:
+#   echo "TRUENAS_LAN_IP=192.168.1.50" > .env
+#   docker compose -f quantslab_desktop_compose.yaml up -d
+#   docker compose -f quantslab_desktop_compose.yaml logs -f ql-jupyter
+#
+# GPU check (optional):
+#   docker compose -f quantslab_desktop_compose.yaml run --rm gpu-check
+# =============================================================================
+
+name: quantslab_desktop
+
+services:
+
+  # ── Postgres for Optuna study storage ───────────────────────────────────
+  optuna-postgres:
+    image: postgres:16
+    container_name: ql-optuna-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: optuna
+      POSTGRES_PASSWORD: optuna
+      POSTGRES_DB: optuna
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - ql_optuna_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U optuna -d optuna"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # ── Optuna Dashboard (web UI for viewing optimization studies) ──────────
+  optuna-dashboard:
+    image: ghcr.io/optuna/optuna-dashboard:latest
+    container_name: ql-optuna-dashboard
+    restart: unless-stopped
+    depends_on:
+      optuna-postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    command:
+      - "postgresql+psycopg2://optuna:optuna@optuna-postgres:5432/optuna"
+
+  # ── Quants Lab JupyterLab ──────────────────────────────────────────────
+  quantslab-jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hummingbot/quants-lab:desktop
+    container_name: ql-jupyter
+    restart: unless-stopped
+    init: true
+    depends_on:
+      optuna-postgres:
+        condition: service_healthy
+
+    # RTX 4090 GPU access (requires NVIDIA Container Toolkit)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    shm_size: "8g"
+
+    environment:
+      # ── MongoDB on the Trading Pod (over LAN) ──
+      # TRUENAS_LAN_IP must be set in .env or shell environment
+      MONGO_URI: "mongodb://admin:hoxK62LLspRuYK14TryK34ubhToI63@${TRUENAS_LAN_IP:?Set TRUENAS_LAN_IP in .env}:27017/quants_lab?authSource=admin&retryWrites=true&w=majority"
+      MONGO_DATABASE: "quants_lab"
+
+      # ── Optuna Postgres (local to this stack) ──
+      OPTUNA_STORAGE: "postgresql+psycopg2://optuna:optuna@optuna-postgres:5432/optuna"
+
+      # Threading — match to your CPU core count
+      OMP_NUM_THREADS: "12"
+      OPENBLAS_NUM_THREADS: "12"
+      MKL_NUM_THREADS: "12"
+      NUMEXPR_MAX_THREADS: "12"
+
+      # Jupyter
+      JUPYTER_TOKEN: "change-me"
+      PYTHONUNBUFFERED: "1"
+      TZ: "America/Boise"
+
+    volumes:
+      - ./:/quants-lab
+
+    ports:
+      - "127.0.0.1:8888:8888"
+
+    # Install psycopg2-binary + optuna into the conda env at startup,
+    # then launch JupyterLab.  Once you bake these into the Dockerfile
+    # you can remove the pip install line.
+    command:
+      - bash
+      - -lc
+      - |
+          set -e
+
+          conda run --no-capture-output -n quants-lab pip install --quiet --upgrade --no-cache-dir \
+            psycopg2-binary optuna optuna-dashboard \
+            "cupy-cuda12x[ctk]" "numba-cuda[cu12]"
+
+          exec conda run --no-capture-output -n quants-lab \
+            jupyter lab \
+            --ip=0.0.0.0 \
+            --port=8888 \
+            --no-browser \
+            --allow-root \
+            --ServerApp.token="${JUPYTER_TOKEN}" \
+            --ServerApp.root_dir=/quants-lab
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8888/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ── GPU sanity check (run manually) ────────────────────────────────────
+  gpu-check:
+    image: nvidia/cuda:12.4.1-base-ubuntu22.04
+    container_name: ql-gpu-check
+    profiles: ["tools"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    entrypoint: ["bash", "-lc"]
+    command: ["nvidia-smi"]
+
+volumes:
+  ql_optuna_pgdata:

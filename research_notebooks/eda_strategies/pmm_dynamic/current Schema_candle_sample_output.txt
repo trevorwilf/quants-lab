@@ -1,0 +1,349 @@
+======================================================================
+MongoDB Candle Data Sampler
+======================================================================
+  URI:      ...@192.168.1.54:27017/quants_lab?authSource=admin&retryWrites=true&w=majority
+  Database: quants_lab
+
+  ✓ Connected successfully
+
+──────────────────────────────────────────────────────────────────────
+SECTION 1: COLLECTIONS IN DATABASE
+──────────────────────────────────────────────────────────────────────
+  candles                         ~3,479,947 docs
+
+──────────────────────────────────────────────────────────────────────
+SECTION 2: AVAILABLE CONNECTOR / PAIR / INTERVAL COMBOS
+──────────────────────────────────────────────────────────────────────
+  mexc         APT-USDT        15m      17,324 candles   2025-09-08 09:15 → 2026-03-07 20:00
+  mexc         APT-USDT        1d          180 candles   2025-09-09 00:00 → 2026-03-07 00:00
+  mexc         APT-USDT        1h        4,331 candles   2025-09-08 10:00 → 2026-03-07 20:00
+  mexc         APT-USDT        1m       43,868 candles   2026-02-05 09:04 → 2026-03-07 20:11
+  mexc         APT-USDT        4h        1,083 candles   2025-09-08 12:00 → 2026-03-07 20:00
+  mexc         APT-USDT        5m       51,973 candles   2025-09-08 09:10 → 2026-03-07 20:10
+  mexc         BNB-USDT        15m      17,327 candles   2025-09-08 08:30 → 2026-03-07 20:00
+  mexc         BNB-USDT        1d          180 candles   2025-09-09 00:00 → 2026-03-07 00:00
+  mexc         BNB-USDT        1h        4,332 candles   2025-09-08 09:00 → 2026-03-07 20:00
+  mexc         BNB-USDT        1m       43,910 candles   2026-02-05 08:22 → 2026-03-07 20:11
+  mexc         BNB-USDT        4h        1,083 candles   2025-09-08 12:00 → 2026-03-07 20:00
+  mexc         BNB-USDT        5m       51,981 candles   2025-09-08 08:30 → 2026-03-07 20:10
+  mexc         BTC-USDT        15m      17,746 candles   2025-09-03 23:45 → 2026-03-07 20:00
+  mexc         BTC-USDT        1d          185 candles   2025-09-04 00:00 → 2026-03-07 00:00
+  mexc         BTC-USDT        1h        4,437 candles   2025-09-04 00:00 → 2026-03-07 20:00
+  mexc         BTC-USDT        1m       50,201 candles   2026-01-31 23:30 → 2026-03-07 20:10
+  mexc         BTC-USDT        4h        1,110 candles   2025-09-04 00:00 → 2026-03-07 20:00
+  mexc         BTC-USDT        5m       53,240 candles   2025-09-03 23:35 → 2026-03-07 20:10
+  mexc         DOGE-USDT       15m      17,742 candles   2025-09-04 00:45 → 2026-03-07 20:00
+  mexc         DOGE-USDT       1d          184 candles   2025-09-05 00:00 → 2026-03-07 00:00
+  mexc         DOGE-USDT       1h        4,436 candles   2025-09-04 01:00 → 2026-03-07 20:00
+  mexc         DOGE-USDT       1m       50,135 candles   2026-02-01 00:37 → 2026-03-07 20:11
+  mexc         DOGE-USDT       4h        1,109 candles   2025-09-04 04:00 → 2026-03-07 20:00
+  mexc         DOGE-USDT       5m       53,226 candles   2025-09-04 00:45 → 2026-03-07 20:10
+  mexc         ETH-USDT        15m      17,745 candles   2025-09-04 00:00 → 2026-03-07 20:00
+  mexc         ETH-USDT        1d          184 candles   2025-09-05 00:00 → 2026-03-07 00:00
+  mexc         ETH-USDT        1h        4,436 candles   2025-09-04 01:00 → 2026-03-07 20:00
+  mexc         ETH-USDT        1m       50,178 candles   2026-01-31 23:53 → 2026-03-07 20:10
+  mexc         ETH-USDT        4h        1,109 candles   2025-09-04 04:00 → 2026-03-07 20:00
+  mexc         ETH-USDT        5m       53,235 candles   2025-09-04 00:00 → 2026-03-07 20:10
+  mexc         PEPE-USDT       15m      17,322 candles   2025-09-08 09:45 → 2026-03-07 20:00
+  mexc         PEPE-USDT       1d          180 candles   2025-09-09 00:00 → 2026-03-07 00:00
+  mexc         PEPE-USDT       1h        4,331 candles   2025-09-08 10:00 → 2026-03-07 20:00
+  mexc         PEPE-USDT       1m       43,847 candles   2026-02-05 09:25 → 2026-03-07 20:11
+  mexc         PEPE-USDT       4h        1,083 candles   2025-09-08 12:00 → 2026-03-07 20:00
+  mexc         PEPE-USDT       5m       51,969 candles   2025-09-08 09:30 → 2026-03-07 20:10
+  mexc         SAL-USDT        15m      17,737 candles   2025-09-04 02:00 → 2026-03-07 20:00
+  mexc         SAL-USDT        1d          184 candles   2025-09-05 00:00 → 2026-03-07 00:00
+  mexc         SAL-USDT        1h        4,435 candles   2025-09-04 02:00 → 2026-03-07 20:00
+  mexc         SAL-USDT        1m       50,068 candles   2026-02-01 01:45 → 2026-03-07 20:12
+  mexc         SAL-USDT        4h        1,109 candles   2025-09-04 04:00 → 2026-03-07 20:00
+  mexc         SAL-USDT        5m       53,213 candles   2025-09-04 01:50 → 2026-03-07 20:10
+  mexc         SOL-USDT        15m      17,743 candles   2025-09-04 00:30 → 2026-03-07 20:00
+  mexc         SOL-USDT        1d          184 candles   2025-09-05 00:00 → 2026-03-07 00:00
+  mexc         SOL-USDT        1h        4,436 candles   2025-09-04 01:00 → 2026-03-07 20:00
+  mexc         SOL-USDT        1m       50,156 candles   2026-02-01 00:15 → 2026-03-07 20:10
+  mexc         SOL-USDT        4h        1,109 candles   2025-09-04 04:00 → 2026-03-07 20:00
+  mexc         SOL-USDT        5m       53,231 candles   2025-09-04 00:20 → 2026-03-07 20:10
+  mexc         TON-USDT        15m      17,325 candles   2025-09-08 09:00 → 2026-03-07 20:00
+  mexc         TON-USDT        1d          180 candles   2025-09-09 00:00 → 2026-03-07 00:00
+  mexc         TON-USDT        1h        4,332 candles   2025-09-08 09:00 → 2026-03-07 20:00
+  mexc         TON-USDT        1m       43,889 candles   2026-02-05 08:43 → 2026-03-07 20:11
+  mexc         TON-USDT        4h        1,083 candles   2025-09-08 12:00 → 2026-03-07 20:00
+  mexc         TON-USDT        5m       51,977 candles   2025-09-08 08:50 → 2026-03-07 20:10
+  mexc         XMR-USDC        15m      17,739 candles   2025-09-04 01:30 → 2026-03-07 20:00
+  mexc         XMR-USDC        1d          184 candles   2025-09-05 00:00 → 2026-03-07 00:00
+  mexc         XMR-USDC        1h        4,435 candles   2025-09-04 02:00 → 2026-03-07 20:00
+  mexc         XMR-USDC        1m       50,091 candles   2026-02-01 01:22 → 2026-03-07 20:12
+  mexc         XMR-USDC        4h        1,109 candles   2025-09-04 04:00 → 2026-03-07 20:00
+  mexc         XMR-USDC        5m       53,217 candles   2025-09-04 01:30 → 2026-03-07 20:10
+  mexc         XMR-USDT        15m      17,740 candles   2025-09-04 01:15 → 2026-03-07 20:00
+  mexc         XMR-USDT        1d          184 candles   2025-09-05 00:00 → 2026-03-07 00:00
+  mexc         XMR-USDT        1h        4,435 candles   2025-09-04 02:00 → 2026-03-07 20:00
+  mexc         XMR-USDT        1m       50,113 candles   2026-02-01 01:00 → 2026-03-07 20:12
+  mexc         XMR-USDT        4h        1,109 candles   2025-09-04 04:00 → 2026-03-07 20:00
+  mexc         XMR-USDT        5m       53,222 candles   2025-09-04 01:05 → 2026-03-07 20:10
+  mexc         XRP-USDT        15m      17,321 candles   2025-09-08 10:00 → 2026-03-07 20:00
+  mexc         XRP-USDT        1d          180 candles   2025-09-09 00:00 → 2026-03-07 00:00
+  mexc         XRP-USDT        1h        4,331 candles   2025-09-08 10:00 → 2026-03-07 20:00
+  mexc         XRP-USDT        1m       43,827 candles   2026-02-05 09:46 → 2026-03-07 20:12
+  mexc         XRP-USDT        4h        1,083 candles   2025-09-08 12:00 → 2026-03-07 20:00
+  mexc         XRP-USDT        5m       51,965 candles   2025-09-08 09:50 → 2026-03-07 20:10
+  nonkyc       ALIAS-XMR       15m      17,915 candles   2025-09-02 05:00 → 2026-03-07 20:00
+  nonkyc       ALIAS-XMR       1d          406 candles   2025-01-26 00:00 → 2026-03-07 00:00
+  nonkyc       ALIAS-XMR       1h        4,636 candles   2025-08-26 17:00 → 2026-03-07 20:00
+  nonkyc       ALIAS-XMR       4h        1,534 candles   2025-06-25 08:00 → 2026-03-07 20:00
+  nonkyc       ALIAS-XMR       5m       53,948 candles   2025-09-01 10:45 → 2026-03-07 20:05
+  nonkyc       ARRR-USDT       15m      17,556 candles   2025-09-05 23:15 → 2026-03-07 20:00
+  nonkyc       ARRR-USDT       1d          561 candles   2024-08-24 00:00 → 2026-03-07 00:00
+  nonkyc       ARRR-USDT       1h        4,512 candles   2025-08-31 21:00 → 2026-03-07 20:00
+  nonkyc       ARRR-USDT       4h        1,938 candles   2025-04-19 00:00 → 2026-03-07 20:00
+  nonkyc       ARRR-USDT       5m       52,075 candles   2025-09-08 00:35 → 2026-03-07 20:05
+  nonkyc       ARRR-XMR        15m      17,986 candles   2025-09-01 11:45 → 2026-03-07 20:00
+  nonkyc       ARRR-XMR        1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       ARRR-XMR        1h        4,621 candles   2025-08-27 08:00 → 2026-03-07 20:00
+  nonkyc       ARRR-XMR        4h        1,532 candles   2025-06-25 16:00 → 2026-03-07 20:00
+  nonkyc       ARRR-XMR        5m       53,369 candles   2025-09-03 12:40 → 2026-03-07 20:05
+  nonkyc       BNB-USDT        15m      17,621 candles   2025-09-05 07:00 → 2026-03-07 20:00
+  nonkyc       BNB-USDT        1d          500 candles   2024-10-24 00:00 → 2026-03-07 00:00
+  nonkyc       BNB-USDT        1h        4,518 candles   2025-08-31 15:00 → 2026-03-07 20:00
+  nonkyc       BNB-USDT        4h        1,504 candles   2025-06-30 08:00 → 2026-03-07 20:00
+  nonkyc       BNB-USDT        5m       52,037 candles   2025-09-08 03:45 → 2026-03-07 20:05
+  nonkyc       BTC-USDT        15m      17,983 candles   2025-09-01 12:30 → 2026-03-07 20:00
+  nonkyc       BTC-USDT        1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       BTC-USDT        1h        4,618 candles   2025-08-27 11:00 → 2026-03-07 20:00
+  nonkyc       BTC-USDT        4h        1,530 candles   2025-06-26 00:00 → 2026-03-07 20:00
+  nonkyc       BTC-USDT        5m       53,604 candles   2025-09-02 17:10 → 2026-03-07 20:05
+  nonkyc       DASH-USDT       15m      17,482 candles   2025-09-06 17:30 → 2026-03-07 20:00
+  nonkyc       DASH-USDT       1d          500 candles   2024-10-24 00:00 → 2026-03-07 00:00
+  nonkyc       DASH-USDT       1h        4,515 candles   2025-08-31 18:00 → 2026-03-07 20:00
+  nonkyc       DASH-USDT       4h        1,504 candles   2025-06-30 08:00 → 2026-03-07 20:00
+  nonkyc       DASH-USDT       5m       52,056 candles   2025-09-08 01:15 → 2026-03-07 20:05
+  nonkyc       DOGE-USDT       15m      17,975 candles   2025-09-01 14:30 → 2026-03-07 20:00
+  nonkyc       DOGE-USDT       1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       DOGE-USDT       1h        4,618 candles   2025-08-27 11:00 → 2026-03-07 20:00
+  nonkyc       DOGE-USDT       4h        1,530 candles   2025-06-26 00:00 → 2026-03-07 20:00
+  nonkyc       DOGE-USDT       5m       53,474 candles   2025-09-03 04:00 → 2026-03-07 20:05
+  nonkyc       EPIC-XMR        15m       8,823 candles   2025-12-05 22:30 → 2026-03-07 20:00
+  nonkyc       EPIC-XMR        1d           93 candles   2025-12-05 00:00 → 2026-03-07 00:00
+  nonkyc       EPIC-XMR        1h        2,207 candles   2025-12-05 22:00 → 2026-03-07 20:00
+  nonkyc       EPIC-XMR        4h          553 candles   2025-12-05 20:00 → 2026-03-07 20:00
+  nonkyc       EPIC-XMR        5m       26,466 candles   2025-12-05 22:40 → 2026-03-07 20:05
+  nonkyc       ERG-XMR         15m      18,017 candles   2025-09-01 03:45 → 2026-03-07 20:00
+  nonkyc       ERG-XMR         1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       ERG-XMR         1h        4,624 candles   2025-08-27 05:00 → 2026-03-07 20:00
+  nonkyc       ERG-XMR         4h        1,531 candles   2025-06-25 20:00 → 2026-03-07 20:00
+  nonkyc       ERG-XMR         5m       54,016 candles   2025-09-01 05:05 → 2026-03-07 20:00
+  nonkyc       ETH-USDT        15m      17,983 candles   2025-09-01 12:30 → 2026-03-07 20:00
+  nonkyc       ETH-USDT        1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       ETH-USDT        1h        4,618 candles   2025-08-27 11:00 → 2026-03-07 20:00
+  nonkyc       ETH-USDT        4h        1,530 candles   2025-06-26 00:00 → 2026-03-07 20:00
+  nonkyc       ETH-USDT        5m       53,517 candles   2025-09-03 00:25 → 2026-03-07 20:05
+  nonkyc       FUSD-XMR        15m      17,898 candles   2025-09-02 09:30 → 2026-03-07 20:00
+  nonkyc       FUSD-XMR        1d          305 candles   2025-05-07 00:00 → 2026-03-07 00:00
+  nonkyc       FUSD-XMR        1h        4,630 candles   2025-08-26 23:00 → 2026-03-07 20:00
+  nonkyc       FUSD-XMR        4h        1,531 candles   2025-06-25 20:00 → 2026-03-07 20:00
+  nonkyc       FUSD-XMR        5m       54,137 candles   2025-08-31 19:05 → 2026-03-07 20:05
+  nonkyc       GHOST-XMR       15m      18,273 candles   2025-08-29 11:00 → 2026-03-07 19:45
+  nonkyc       GHOST-XMR       1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       GHOST-XMR       1h        4,632 candles   2025-08-26 20:00 → 2026-03-07 19:00
+  nonkyc       GHOST-XMR       4h        1,531 candles   2025-06-25 16:00 → 2026-03-07 16:00
+  nonkyc       GHOST-XMR       5m       54,075 candles   2025-08-31 23:45 → 2026-03-07 19:50
+  nonkyc       LINK-USDT       15m      17,580 candles   2025-09-05 17:15 → 2026-03-07 20:00
+  nonkyc       LINK-USDT       1d          500 candles   2024-10-24 00:00 → 2026-03-07 00:00
+  nonkyc       LINK-USDT       1h        4,515 candles   2025-08-31 18:00 → 2026-03-07 20:00
+  nonkyc       LINK-USDT       4h        1,504 candles   2025-06-30 08:00 → 2026-03-07 20:00
+  nonkyc       LINK-USDT       5m       52,349 candles   2025-09-07 01:45 → 2026-03-07 20:05
+  nonkyc       LTC-USDT        15m      17,582 candles   2025-09-05 16:45 → 2026-03-07 20:00
+  nonkyc       LTC-USDT        1d          500 candles   2024-10-24 00:00 → 2026-03-07 00:00
+  nonkyc       LTC-USDT        1h        4,514 candles   2025-08-31 19:00 → 2026-03-07 20:00
+  nonkyc       LTC-USDT        4h        1,504 candles   2025-06-30 08:00 → 2026-03-07 20:00
+  nonkyc       LTC-USDT        5m       52,485 candles   2025-09-06 14:25 → 2026-03-07 20:05
+  nonkyc       LTC-XMR         15m      17,865 candles   2025-09-02 17:45 → 2026-03-07 20:00
+  nonkyc       LTC-XMR         1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       LTC-XMR         1h        4,622 candles   2025-08-27 07:00 → 2026-03-07 20:00
+  nonkyc       LTC-XMR         4h        1,530 candles   2025-06-26 00:00 → 2026-03-07 20:00
+  nonkyc       LTC-XMR         5m       53,928 candles   2025-09-01 12:10 → 2026-03-07 20:05
+  nonkyc       SAL-USDT        15m      18,002 candles   2025-09-01 07:45 → 2026-03-07 20:00
+  nonkyc       SAL-USDT        1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       SAL-USDT        1h        4,619 candles   2025-08-27 10:00 → 2026-03-07 20:00
+  nonkyc       SAL-USDT        4h        1,530 candles   2025-06-26 00:00 → 2026-03-07 20:00
+  nonkyc       SAL-USDT        5m       53,406 candles   2025-09-03 09:40 → 2026-03-07 20:05
+  nonkyc       SOL-USDT        15m      17,977 candles   2025-09-01 14:00 → 2026-03-07 20:00
+  nonkyc       SOL-USDT        1d          506 candles   2024-10-18 00:00 → 2026-03-07 00:00
+  nonkyc       SOL-USDT        1h        4,619 candles   2025-08-27 10:00 → 2026-03-07 20:00
+  nonkyc       SOL-USDT        4h        1,530 candles   2025-06-26 00:00 → 2026-03-07 20:00
+  nonkyc       SOL-USDT        5m       53,485 candles   2025-09-03 03:05 → 2026-03-07 20:05
+  nonkyc       UNI-USDT        15m      17,588 candles   2025-09-05 15:15 → 2026-03-07 20:00
+  nonkyc       UNI-USDT        1d          500 candles   2024-10-24 00:00 → 2026-03-07 00:00
+  nonkyc       UNI-USDT        1h        4,515 candles   2025-08-31 18:00 → 2026-03-07 20:00
+  nonkyc       UNI-USDT        4h        1,504 candles   2025-06-30 08:00 → 2026-03-07 20:00
+  nonkyc       UNI-USDT        5m       52,349 candles   2025-09-07 01:45 → 2026-03-07 20:05
+  nonkyc       VEIL-XMR        15m      18,326 candles   2025-08-28 21:45 → 2026-03-07 20:00
+  nonkyc       VEIL-XMR        1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       VEIL-XMR        1h        4,631 candles   2025-08-26 22:00 → 2026-03-07 20:00
+  nonkyc       VEIL-XMR        4h        1,531 candles   2025-06-25 20:00 → 2026-03-07 20:00
+  nonkyc       VEIL-XMR        5m       53,935 candles   2025-09-01 11:30 → 2026-03-07 20:05
+  nonkyc       XKR-XMR         15m      17,919 candles   2025-09-02 04:00 → 2026-03-07 19:45
+  nonkyc       XKR-XMR         1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       XKR-XMR         1h        4,635 candles   2025-08-26 17:00 → 2026-03-07 19:00
+  nonkyc       XKR-XMR         4h        1,532 candles   2025-06-25 12:00 → 2026-03-07 16:00
+  nonkyc       XKR-XMR         5m       53,878 candles   2025-09-01 16:35 → 2026-03-07 19:55
+  nonkyc       XMR-BTC         15m      18,034 candles   2025-08-31 22:30 → 2026-03-07 19:30
+  nonkyc       XMR-BTC         1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       XMR-BTC         1h        4,622 candles   2025-08-27 06:00 → 2026-03-07 19:00
+  nonkyc       XMR-BTC         4h        1,530 candles   2025-06-25 20:00 → 2026-03-07 16:00
+  nonkyc       XMR-BTC         5m       53,549 candles   2025-09-02 19:50 → 2026-03-07 19:30
+  nonkyc       XMR-USDT        15m      18,036 candles   2025-08-31 23:15 → 2026-03-07 20:00
+  nonkyc       XMR-USDT        1d          506 candles   2024-10-18 00:00 → 2026-03-07 00:00
+  nonkyc       XMR-USDT        1h        4,619 candles   2025-08-27 10:00 → 2026-03-07 20:00
+  nonkyc       XMR-USDT        4h        1,531 candles   2025-06-25 20:00 → 2026-03-07 20:00
+  nonkyc       XMR-USDT        5m       53,315 candles   2025-09-03 17:15 → 2026-03-07 20:05
+  nonkyc       XMR-ZSD         15m      18,143 candles   2025-08-30 19:45 → 2026-03-07 20:00
+  nonkyc       XMR-ZSD         1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       XMR-ZSD         1h        4,636 candles   2025-08-26 17:00 → 2026-03-07 20:00
+  nonkyc       XMR-ZSD         4h        1,534 candles   2025-06-25 08:00 → 2026-03-07 20:00
+  nonkyc       XMR-ZSD         5m       54,122 candles   2025-08-31 20:10 → 2026-03-07 20:05
+  nonkyc       XNV-XMR         15m       3,483 candles   2026-01-30 13:30 → 2026-03-07 20:00
+  nonkyc       XNV-XMR         1d           37 candles   2026-01-30 00:00 → 2026-03-07 00:00
+  nonkyc       XNV-XMR         1h          872 candles   2026-01-30 13:00 → 2026-03-07 20:00
+  nonkyc       XNV-XMR         4h          219 candles   2026-01-30 12:00 → 2026-03-07 20:00
+  nonkyc       XNV-XMR         5m       10,447 candles   2026-01-30 13:35 → 2026-03-07 20:05
+  nonkyc       XRP-USDT        15m      17,584 candles   2025-09-05 16:15 → 2026-03-07 20:00
+  nonkyc       XRP-USDT        1d          500 candles   2024-10-24 00:00 → 2026-03-07 00:00
+  nonkyc       XRP-USDT        1h        4,517 candles   2025-08-31 16:00 → 2026-03-07 20:00
+  nonkyc       XRP-USDT        4h        1,504 candles   2025-06-30 08:00 → 2026-03-07 20:00
+  nonkyc       XRP-USDT        5m       52,340 candles   2025-09-07 02:30 → 2026-03-07 20:05
+  nonkyc       XTM-XMR         15m      18,104 candles   2025-08-31 05:30 → 2026-03-07 19:30
+  nonkyc       XTM-XMR         1d          286 candles   2025-05-26 00:00 → 2026-03-07 00:00
+  nonkyc       XTM-XMR         1h        4,617 candles   2025-08-27 11:00 → 2026-03-07 19:00
+  nonkyc       XTM-XMR         4h        1,529 candles   2025-06-26 00:00 → 2026-03-07 16:00
+  nonkyc       XTM-XMR         5m       53,502 candles   2025-09-02 23:55 → 2026-03-07 19:35
+  nonkyc       ZEC-XMR         15m      17,987 candles   2025-09-01 11:30 → 2026-03-07 20:00
+  nonkyc       ZEC-XMR         1d          505 candles   2024-10-19 00:00 → 2026-03-07 00:00
+  nonkyc       ZEC-XMR         1h        4,618 candles   2025-08-27 11:00 → 2026-03-07 20:00
+  nonkyc       ZEC-XMR         4h        1,530 candles   2025-06-26 00:00 → 2026-03-07 20:00
+  nonkyc       ZEC-XMR         5m       53,268 candles   2025-09-03 21:10 → 2026-03-07 20:05
+
+──────────────────────────────────────────────────────────────────────
+SECTION 3: RAW MONGODB DOCUMENTS — FIRST 10
+──────────────────────────────────────────────────────────────────────
+  [0] {"timestamp": 1756833000, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110657.72, "high": 110819.73, "low": 110622.08, "open": 110791.88, "volume": 0.463}
+  [1] {"timestamp": 1756833300, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110693.33, "high": 111118.37, "low": 110650.59, "open": 110669.88, "volume": 0.215}
+  [2] {"timestamp": 1756833600, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110690.19, "high": 110734.18, "low": 110663.19, "open": 110733.81, "volume": 0.275}
+  [3] {"timestamp": 1756833900, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110852.28, "high": 110910.49, "low": 110705.79, "open": 110705.79, "volume": 0.163}
+  [4] {"timestamp": 1756834200, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110914.64, "high": 110998.45, "low": 110865.55, "open": 110865.55, "volume": 0.219}
+  [5] {"timestamp": 1756834500, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110703.11, "high": 111385.7, "low": 110688.84, "open": 110907.43, "volume": 0.318}
+  [6] {"timestamp": 1756834800, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110860.14, "high": 110906.14, "low": 110778.69, "open": 110788.9, "volume": 0.806}
+  [7] {"timestamp": 1756835100, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110913.22, "high": 110938.91, "low": 110857.82, "open": 110878.12, "volume": 1.023}
+  [8] {"timestamp": 1756835400, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110870.89, "high": 111042.01, "low": 110870.89, "open": 110894.22, "volume": 0.222}
+  [9] {"timestamp": 1756835700, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110906.55, "high": 110911.98, "low": 110859.18, "open": 110859.18, "volume": 0.224}
+
+──────────────────────────────────────────────────────────────────────
+SECTION 4: RAW MONGODB DOCUMENTS — LAST 10
+──────────────────────────────────────────────────────────────────────
+  [0] {"trading_pair": "BTC-USDT", "timestamp": 1772911200, "connector": "nonkyc", "interval": "5m", "close": 67575.7, "high": 67634.0, "low": 67380.0, "open": 67389.0, "volume": 0.71}
+  [1] {"trading_pair": "BTC-USDT", "timestamp": 1772911500, "interval": "5m", "connector": "nonkyc", "close": 67225.3, "high": 67674.62, "low": 67206.77, "open": 67374.76, "volume": 0.463}
+  [2] {"trading_pair": "BTC-USDT", "timestamp": 1772911800, "connector": "nonkyc", "interval": "5m", "close": 67276.89, "high": 67577.15, "low": 67194.73, "open": 67225.27, "volume": 1.278}
+  [3] {"trading_pair": "BTC-USDT", "timestamp": 1772912100, "interval": "5m", "connector": "nonkyc", "close": 67294.7, "high": 67523.86, "low": 67273.01, "open": 67445.5, "volume": 0.552}
+  [4] {"trading_pair": "BTC-USDT", "timestamp": 1772912400, "connector": "nonkyc", "interval": "5m", "close": 67213.7, "high": 67330.31, "low": 67211.03, "open": 67309.13, "volume": 0.324}
+  [5] {"trading_pair": "BTC-USDT", "timestamp": 1772912700, "interval": "5m", "connector": "nonkyc", "close": 67193.49, "high": 67271.95, "low": 67193.49, "open": 67219.01, "volume": 0.903}
+  [6] {"trading_pair": "BTC-USDT", "timestamp": 1772913000, "connector": "nonkyc", "interval": "5m", "close": 67033.86, "high": 67347.91, "low": 66986.09, "open": 67172.76, "volume": 1.086}
+  [7] {"trading_pair": "BTC-USDT", "timestamp": 1772913300, "interval": "5m", "connector": "nonkyc", "close": 67076.03, "high": 67127.92, "low": 66949.58, "open": 67028.5, "volume": 1.456}
+  [8] {"trading_pair": "BTC-USDT", "timestamp": 1772913600, "connector": "nonkyc", "interval": "5m", "close": 67182.44, "high": 67196.56, "low": 67078.18, "open": 67078.18, "volume": 0.978}
+  [9] {"trading_pair": "BTC-USDT", "timestamp": 1772913900, "interval": "5m", "connector": "nonkyc", "close": 67237.37, "high": 67254.1, "low": 67180.08, "open": 67180.08, "volume": 0.192}
+
+──────────────────────────────────────────────────────────────────────
+SECTION 5: SCHEMA ANALYSIS
+──────────────────────────────────────────────────────────────────────
+  Fields and types in first document:
+    timestamp             type=int         value=1756833000
+    connector             type=str         value='nonkyc'
+    interval              type=str         value='5m'
+    trading_pair          type=str         value='BTC-USDT'
+    close                 type=float       value=110657.72
+    high                  type=float       value=110819.73
+    low                   type=float       value=110622.08
+    open                  type=float       value=110791.88
+    volume                type=float       value=0.463
+
+  Timestamp field raw value: 1756833000
+    → SECONDS (→ 2025-09-02 17:10:00+00:00)
+
+──────────────────────────────────────────────────────────────────────
+SECTION 6: SORT ORDER & TIMESTAMP GAP CHECK
+──────────────────────────────────────────────────────────────────────
+  First 10 timestamps ascending? True
+  Gaps between consecutive timestamps: [300, 300, 300, 300, 300, 300, 300, 300, 300]
+  Min gap: 300,  Max gap: 300,  Median: 300
+
+──────────────────────────────────────────────────────────────────────
+SECTION 7: DATA QUALITY — DUPLICATES & NULLS
+──────────────────────────────────────────────────────────────────────
+  Total documents matching query: 53,604
+  Duplicate timestamps: 0
+  open    : ✓ OK
+  high    : ✓ OK
+  low     : ✓ OK
+  close   : ✓ OK
+  volume  : ✓ OK
+
+──────────────────────────────────────────────────────────────────────
+SECTION 8: PANDAS DATAFRAME PREVIEW (first 20 rows)
+──────────────────────────────────────────────────────────────────────
+  Shape: (20, 6)
+  Dtypes:
+timestamp    datetime64[s, UTC]
+close                   float64
+high                    float64
+low                     float64
+open                    float64
+volume                  float64
+
+                   timestamp      close       high        low       open  volume
+0  2025-09-02 17:10:00+00:00  110657.72  110819.73  110622.08  110791.88   0.463
+1  2025-09-02 17:15:00+00:00  110693.33  111118.37  110650.59  110669.88   0.215
+2  2025-09-02 17:20:00+00:00  110690.19  110734.18  110663.19  110733.81   0.275
+3  2025-09-02 17:25:00+00:00  110852.28  110910.49  110705.79  110705.79   0.163
+4  2025-09-02 17:30:00+00:00  110914.64  110998.45  110865.55  110865.55   0.219
+5  2025-09-02 17:35:00+00:00  110703.11  111385.70  110688.84  110907.43   0.318
+6  2025-09-02 17:40:00+00:00  110860.14  110906.14  110778.69  110788.90   0.806
+7  2025-09-02 17:45:00+00:00  110913.22  110938.91  110857.82  110878.12   1.023
+8  2025-09-02 17:50:00+00:00  110870.89  111042.01  110870.89  110894.22   0.222
+9  2025-09-02 17:55:00+00:00  110906.55  110911.98  110859.18  110859.18   0.224
+10 2025-09-02 18:00:00+00:00  110601.79  110932.54  110545.50  110932.54   0.127
+11 2025-09-02 18:05:00+00:00  110545.13  110669.25  110083.62  110669.25   0.221
+12 2025-09-02 18:10:00+00:00  110527.27  110575.67  110465.43  110548.91   0.248
+13 2025-09-02 18:15:00+00:00  110101.18  110596.97  110101.18  110528.23   0.467
+14 2025-09-02 18:20:00+00:00  110625.50  110648.23  110052.24  110110.41   0.395
+15 2025-09-02 18:25:00+00:00  110461.54  110611.95  110446.09  110580.03   0.157
+16 2025-09-02 18:30:00+00:00  110468.48  110505.28  110353.54  110474.33   0.198
+17 2025-09-02 18:35:00+00:00  110135.74  110567.80  110135.74  110481.87   0.060
+18 2025-09-02 18:40:00+00:00  110506.97  110874.00  110107.36  110131.84   0.234
+19 2025-09-02 18:45:00+00:00  110544.84  110544.84  109888.96  110443.91   0.113
+
+  Describe:
+               close           high          low           open     volume
+count      20.000000      20.000000      20.0000      20.000000  20.000000
+mean   110629.025500  110814.624500  110487.1140  110649.804000   0.307400
+std       232.968743     228.734768     321.6375     239.463751   0.235436
+min    110101.180000  110505.280000  109888.9600  110110.410000   0.060000
+25%    110522.195000  110608.205000  110128.6450  110516.640000   0.189250
+50%    110641.610000  110846.865000  110583.7900  110687.835000   0.223000
+75%    110854.245000  110934.132500  110724.0150  110860.772500   0.337250
+max    110914.640000  111385.700000  110870.8900  110932.540000   1.023000
+
+──────────────────────────────────────────────────────────────────────
+SECTION 9: MID-SECTION SAMPLE (10 docs from ~middle of dataset)
+──────────────────────────────────────────────────────────────────────
+  [0] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764872100, "close": 92199.55, "high": 92351.33, "low": 92139.43, "open": 92341.77, "volume": 0.276}
+  [1] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764872400, "close": 92539.87, "high": 92544.87, "low": 92200.86, "open": 92200.86, "volume": 0.257}
+  [2] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764872700, "close": 92463.38, "high": 92861.26, "low": 92284.38, "open": 92510.68, "volume": 0.385}
+  [3] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764873000, "close": 92479.33, "high": 92528.7, "low": 92362.09, "open": 92427.62, "volume": 0.178}
+  [4] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764873300, "close": 92417.09, "high": 92686.73, "low": 92293.28, "open": 92473.1, "volume": 0.231}
+  [5] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764873600, "close": 92015.55, "high": 92189.09, "low": 91958.72, "open": 92174.69, "volume": 0.298}
+  [6] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764873900, "close": 92087.56, "high": 92113.02, "low": 91927.58, "open": 92016.14, "volume": 0.629}
+  [7] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764874200, "close": 92041.94, "high": 92208.48, "low": 91867.76, "open": 91978.32, "volume": 0.507}
+  [8] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764874500, "close": 92127.52, "high": 92139.3, "low": 91960.94, "open": 92041.94, "volume": 0.497}
+  [9] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764874800, "close": 91942.97, "high": 92174.09, "low": 91933.14, "open": 92127.52, "volume": 0.327}
+
+======================================================================
+Done.
+======================================================================

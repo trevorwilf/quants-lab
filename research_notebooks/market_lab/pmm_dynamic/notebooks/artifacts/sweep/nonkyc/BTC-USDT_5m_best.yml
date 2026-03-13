@@ -1,0 +1,46 @@
+buy_amounts_pct:
+- 0.015643722402728637
+- 0.031470215322822306
+- 0.063308107045677
+- 0.1273558625701663
+- 0.25619966364321467
+buy_spreads:
+- 5.419141248662261
+- 16.093234087293567
+- 47.79210791974854
+- 141.9283139127575
+- 421.4847841393186
+candles_config: []
+candles_connector: nonkyc
+candles_trading_pair: BTC-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 3405
+executor_refresh_time: 8790
+id: BTC-USDT-PMM-DYNAMIC_635.255914623056
+interval: 5m
+leverage: 1
+macd_fast: 13
+macd_signal: 28
+macd_slow: 25
+manual_kill_switch: false
+natr_length: 23
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.05
+sell_amounts_pct:
+- 0.1680198003228707
+- 0.3380026286925204
+sell_spreads:
+- 4.110112857270836
+- 9.311457041308987
+skip_rebalance: false
+stop_loss: 0.2014930763208193
+take_profit: 0.13431335398997735
+take_profit_order_type: 2
+time_limit: 110799
+total_amount_quote: 635.255914623056
+trading_pair: BTC-USDT
+trailing_stop:
+  activation_price: 0.023655117182311104
+  trailing_delta: 0.001196500386283847

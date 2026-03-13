@@ -167,3 +167,9 @@ cython_debug/
 # Outputs
 app/outputs/
 app/data/cache/
+
+
+quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts
+quants-lab/research_notebooks/edastrategy/pmm_dynamic/
+quants-lab/research_notebooks/market_lab/pmm_dynamic/notebooks/artifacts
+.Trash-0/

@@ -1,0 +1,69 @@
+connectors:
+  mexc:
+    default:
+      price_tick: 0.01
+      amount_step: 0.00001
+      min_notional_quote: 5.0
+      min_order_size_base: 0.0
+      max_order_size_base: null
+      fees:
+        mode: tiered
+        tier_basis: rolling_30d_volume_usd
+        tiers:
+          - name: vip0
+            min_volume_usd: 0
+            maker_fee: 0.0002
+            taker_fee: 0.0002
+          - name: vip1
+            min_volume_usd: 100000
+            maker_fee: 0.00018
+            taker_fee: 0.00020
+    pairs:
+      BTC-USDT:
+        price_tick: 0.01
+        amount_step: 0.00001
+        min_notional_quote: 5.0
+      ETH-USDT:
+        price_tick: 0.01
+        amount_step: 0.0001
+        min_notional_quote: 5.0
+      SOL-USDT:
+        price_tick: 0.01
+        amount_step: 0.01
+        min_notional_quote: 5.0
+      DOGE-USDT:
+        price_tick: 0.00001
+        amount_step: 1.0
+        min_notional_quote: 5.0
+      SAL-USDT:
+        price_tick: 0.00001
+        amount_step: 1.0
+        min_notional_quote: 5.0
+
+  nonkyc:
+    default:
+      price_tick: 0.0001
+      amount_step: 0.000001
+      min_notional_quote: 5.0
+      min_order_size_base: 0.0
+      max_order_size_base: null
+      fees:
+        mode: static
+        maker_fee: 0.0010
+        taker_fee: 0.0020
+    pairs:
+      BTC-USDT:
+        price_tick: 0.01
+        amount_step: 0.000001
+      ETH-USDT:
+        price_tick: 0.01
+        amount_step: 0.00001
+      SOL-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+      DOGE-USDT:
+        price_tick: 0.00001
+        amount_step: 1.0
+      SAL-USDT:
+        price_tick: 0.00001
+        amount_step: 0.01

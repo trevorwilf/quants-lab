@@ -1,0 +1,75 @@
+"""
+Optuna study creation and optimization orchestration.
+"""
+
+import optuna
+import warnings
+warnings.filterwarnings("ignore", category=optuna.exceptions.ExperimentalWarning)
+from typing import Optional, Callable
+
+from pmm_lab.optuna.storage import get_storage_url
+
+
+def create_study(
+    study_name: str,
+    seed: int = 12345,
+    storage_url: Optional[str] = None,
+    n_startup_trials: int = 15,
+) -> optuna.Study:
+    """Create or load an Optuna study.
+
+    Parameters
+    ----------
+    study_name : str
+        Study name. Convention: "{connector}_{pair}_{interval}_pmm_dynamic_v1"
+    seed : int
+        Random seed for the TPE sampler.
+    storage_url : str, optional
+        Override the storage URL. If None, uses get_storage_url().
+    n_startup_trials : int
+        Number of random trials before TPE kicks in.
+    """
+    if storage_url is None:
+        storage_url = get_storage_url()
+
+    sampler = optuna.samplers.TPESampler(
+        seed=seed,
+        multivariate=True,
+        n_startup_trials=n_startup_trials,
+        warn_independent_sampling=False,
+    )
+
+    pruner = optuna.pruners.MedianPruner(
+        n_startup_trials=n_startup_trials,
+        n_warmup_steps=1,
+        interval_steps=1,
+    )
+
+    study = optuna.create_study(
+        study_name=study_name,
+        storage=storage_url,
+        direction="maximize",
+        load_if_exists=True,
+        sampler=sampler,
+        pruner=pruner,
+    )
+
+    return study
+
+
+def run_optimization(
+    study: optuna.Study,
+    objective: Callable,
+    n_trials: int = 100,
+    timeout: Optional[int] = None,
+    callbacks: Optional[list] = None,
+) -> optuna.Study:
+    """Run optimization trials."""
+    study.optimize(
+        objective,
+        n_trials=n_trials,
+        timeout=timeout,
+        callbacks=callbacks,
+        catch=(Exception,),
+    )
+    return study

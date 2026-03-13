@@ -1,0 +1,50 @@
+buy_amounts_pct:
+- 0.01718288862288687
+- 0.031012146965587663
+- 0.0559715703525072
+- 0.10101901977963551
+- 0.18232188757557835
+- 0.3290595252422252
+buy_spreads:
+- 5.009918648830945
+- 12.65315411243854
+- 31.957067612361307
+- 80.71143062875522
+- 203.84645779015588
+- 514.8388280307536
+candles_config: []
+candles_connector: mexc
+candles_trading_pair: BTC-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 2326
+executor_refresh_time: 6350
+id: BTC-USDT-PMM-DYNAMIC_347.885184113805
+interval: 5m
+leverage: 1
+macd_fast: 40
+macd_signal: 28
+macd_slow: 85
+manual_kill_switch: false
+natr_length: 33
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.05
+sell_amounts_pct:
+- 0.04675391854092508
+- 0.08438274988740982
+- 0.15229629303324435
+sell_spreads:
+- 0.5494242688693719
+- 0.9520937506511168
+- 1.6498770829586913
+skip_rebalance: false
+stop_loss: 0.13436167981572847
+take_profit: 0.12975663794574682
+take_profit_order_type: LIMIT
+time_limit: 164132
+total_amount_quote: 347.885184113805
+trading_pair: BTC-USDT
+trailing_stop:
+  activation_price: 0.015495588895661461
+  trailing_delta: 0.001770460561183007

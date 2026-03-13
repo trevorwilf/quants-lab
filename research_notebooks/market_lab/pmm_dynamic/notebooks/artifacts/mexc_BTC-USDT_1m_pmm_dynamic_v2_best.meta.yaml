@@ -1,0 +1,25 @@
+dataset_hash: 2b7e0ceee9978061dbdffa0c69349d9a905814410f04eee58d2ecfb177dddde0
+phase1_score: 3.057695365034991
+robust_score: !!python/object/apply:numpy._core.multiarray.scalar
+- &id001 !!python/object/apply:numpy.dtype
+  args:
+  - f8
+  - false
+  - true
+  state: !!python/tuple
+  - 3
+  - <
+  - null
+  - null
+  - null
+  - -1
+  - -1
+  - 0
+- !!binary |
+  koEuKsbyBkA=
+trial: 2538
+worst_scenario: fees_2x
+worst_score: !!python/object/apply:numpy._core.multiarray.scalar
+- *id001
+- !!binary |
+  s1o6yWreBkA=

@@ -1,0 +1,48 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(python:*)",
+      "Read(*)",
+      "Bash(jupyter nbconvert *)",
+      "Bash(cat *)",
+      "Bash(npm *)",
+      "Edit(*)",
+      "Bash(wc:*)",
+      "Read(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "Bash(jupyter nbconvert *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(pip list *)",
+      "Bash(which *)",
+      "Bash(find *)",
+      "Bash(wc *)",
+      "Bash(diff *)",
+      "Bash(env *)",
+      "Bash(echo *)",
+      "Bash(mkdir:*)",
+      "Bash(make test:*)",
+      "Bash(pip show:*)",
+      "Bash(python3:*)",
+      "Bash(test:*)"
+    ],
+    "deny": [
+      "Bash(git *)",
+      "Bash(rm *)",
+      "Bash(mv *)",
+      "Bash(cp *)",
+      "WebFetch",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(sudo *)"
+    ]
+  }
+}

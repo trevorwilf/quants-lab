@@ -1,0 +1,50 @@
+###############################################
+# PMM Dynamic — Optuna-Optimized Configuration
+# Generated from trial #254
+# Objective value: 5.8250
+# Levels: 1
+###############################################
+
+controller_name: pmm_dynamic
+controller_type: market_making
+
+connector_name: nonkyc
+trading_pair: SAL-USDT
+
+candles_connector: nonkyc
+candles_trading_pair: SAL-USDT
+interval: 5m
+
+# -- MACD (trend detection / mid-price shift) --
+macd_fast: 11
+macd_slow: 55
+macd_signal: 6
+
+# -- NATR (volatility-adjusted spreads) --
+natr_length: 24
+
+# -- Capital --
+total_amount_quote: 48.0
+leverage: 1
+
+# -- Order levels (1 per side) --
+buy_spreads:
+  - 7.0
+sell_spreads:
+  - 7.0
+buy_amounts_pct:
+  - 100.0
+sell_amounts_pct:
+  - 100.0
+
+# -- Risk management (triple barrier) --
+stop_loss: 0.065
+take_profit: 0.065
+time_limit: 26100
+trailing_stop:
+  activation_price: 0.02
+  trailing_delta: 0.013
+
+# -- Execution --
+executor_refresh_time: 1800
+cooldown_time: 15

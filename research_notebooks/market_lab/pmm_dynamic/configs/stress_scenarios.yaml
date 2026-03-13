@@ -1,0 +1,46 @@
+scenarios:
+  - name: fees_1.5x
+    description: "Maker and taker fees increased by 50%"
+    maker_fee_multiplier: 1.5
+    taker_fee_multiplier: 1.5
+
+  - name: fees_2x
+    description: "Maker and taker fees doubled"
+    maker_fee_multiplier: 2.0
+    taker_fee_multiplier: 2.0
+
+  - name: latency_plus1
+    description: "1 additional bar of latency"
+    latency_bars_add: 1
+
+  - name: latency_plus2
+    description: "2 additional bars of latency"
+    latency_bars_add: 2
+
+  - name: latency_plus3
+    description: "3 additional bars of latency"
+    latency_bars_add: 3
+
+  - name: low_liquidity
+    description: "Fill participation rate halved"
+    fill_participation_multiplier: 0.5
+
+  - name: very_low_liquidity
+    description: "Fill participation rate quartered"
+    fill_participation_multiplier: 0.25
+
+  - name: high_slippage
+    description: "Market exit slippage doubled"
+    slippage_bps_multiplier: 2.0
+
+  - name: extreme_slippage
+    description: "Market exit slippage quadrupled"
+    slippage_bps_multiplier: 4.0
+
+  - name: combined_adverse
+    description: "Fees 1.5x + latency +1 + slippage 2x + liquidity 0.5x"
+    maker_fee_multiplier: 1.5
+    taker_fee_multiplier: 1.5
+    latency_bars_add: 1
+    slippage_bps_multiplier: 2.0
+    fill_participation_multiplier: 0.5

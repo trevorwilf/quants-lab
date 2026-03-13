@@ -1,8 +1,24 @@
 .ONESHELL:
-.PHONY: help install uninstall build
+.PHONY: help install uninstall build test test-unit test-live data-audit
 
 # Default target
 .DEFAULT_GOAL := help
+
+# ============================================================================
+# PMM LAB TESTING
+# ============================================================================
+
+test:  ## Run PMM Lab unit tests
+	python -m pytest tests/unit/ -q --tb=short
+
+test-unit:  ## Run PMM Lab unit tests (alias)
+	python -m pytest tests/unit/ -q --tb=short
+
+test-live:  ## Run PMM Lab integration tests (requires MongoDB)
+	python -m pytest tests/integration/ -q --tb=short -m live_mongo
+
+data-audit:  ## Run PMM Lab data quality audit
+	python -m pmm_lab.data.quality
 
 # ============================================================================
 # INSTALLATION & SETUP

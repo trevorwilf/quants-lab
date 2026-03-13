@@ -36,6 +36,7 @@ dependencies = [
     "asyncpg",
     "psycopg2-binary",
     "pyarrow",
+    "pymongo>=4.6",
     "motor>=3.3.2",
     "fastapi",
     "uvicorn[standard]",
@@ -50,6 +51,12 @@ dev = [
     "isort",
     "flake8",
     "jupyter",
+    "pytest>=7.0",
+    "mongomock>=4.0",
+]
+test = [
+    "pytest>=7.0",
+    "mongomock>=4.0",
 ]
 
 [project.scripts]
@@ -57,7 +64,13 @@ quants-lab = "cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core*", "app*"]
+include = ["core*", "app*", "pmm_lab*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live_mongo: requires a real MongoDB connection (deselect with -m 'not live_mongo')",
+]
 
 [tool.black]
 line-length = 130

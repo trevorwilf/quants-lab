@@ -1,0 +1,34 @@
+[project]
+name = "pmm-lab"
+version = "0.1.0"
+description = "PMM Dynamic Hyper-Bayesian Optimization for Hummingbot"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pymongo>=4.0",
+    "pyyaml>=6.0",
+    "pandas>=2.0",
+    "pandas_ta>=0.3.14b1",
+    "optuna>=3.0",
+    "psycopg2-binary>=2.9",
+    "nbformat>=5.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "mongomock>=4.0",
+]
+dev = [
+    "pytest>=7.0",
+    "mongomock>=4.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["pmm_lab*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live_mongo: requires a real MongoDB connection (deselect with -m 'not live_mongo')",
+]

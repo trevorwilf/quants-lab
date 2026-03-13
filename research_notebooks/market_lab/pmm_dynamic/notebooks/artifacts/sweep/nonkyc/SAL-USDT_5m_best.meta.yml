@@ -1,0 +1,7 @@
+dataset_hash: b80f9dba1256abfe27d121cbaad2c0e29f1c821c7dae056a837a92434814804c
+phase1_score: 242.60007590494533
+robust_score: 2707.023702434992
+sweep_date: '2026-03-09T20:58:52.551815'
+trial: 2684
+worst_scenario: latency_plus2
+worst_score: -1000.0

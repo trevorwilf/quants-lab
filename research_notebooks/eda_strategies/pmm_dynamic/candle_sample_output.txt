@@ -1,0 +1,391 @@
+======================================================================
+MongoDB Candle Data Sampler
+======================================================================
+  URI:      ...@192.168.1.54:27017/quants_lab?authSource=admin&retryWrites=true&w=majority
+  Database: quants_lab
+
+  ✓ Connected successfully
+
+──────────────────────────────────────────────────────────────────────
+SECTION 1: COLLECTIONS IN DATABASE
+──────────────────────────────────────────────────────────────────────
+  candles                         ~4,504,079 docs
+  market_trades                   ~0 docs
+
+──────────────────────────────────────────────────────────────────────
+SECTION 2: AVAILABLE CONNECTOR / PAIR / INTERVAL COMBOS
+──────────────────────────────────────────────────────────────────────
+  coinbase     BTC-USD         15m      17,322 candles   2025-09-09 07:45 → 2026-03-08 18:00
+  coinbase     BTC-USD         1d          180 candles   2025-09-09 00:00 → 2026-03-07 00:00
+  coinbase     BTC-USD         1h        4,331 candles   2025-09-09 07:00 → 2026-03-08 17:00
+  coinbase     BTC-USD         1m      259,848 candles   2025-09-09 07:31 → 2026-03-08 18:18
+  coinbase     BTC-USD         5m       51,966 candles   2025-09-09 07:45 → 2026-03-08 18:10
+  coinbase     ETH-USD         15m      17,322 candles   2025-09-09 07:45 → 2026-03-08 18:00
+  coinbase     ETH-USD         1d          180 candles   2025-09-09 00:00 → 2026-03-07 00:00
+  coinbase     ETH-USD         1h        4,331 candles   2025-09-09 07:00 → 2026-03-08 17:00
+  coinbase     ETH-USD         1m      259,834 candles   2025-09-09 07:45 → 2026-03-08 18:18
+  coinbase     ETH-USD         5m       51,966 candles   2025-09-09 07:45 → 2026-03-08 18:10
+  coinbase     USDT-USD        15m      17,323 candles   2025-09-09 07:30 → 2026-03-08 18:00
+  coinbase     USDT-USD        1d          180 candles   2025-09-09 00:00 → 2026-03-07 00:00
+  coinbase     USDT-USD        1h        4,331 candles   2025-09-09 07:00 → 2026-03-08 17:00
+  coinbase     USDT-USD        1m      259,871 candles   2025-09-09 07:08 → 2026-03-08 18:18
+  coinbase     USDT-USD        5m       51,969 candles   2025-09-09 07:30 → 2026-03-08 18:10
+  mexc         APT-USDT        15m      17,349 candles   2025-09-08 09:15 → 2026-03-08 02:15
+  mexc         APT-USDT        1d          181 candles   2025-09-09 00:00 → 2026-03-08 00:00
+  mexc         APT-USDT        1h        4,337 candles   2025-09-08 10:00 → 2026-03-08 02:00
+  mexc         APT-USDT        1m       44,239 candles   2026-02-05 09:04 → 2026-03-08 02:22
+  mexc         APT-USDT        4h        1,084 candles   2025-09-08 12:00 → 2026-03-08 00:00
+  mexc         APT-USDT        5m       52,047 candles   2025-09-08 09:10 → 2026-03-08 02:20
+  mexc         BNB-USDT        15m      17,352 candles   2025-09-08 08:30 → 2026-03-08 02:15
+  mexc         BNB-USDT        1d          181 candles   2025-09-09 00:00 → 2026-03-08 00:00
+  mexc         BNB-USDT        1h        4,338 candles   2025-09-08 09:00 → 2026-03-08 02:00
+  mexc         BNB-USDT        1m       44,280 candles   2026-02-05 08:22 → 2026-03-08 02:21
+  mexc         BNB-USDT        4h        1,084 candles   2025-09-08 12:00 → 2026-03-08 00:00
+  mexc         BNB-USDT        5m       52,055 candles   2025-09-08 08:30 → 2026-03-08 02:20
+  mexc         BTC-USDT        15m      17,833 candles   2025-09-03 23:45 → 2026-03-08 17:45
+  mexc         BTC-USDT        1d          186 candles   2025-09-04 00:00 → 2026-03-08 00:00
+  mexc         BTC-USDT        1h        4,457 candles   2025-09-04 00:00 → 2026-03-08 16:00
+  mexc         BTC-USDT        1m       51,528 candles   2026-01-31 23:30 → 2026-03-08 18:17
+  mexc         BTC-USDT        4h        1,113 candles   2025-09-04 00:00 → 2026-03-08 08:00
+  mexc         BTC-USDT        5m       53,503 candles   2025-09-03 23:35 → 2026-03-08 18:05
+  mexc         DOGE-USDT       15m      17,829 candles   2025-09-04 00:45 → 2026-03-08 17:45
+  mexc         DOGE-USDT       1d          185 candles   2025-09-05 00:00 → 2026-03-08 00:00
+  mexc         DOGE-USDT       1h        4,456 candles   2025-09-04 01:00 → 2026-03-08 16:00
+  mexc         DOGE-USDT       1m       51,461 candles   2026-02-01 00:37 → 2026-03-08 18:17
+  mexc         DOGE-USDT       4h        1,112 candles   2025-09-04 04:00 → 2026-03-08 08:00
+  mexc         DOGE-USDT       5m       53,489 candles   2025-09-04 00:45 → 2026-03-08 18:05
+  mexc         ETH-USDT        15m      17,832 candles   2025-09-04 00:00 → 2026-03-08 17:45
+  mexc         ETH-USDT        1d          185 candles   2025-09-05 00:00 → 2026-03-08 00:00
+  mexc         ETH-USDT        1h        4,456 candles   2025-09-04 01:00 → 2026-03-08 16:00
+  mexc         ETH-USDT        1m       51,505 candles   2026-01-31 23:53 → 2026-03-08 18:17
+  mexc         ETH-USDT        4h        1,112 candles   2025-09-04 04:00 → 2026-03-08 08:00
+  mexc         ETH-USDT        5m       53,498 candles   2025-09-04 00:00 → 2026-03-08 18:05
+  mexc         PEPE-USDT       15m      17,347 candles   2025-09-08 09:45 → 2026-03-08 02:15
+  mexc         PEPE-USDT       1d          181 candles   2025-09-09 00:00 → 2026-03-08 00:00
+  mexc         PEPE-USDT       1h        4,337 candles   2025-09-08 10:00 → 2026-03-08 02:00
+  mexc         PEPE-USDT       1m       44,218 candles   2026-02-05 09:25 → 2026-03-08 02:22
+  mexc         PEPE-USDT       4h        1,084 candles   2025-09-08 12:00 → 2026-03-08 00:00
+  mexc         PEPE-USDT       5m       52,043 candles   2025-09-08 09:30 → 2026-03-08 02:20
+  mexc         SAL-USDT        15m      17,824 candles   2025-09-04 02:00 → 2026-03-08 17:45
+  mexc         SAL-USDT        1d          185 candles   2025-09-05 00:00 → 2026-03-08 00:00
+  mexc         SAL-USDT        1h        4,455 candles   2025-09-04 02:00 → 2026-03-08 16:00
+  mexc         SAL-USDT        1m       51,393 candles   2026-02-01 01:45 → 2026-03-08 18:17
+  mexc         SAL-USDT        4h        1,112 candles   2025-09-04 04:00 → 2026-03-08 08:00
+  mexc         SAL-USDT        5m       53,476 candles   2025-09-04 01:50 → 2026-03-08 18:05
+  mexc         SOL-USDT        15m      17,830 candles   2025-09-04 00:30 → 2026-03-08 17:45
+  mexc         SOL-USDT        1d          185 candles   2025-09-05 00:00 → 2026-03-08 00:00
+  mexc         SOL-USDT        1h        4,456 candles   2025-09-04 01:00 → 2026-03-08 16:00
+  mexc         SOL-USDT        1m       51,483 candles   2026-02-01 00:15 → 2026-03-08 18:17
+  mexc         SOL-USDT        4h        1,112 candles   2025-09-04 04:00 → 2026-03-08 08:00
+  mexc         SOL-USDT        5m       53,494 candles   2025-09-04 00:20 → 2026-03-08 18:05
+  mexc         TON-USDT        15m      17,350 candles   2025-09-08 09:00 → 2026-03-08 02:15
+  mexc         TON-USDT        1d          181 candles   2025-09-09 00:00 → 2026-03-08 00:00
+  mexc         TON-USDT        1h        4,338 candles   2025-09-08 09:00 → 2026-03-08 02:00
+  mexc         TON-USDT        1m       44,260 candles   2026-02-05 08:43 → 2026-03-08 02:22
+  mexc         TON-USDT        4h        1,084 candles   2025-09-08 12:00 → 2026-03-08 00:00
+  mexc         TON-USDT        5m       52,051 candles   2025-09-08 08:50 → 2026-03-08 02:20
+  mexc         XMR-USDC        15m      17,826 candles   2025-09-04 01:30 → 2026-03-08 17:45
+  mexc         XMR-USDC        1d          185 candles   2025-09-05 00:00 → 2026-03-08 00:00
+  mexc         XMR-USDC        1h        4,455 candles   2025-09-04 02:00 → 2026-03-08 16:00
+  mexc         XMR-USDC        1m       51,416 candles   2026-02-01 01:22 → 2026-03-08 18:17
+  mexc         XMR-USDC        4h        1,112 candles   2025-09-04 04:00 → 2026-03-08 08:00
+  mexc         XMR-USDC        5m       53,480 candles   2025-09-04 01:30 → 2026-03-08 18:05
+  mexc         XMR-USDT        15m      17,827 candles   2025-09-04 01:15 → 2026-03-08 17:45
+  mexc         XMR-USDT        1d          185 candles   2025-09-05 00:00 → 2026-03-08 00:00
+  mexc         XMR-USDT        1h        4,455 candles   2025-09-04 02:00 → 2026-03-08 16:00
+  mexc         XMR-USDT        1m       51,438 candles   2026-02-01 01:00 → 2026-03-08 18:17
+  mexc         XMR-USDT        4h        1,112 candles   2025-09-04 04:00 → 2026-03-08 08:00
+  mexc         XMR-USDT        5m       53,485 candles   2025-09-04 01:05 → 2026-03-08 18:05
+  mexc         XRP-USDT        15m      17,346 candles   2025-09-08 10:00 → 2026-03-08 02:15
+  mexc         XRP-USDT        1d          181 candles   2025-09-09 00:00 → 2026-03-08 00:00
+  mexc         XRP-USDT        1h        4,337 candles   2025-09-08 10:00 → 2026-03-08 02:00
+  mexc         XRP-USDT        1m       44,197 candles   2026-02-05 09:46 → 2026-03-08 02:22
+  mexc         XRP-USDT        4h        1,084 candles   2025-09-08 12:00 → 2026-03-08 00:00
+  mexc         XRP-USDT        5m       52,039 candles   2025-09-08 09:50 → 2026-03-08 02:20
+  nonkyc       ALIAS-XMR       15m      18,009 candles   2025-09-02 05:00 → 2026-03-08 19:00
+  nonkyc       ALIAS-XMR       1d          407 candles   2025-01-26 00:00 → 2026-03-08 00:00
+  nonkyc       ALIAS-XMR       1h        4,659 candles   2025-08-26 17:00 → 2026-03-08 19:00
+  nonkyc       ALIAS-XMR       4h        1,539 candles   2025-06-25 08:00 → 2026-03-08 16:00
+  nonkyc       ALIAS-XMR       5m       54,241 candles   2025-09-01 10:45 → 2026-03-08 19:00
+  nonkyc       ARRR-USDT       15m      17,581 candles   2025-09-05 23:15 → 2026-03-08 02:15
+  nonkyc       ARRR-USDT       1d          562 candles   2024-08-24 00:00 → 2026-03-08 00:00
+  nonkyc       ARRR-USDT       1h        4,518 candles   2025-08-31 21:00 → 2026-03-08 02:00
+  nonkyc       ARRR-USDT       4h        1,939 candles   2025-04-19 00:00 → 2026-03-08 00:00
+  nonkyc       ARRR-USDT       5m       52,149 candles   2025-09-08 00:35 → 2026-03-08 02:15
+  nonkyc       ARRR-XMR        15m      18,078 candles   2025-09-01 11:45 → 2026-03-08 19:00
+  nonkyc       ARRR-XMR        1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       ARRR-XMR        1h        4,644 candles   2025-08-27 08:00 → 2026-03-08 19:00
+  nonkyc       ARRR-XMR        4h        1,537 candles   2025-06-25 16:00 → 2026-03-08 16:00
+  nonkyc       ARRR-XMR        5m       53,646 candles   2025-09-03 12:40 → 2026-03-08 19:05
+  nonkyc       BNB-USDT        15m      17,646 candles   2025-09-05 07:00 → 2026-03-08 02:15
+  nonkyc       BNB-USDT        1d          501 candles   2024-10-24 00:00 → 2026-03-08 00:00
+  nonkyc       BNB-USDT        1h        4,524 candles   2025-08-31 15:00 → 2026-03-08 02:00
+  nonkyc       BNB-USDT        4h        1,505 candles   2025-06-30 08:00 → 2026-03-08 00:00
+  nonkyc       BNB-USDT        5m       52,111 candles   2025-09-08 03:45 → 2026-03-08 02:15
+  nonkyc       BTC-USDT        15m      18,075 candles   2025-09-01 12:30 → 2026-03-08 19:00
+  nonkyc       BTC-USDT        1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       BTC-USDT        1h        4,641 candles   2025-08-27 11:00 → 2026-03-08 19:00
+  nonkyc       BTC-USDT        4h        1,535 candles   2025-06-26 00:00 → 2026-03-08 16:00
+  nonkyc       BTC-USDT        5m       53,880 candles   2025-09-02 17:10 → 2026-03-08 19:05
+  nonkyc       DASH-USDT       15m      17,507 candles   2025-09-06 17:30 → 2026-03-08 02:00
+  nonkyc       DASH-USDT       1d          501 candles   2024-10-24 00:00 → 2026-03-08 00:00
+  nonkyc       DASH-USDT       1h        4,521 candles   2025-08-31 18:00 → 2026-03-08 02:00
+  nonkyc       DASH-USDT       4h        1,505 candles   2025-06-30 08:00 → 2026-03-08 00:00
+  nonkyc       DASH-USDT       5m       52,140 candles   2025-09-08 01:15 → 2026-03-08 02:10
+  nonkyc       DOGE-USDT       15m      18,067 candles   2025-09-01 14:30 → 2026-03-08 19:00
+  nonkyc       DOGE-USDT       1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       DOGE-USDT       1h        4,641 candles   2025-08-27 11:00 → 2026-03-08 19:00
+  nonkyc       DOGE-USDT       4h        1,535 candles   2025-06-26 00:00 → 2026-03-08 16:00
+  nonkyc       DOGE-USDT       5m       53,750 candles   2025-09-03 04:00 → 2026-03-08 19:05
+  nonkyc       EPIC-XMR        15m       8,915 candles   2025-12-05 22:30 → 2026-03-08 19:00
+  nonkyc       EPIC-XMR        1d           94 candles   2025-12-05 00:00 → 2026-03-08 00:00
+  nonkyc       EPIC-XMR        1h        2,230 candles   2025-12-05 22:00 → 2026-03-08 19:00
+  nonkyc       EPIC-XMR        4h          557 candles   2025-12-05 20:00 → 2026-03-08 12:00
+  nonkyc       EPIC-XMR        5m       26,741 candles   2025-12-05 22:40 → 2026-03-08 19:00
+  nonkyc       ERG-XMR         15m      18,110 candles   2025-09-01 03:45 → 2026-03-08 19:00
+  nonkyc       ERG-XMR         1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       ERG-XMR         1h        4,647 candles   2025-08-27 05:00 → 2026-03-08 19:00
+  nonkyc       ERG-XMR         4h        1,536 candles   2025-06-25 20:00 → 2026-03-08 16:00
+  nonkyc       ERG-XMR         5m       54,310 candles   2025-09-01 05:05 → 2026-03-08 19:00
+  nonkyc       ETH-USDT        15m      18,075 candles   2025-09-01 12:30 → 2026-03-08 19:00
+  nonkyc       ETH-USDT        1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       ETH-USDT        1h        4,641 candles   2025-08-27 11:00 → 2026-03-08 19:00
+  nonkyc       ETH-USDT        4h        1,535 candles   2025-06-26 00:00 → 2026-03-08 16:00
+  nonkyc       ETH-USDT        5m       53,782 candles   2025-09-03 00:25 → 2026-03-08 18:10
+  nonkyc       FUSD-XMR        15m      17,989 candles   2025-09-02 09:30 → 2026-03-08 18:30
+  nonkyc       FUSD-XMR        1d          306 candles   2025-05-07 00:00 → 2026-03-08 00:00
+  nonkyc       FUSD-XMR        1h        4,652 candles   2025-08-26 23:00 → 2026-03-08 18:00
+  nonkyc       FUSD-XMR        4h        1,536 candles   2025-06-25 20:00 → 2026-03-08 16:00
+  nonkyc       FUSD-XMR        5m       54,428 candles   2025-08-31 19:05 → 2026-03-08 18:40
+  nonkyc       GHOST-XMR       15m      18,368 candles   2025-08-29 11:00 → 2026-03-08 18:45
+  nonkyc       GHOST-XMR       1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       GHOST-XMR       1h        4,655 candles   2025-08-26 20:00 → 2026-03-08 18:00
+  nonkyc       GHOST-XMR       4h        1,537 candles   2025-06-25 16:00 → 2026-03-08 16:00
+  nonkyc       GHOST-XMR       5m       54,374 candles   2025-08-31 23:45 → 2026-03-08 18:50
+  nonkyc       LINK-USDT       15m      17,605 candles   2025-09-05 17:15 → 2026-03-08 02:15
+  nonkyc       LINK-USDT       1d          501 candles   2024-10-24 00:00 → 2026-03-08 00:00
+  nonkyc       LINK-USDT       1h        4,521 candles   2025-08-31 18:00 → 2026-03-08 02:00
+  nonkyc       LINK-USDT       4h        1,505 candles   2025-06-30 08:00 → 2026-03-08 00:00
+  nonkyc       LINK-USDT       5m       52,423 candles   2025-09-07 01:45 → 2026-03-08 02:15
+  nonkyc       LTC-USDT        15m      17,607 candles   2025-09-05 16:45 → 2026-03-08 02:15
+  nonkyc       LTC-USDT        1d          501 candles   2024-10-24 00:00 → 2026-03-08 00:00
+  nonkyc       LTC-USDT        1h        4,520 candles   2025-08-31 19:00 → 2026-03-08 02:00
+  nonkyc       LTC-USDT        4h        1,505 candles   2025-06-30 08:00 → 2026-03-08 00:00
+  nonkyc       LTC-USDT        5m       52,559 candles   2025-09-06 14:25 → 2026-03-08 02:15
+  nonkyc       LTC-XMR         15m      17,956 candles   2025-09-02 17:45 → 2026-03-08 18:30
+  nonkyc       LTC-XMR         1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       LTC-XMR         1h        4,644 candles   2025-08-27 07:00 → 2026-03-08 18:00
+  nonkyc       LTC-XMR         4h        1,535 candles   2025-06-26 00:00 → 2026-03-08 16:00
+  nonkyc       LTC-XMR         5m       54,223 candles   2025-09-01 12:10 → 2026-03-08 18:40
+  nonkyc       SAL-USDT        15m      18,094 candles   2025-09-01 07:45 → 2026-03-08 19:00
+  nonkyc       SAL-USDT        1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       SAL-USDT        1h        4,642 candles   2025-08-27 10:00 → 2026-03-08 19:00
+  nonkyc       SAL-USDT        4h        1,535 candles   2025-06-26 00:00 → 2026-03-08 16:00
+  nonkyc       SAL-USDT        5m       53,682 candles   2025-09-03 09:40 → 2026-03-08 19:05
+  nonkyc       SOL-USDT        15m      18,069 candles   2025-09-01 14:00 → 2026-03-08 19:00
+  nonkyc       SOL-USDT        1d          507 candles   2024-10-18 00:00 → 2026-03-08 00:00
+  nonkyc       SOL-USDT        1h        4,642 candles   2025-08-27 10:00 → 2026-03-08 19:00
+  nonkyc       SOL-USDT        4h        1,535 candles   2025-06-26 00:00 → 2026-03-08 16:00
+  nonkyc       SOL-USDT        5m       53,761 candles   2025-09-03 03:05 → 2026-03-08 19:05
+  nonkyc       UNI-USDT        15m      17,613 candles   2025-09-05 15:15 → 2026-03-08 02:15
+  nonkyc       UNI-USDT        1d          501 candles   2024-10-24 00:00 → 2026-03-08 00:00
+  nonkyc       UNI-USDT        1h        4,521 candles   2025-08-31 18:00 → 2026-03-08 02:00
+  nonkyc       UNI-USDT        4h        1,505 candles   2025-06-30 08:00 → 2026-03-08 00:00
+  nonkyc       UNI-USDT        5m       52,424 candles   2025-09-07 01:45 → 2026-03-08 02:20
+  nonkyc       VEIL-XMR        15m      18,422 candles   2025-08-28 21:45 → 2026-03-08 19:00
+  nonkyc       VEIL-XMR        1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       VEIL-XMR        1h        4,654 candles   2025-08-26 22:00 → 2026-03-08 19:00
+  nonkyc       VEIL-XMR        4h        1,536 candles   2025-06-25 20:00 → 2026-03-08 16:00
+  nonkyc       VEIL-XMR        5m       54,234 candles   2025-09-01 11:30 → 2026-03-08 19:00
+  nonkyc       XKR-XMR         15m      18,012 candles   2025-09-02 04:00 → 2026-03-08 18:45
+  nonkyc       XKR-XMR         1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       XKR-XMR         1h        4,658 candles   2025-08-26 17:00 → 2026-03-08 18:00
+  nonkyc       XKR-XMR         4h        1,538 candles   2025-06-25 12:00 → 2026-03-08 16:00
+  nonkyc       XKR-XMR         5m       54,164 candles   2025-09-01 16:35 → 2026-03-08 18:10
+  nonkyc       XMR-BTC         15m      18,131 candles   2025-08-31 22:30 → 2026-03-08 19:00
+  nonkyc       XMR-BTC         1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       XMR-BTC         1h        4,646 candles   2025-08-27 06:00 → 2026-03-08 19:00
+  nonkyc       XMR-BTC         4h        1,536 candles   2025-06-25 20:00 → 2026-03-08 16:00
+  nonkyc       XMR-BTC         5m       53,845 candles   2025-09-02 19:50 → 2026-03-08 19:00
+  nonkyc       XMR-USDT        15m      18,128 candles   2025-08-31 23:15 → 2026-03-08 19:00
+  nonkyc       XMR-USDT        1d          507 candles   2024-10-18 00:00 → 2026-03-08 00:00
+  nonkyc       XMR-USDT        1h        4,642 candles   2025-08-27 10:00 → 2026-03-08 19:00
+  nonkyc       XMR-USDT        4h        1,536 candles   2025-06-25 20:00 → 2026-03-08 16:00
+  nonkyc       XMR-USDT        5m       53,591 candles   2025-09-03 17:15 → 2026-03-08 19:05
+  nonkyc       XMR-ZSD         15m      18,237 candles   2025-08-30 19:45 → 2026-03-08 18:45
+  nonkyc       XMR-ZSD         1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       XMR-ZSD         1h        4,658 candles   2025-08-26 17:00 → 2026-03-08 18:00
+  nonkyc       XMR-ZSD         4h        1,539 candles   2025-06-25 08:00 → 2026-03-08 16:00
+  nonkyc       XMR-ZSD         5m       54,417 candles   2025-08-31 20:10 → 2026-03-08 18:55
+  nonkyc       XNV-XMR         15m       3,575 candles   2026-01-30 13:30 → 2026-03-08 19:00
+  nonkyc       XNV-XMR         1d           38 candles   2026-01-30 00:00 → 2026-03-08 00:00
+  nonkyc       XNV-XMR         1h          895 candles   2026-01-30 13:00 → 2026-03-08 19:00
+  nonkyc       XNV-XMR         4h          224 candles   2026-01-30 12:00 → 2026-03-08 16:00
+  nonkyc       XNV-XMR         5m       10,723 candles   2026-01-30 13:35 → 2026-03-08 19:05
+  nonkyc       XRP-USDT        15m      17,609 candles   2025-09-05 16:15 → 2026-03-08 02:15
+  nonkyc       XRP-USDT        1d          501 candles   2024-10-24 00:00 → 2026-03-08 00:00
+  nonkyc       XRP-USDT        1h        4,523 candles   2025-08-31 16:00 → 2026-03-08 02:00
+  nonkyc       XRP-USDT        4h        1,505 candles   2025-06-30 08:00 → 2026-03-08 00:00
+  nonkyc       XRP-USDT        5m       52,414 candles   2025-09-07 02:30 → 2026-03-08 02:15
+  nonkyc       XTM-XMR         15m      18,199 candles   2025-08-31 05:30 → 2026-03-08 19:00
+  nonkyc       XTM-XMR         1d          287 candles   2025-05-26 00:00 → 2026-03-08 00:00
+  nonkyc       XTM-XMR         1h        4,641 candles   2025-08-27 11:00 → 2026-03-08 19:00
+  nonkyc       XTM-XMR         4h        1,535 candles   2025-06-26 00:00 → 2026-03-08 16:00
+  nonkyc       XTM-XMR         5m       53,794 candles   2025-09-02 23:55 → 2026-03-08 19:00
+  nonkyc       ZEC-XMR         15m      18,079 candles   2025-09-01 11:30 → 2026-03-08 19:00
+  nonkyc       ZEC-XMR         1d          506 candles   2024-10-19 00:00 → 2026-03-08 00:00
+  nonkyc       ZEC-XMR         1h        4,641 candles   2025-08-27 11:00 → 2026-03-08 19:00
+  nonkyc       ZEC-XMR         4h        1,535 candles   2025-06-26 00:00 → 2026-03-08 16:00
+  nonkyc       ZEC-XMR         5m       53,544 candles   2025-09-03 21:10 → 2026-03-08 19:05
+
+──────────────────────────────────────────────────────────────────────
+SECTION 3: RAW MONGODB DOCUMENTS — FIRST 10
+──────────────────────────────────────────────────────────────────────
+  [0] {"timestamp": 1756833000, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110657.72, "high": 110819.73, "low": 110622.08, "open": 110791.88, "volume": 0.463, "schema_version": 2, "open_ts": 1756833000, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.463, "close_ts": 1756833300, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 51254.02746333334, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [1] {"timestamp": 1756833300, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110693.33, "high": 111118.37, "low": 110650.59, "open": 110669.88, "volume": 0.215, "schema_version": 2, "open_ts": 1756833300, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.215, "close_ts": 1756833600, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 23826.464116666662, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [2] {"timestamp": 1756833600, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110690.19, "high": 110734.18, "low": 110663.19, "open": 110733.81, "volume": 0.275, "schema_version": 2, "open_ts": 1756833600, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.275, "close_ts": 1756833900, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 30441.359666666667, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [3] {"timestamp": 1756833900, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110852.28, "high": 110910.49, "low": 110705.79, "open": 110705.79, "volume": 0.163, "schema_version": 2, "open_ts": 1756833900, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.163, "close_ts": 1756834200, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 18064.125093333332, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [4] {"timestamp": 1756834200, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110914.64, "high": 110998.45, "low": 110865.55, "open": 110865.55, "volume": 0.219, "schema_version": 2, "open_ts": 1756834200, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.219, "close_ts": 1756834500, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 24292.84072, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [5] {"timestamp": 1756834500, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110703.11, "high": 111385.7, "low": 110688.84, "open": 110907.43, "volume": 0.318, "schema_version": 2, "open_ts": 1756834500, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.318, "close_ts": 1756834800, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 35274.43089999999, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [6] {"timestamp": 1756834800, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110860.14, "high": 110906.14, "low": 110778.69, "open": 110788.9, "volume": 0.806, "schema_version": 2, "open_ts": 1756834800, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.806, "close_ts": 1756835100, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 89343.74860666669, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [7] {"timestamp": 1756835100, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110913.22, "high": 110938.91, "low": 110857.82, "open": 110878.12, "volume": 1.023, "schema_version": 2, "open_ts": 1756835100, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 1.023, "close_ts": 1756835400, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 113454.09294999999, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [8] {"timestamp": 1756835400, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110870.89, "high": 111042.01, "low": 110870.89, "open": 110894.22, "volume": 0.222, "schema_version": 2, "open_ts": 1756835400, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.222, "close_ts": 1756835700, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 24626.00046, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [9] {"timestamp": 1756835700, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "close": 110906.55, "high": 110911.98, "low": 110859.18, "open": 110859.18, "volume": 0.224, "schema_version": 2, "open_ts": 1756835700, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.224, "close_ts": 1756836000, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 24839.93568, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+
+──────────────────────────────────────────────────────────────────────
+SECTION 4: RAW MONGODB DOCUMENTS — LAST 10
+──────────────────────────────────────────────────────────────────────
+  [0] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1772994000, "base_asset": "BTC", "base_volume": 1.217536, "close": 66953.28, "close_ts": 1772994300, "high": 66953.3, "ingested_at": 1772994023, "is_closed": false, "low": 66857.65, "open": 66857.65, "open_ts": 1772994000, "qc_flags": [], "qc_ok": true, "quote_asset": "USDT", "quote_volume": 81479.22584576, "quote_volume_is_estimated": true, "schema_version": 2, "updated_at": 1772994299, "volume": 1.217536}
+  [1] {"interval": "5m", "timestamp": 1772994300, "connector": "nonkyc", "trading_pair": "BTC-USDT", "base_asset": "BTC", "base_volume": 0.277174, "close": 66936.65, "close_ts": 1772994600, "high": 66987.32, "ingested_at": 1772994316, "is_closed": false, "low": 66936.65, "open": 66971.5, "open_ts": 1772994300, "qc_flags": [], "qc_ok": true, "quote_asset": "USDT", "quote_volume": 18557.780495959996, "quote_volume_is_estimated": true, "schema_version": 2, "updated_at": 1772994593, "volume": 0.277174}
+  [2] {"interval": "5m", "timestamp": 1772994600, "connector": "nonkyc", "trading_pair": "BTC-USDT", "base_asset": "BTC", "base_volume": 0.236935, "close": 66963.09, "close_ts": 1772994900, "high": 66979.46, "ingested_at": 1772994616, "is_closed": false, "low": 66941.26, "open": 66941.26, "open_ts": 1772994600, "qc_flags": [], "qc_ok": true, "quote_asset": "USDT", "quote_volume": 15865.468507450001, "quote_volume_is_estimated": true, "schema_version": 2, "updated_at": 1772994881, "volume": 0.236935}
+  [3] {"interval": "5m", "timestamp": 1772994900, "connector": "nonkyc", "trading_pair": "BTC-USDT", "base_asset": "BTC", "base_volume": 0.378939, "close": 66876.41, "close_ts": 1772995200, "high": 66978.67, "ingested_at": 1772994925, "is_closed": false, "low": 66705.7, "open": 66939.67, "open_ts": 1772994900, "qc_flags": [], "qc_ok": true, "quote_asset": "USDT", "quote_volume": 25333.433804140004, "quote_volume_is_estimated": true, "schema_version": 2, "updated_at": 1772995186, "volume": 0.378939}
+  [4] {"interval": "5m", "timestamp": 1772995200, "trading_pair": "BTC-USDT", "connector": "nonkyc", "base_asset": "BTC", "base_volume": 0.260847, "close": 66817.68, "close_ts": 1772995500, "high": 66872.81, "ingested_at": 1772995208, "is_closed": false, "low": 66555.85, "open": 66870.59, "open_ts": 1772995200, "qc_flags": [], "qc_ok": true, "quote_asset": "USDT", "quote_volume": 17411.21901666, "quote_volume_is_estimated": true, "schema_version": 2, "updated_at": 1772995491, "volume": 0.260847}
+  [5] {"trading_pair": "BTC-USDT", "timestamp": 1772995500, "connector": "nonkyc", "interval": "5m", "base_asset": "BTC", "base_volume": 1.393275, "close": 66815.16, "close_ts": 1772995800, "high": 66846.7, "ingested_at": 1772995519, "is_closed": false, "low": 66765.93, "open": 66800.0, "open_ts": 1772995500, "qc_flags": [], "qc_ok": true, "quote_asset": "USDT", "quote_volume": 93083.67637075, "quote_volume_is_estimated": true, "schema_version": 2, "updated_at": 1772995791, "volume": 1.393275}
+  [6] {"connector": "nonkyc", "interval": "5m", "timestamp": 1772995800, "trading_pair": "BTC-USDT", "base_asset": "BTC", "base_volume": 0.263833, "close": 66833.61, "close_ts": 1772996100, "high": 66841.9, "ingested_at": 1772995824, "is_closed": false, "low": 66785.27, "open": 66785.27, "open_ts": 1772995800, "qc_flags": [], "qc_ok": true, "quote_asset": "USDT", "quote_volume": 17629.38965658, "quote_volume_is_estimated": true, "schema_version": 2, "updated_at": 1772996079, "volume": 0.263833}
+  [7] {"timestamp": 1772996100, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "base_asset": "BTC", "base_volume": 0.301029, "close": 66840.0, "close_ts": 1772996400, "high": 66886.78, "ingested_at": 1772996107, "is_closed": false, "low": 66840.0, "open": 66859.99, "open_ts": 1772996100, "qc_flags": [], "qc_ok": true, "quote_asset": "USDT", "quote_volume": 20125.47240554, "quote_volume_is_estimated": true, "schema_version": 2, "updated_at": 1772996384, "volume": 0.301029}
+  [8] {"timestamp": 1772996400, "connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "base_asset": "BTC", "base_volume": 0.271925, "close": 66878.03, "close_ts": 1772996700, "high": 67065.07, "ingested_at": 1772996407, "is_closed": false, "low": 66787.42, "open": 66840.46, "open_ts": 1772996400, "qc_flags": [], "qc_ok": true, "quote_asset": "USDT", "quote_volume": 18194.548883666663, "quote_volume_is_estimated": true, "schema_version": 2, "updated_at": 1772996693, "volume": 0.271925}
+  [9] {"connector": "nonkyc", "interval": "5m", "timestamp": 1772996700, "trading_pair": "BTC-USDT", "base_asset": "BTC", "base_volume": 0.521169, "close": 66861.32, "close_ts": 1772997000, "high": 66879.54, "ingested_at": 1772996710, "is_closed": false, "low": 66627.93, "open": 66862.15, "open_ts": 1772996700, "qc_flags": [], "qc_ok": true, "quote_asset": "USDT", "quote_volume": 34808.66730517, "quote_volume_is_estimated": true, "schema_version": 2, "updated_at": 1772996817, "volume": 0.521169}
+
+──────────────────────────────────────────────────────────────────────
+SECTION 5: SCHEMA ANALYSIS
+──────────────────────────────────────────────────────────────────────
+  Fields and types in first document:
+    timestamp             type=int         value=1756833000
+    connector             type=str         value='nonkyc'
+    interval              type=str         value='5m'
+    trading_pair          type=str         value='BTC-USDT'
+    close                 type=float       value=110657.72
+    high                  type=float       value=110819.73
+    low                   type=float       value=110622.08
+    open                  type=float       value=110791.88
+    volume                type=float       value=0.463
+    schema_version        type=int         value=2
+    open_ts               type=int         value=1756833000
+    base_asset            type=str         value='BTC'
+    quote_asset           type=str         value='USDT'
+    base_volume           type=float       value=0.463
+    close_ts              type=int         value=1756833300
+    updated_at            type=int         value=1772953582
+    ingested_at           type=int         value=1772953582
+    quote_volume          type=float       value=51254.02746333334
+    quote_volume_is_estimated  type=bool        value=True
+    qc_ok                 type=bool        value=True
+    qc_flags              type=list        value=[]
+    is_closed             type=bool        value=True
+
+  Timestamp field raw value: 1756833000
+    → SECONDS (→ 2025-09-02 17:10:00+00:00)
+
+──────────────────────────────────────────────────────────────────────
+SECTION 6: SORT ORDER & TIMESTAMP GAP CHECK
+──────────────────────────────────────────────────────────────────────
+  First 10 timestamps ascending? True
+  Gaps between consecutive timestamps: [300, 300, 300, 300, 300, 300, 300, 300, 300]
+  Min gap: 300,  Max gap: 300,  Median: 300
+
+──────────────────────────────────────────────────────────────────────
+SECTION 7: DATA QUALITY — DUPLICATES & NULLS
+──────────────────────────────────────────────────────────────────────
+  Total documents matching query: 53,880
+  Duplicate timestamps: 0
+  open    : ✓ OK
+  high    : ✓ OK
+  low     : ✓ OK
+  close   : ✓ OK
+  volume  : ✓ OK
+
+──────────────────────────────────────────────────────────────────────
+SECTION 8: PANDAS DATAFRAME PREVIEW (first 20 rows)
+──────────────────────────────────────────────────────────────────────
+  Shape: (20, 19)
+  Dtypes:
+timestamp                    datetime64[s, UTC]
+close                                   float64
+high                                    float64
+low                                     float64
+open                                    float64
+volume                                  float64
+schema_version                            int64
+open_ts                                   int64
+base_asset                                  str
+quote_asset                                 str
+base_volume                             float64
+close_ts                                  int64
+updated_at                                int64
+ingested_at                               int64
+quote_volume                            float64
+quote_volume_is_estimated                  bool
+qc_ok                                      bool
+qc_flags                                 object
+is_closed                                  bool
+
+                   timestamp      close       high        low       open  volume  schema_version     open_ts base_asset quote_asset  base_volume    close_ts  updated_at  ingested_at   quote_volume  quote_volume_is_estimated  qc_ok qc_flags  is_closed
+0  2025-09-02 17:10:00+00:00  110657.72  110819.73  110622.08  110791.88   0.463               2  1756833000        BTC        USDT        0.463  1756833300  1772953582   1772953582   51254.027463                       True   True       []       True
+1  2025-09-02 17:15:00+00:00  110693.33  111118.37  110650.59  110669.88   0.215               2  1756833300        BTC        USDT        0.215  1756833600  1772953582   1772953582   23826.464117                       True   True       []       True
+2  2025-09-02 17:20:00+00:00  110690.19  110734.18  110663.19  110733.81   0.275               2  1756833600        BTC        USDT        0.275  1756833900  1772953582   1772953582   30441.359667                       True   True       []       True
+3  2025-09-02 17:25:00+00:00  110852.28  110910.49  110705.79  110705.79   0.163               2  1756833900        BTC        USDT        0.163  1756834200  1772953582   1772953582   18064.125093                       True   True       []       True
+4  2025-09-02 17:30:00+00:00  110914.64  110998.45  110865.55  110865.55   0.219               2  1756834200        BTC        USDT        0.219  1756834500  1772953582   1772953582   24292.840720                       True   True       []       True
+5  2025-09-02 17:35:00+00:00  110703.11  111385.70  110688.84  110907.43   0.318               2  1756834500        BTC        USDT        0.318  1756834800  1772953582   1772953582   35274.430900                       True   True       []       True
+6  2025-09-02 17:40:00+00:00  110860.14  110906.14  110778.69  110788.90   0.806               2  1756834800        BTC        USDT        0.806  1756835100  1772953582   1772953582   89343.748607                       True   True       []       True
+7  2025-09-02 17:45:00+00:00  110913.22  110938.91  110857.82  110878.12   1.023               2  1756835100        BTC        USDT        1.023  1756835400  1772953582   1772953582  113454.092950                       True   True       []       True
+8  2025-09-02 17:50:00+00:00  110870.89  111042.01  110870.89  110894.22   0.222               2  1756835400        BTC        USDT        0.222  1756835700  1772953582   1772953582   24626.000460                       True   True       []       True
+9  2025-09-02 17:55:00+00:00  110906.55  110911.98  110859.18  110859.18   0.224               2  1756835700        BTC        USDT        0.224  1756836000  1772953582   1772953582   24839.935680                       True   True       []       True
+10 2025-09-02 18:00:00+00:00  110601.79  110932.54  110545.50  110932.54   0.127               2  1756836000        BTC        USDT        0.127  1756836300  1772953582   1772953582   14058.046137                       True   True       []       True
+11 2025-09-02 18:05:00+00:00  110545.13  110669.25  110083.62  110669.25   0.221               2  1756836300        BTC        USDT        0.221  1756836600  1772953582   1772953582   24405.619333                       True   True       []       True
+12 2025-09-02 18:10:00+00:00  110527.27  110575.67  110465.43  110548.91   0.248               2  1756836600        BTC        USDT        0.248  1756836900  1772953582   1772953582   27409.651920                       True   True       []       True
+13 2025-09-02 18:15:00+00:00  110101.18  110596.97  110101.18  110528.23   0.467               2  1756836900        BTC        USDT        0.467  1756837200  1772953582   1772953582   51494.429037                       True   True       []       True
+14 2025-09-02 18:20:00+00:00  110625.50  110648.23  110052.24  110110.41   0.395               2  1756837200        BTC        USDT        0.395  1756837500  1772953582   1772953582   43624.586050                       True   True       []       True
+15 2025-09-02 18:25:00+00:00  110461.54  110611.95  110446.09  110580.03   0.157               2  1756837500        BTC        USDT        0.157  1756837800  1772953582   1772953582   17349.524687                       True   True       []       True
+16 2025-09-02 18:30:00+00:00  110468.48  110505.28  110353.54  110474.33   0.198               2  1756837800        BTC        USDT        0.198  1756838100  1772953582   1772953582   21867.601800                       True   True       []       True
+17 2025-09-02 18:35:00+00:00  110135.74  110567.80  110135.74  110481.87   0.060               2  1756838100        BTC        USDT        0.060  1756838400  1772953582   1772953582    6616.785600                       True   True       []       True
+18 2025-09-02 18:40:00+00:00  110506.97  110874.00  110107.36  110131.84   0.234               2  1756838400        BTC        USDT        0.234  1756838700  1772953582   1772953582   25856.089740                       True   True       []       True
+19 2025-09-02 18:45:00+00:00  110544.84  110544.84  109888.96  110443.91   0.113               2  1756838700        BTC        USDT        0.113  1756839000  1772953582   1772953582   12466.862107                       True   True       []       True
+
+  Describe:
+               close           high          low           open     volume  schema_version       open_ts  base_volume      close_ts    updated_at   ingested_at   quote_volume
+count      20.000000      20.000000      20.0000      20.000000  20.000000            20.0  2.000000e+01    20.000000  2.000000e+01  2.000000e+01  2.000000e+01      20.000000
+mean   110629.025500  110814.624500  110487.1140  110649.804000   0.307400             2.0  1.756836e+09     0.307400  1.756836e+09  1.772954e+09  1.772954e+09   34028.311103
+std       232.968743     228.734768     321.6375     239.463751   0.235436             0.0  1.774824e+03     0.235436  1.774824e+03  0.000000e+00  0.000000e+00   26104.491100
+min    110101.180000  110505.280000  109888.9600  110110.410000   0.060000             2.0  1.756833e+09     0.060000  1.756833e+09  1.772954e+09  1.772954e+09    6616.785600
+25%    110522.195000  110608.205000  110128.6450  110516.640000   0.189250             2.0  1.756834e+09     0.189250  1.756835e+09  1.772954e+09  1.772954e+09   20916.732623
+50%    110641.610000  110846.865000  110583.7900  110687.835000   0.223000             2.0  1.756836e+09     0.223000  1.756836e+09  1.772954e+09  1.772954e+09   24732.968070
+75%    110854.245000  110934.132500  110724.0150  110860.772500   0.337250             2.0  1.756837e+09     0.337250  1.756838e+09  1.772954e+09  1.772954e+09   37361.969687
+max    110914.640000  111385.700000  110870.8900  110932.540000   1.023000             2.0  1.756839e+09     1.023000  1.756839e+09  1.772954e+09  1.772954e+09  113454.092950
+
+──────────────────────────────────────────────────────────────────────
+SECTION 9: MID-SECTION SAMPLE (10 docs from ~middle of dataset)
+──────────────────────────────────────────────────────────────────────
+  [0] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764913500, "close": 91945.58, "high": 92025.18, "low": 91930.84, "open": 92011.14, "volume": 0.212, "schema_version": 2, "open_ts": 1764913500, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.212, "close_ts": 1764913800, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 19497.0464, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [1] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764913800, "close": 91888.67, "high": 91959.99, "low": 91888.67, "open": 91945.58, "volume": 0.09, "schema_version": 2, "open_ts": 1764913800, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.09, "close_ts": 1764914100, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 8272.119900000002, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [2] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764914100, "close": 91932.86, "high": 91932.86, "low": 91894.54, "open": 91900.0, "volume": 0.135, "schema_version": 2, "open_ts": 1764914100, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.135, "close_ts": 1764914400, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 12409.211700000002, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [3] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764914400, "close": 91992.09, "high": 91992.09, "low": 91932.91, "open": 91932.91, "volume": 0.098, "schema_version": 2, "open_ts": 1764914400, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.098, "close_ts": 1764914700, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 9013.291606666666, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [4] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764914700, "close": 92037.13, "high": 92074.94, "low": 91992.04, "open": 91992.1, "volume": 0.344, "schema_version": 2, "open_ts": 1764914700, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.344, "close_ts": 1764915000, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 31659.93794666666, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [5] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764915000, "close": 92096.41, "high": 92204.02, "low": 92053.11, "open": 92053.11, "volume": 0.124, "schema_version": 2, "open_ts": 1764915000, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.124, "close_ts": 1764915300, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 11422.612986666669, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [6] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764915300, "close": 92018.07, "high": 92103.35, "low": 92018.07, "open": 92086.43, "volume": 0.305, "schema_version": 2, "open_ts": 1764915300, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.305, "close_ts": 1764915600, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 28074.18148333333, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [7] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764915600, "close": 92034.03, "high": 92038.79, "low": 92004.55, "open": 92006.06, "volume": 0.169, "schema_version": 2, "open_ts": 1764915600, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.169, "close_ts": 1764915900, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 15552.35851, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [8] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764915900, "close": 92027.95, "high": 92085.72, "low": 92020.19, "open": 92061.22, "volume": 0.067, "schema_version": 2, "open_ts": 1764915900, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.067, "close_ts": 1764916200, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 6166.9895400000005, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+  [9] {"connector": "nonkyc", "interval": "5m", "trading_pair": "BTC-USDT", "timestamp": 1764916200, "close": 92050.0, "high": 92050.0, "low": 91936.58, "open": 92029.24, "volume": 0.122, "schema_version": 2, "open_ts": 1764916200, "base_asset": "BTC", "quote_asset": "USDT", "base_volume": 0.122, "close_ts": 1764916500, "updated_at": 1772953582, "ingested_at": 1772953582, "quote_volume": 11225.487586666668, "quote_volume_is_estimated": true, "qc_ok": true, "qc_flags": [], "is_closed": true}
+
+======================================================================
+Done.
+======================================================================
