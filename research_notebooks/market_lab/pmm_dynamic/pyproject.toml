@@ -29,6 +29,3 @@ include = ["pmm_lab*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = [
-    "live_mongo: requires a real MongoDB connection (deselect with -m 'not live_mongo')",
-]

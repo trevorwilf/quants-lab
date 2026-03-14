@@ -46,6 +46,10 @@ class Metrics:
     volume_zero_bar_count: int
     volume_zero_bar_fraction: float
 
+    # Per-trade edge (v2)
+    median_trade_pnl_quote: float = 0.0     # median PnL across all trades
+    inventory_exposure_p95: float = 0.0      # 95th percentile inventory exposure
+
 
 def compute_metrics(
     result: SimResult,
@@ -160,6 +164,13 @@ def compute_metrics(
     inv_mean = float(np.mean(inv_exposure)) if n > 0 else 0.0
     inv_max = float(np.max(inv_exposure)) if n > 0 else 0.0
 
+    # Inventory p95
+    inv_p95 = float(np.percentile(inv_exposure, 95)) if n > 0 and np.any(inv_exposure > 0) else 0.0
+
+    # Median trade PnL
+    trade_pnls = [t.pnl_quote for t in trades if t.pnl_quote is not None]
+    median_trade_pnl = float(np.median(trade_pnls)) if trade_pnls else 0.0
+
     # Volume zero stats
     volumes = candles["volume"].astype("float64")
     vol_zero_count = int(np.sum(volumes == 0))
@@ -186,4 +197,6 @@ def compute_metrics(
         inventory_exposure_max=inv_max,
         volume_zero_bar_count=vol_zero_count,
         volume_zero_bar_fraction=vol_zero_frac,
+        median_trade_pnl_quote=median_trade_pnl,
+        inventory_exposure_p95=inv_p95,
     )

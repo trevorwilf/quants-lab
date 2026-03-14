@@ -136,7 +136,7 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
     # 10. stop_loss, take_profit, time_limit positive
     for key in ["stop_loss", "take_profit", "time_limit"]:
         val = config_dict.get(key)
-        if val is not None and val <= 0:
+        if val is not None and isinstance(val, (int, float)) and val <= 0:
             errors.append(f"{key} must be positive, got {val}")
 
     # 11. take_profit_order_type is int (Hummingbot OrderType enum: MARKET=1, LIMIT=2, LIMIT_MAKER=3)
@@ -164,6 +164,57 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
         val = config_dict.get(key)
         if isinstance(val, float) and math.isnan(val):
             errors.append(f"{key} is NaN")
+
+    # 14. Integer type checks — Hummingbot expects int for these fields
+    int_fields = ["macd_fast", "macd_slow", "macd_signal", "natr_length", "leverage", "time_limit"]
+    for key in int_fields:
+        val = config_dict.get(key)
+        if val is not None and not isinstance(val, int):
+            # Allow float that is exactly an integer (e.g., 42.0)
+            if isinstance(val, float) and val == int(val):
+                warnings.append(f"{key} is float {val}, should be int {int(val)}")
+            else:
+                errors.append(f"{key} must be int, got {type(val).__name__}: {val}")
+
+    # 15. Float type checks — these should be numeric (int or float)
+    numeric_fields = [
+        "stop_loss", "take_profit", "total_amount_quote",
+        "cooldown_time", "executor_refresh_time",
+        "position_rebalance_threshold_pct",
+    ]
+    for key in numeric_fields:
+        val = config_dict.get(key)
+        if val is not None and not isinstance(val, (int, float)):
+            errors.append(f"{key} must be numeric, got {type(val).__name__}: {val}")
+
+    # 16. Boolean checks
+    bool_fields = ["skip_rebalance", "manual_kill_switch"]
+    for key in bool_fields:
+        val = config_dict.get(key)
+        if val is not None and not isinstance(val, bool):
+            errors.append(f"{key} must be bool, got {type(val).__name__}: {val}")
+
+    # 17. String checks
+    string_fields = ["connector_name", "trading_pair", "interval", "position_mode", "id"]
+    for key in string_fields:
+        val = config_dict.get(key)
+        if val is not None and not isinstance(val, str):
+            errors.append(f"{key} must be str, got {type(val).__name__}: {val}")
+
+    # 18. Spread lists are sorted ascending (preferred for Hummingbot)
+    for key in ["buy_spreads", "sell_spreads"]:
+        val = config_dict.get(key, [])
+        if isinstance(val, list) and len(val) > 1:
+            for i in range(1, len(val)):
+                if val[i] <= val[i-1]:
+                    warnings.append(f"{key} is not strictly ascending at index {i}: {val}")
+                    break
+
+    # 19. Rebalance fields present (v2)
+    if "position_rebalance_threshold_pct" not in config_dict:
+        warnings.append("Missing position_rebalance_threshold_pct (v2 field)")
+    if "skip_rebalance" not in config_dict:
+        warnings.append("Missing skip_rebalance (v2 field)")
 
     return ValidationResult(
         valid=len(errors) == 0,

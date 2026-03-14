@@ -46,6 +46,8 @@ class AuditResult:
     ohlc_violation_details: dict   # violation_type -> count
     volume_zero_count: int
     volume_zero_fraction: float
+    forward_fill_count: int
+    forward_fill_fraction: float
     dataset_hash: str
     interval_seconds: int
     gap_histogram: dict            # gap_size_seconds -> count

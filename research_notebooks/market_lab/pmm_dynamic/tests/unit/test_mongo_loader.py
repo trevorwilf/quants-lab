@@ -166,3 +166,24 @@ def test_ensure_indexes_idempotent(mock_loader):
 def test_ping_success(mock_loader):
     """ping() returns True with mongomock."""
     assert mock_loader.ping() is True
+
+
+def test_dedup_keeps_highest_volume(mock_loader):
+    """When timestamps collide, the row with highest volume is kept."""
+    docs = [
+        _make_doc("nonkyc", "BTC-USDT", "5m", 1000, price=100, vol=0.5),
+        _make_doc("nonkyc", "BTC-USDT", "5m", 1300, price=101, vol=1.0),   # low vol
+        _make_doc("nonkyc", "BTC-USDT", "5m", 1300, price=102, vol=5.0),   # high vol — should be kept
+        _make_doc("nonkyc", "BTC-USDT", "5m", 1600, price=103, vol=2.0),
+    ]
+    mock_loader._collection.insert_many(docs)
+
+    query = DataQuery(connector="nonkyc", trading_pair="BTC-USDT", interval="5m")
+    arr = mock_loader.load_range(query)
+    assert len(arr) == 3  # 4 docs - 1 duplicate = 3 unique
+
+    # The row at ts=1300 should have the higher volume doc's price
+    ts1300_row = arr[arr["timestamp"] == 1300]
+    assert len(ts1300_row) == 1
+    assert ts1300_row[0]["volume"] == 5.0
+    assert ts1300_row[0]["open"] == 102.0

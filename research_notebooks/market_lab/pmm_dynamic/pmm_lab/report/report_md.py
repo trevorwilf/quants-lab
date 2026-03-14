@@ -13,6 +13,7 @@ from pmm_lab.metrics.metrics import Metrics
 from pmm_lab.objective.objective import ObjectiveDecomposition, REJECT_SCORE
 from pmm_lab.objective.walkforward import WalkForwardResult
 from pmm_lab.objective.stress import StressReport
+from pmm_lab.objective.holdout import HoldoutReport
 
 
 def generate_report(
@@ -25,6 +26,7 @@ def generate_report(
     stress_report: Optional[StressReport] = None,
     stop_ship_checks: Optional[Dict[str, bool]] = None,
     output_path: Optional[str] = None,
+    holdout_report: Optional[HoldoutReport] = None,
 ) -> str:
     """Generate a markdown report."""
     lines = []
@@ -85,14 +87,15 @@ def generate_report(
         lines.append("")
         lines.append(f"Aggregate Score: **{walkforward_result.aggregate_score:.4f}**")
         lines.append("")
-        lines.append("| Fold | PnL % | Sharpe | Max DD % | Trades | Objective |")
-        lines.append("|------|-------|--------|----------|--------|-----------|")
+        lines.append("| Fold | PnL % | Sharpe | Max DD % | Trades | Objective | Regime |")
+        lines.append("|------|-------|--------|----------|--------|-----------|--------|")
         for fold in walkforward_result.folds:
             m = fold.test_metrics
             o = fold.test_objective
+            regime_label = "n/a"
             lines.append(
                 f"| {fold.fold_index} | {m.pnl_pct:.2f} | {m.sharpe:.2f} | "
-                f"{m.max_drawdown_pct:.2f} | {m.trade_count} | {o.raw_score:.4f} |"
+                f"{m.max_drawdown_pct:.2f} | {m.trade_count} | {o.raw_score:.4f} | {regime_label} |"
             )
         lines.append("")
 
@@ -113,7 +116,29 @@ def generate_report(
             )
         lines.append("")
 
-    # 8. Stop-Ship Checks
+    # 8. Holdout Results
+    if holdout_report is not None:
+        lines.append("## Holdout Validation")
+        lines.append("")
+        lines.append(f"- **Holdout bars**: {holdout_report.holdout_bars}")
+        lines.append(f"- **Regime**: {holdout_report.regime.label}")
+        lines.append(f"- **Volatility**: {holdout_report.regime.volatility} (NATR mean: {holdout_report.regime.natr_mean:.4f})")
+        lines.append(f"- **Trend**: {holdout_report.regime.trend} (efficiency: {holdout_report.regime.efficiency_ratio:.4f})")
+        lines.append(f"- **Best holdout score**: {holdout_report.best_holdout_score:.4f} (rank #{holdout_report.best_holdout_rank})")
+        lines.append(f"- **Collapse detected**: {'YES' if holdout_report.dev_vs_holdout_collapse else 'No'}")
+        lines.append(f"- **Holdout passed**: {'YES' if holdout_report.passed else '**NO**'}")
+        lines.append("")
+
+        lines.append("| Rank | Dev Score | Holdout Score | PnL % | Max DD % | Trades |")
+        lines.append("|------|-----------|---------------|-------|----------|--------|")
+        for c in holdout_report.candidates:
+            lines.append(
+                f"| {c.rank} | {c.development_score:.4f} | {c.objective.raw_score:.4f} | "
+                f"{c.metrics.pnl_pct:.2f} | {c.metrics.max_drawdown_pct:.2f} | {c.metrics.trade_count} |"
+            )
+        lines.append("")
+
+    # 9. Stop-Ship Checks
     if stop_ship_checks is not None:
         lines.append("## Stop-Ship Checks")
         lines.append("")
@@ -146,28 +171,34 @@ def run_stop_ship_checks(
     stress_report: Optional[StressReport] = None,
     dataset_hash: Optional[str] = None,
     validation_result: Optional[Any] = None,
+    holdout_report: Optional['HoldoutReport'] = None,
+    sensitivity_penalty: Optional[float] = None,
 ) -> Dict[str, bool]:
-    """Run all stop-ship condition checks."""
+    """Run all stop-ship condition checks.
+
+    Each check returns True (pass) or False (fail).
+    All checks must pass for deployment.
+    """
     checks = {}
 
-    # 1. dataset_audit — hash exists AND is non-empty
-    checks["dataset_audit"] = dataset_hash is not None and len(dataset_hash) > 0
+    # 1. dataset_audit — hash exists and is non-empty
+    checks["dataset_audit"] = dataset_hash is not None and len(str(dataset_hash)) > 0
 
-    # 2. feature_parity — check that features produced non-trivial trading activity
-    checks["feature_parity"] = (
+    # 2. feature_parity — proxy: strategy produced trades with non-zero PnL
+    checks["feature_parity"] = bool(
         best_metrics.trade_count > 0
         and best_metrics.pnl_pct != 0.0
     )
 
     # 3. objective_not_degenerate
-    checks["objective_not_degenerate"] = (
+    checks["objective_not_degenerate"] = bool(
         best_objective.raw_score != REJECT_SCORE
         and not best_objective.is_rejected
     )
 
-    # 4. stress_not_collapsed — worst stress score must be > -10
+    # 4. stress_not_collapsed — worst stress score > -10
     if stress_report is not None:
-        checks["stress_not_collapsed"] = stress_report.worst_score > -10.0
+        checks["stress_not_collapsed"] = bool(stress_report.worst_score > -10.0)
     else:
         checks["stress_not_collapsed"] = False  # no stress = not validated
 
@@ -177,15 +208,37 @@ def run_stop_ship_checks(
     else:
         checks["yaml_validates"] = False  # no validation = fail
 
-    # 6. determinism — check that walk-forward produced consistent results
+    # 6. walkforward_robust — majority of folds have non-rejected scores
     if walkforward_result is not None:
         valid_folds = sum(
             1 for f in walkforward_result.folds
             if not f.test_objective.is_rejected
         )
         total_folds = len(walkforward_result.folds)
-        checks["determinism"] = total_folds > 0 and valid_folds / total_folds >= 0.5
+        checks["walkforward_robust"] = bool(total_folds > 0 and valid_folds / total_folds >= 0.5)
+
+        # 6b. At least 50% of folds have non-negative baseline return
+        positive_folds = sum(
+            1 for f in walkforward_result.folds
+            if f.test_metrics.pnl_pct >= 0
+        )
+        checks["walkforward_positive_majority"] = bool(total_folds > 0 and positive_folds / total_folds >= 0.5)
     else:
-        checks["determinism"] = False  # no walk-forward = fail
+        checks["walkforward_robust"] = False
+        checks["walkforward_positive_majority"] = False
+
+    # 7. holdout_passed
+    if holdout_report is not None:
+        checks["holdout_passed"] = bool(holdout_report.passed)
+        checks["holdout_no_collapse"] = bool(not holdout_report.dev_vs_holdout_collapse)
+    else:
+        checks["holdout_passed"] = False
+        checks["holdout_no_collapse"] = False
+
+    # 8. sensitivity_stable — penalty below threshold
+    if sensitivity_penalty is not None:
+        checks["sensitivity_stable"] = sensitivity_penalty < 0.50
+    else:
+        checks["sensitivity_stable"] = False  # not tested = fail
 
     return checks

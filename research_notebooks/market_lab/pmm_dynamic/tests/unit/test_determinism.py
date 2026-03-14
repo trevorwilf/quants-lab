@@ -95,3 +95,20 @@ def test_different_config_different_output(sample_candles_5m):
     # Different spreads should produce different equity curves
     different = not np.array_equal(result1.equity_curve, result2.equity_curve)
     assert different
+
+
+def test_seed_everything_makes_simulation_reproducible(sample_candles_5m):
+    """seed_everything produces identical sim results across calls."""
+    from pmm_lab.utils.reproducibility import seed_everything
+
+    config = _make_config()
+    rules = _make_rules()
+
+    seed_everything(42)
+    result1 = CandleSimRunner(config, rules).run(sample_candles_5m)
+
+    seed_everything(42)
+    result2 = CandleSimRunner(config, rules).run(sample_candles_5m)
+
+    np.testing.assert_array_equal(result1.equity_curve, result2.equity_curve)
+    assert _trade_hash(result1.trades) == _trade_hash(result2.trades)

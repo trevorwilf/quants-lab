@@ -96,3 +96,42 @@ class TestSuggestParams:
             params = suggest_params(trial)
             assert params["stop_loss"] > 0
             study.tell(trial, 0.0)
+
+    def test_fixed_quote_not_suggested(self):
+        """When fixed_quote=100.0, total_amount_quote is NOT a trial param but IS in returned dict."""
+        trial = optuna.trial.FixedTrial(_make_fixed_params())
+        params = suggest_params(trial, fixed_quote=100.0)
+        assert params["total_amount_quote"] == 100.0
+        assert set(params.keys()) == EXPECTED_KEYS
+
+    def test_fixed_quote_none_suggests_total(self):
+        """When fixed_quote=None, total_amount_quote IS suggested (backward compat)."""
+        trial = optuna.trial.FixedTrial(_make_fixed_params())
+        params = suggest_params(trial, fixed_quote=None)
+        assert "total_amount_quote" in params
+        assert params["total_amount_quote"] == 100.0  # from FixedTrial
+
+    def test_log_scaled_params_explore_small_values(self):
+        """Run 100 trials, verify spread_base includes values < 1.0."""
+        study = optuna.create_study(direction="maximize")
+        spread_values = []
+        for _ in range(100):
+            trial = study.ask()
+            params = suggest_params(trial)
+            spread_values.append(params["buy_spread_base"])
+            study.tell(trial, 0.0)
+        # Log-uniform should explore small values (< 1.0) more than linear
+        small_count = sum(1 for v in spread_values if v < 1.0)
+        assert small_count > 0, "Log-scaled spread_base should include values < 1.0"
+
+    def test_log_scaled_stop_loss_range(self):
+        """Verify stop_loss can be both small and large values."""
+        study = optuna.create_study(direction="maximize")
+        stop_losses = []
+        for _ in range(100):
+            trial = study.ask()
+            params = suggest_params(trial)
+            stop_losses.append(params["stop_loss"])
+            study.tell(trial, 0.0)
+        assert min(stop_losses) < 0.05, "Should have small stop_loss values"
+        assert max(stop_losses) > 0.05, "Should have larger stop_loss values"

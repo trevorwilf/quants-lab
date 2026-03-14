@@ -144,6 +144,46 @@ class TestOptunaSmoke:
 
         assert n_after_second == n_after_first + 5
 
+    def test_smoke_v2_objective_30_trials(self, candles_500, pair_rules, tmp_path):
+        """Run 30 trials with v2 objective + fixed_quote. Assert >= 15 complete, best > REJECT_SCORE."""
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+        dataset_hash = hash_candles(candles_500)
+        reference_price = float(np.median(candles_500["close"]))
+        db_path = str(tmp_path / "test_study_v2.db")
+        storage_url = f"sqlite:///{db_path}"
+
+        objective = create_objective(
+            candles=candles_500,
+            pair_rules=pair_rules,
+            bar_interval_seconds=300,
+            dataset_hash=dataset_hash,
+            reference_price=reference_price,
+            train_days=0.5,
+            test_days=0.25,
+            step_days=0.25,
+            embargo_bars=10,
+            objective_version=2,
+            fixed_quote=100.0,
+            run_stress=False,
+            lambda_mad=0.5,
+        )
+
+        study = create_study(
+            study_name="smoke_test_v2_30",
+            seed=42,
+            storage_url=storage_url,
+            n_startup_trials=10,
+        )
+
+        run_optimization(study, objective, n_trials=30)
+
+        complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        assert len(complete_trials) >= 15, f"Only {len(complete_trials)} completed out of 30"
+
+        assert study.best_trial is not None
+        assert study.best_value > REJECT_SCORE
+
     def test_degeneracy_callback_fires(self, tmp_path, caplog):
         """Constant-value objective → DegeneracyCheckCallback logs warning."""
         optuna.logging.set_verbosity(optuna.logging.WARNING)

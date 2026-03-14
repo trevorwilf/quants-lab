@@ -188,7 +188,10 @@ class MongoCandleLoader:
 
         arr = np.array(rows, dtype=CANDLE_DTYPE)
 
-        # Deduplicate by timestamp (keep first)
+        # Deduplicate by timestamp deterministically.
+        # When duplicates exist, keep the row with the highest volume
+        # (most likely the "real" candle vs a placeholder/forward-fill).
+        # Ties broken by keeping the first occurrence in sort order.
         _, unique_indices = np.unique(arr["timestamp"], return_index=True)
         if len(unique_indices) < len(arr):
             dup_count = len(arr) - len(unique_indices)
@@ -196,7 +199,25 @@ class MongoCandleLoader:
                 "Removed %d duplicate timestamps from %s %s %s",
                 dup_count, query.connector, query.trading_pair, query.interval,
             )
-            unique_indices.sort()  # preserve original order
+
+            # For each unique timestamp, pick the row with max volume
+            ts_vals = arr["timestamp"]
+            vol_vals = arr["volume"]
+            keep_indices = []
+            seen_ts = set()
+            # Sort by (timestamp ASC, volume DESC) for deterministic pick
+            sort_order = np.lexsort((-vol_vals, ts_vals))
+            for idx in sort_order:
+                t = ts_vals[idx]
+                if t not in seen_ts:
+                    seen_ts.add(t)
+                    keep_indices.append(idx)
+
+            keep_indices.sort()  # restore chronological order
+            arr = arr[np.array(keep_indices)]
+        else:
+            # No duplicates — just ensure sorted
+            unique_indices.sort()
             arr = arr[unique_indices]
 
         return arr

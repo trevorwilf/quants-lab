@@ -168,3 +168,81 @@ def run_stress_tests(
         worst_scenario=scenario_results[worst_idx].scenario.name,
         worst_score=worst_score,
     )
+
+
+def run_fold_local_stress(
+    candles: np.ndarray,
+    config: SimConfig,
+    pair_rules: PairRules,
+    bar_interval_seconds: int,
+    fold_test_start_idx: int,
+    fold_test_end_idx: int,
+    scenarios: Optional[List[StressScenario]] = None,
+    objective_weights: ObjectiveWeights = ObjectiveWeights(),
+) -> List[float]:
+    """Run stress tests on a single fold's test window only.
+
+    This avoids the leakage problem where full-dataset stress scores
+    leak future data into the optimization target.
+
+    Parameters
+    ----------
+    candles : np.ndarray
+        Full candle array (needed for feature warmup).
+    config : SimConfig
+        Configuration to stress.
+    pair_rules : PairRules
+        Exchange rules.
+    bar_interval_seconds : int
+        Candle interval.
+    fold_test_start_idx : int
+        Start of the test window (inclusive).
+    fold_test_end_idx : int
+        End of the test window (exclusive).
+    scenarios : List[StressScenario], optional
+        Stress scenarios. If None, loads from YAML.
+    objective_weights : ObjectiveWeights
+        Weights for objective scoring.
+
+    Returns
+    -------
+    List[float]
+        Objective scores for each stress scenario on this fold's test window.
+    """
+    if scenarios is None:
+        scenarios = load_stress_scenarios()
+
+    initial_equity = config.total_amount_quote
+    candle_slice = candles[:fold_test_end_idx]
+
+    stress_scores = []
+    for scenario in scenarios:
+        stressed_config, stressed_rules = apply_scenario(config, pair_rules, scenario)
+        runner = CandleSimRunner(stressed_config, stressed_rules)
+        sim_result = runner.run(candle_slice, sim_start_idx=fold_test_start_idx)
+
+        # Extract test window
+        test_eq = sim_result.equity_curve[fold_test_start_idx:fold_test_end_idx]
+        test_pos = sim_result.position_history[fold_test_start_idx:fold_test_end_idx]
+        test_candles = candles[fold_test_start_idx:fold_test_end_idx]
+        test_trades = [t for t in sim_result.trades if t.entry_bar >= fold_test_start_idx]
+
+        test_sim_result = SimResult(
+            trades=test_trades,
+            equity_curve=test_eq,
+            position_history=test_pos,
+            n_orders_placed=sim_result.n_orders_placed,
+            n_orders_filled=sim_result.n_orders_filled,
+            n_orders_rejected=sim_result.n_orders_rejected,
+            n_market_exits=sim_result.n_market_exits,
+            final_base_balance=sim_result.final_base_balance,
+            final_quote_balance=sim_result.final_quote_balance,
+        )
+
+        test_metrics = compute_metrics(
+            test_sim_result, initial_equity, test_candles, bar_interval_seconds
+        )
+        test_obj = objective_v1(test_metrics, objective_weights)
+        stress_scores.append(test_obj.raw_score)
+
+    return stress_scores

@@ -14,7 +14,7 @@ from pmm_lab.data.hashing import hash_candles
 from pmm_lab.optuna.search_space import suggest_params
 from pmm_lab.optuna.canonicalizer import canonicalize_params
 from pmm_lab.objective.walkforward import run_walk_forward, WalkForwardResult
-from pmm_lab.objective.stress import run_stress_tests, StressReport
+from pmm_lab.objective.stress import run_stress_tests
 from pmm_lab.objective.robustness import robust_aggregate
 from pmm_lab.objective.objective import REJECT_SCORE, ObjectiveWeights
 
@@ -29,18 +29,32 @@ def create_objective(
     test_days: float = 14.0,
     step_days: float = 14.0,
     embargo_bars: Optional[int] = None,
-    objective_weights: ObjectiveWeights = ObjectiveWeights(),
+    objective_weights=None,           # ObjectiveWeights or ObjectiveWeightsV2
+    objective_version: int = 1,        # 1 = v1, 2 = v2
     run_stress: bool = True,
     lambda_mad: float = 0.5,
+    fixed_quote: Optional[float] = None,  # if set, passed to suggest_params
 ):
     """Create an Optuna-compatible objective function (closure).
 
     Returns a callable: objective(trial) -> float
     """
+    # Select objective function
+    if objective_version == 2:
+        from pmm_lab.objective.objective import objective_v2, ObjectiveWeightsV2
+        _obj_weights = objective_weights if objective_weights is not None else ObjectiveWeightsV2()
+        obj_fn = lambda m: objective_v2(m, _obj_weights)
+    else:
+        from pmm_lab.objective.objective import objective_v1, ObjectiveWeights as OW
+        _obj_weights = objective_weights if objective_weights is not None else OW()
+        obj_fn = lambda m: objective_v1(m, _obj_weights)
+
+    # Stress tests always use v1 objective (stress.py hardcodes objective_v1)
+    _stress_weights = objective_weights if isinstance(objective_weights, ObjectiveWeights) else ObjectiveWeights()
 
     def objective(trial: optuna.Trial) -> float:
         # 1. Suggest params
-        raw_params = suggest_params(trial)
+        raw_params = suggest_params(trial, fixed_quote=fixed_quote)
 
         # 2. Canonicalize
         config, reject_reason = canonicalize_params(raw_params, pair_rules, reference_price)
@@ -80,7 +94,6 @@ def create_objective(
 
         from pmm_lab.sim.runner import CandleSimRunner
         from pmm_lab.metrics.metrics import compute_metrics
-        from pmm_lab.objective.objective import objective_v1
         from pmm_lab.sim.executor_model import SimResult
 
         initial_equity = config.total_amount_quote
@@ -119,7 +132,7 @@ def create_objective(
             test_metrics = compute_metrics(
                 test_sim_result, initial_equity, test_candles, bar_interval_seconds
             )
-            test_obj = objective_v1(test_metrics, objective_weights)
+            test_obj = obj_fn(test_metrics)
 
             fold_scores.append(test_obj.raw_score)
             fold_pnls.append(test_metrics.pnl_pct)
@@ -134,33 +147,49 @@ def create_objective(
             if trial.should_prune():
                 raise optuna.TrialPruned()
 
-        # 4. Optionally run stress tests on full dataset
+        # 4. Fold-local stress (v2) or full-dataset stress (v1 compat)
         stress_worst_scenario = None
         stress_worst_score = None
         all_scores = list(fold_scores)
+        fold_stress_scores_list = None
 
         if run_stress:
-            # Run stress tests on FOLD TEST WINDOWS ONLY (not full dataset)
-            # to avoid leaking full-dataset information into the optimization target.
-            stress_scores_all_folds = []
-            for fold_def in fold_defs:
-                fold_candles = candles[:fold_def.test_end_idx]
-                fold_stress = run_stress_tests(
-                    fold_candles, config, pair_rules, bar_interval_seconds,
-                    objective_weights=objective_weights,
-                )
-                worst_fold_stress = fold_stress.worst_score
-                stress_scores_all_folds.append(worst_fold_stress)
+            from pmm_lab.objective.stress import run_fold_local_stress, load_stress_scenarios
+            scenarios = load_stress_scenarios()
+            fold_stress_scores_list = []
 
-            all_scores.extend(stress_scores_all_folds)
-            stress_worst_scenario = "fold_stress_aggregate"
-            stress_worst_score = float(np.min(stress_scores_all_folds)) if stress_scores_all_folds else None
+            for fold_def in fold_defs:
+                fold_stress = run_fold_local_stress(
+                    candles, config, pair_rules, bar_interval_seconds,
+                    fold_test_start_idx=fold_def.test_start_idx,
+                    fold_test_end_idx=fold_def.test_end_idx,
+                    scenarios=scenarios,
+                    objective_weights=_stress_weights if isinstance(_obj_weights, ObjectiveWeights) else ObjectiveWeights(),
+                )
+                fold_stress_scores_list.append(fold_stress)
+
+            # Flatten for worst-scenario tracking
+            all_stress = [s for fold_s in fold_stress_scores_list for s in fold_s]
+            if all_stress:
+                worst_idx = int(np.argmin(all_stress))
+                stress_worst_score = float(min(all_stress))
+                stress_worst_scenario = f"fold_stress_{worst_idx}"
 
         # 5. Compute robust aggregate
-        final_score = robust_aggregate(all_scores, lambda_mad=lambda_mad)
+        if fold_stress_scores_list is not None:
+            from pmm_lab.objective.robustness import robust_aggregate_v2
+            final_score = robust_aggregate_v2(
+                fold_scores,
+                fold_stress_scores=fold_stress_scores_list,
+                lambda_mad=lambda_mad,
+            )
+        else:
+            final_score = robust_aggregate(all_scores, lambda_mad=lambda_mad)
 
         # 6. Log user attrs
         trial.set_user_attr("objective_score", final_score)
+        # Log fold-level scores for replay verification
+        trial.set_user_attr("fold_scores", [float(s) for s in fold_scores])
         trial.set_user_attr("pnl_pct_median", float(np.median(fold_pnls)))
         trial.set_user_attr("sharpe_median", float(np.median(fold_sharpes)))
         trial.set_user_attr("max_dd_median", float(np.median(fold_dds)))

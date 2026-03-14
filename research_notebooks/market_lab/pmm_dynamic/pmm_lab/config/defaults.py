@@ -22,3 +22,10 @@ DEFAULT_TIMESTAMP_MODE = "open"
 # Dataset audit thresholds
 MAX_OHLC_VIOLATION_FRACTION = 0.001  # fail audit if > 0.1% violations
 MAX_DUPLICATE_FRACTION = 0.0         # zero tolerance for duplicates
+
+# Forward-fill detection thresholds
+MAX_FORWARD_FILL_FRACTION = 0.01     # fail audit if > 1% forward-filled bars
+
+# Gap thresholds (strict mode)
+MAX_MISSING_ROW_FRACTION = 0.05      # fail if > 5% of expected rows are missing
+MAX_LONGEST_GAP_MULTIPLIER = 100     # fail if longest gap > 100 × interval_seconds

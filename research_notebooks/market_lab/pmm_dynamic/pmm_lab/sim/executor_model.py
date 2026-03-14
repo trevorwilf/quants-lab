@@ -79,6 +79,21 @@ class SimConfig:
     # Timestamp
     timestamp_mode: str = "open"            # "open" or "close"
 
+    # Rebalance (v2) — defaults preserve v1 behavior
+    initial_base_pct: float = 0.0
+    position_rebalance_threshold_pct: float = 0.0
+    skip_rebalance: bool = True
+
+    # Fill realism (v2) — defaults preserve v1 behavior
+    touch_through: bool = False
+    entry_spread_bps: float = 0.0
+    maker_fill_probability: float = 1.0
+
+    # Volume splitting (v2) — defaults preserve v1 behavior
+    split_volume_by_side: bool = False
+    buy_volume_fraction: float = 0.5
+    volume_is_base: bool = True
+
 
 @dataclass
 class SimResult:
@@ -92,3 +107,5 @@ class SimResult:
     n_market_exits: int              # stop-loss, time-limit, trailing-stop exits
     final_base_balance: float
     final_quote_balance: float
+    n_rebalance_events: int = 0
+    total_rebalance_fees: float = 0.0

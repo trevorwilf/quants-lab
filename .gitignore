@@ -168,6 +168,7 @@ cython_debug/
 app/outputs/
 app/data/cache/
 
+*_claude_code_prompt.md
 
 quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts
 quants-lab/research_notebooks/edastrategy/pmm_dynamic/

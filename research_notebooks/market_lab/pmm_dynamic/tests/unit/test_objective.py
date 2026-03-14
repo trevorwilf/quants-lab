@@ -30,6 +30,8 @@ def _make_metrics(**overrides) -> Metrics:
         expected_shortfall_5pct=0.0,
         volume_zero_bar_count=0,
         volume_zero_bar_fraction=0.0,
+        median_trade_pnl_quote=0.5,
+        inventory_exposure_p95=0.08,
     )
     defaults.update(overrides)
     return Metrics(**defaults)

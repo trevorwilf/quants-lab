@@ -8,9 +8,13 @@ from pmm_lab.config.defaults import (
     INTERVAL_SECONDS,
     MAX_DUPLICATE_FRACTION,
     MAX_OHLC_VIOLATION_FRACTION,
+    MAX_MISSING_ROW_FRACTION,
+    MAX_LONGEST_GAP_MULTIPLIER,
+    MAX_FORWARD_FILL_FRACTION,
 )
 from pmm_lab.config.params import AuditResult
 from pmm_lab.data.hashing import hash_candles
+from pmm_lab.data.gaps import detect_forward_fill
 
 
 def validate_candles(
@@ -19,33 +23,28 @@ def validate_candles(
     """Validate a canonical candle array and return an AuditResult.
 
     Checks performed:
-    1. Monotonic timestamps (strictly increasing).
-    2. No duplicate timestamps.
-    3. OHLC sanity:
-       a. high >= max(open, close) for every row
-       b. low <= min(open, close) for every row
-       c. All OHLC values > 0
-       d. high >= low
-    4. Volume >= 0.
-    5. Gap analysis: histogram of gaps between consecutive timestamps.
-    6. Expected row count based on (last_ts - first_ts) / interval_seconds + 1.
+    1. Empty array guard.
+    2. Monotonic timestamps (strictly increasing).
+    3. No duplicate timestamps.
+    4. OHLC sanity (high >= max(open,close), low <= min(open,close), all > 0, high >= low).
+    5. Volume >= 0.
+    6. Forward-fill detection (heuristic: flat OHLC + zero volume + repeated close).
+    7. Gap analysis: histogram of gaps between consecutive timestamps.
+    8. Expected row count and missing row count.
 
-    Parameters
-    ----------
-    candles : np.ndarray
-        Canonical structured candle array.
-    interval : str
-        Candle interval (e.g. '5m').
-    strict : bool
-        If True, apply strict failure criteria.
-
-    Returns
-    -------
-    AuditResult
+    Strict mode additionally fails on:
+    - Non-monotonic timestamps
+    - OHLC violation fraction > MAX_OHLC_VIOLATION_FRACTION
+    - Non-positive OHLC values
+    - Duplicate timestamps
+    - Missing row fraction > MAX_MISSING_ROW_FRACTION
+    - Longest gap > MAX_LONGEST_GAP_MULTIPLIER × interval_seconds
+    - Forward-fill fraction > MAX_FORWARD_FILL_FRACTION
     """
     interval_sec = INTERVAL_SECONDS[interval]
     n = len(candles)
 
+    # --- Empty array guard ---
     if n == 0:
         return AuditResult(
             total_rows=0,
@@ -59,6 +58,8 @@ def validate_candles(
             ohlc_violation_details={},
             volume_zero_count=0,
             volume_zero_fraction=0.0,
+            forward_fill_count=0,
+            forward_fill_fraction=0.0,
             dataset_hash="",
             interval_seconds=interval_sec,
             gap_histogram={},
@@ -92,7 +93,7 @@ def validate_candles(
         non_monotonic_count = 0
 
     # --- OHLC violations ---
-    violation_details: dict[str, int] = {}
+    violation_details: dict = {}
 
     high_lt_open_close = h < np.maximum(o, c)
     n_high_violation = int(np.sum(high_lt_open_close))
@@ -116,7 +117,7 @@ def validate_candles(
 
     ohlc_violations = n_high_violation + n_low_violation + n_non_positive + n_high_lt_low
 
-    # --- Null counts (for structured arrays, check for NaN in float fields) ---
+    # --- Null counts ---
     null_counts = {}
     for field_name in ("open", "high", "low", "close", "volume"):
         nan_count = int(np.sum(np.isnan(candles[field_name])))
@@ -125,7 +126,12 @@ def validate_candles(
 
     # --- Volume zero ---
     volume_zero_count = int(np.sum(v == 0))
-    volume_zero_fraction = volume_zero_count / n if n > 0 else 0.0
+    volume_zero_fraction = volume_zero_count / n
+
+    # --- Forward-fill detection ---
+    ff_mask = detect_forward_fill(candles)
+    forward_fill_count = int(np.sum(ff_mask))
+    forward_fill_fraction = forward_fill_count / n
 
     # --- Gap analysis ---
     if n > 1:
@@ -142,6 +148,7 @@ def validate_candles(
     last_ts = int(ts[-1])
     expected_rows = (last_ts - first_ts) // interval_sec + 1
     missing_rows = max(0, expected_rows - n)
+    missing_row_fraction = missing_rows / expected_rows if expected_rows > 0 else 0.0
 
     # --- Dataset hash ---
     dataset_hash = hash_candles(candles)
@@ -160,6 +167,18 @@ def validate_candles(
             failure_reasons.append(
                 f"duplicate timestamps found: {duplicate_count}"
             )
+        if missing_row_fraction > MAX_MISSING_ROW_FRACTION:
+            failure_reasons.append(
+                f"missing row fraction {missing_row_fraction:.4f} exceeds threshold {MAX_MISSING_ROW_FRACTION}"
+            )
+        if longest_gap > MAX_LONGEST_GAP_MULTIPLIER * interval_sec:
+            failure_reasons.append(
+                f"longest gap {longest_gap}s exceeds {MAX_LONGEST_GAP_MULTIPLIER}x interval ({MAX_LONGEST_GAP_MULTIPLIER * interval_sec}s)"
+            )
+        if forward_fill_fraction > MAX_FORWARD_FILL_FRACTION:
+            failure_reasons.append(
+                f"forward-fill fraction {forward_fill_fraction:.4f} exceeds threshold {MAX_FORWARD_FILL_FRACTION}"
+            )
 
     return AuditResult(
         total_rows=n,
@@ -173,6 +192,8 @@ def validate_candles(
         ohlc_violation_details=violation_details,
         volume_zero_count=volume_zero_count,
         volume_zero_fraction=volume_zero_fraction,
+        forward_fill_count=forward_fill_count,
+        forward_fill_fraction=forward_fill_fraction,
         dataset_hash=dataset_hash,
         interval_seconds=interval_sec,
         gap_histogram=gap_histogram,
