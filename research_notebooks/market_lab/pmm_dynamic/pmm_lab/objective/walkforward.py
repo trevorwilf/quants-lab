@@ -14,7 +14,7 @@ from pmm_lab.config.params import PairRules
 from pmm_lab.sim.executor_model import SimConfig, SimResult
 from pmm_lab.sim.runner import CandleSimRunner
 from pmm_lab.metrics.metrics import Metrics, compute_metrics
-from pmm_lab.objective.objective import ObjectiveDecomposition, objective_v1, ObjectiveWeights
+from pmm_lab.objective.objective import ObjectiveDecomposition, objective_v1, objective_v2, ObjectiveWeights, ObjectiveWeightsV2
 from pmm_lab.objective.robustness import robust_aggregate
 from pmm_lab.data.hashing import hash_candles
 
@@ -142,7 +142,8 @@ def run_walk_forward(
     test_days: float = 14.0,
     step_days: float = 14.0,
     embargo_bars: Optional[int] = None,
-    objective_weights: ObjectiveWeights = ObjectiveWeights(),
+    objective_weights=None,
+    objective_version: int = 1,
 ) -> WalkForwardResult:
     """Run a full walk-forward evaluation.
 
@@ -205,15 +206,43 @@ def run_walk_forward(
         test_metrics = compute_metrics(
             test_sim_result, initial_equity, test_candles, bar_interval_seconds
         )
-        test_obj = objective_v1(test_metrics, objective_weights)
+        # Score test fold with the correct objective version
+        if objective_version == 2:
+            _weights = objective_weights if isinstance(objective_weights, ObjectiveWeightsV2) else ObjectiveWeightsV2()
+            test_obj = objective_v2(test_metrics, _weights)
+        else:
+            _weights = objective_weights if isinstance(objective_weights, ObjectiveWeights) else ObjectiveWeights()
+            test_obj = objective_v1(test_metrics, _weights)
 
-        # Also run train portion for informational metrics
-        train_candle_slice = candles[:fold_def.train_end_idx]
+        # Train diagnostics: use the declared rolling train window
+        train_candle_slice = candles[:fold_def.train_end_idx]  # need full history for feature warmup
         train_runner = CandleSimRunner(config, pair_rules)
-        train_sim_result = train_runner.run(train_candle_slice)
+        train_sim_result = train_runner.run(
+            train_candle_slice,
+            sim_start_idx=fold_def.train_start_idx,  # start sim at train window start
+        )
+        train_candles_window = candles[fold_def.train_start_idx:fold_def.train_end_idx]
+
+        # Extract train-window metrics
+        train_eq = train_sim_result.equity_curve[fold_def.train_start_idx:fold_def.train_end_idx]
+        train_pos = train_sim_result.position_history[fold_def.train_start_idx:fold_def.train_end_idx]
+        train_trades = [t for t in train_sim_result.trades if t.entry_bar >= fold_def.train_start_idx]
+
+        train_sim_window = SimResult(
+            trades=train_trades,
+            equity_curve=train_eq,
+            position_history=train_pos,
+            n_orders_placed=train_sim_result.n_orders_placed,
+            n_orders_filled=train_sim_result.n_orders_filled,
+            n_orders_rejected=train_sim_result.n_orders_rejected,
+            n_market_exits=train_sim_result.n_market_exits,
+            final_base_balance=train_sim_result.final_base_balance,
+            final_quote_balance=train_sim_result.final_quote_balance,
+        )
+
         train_metrics = compute_metrics(
-            train_sim_result, initial_equity,
-            train_candle_slice, bar_interval_seconds
+            train_sim_window, initial_equity,
+            train_candles_window, bar_interval_seconds
         )
 
         fold_results.append(FoldResult(

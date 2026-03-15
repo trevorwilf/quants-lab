@@ -1,6 +1,7 @@
 """Tests for parity framework (works without Hummingbot installed)."""
 
 import os
+from pathlib import Path
 import numpy as np
 import pytest
 
@@ -123,6 +124,50 @@ class TestComprehensiveValidationPasses:
         export_yaml(config, path)
         result = validate_export_comprehensive(path)
         assert result.valid, f"Errors: {result.errors}"
+
+
+class TestCommittedShortFixtureParity:
+    def test_committed_short_fixture_parity(self):
+        """Load committed fixtures/short_100bar_compat, run parity check -> 0 mismatches."""
+        fixture_dir = str(Path(__file__).resolve().parent.parent.parent / "fixtures" / "short_100bar_compat")
+        if not os.path.isdir(fixture_dir):
+            pytest.skip("Committed short fixture not found")
+        fixture = load_frozen_fixture(fixture_dir)
+        result = check_feature_parity_frozen(
+            fixture.candles, fixture.expected_features, fixture.config_params,
+        )
+        assert result.passed, f"Mismatches: {result.mismatches}"
+        assert len(result.mismatches) == 0
+
+
+class TestCommittedLongFixtureParity:
+    def test_committed_long_fixture_parity(self):
+        """Load committed fixtures/long_500bar_compat, run parity check -> 0 mismatches."""
+        fixture_dir = str(Path(__file__).resolve().parent.parent.parent / "fixtures" / "long_500bar_compat")
+        if not os.path.isdir(fixture_dir):
+            pytest.skip("Committed long fixture not found")
+        fixture = load_frozen_fixture(fixture_dir)
+        result = check_feature_parity_frozen(
+            fixture.candles, fixture.expected_features, fixture.config_params,
+        )
+        assert result.passed, f"Mismatches: {result.mismatches}"
+        assert len(result.mismatches) == 0
+
+
+class TestLongFixtureExceedsMaxRecords:
+    def test_long_fixture_exceeds_max_records(self):
+        """Verify the long fixture's check_bars include bars > 142 (beyond sliding window boundary)."""
+        fixture_dir = str(Path(__file__).resolve().parent.parent.parent / "fixtures" / "long_500bar_compat")
+        if not os.path.isdir(fixture_dir):
+            pytest.skip("Committed long fixture not found")
+        fixture = load_frozen_fixture(fixture_dir)
+        check_bar_indices = [int(k) for k in fixture.expected_features.keys()]
+        max_records = 42 + 100  # macd_slow + 100
+        beyond_max = [b for b in check_bar_indices if b > max_records]
+        assert len(beyond_max) > 0, (
+            f"No check bars beyond max_records={max_records}. "
+            f"Check bars: {check_bar_indices}"
+        )
 
 
 class TestComprehensiveValidationChecksExpectedFields:

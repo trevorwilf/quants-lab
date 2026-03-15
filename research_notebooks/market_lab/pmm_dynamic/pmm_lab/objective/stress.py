@@ -17,7 +17,7 @@ from pmm_lab.config.params import PairRules, FeeConfig
 from pmm_lab.sim.executor_model import SimConfig, SimResult
 from pmm_lab.sim.runner import CandleSimRunner
 from pmm_lab.metrics.metrics import Metrics, compute_metrics
-from pmm_lab.objective.objective import ObjectiveDecomposition, objective_v1, ObjectiveWeights
+from pmm_lab.objective.objective import ObjectiveDecomposition, objective_v1, objective_v2, ObjectiveWeights, ObjectiveWeightsV2
 
 
 @dataclass(frozen=True)
@@ -119,7 +119,8 @@ def run_stress_tests(
     pair_rules: PairRules,
     bar_interval_seconds: int,
     scenarios: Optional[List[StressScenario]] = None,
-    objective_weights: ObjectiveWeights = ObjectiveWeights(),
+    objective_weights=None,
+    objective_version: int = 1,
 ) -> StressReport:
     """Run the baseline + all stress scenarios and return a StressReport.
 
@@ -131,13 +132,21 @@ def run_stress_tests(
     if scenarios is None:
         scenarios = load_stress_scenarios()
 
+    # Build scoring function based on objective version
+    if objective_version == 2:
+        _weights = objective_weights if isinstance(objective_weights, ObjectiveWeightsV2) else ObjectiveWeightsV2()
+        _score = lambda m: objective_v2(m, _weights)
+    else:
+        _weights = objective_weights if isinstance(objective_weights, ObjectiveWeights) else ObjectiveWeights()
+        _score = lambda m: objective_v1(m, _weights)
+
     initial_equity = config.total_amount_quote
 
     # Run baseline
     baseline_runner = CandleSimRunner(config, pair_rules)
     baseline_result = baseline_runner.run(candles)
     baseline_metrics = compute_metrics(baseline_result, initial_equity, candles, bar_interval_seconds)
-    baseline_objective = objective_v1(baseline_metrics, objective_weights)
+    baseline_objective = _score(baseline_metrics)
 
     # Run each scenario
     scenario_results = []
@@ -146,7 +155,7 @@ def run_stress_tests(
         runner = CandleSimRunner(stressed_config, stressed_rules)
         sim_result = runner.run(candles)
         metrics = compute_metrics(sim_result, initial_equity, candles, bar_interval_seconds)
-        obj = objective_v1(metrics, objective_weights)
+        obj = _score(metrics)
         scenario_results.append(StressResult(
             scenario=scenario,
             metrics=metrics,
@@ -178,7 +187,8 @@ def run_fold_local_stress(
     fold_test_start_idx: int,
     fold_test_end_idx: int,
     scenarios: Optional[List[StressScenario]] = None,
-    objective_weights: ObjectiveWeights = ObjectiveWeights(),
+    objective_weights=None,
+    objective_version: int = 1,
 ) -> List[float]:
     """Run stress tests on a single fold's test window only.
 
@@ -212,6 +222,14 @@ def run_fold_local_stress(
     if scenarios is None:
         scenarios = load_stress_scenarios()
 
+    # Build scoring function based on objective version
+    if objective_version == 2:
+        _weights = objective_weights if isinstance(objective_weights, ObjectiveWeightsV2) else ObjectiveWeightsV2()
+        _score = lambda m: objective_v2(m, _weights)
+    else:
+        _weights = objective_weights if isinstance(objective_weights, ObjectiveWeights) else ObjectiveWeights()
+        _score = lambda m: objective_v1(m, _weights)
+
     initial_equity = config.total_amount_quote
     candle_slice = candles[:fold_test_end_idx]
 
@@ -242,7 +260,7 @@ def run_fold_local_stress(
         test_metrics = compute_metrics(
             test_sim_result, initial_equity, test_candles, bar_interval_seconds
         )
-        test_obj = objective_v1(test_metrics, objective_weights)
+        test_obj = _score(test_metrics)
         stress_scores.append(test_obj.raw_score)
 
     return stress_scores

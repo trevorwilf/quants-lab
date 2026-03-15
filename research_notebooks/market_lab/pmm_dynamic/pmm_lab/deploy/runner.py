@@ -75,6 +75,9 @@ class PipelineResult:
     stop_ship_checks: Dict[str, bool]
     stop_ship_passed: bool
 
+    # Deployability
+    deployable: bool = False          # True only if stop-ship passed
+
     # Output paths
     package_dir: Optional[str] = None
     report_path: Optional[str] = None
@@ -99,6 +102,9 @@ def run_full_pipeline(
     run_stress: bool = True,
     run_sensitivity: bool = True,
     mongo_loader_kwargs: Optional[Dict[str, Any]] = None,
+    certified: bool = False,
+    start_ts: Optional[int] = None,
+    end_ts: Optional[int] = None,
 ) -> PipelineResult:
     """Run the full optimization-to-deployment pipeline.
 
@@ -157,6 +163,11 @@ def run_full_pipeline(
     from pmm_lab.metrics.metrics import compute_metrics
     from pmm_lab.utils.reproducibility import seed_everything, save_environment_snapshot, get_environment_snapshot, compute_snapshot_hash
 
+    # Certified mode: override n_jobs for determinism
+    if certified:
+        n_jobs = 1
+        logger.info("  Certified mode: forcing n_jobs=1 for determinism")
+
     started_at = datetime.now(timezone.utc).isoformat()
     t0 = time.time()
 
@@ -181,7 +192,8 @@ def run_full_pipeline(
     logger.info("Step 1: Loading data")
     loader_kwargs = mongo_loader_kwargs or {}
     loader = MongoCandleLoader(**loader_kwargs)
-    query = DataQuery(connector=connector, trading_pair=trading_pair, interval=interval)
+    query = DataQuery(connector=connector, trading_pair=trading_pair, interval=interval,
+                      start_ts=start_ts, end_ts=end_ts)
     candles = loader.load_range(query)
     bar_interval = INTERVAL_SECONDS[interval]
 
@@ -250,6 +262,7 @@ def run_full_pipeline(
     wf_result = run_walk_forward(
         dev_candles, best_config, pair_rules, bar_interval, dev_hash,
         train_days=train_days, test_days=test_days, step_days=step_days,
+        objective_version=objective_version,
     )
     wf_pnls = [f.test_metrics.pnl_pct for f in wf_result.folds]
     wf_sharpes = [f.test_metrics.sharpe for f in wf_result.folds]
@@ -285,7 +298,8 @@ def run_full_pipeline(
     stress_worst = 0.0
     if run_stress:
         logger.info("Step 9: Stress testing")
-        stress_report = run_stress_tests(dev_candles, best_config, pair_rules, bar_interval)
+        stress_report = run_stress_tests(dev_candles, best_config, pair_rules, bar_interval,
+                                          objective_version=objective_version)
         stress_worst = stress_report.worst_score
         logger.info("  Worst scenario: %s (%.4f)", stress_report.worst_scenario, stress_worst)
 
@@ -327,7 +341,7 @@ def run_full_pipeline(
         best_objective=obj_decomp,
         walkforward_result=wf_result,
         stress_report=stress_report,
-        dataset_hash=dataset_hash,
+        dataset_audit=audit,
         validation_result=validation_result,
         holdout_report=holdout_report,
         sensitivity_penalty=sensitivity_penalty,
@@ -338,6 +352,13 @@ def run_full_pipeline(
                 sum(stop_ship.values()), len(stop_ship))
 
     # ---- Step 14: Deployment package ----
+    if all_passed:
+        package_dir = str(out_dir / "deploy")
+        logger.info("  Stop-ship PASSED — writing deployment package")
+    else:
+        package_dir = str(out_dir / "rejected")
+        logger.warning("  Stop-ship FAILED — writing to rejected/ (NOT deployable)")
+
     package = create_deployment_package(
         config=best_config, metrics=metrics, objective=obj_decomp,
         study_name=study_name, dataset_hash=dataset_hash,
@@ -345,15 +366,34 @@ def run_full_pipeline(
         objective_version=objective_version,
         wf_median_pnl=wf_median_pnl, wf_median_sharpe=wf_median_sharpe,
         wf_fold_count=len(wf_result.folds),
-        holdout_pnl_pct=holdout_report.candidates[0].metrics.pnl_pct if holdout_report.candidates else None,
+        holdout_pnl_pct=(
+            holdout_report.candidates[holdout_report.best_holdout_rank].metrics.pnl_pct
+            if holdout_report.best_holdout_rank >= 0 and holdout_report.candidates
+            else None
+        ),
         holdout_score=holdout_report.best_holdout_score,
         stress_worst_score=stress_worst,
         sensitivity_penalty=sensitivity_penalty,
         stop_ship_checks=stop_ship,
         environment_hash=env_hash,
+        certified=certified,
+        n_jobs=n_jobs,
+        dev_dataset_hash=dev_hash,
+        holdout_fraction=holdout_fraction,
+        holdout_bars=len(holdout_candles),
+        start_ts=start_ts,
+        end_ts=end_ts,
     )
-    package_dir = str(out_dir / "deploy")
     save_deployment_package(package, package_dir)
+
+    if not all_passed:
+        marker = Path(package_dir) / "STOP_SHIP_FAILED.txt"
+        failed_checks = [k for k, v in stop_ship.items() if not v]
+        marker.write_text(
+            f"This config FAILED stop-ship checks and must NOT be deployed.\n"
+            f"Failed checks: {', '.join(failed_checks)}\n"
+            f"Generated: {datetime.now(timezone.utc).isoformat()}\n"
+        )
 
     # ---- Step 15: Report ----
     logger.info("Step 15: Generating report")
@@ -388,5 +428,6 @@ def run_full_pipeline(
         stress_worst_score=stress_worst, sensitivity_penalty=sensitivity_penalty,
         top_k_clustered=cluster_report.is_clustered,
         stop_ship_checks=stop_ship, stop_ship_passed=all_passed,
+        deployable=all_passed,
         package_dir=package_dir, report_path=report_path, yaml_path=yaml_path,
     )

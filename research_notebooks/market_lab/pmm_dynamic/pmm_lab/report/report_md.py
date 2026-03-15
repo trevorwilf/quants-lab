@@ -169,7 +169,7 @@ def run_stop_ship_checks(
     best_objective: ObjectiveDecomposition,
     walkforward_result: Optional[WalkForwardResult] = None,
     stress_report: Optional[StressReport] = None,
-    dataset_hash: Optional[str] = None,
+    dataset_audit: Optional[Any] = None,
     validation_result: Optional[Any] = None,
     holdout_report: Optional['HoldoutReport'] = None,
     sensitivity_penalty: Optional[float] = None,
@@ -181,13 +181,17 @@ def run_stop_ship_checks(
     """
     checks = {}
 
-    # 1. dataset_audit — hash exists and is non-empty
-    checks["dataset_audit"] = dataset_hash is not None and len(str(dataset_hash)) > 0
+    # 1. dataset_audit — require actual AuditResult with passed_strict
+    if dataset_audit is not None:
+        checks["dataset_audit"] = bool(getattr(dataset_audit, 'passed_strict', False))
+    else:
+        checks["dataset_audit"] = False
 
-    # 2. feature_parity — proxy: strategy produced trades with non-zero PnL
+    # 2. feature_parity — require trades AND non-degenerate metrics
     checks["feature_parity"] = bool(
-        best_metrics.trade_count > 0
+        best_metrics.trade_count >= 5  # at least 5 round-trip trades
         and best_metrics.pnl_pct != 0.0
+        and best_metrics.total_fees_quote > 0  # fees were actually computed
     )
 
     # 3. objective_not_degenerate

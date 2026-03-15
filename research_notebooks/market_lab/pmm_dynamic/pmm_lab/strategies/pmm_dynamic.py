@@ -31,6 +31,7 @@ class PMMDynamicStrategyConfig:
     macd_slow: int = 42
     macd_signal: int = 9
     natr_length: int = 14
+    controller_compat: bool = True  # Match live controller sliding-window behavior
     timestamp_mode: str = "open"
 
     # Spread ladders (in NATR multiplier units)
@@ -54,11 +55,13 @@ class PMMDynamicStrategy:
     @classmethod
     def from_sim_config(cls, sim_config) -> 'PMMDynamicStrategy':
         """Create from a legacy SimConfig for backward compatibility."""
+        controller_compat = getattr(sim_config, 'controller_compat', True)
         return cls(PMMDynamicStrategyConfig(
             macd_fast=sim_config.macd_fast,
             macd_slow=sim_config.macd_slow,
             macd_signal=sim_config.macd_signal,
             natr_length=sim_config.natr_length,
+            controller_compat=controller_compat,
             timestamp_mode=sim_config.timestamp_mode,
             buy_spreads=tuple(sim_config.buy_spreads),
             sell_spreads=tuple(sim_config.sell_spreads),
@@ -73,6 +76,7 @@ class PMMDynamicStrategy:
             macd_slow=self.config.macd_slow,
             macd_signal=self.config.macd_signal,
             natr_length=self.config.natr_length,
+            controller_compat=self.config.controller_compat,
         )
         raw_features = compute_pmm_dynamic_features(candles, feat_config)
         features = align_features(raw_features, timestamp_mode=self.config.timestamp_mode)

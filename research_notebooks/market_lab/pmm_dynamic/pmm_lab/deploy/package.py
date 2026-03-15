@@ -78,6 +78,17 @@ class DeploymentPackage:
     environment_hash: Optional[str] = None
     stop_ship_checks: Optional[Dict[str, bool]] = None
 
+    # Certified run
+    certified: bool = False
+    n_jobs: int = 1
+
+    # Lineage (added per expert review v4)
+    dev_dataset_hash: Optional[str] = None
+    holdout_fraction: Optional[float] = None
+    holdout_bars: Optional[int] = None
+    start_ts: Optional[int] = None
+    end_ts: Optional[int] = None
+
     # Deployment state
     deployed: bool = False
     deployed_at: Optional[str] = None
@@ -102,6 +113,13 @@ def create_deployment_package(
     sensitivity_penalty: Optional[float] = None,
     stop_ship_checks: Optional[Dict[str, bool]] = None,
     environment_hash: Optional[str] = None,
+    certified: bool = False,
+    n_jobs: int = 1,
+    dev_dataset_hash: Optional[str] = None,
+    holdout_fraction: Optional[float] = None,
+    holdout_bars: Optional[int] = None,
+    start_ts: Optional[int] = None,
+    end_ts: Optional[int] = None,
 ) -> DeploymentPackage:
     """Create a deployment package from optimization results.
 
@@ -171,6 +189,13 @@ def create_deployment_package(
         objective_version=objective_version,
         environment_hash=environment_hash,
         stop_ship_checks=stop_ship_checks,
+        certified=certified,
+        n_jobs=n_jobs,
+        dev_dataset_hash=dev_dataset_hash,
+        holdout_fraction=holdout_fraction,
+        holdout_bars=holdout_bars,
+        start_ts=start_ts,
+        end_ts=end_ts,
     )
 
 

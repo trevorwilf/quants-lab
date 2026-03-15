@@ -19,6 +19,7 @@ from pmm_lab.features.regime import classify_regime
 from pmm_lab.report.report_md import generate_report, run_stop_ship_checks
 from pmm_lab.strategies.bollinger import BollingerStrategy, BollingerStrategyConfig
 from pmm_lab.data.hashing import hash_candles
+from pmm_lab.data.candles import validate_candles
 
 
 def _default_config():
@@ -263,12 +264,13 @@ class TestStopShipChecksIntegrated:
         )
         stress = run_stress_tests(sample_candles_500, config, default_pair_rules, 300)
 
+        audit = validate_candles(sample_candles_500, "5m", strict=False)
         checks = run_stop_ship_checks(
             best_metrics=metrics,
             best_objective=obj,
             walkforward_result=wf,
             stress_report=stress,
-            dataset_hash=hash_candles(sample_candles_500),
+            dataset_audit=audit,
         )
 
         expected_keys = {

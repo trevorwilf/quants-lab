@@ -8,6 +8,7 @@ from pmm_lab.metrics.metrics import Metrics
 from pmm_lab.objective.objective import ObjectiveDecomposition, REJECT_SCORE
 from pmm_lab.objective.holdout import HoldoutReport
 from pmm_lab.features.regime import RegimeClassification
+from pmm_lab.config.params import AuditResult
 from pmm_lab.report.report_md import generate_report, run_stop_ship_checks
 
 
@@ -81,6 +82,19 @@ def _make_stress_report(worst_score=-2.0):
 @dataclass
 class _FakeValidation:
     valid: bool = True
+
+
+def _make_audit_result(passed_strict=True):
+    return AuditResult(
+        total_rows=500, first_timestamp=1756833000, last_timestamp=1756983000,
+        expected_rows=500, missing_rows=0, duplicate_count=0,
+        null_counts={}, ohlc_violations=0, ohlc_violation_details={},
+        volume_zero_count=0, volume_zero_fraction=0.0,
+        forward_fill_count=0, forward_fill_fraction=0.0,
+        dataset_hash="abc123", interval_seconds=300,
+        gap_histogram={}, longest_gap_seconds=300,
+        passed_strict=passed_strict, failure_reasons=[],
+    )
 
 
 # ── Report generation tests ──────────────────────────────────
@@ -159,7 +173,7 @@ class TestStopShipChecksAllPass:
             best_objective=_make_objective(),
             walkforward_result=_make_walkforward_result(),
             stress_report=_make_stress_report(),
-            dataset_hash="abc123",
+            dataset_audit=_make_audit_result(passed_strict=True),
             validation_result=_FakeValidation(valid=True),
             holdout_report=_make_holdout_report(passed=True),
             sensitivity_penalty=0.1,

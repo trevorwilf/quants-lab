@@ -72,21 +72,31 @@ def test_warmup_bars_are_nan(sample_candles_5m):
 
 
 def test_golden_values_bar60(sample_candles_5m):
-    """Golden values at bar 60 match frozen reference."""
+    """Golden values at bar 60 match frozen reference.
+
+    Golden values regenerated after switching to controller_compat=True default.
+    Previous values used full-history MACD which diverges from the live controller.
+    Baseline change reason: Section 4.2 of expert review v4.
+    """
     features = compute_pmm_dynamic_features(sample_candles_5m)
     np.testing.assert_allclose(features.reference_price[60], 99613.79598938077, rtol=1e-10)
     np.testing.assert_allclose(features.spread_multiplier[60], 0.0007348990530329418, rtol=1e-10)
     np.testing.assert_allclose(features.natr[60], 0.0007348990530329418, rtol=1e-10)
-    np.testing.assert_allclose(features.price_multiplier[60], 0.0003716192872574744, rtol=1e-10)
+    np.testing.assert_allclose(features.price_multiplier[60], 0.0003716192872574742, rtol=1e-10)
 
 
 def test_golden_values_bar80(sample_candles_5m):
-    """Golden values at bar 80 match frozen reference."""
+    """Golden values at bar 80 match frozen reference.
+
+    Golden values regenerated after switching to controller_compat=True default.
+    Previous values used full-history MACD which diverges from the live controller.
+    Baseline change reason: Section 4.2 of expert review v4.
+    """
     features = compute_pmm_dynamic_features(sample_candles_5m)
     np.testing.assert_allclose(features.reference_price[80], 99680.50967958754, rtol=1e-10)
     np.testing.assert_allclose(features.spread_multiplier[80], 0.0007282213859069458, rtol=1e-10)
     np.testing.assert_allclose(features.natr[80], 0.0007282213859069458, rtol=1e-10)
-    np.testing.assert_allclose(features.price_multiplier[80], -0.0003652900500905005, rtol=1e-10)
+    np.testing.assert_allclose(features.price_multiplier[80], -0.00036529005009050075, rtol=1e-10)
 
 
 def test_no_lookahead_macd_z(sample_candles_5m):

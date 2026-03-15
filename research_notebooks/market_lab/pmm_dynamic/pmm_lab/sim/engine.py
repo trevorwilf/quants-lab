@@ -3,6 +3,21 @@ Generic candle-based simulation engine.
 
 Handles: fills, triple-barrier exits, inventory, equity tracking, order lifecycle.
 Does NOT handle: signal computation, order construction — those come from the Strategy.
+
+INTRABAR ORDERING ASSUMPTION:
+The engine processes each bar's extremes in a fixed priority order:
+  1. Stop-loss check (uses low for buys, high for sells)
+  2. Trailing stop: peak update then trigger check (same bar)
+  3. Take-profit check
+  4. Time-limit check
+
+Because OHLC bars do not reveal intrabar path ordering, this is a
+modeling choice. The trailing stop can update its peak AND trigger
+on the same bar if both conditions are met. This is the "aggressive"
+model — it may overcount trailing stop exits on high-volatility bars.
+
+For conservative trailing-stop evaluation, use sub-bar data or disable
+same-bar activation-and-trigger (not currently implemented).
 """
 
 import logging

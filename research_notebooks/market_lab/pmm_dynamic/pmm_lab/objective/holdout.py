@@ -177,7 +177,7 @@ def evaluate_holdout(
     # Check for collapse: best holdout score vs its dev score
     collapse = False
     if valid_candidates and best_score != REJECT_SCORE:
-        best_dev = valid_candidates[0].development_score if valid_candidates else 0
+        best_dev = best.development_score
         if best_dev > 0 and best_score < best_dev * (1 - collapse_threshold):
             collapse = True
         elif best_dev > 0 and best_score < 0:

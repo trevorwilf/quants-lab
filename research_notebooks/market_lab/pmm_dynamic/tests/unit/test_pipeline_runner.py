@@ -120,7 +120,12 @@ class TestRunFullPipelineMini:
         study_dir = tmp_path / "mini_test"
         assert (study_dir / "config.yml").exists()
         assert (study_dir / "report.md").exists()
-        assert (study_dir / "deploy" / "package.json").exists()
+        # Package goes to deploy/ if stop-ship passes, rejected/ otherwise
+        if result.deployable:
+            assert (study_dir / "deploy" / "package.json").exists()
+        else:
+            assert (study_dir / "rejected" / "package.json").exists()
+            assert (study_dir / "rejected" / "STOP_SHIP_FAILED.txt").exists()
 
 
 class TestPipelineCreatesEnvironmentSnapshot:

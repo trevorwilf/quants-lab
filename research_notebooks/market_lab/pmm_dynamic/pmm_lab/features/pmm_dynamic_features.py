@@ -18,6 +18,7 @@ class PMMDynamicConfig:
     macd_slow: int = 42
     macd_signal: int = 9
     natr_length: int = 14
+    controller_compat: bool = True  # Default to controller-equivalent mode
 
 
 @dataclass
@@ -85,40 +86,74 @@ def compute_pmm_dynamic_features(
     low = pd.Series(candles["low"].astype("float64"))
     close = pd.Series(candles["close"].astype("float64"))
 
-    # 1. NATR (divided by 100 to get fraction)
-    natr_series = ta.natr(high, low, close, length=config.natr_length) / 100.0
+    # --- CONTROLLER-COMPAT SLIDING WINDOW MODE ---
+    # The live controller (app/controllers/market_making/pmm_dynamic.py)
+    # recomputes MACD on the last max_records candles at each bar.
+    # Since MACD uses EMAs, this produces different values than computing
+    # MACD once on the full history. This mode replicates that behavior.
 
-    # 2. MACD
-    macd_output = ta.macd(close, fast=config.macd_fast, slow=config.macd_slow, signal=config.macd_signal)
-    macd_col = f"MACD_{config.macd_fast}_{config.macd_slow}_{config.macd_signal}"
-    macdh_col = f"MACDh_{config.macd_fast}_{config.macd_slow}_{config.macd_signal}"
-
-    macd_series = macd_output[macd_col]
-    macdh_series = macd_output[macdh_col]
-
-    # 3. Z-score the MACD with causal (rolling/expanding) mean/std
-    # Hummingbot uses max_records = max(periods) + 100 as its candle buffer size.
-    # At each bar t, mean/std are computed over candles[max(0, t-max_records+1):t+1].
     max_records = max(config.macd_fast, config.macd_slow, config.macd_signal, config.natr_length) + 100
 
-    # Use rolling window capped at max_records. For bars < max_records, expanding window.
-    macd_rolling_mean = macd_series.rolling(window=max_records, min_periods=2).mean()
-    macd_rolling_std = macd_series.rolling(window=max_records, min_periods=2).std(ddof=1)
+    if config.controller_compat:
+        # Sliding-window mode: recompute MACD + NATR on last max_records bars per bar
+        natr_arr = np.full(n, np.nan, dtype="float64")
+        macd_arr = np.full(n, np.nan, dtype="float64")
+        macd_signal_z_arr = np.full(n, np.nan, dtype="float64")
+        macdh_arr = np.full(n, np.nan, dtype="float64")
+        macdh_sign_arr = np.full(n, np.nan, dtype="float64")
 
-    # Handle std == 0 or NaN safely
-    macd_rolling_std_safe = macd_rolling_std.where(macd_rolling_std > 0, other=np.nan)
-    macd_signal_z_series = -(macd_series - macd_rolling_mean) / macd_rolling_std_safe
-    macd_signal_z_series = macd_signal_z_series.fillna(0.0)
+        warmup_end_calc = max(config.macd_slow, config.natr_length) + config.macd_signal + 1
 
-    # 4. MACDH sign
-    macdh_sign_series = pd.Series(np.where(macdh_series > 0, 1.0, -1.0), dtype="float64")
+        for t in range(warmup_end_calc, n):
+            start = max(0, t - max_records + 1)
+            window_high = high.iloc[start:t+1]
+            window_low = low.iloc[start:t+1]
+            window_close = close.iloc[start:t+1]
 
-    # Convert all to numpy float64 (copy to ensure writable)
-    natr_arr = np.array(natr_series, dtype="float64")
-    macd_arr = np.array(macd_series, dtype="float64")
-    macd_signal_z_arr = np.array(macd_signal_z_series, dtype="float64")
-    macdh_arr = np.array(macdh_series, dtype="float64")
-    macdh_sign_arr = np.array(macdh_sign_series, dtype="float64")
+            # Recompute NATR on window
+            w_natr = ta.natr(window_high, window_low, window_close, length=config.natr_length) / 100.0
+            natr_arr[t] = float(w_natr.iloc[-1]) if not pd.isna(w_natr.iloc[-1]) else np.nan
+
+            # Recompute MACD on window
+            w_macd_out = ta.macd(window_close, fast=config.macd_fast, slow=config.macd_slow, signal=config.macd_signal)
+            w_macd = w_macd_out[f"MACD_{config.macd_fast}_{config.macd_slow}_{config.macd_signal}"]
+            w_macdh = w_macd_out[f"MACDh_{config.macd_fast}_{config.macd_slow}_{config.macd_signal}"]
+
+            macd_arr[t] = float(w_macd.iloc[-1]) if not pd.isna(w_macd.iloc[-1]) else np.nan
+            macdh_arr[t] = float(w_macdh.iloc[-1]) if not pd.isna(w_macdh.iloc[-1]) else np.nan
+
+            # Z-score: controller uses plain mean/std of the entire MACD buffer
+            macd_mean = float(w_macd.mean())
+            macd_std = float(w_macd.std(ddof=1))  # pandas default ddof=1
+            if macd_std > 0:
+                macd_signal_z_arr[t] = -(float(w_macd.iloc[-1]) - macd_mean) / macd_std
+            else:
+                macd_signal_z_arr[t] = 0.0
+
+            macdh_sign_arr[t] = 1.0 if float(w_macdh.iloc[-1]) > 0 else -1.0
+
+    else:
+        # Full-history mode (original — faster, but NOT controller-equivalent for long histories)
+        natr_series = ta.natr(high, low, close, length=config.natr_length) / 100.0
+        macd_output = ta.macd(close, fast=config.macd_fast, slow=config.macd_slow, signal=config.macd_signal)
+        macd_col = f"MACD_{config.macd_fast}_{config.macd_slow}_{config.macd_signal}"
+        macdh_col = f"MACDh_{config.macd_fast}_{config.macd_slow}_{config.macd_signal}"
+
+        macd_series = macd_output[macd_col]
+        macdh_series = macd_output[macdh_col]
+
+        macd_rolling_mean = macd_series.rolling(window=max_records, min_periods=2).mean()
+        macd_rolling_std = macd_series.rolling(window=max_records, min_periods=2).std(ddof=1)
+        macd_rolling_std_safe = macd_rolling_std.where(macd_rolling_std > 0, other=np.nan)
+        macd_signal_z_series = -(macd_series - macd_rolling_mean) / macd_rolling_std_safe
+        macd_signal_z_series = macd_signal_z_series.fillna(0.0)
+        macdh_sign_series = pd.Series(np.where(macdh_series > 0, 1.0, -1.0), dtype="float64")
+
+        natr_arr = np.array(natr_series, dtype="float64")
+        macd_arr = np.array(macd_series, dtype="float64")
+        macd_signal_z_arr = np.array(macd_signal_z_series, dtype="float64")
+        macdh_arr = np.array(macdh_series, dtype="float64")
+        macdh_sign_arr = np.array(macdh_sign_series, dtype="float64")
     close_arr = np.array(candles["close"], dtype="float64")
 
     # 5. Derived features

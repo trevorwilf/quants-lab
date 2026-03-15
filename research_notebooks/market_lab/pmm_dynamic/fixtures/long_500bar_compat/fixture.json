@@ -1,0 +1,100 @@
+{
+  "expected_features": {
+    "60": {
+      "reference_price": 99311.46695156953,
+      "spread_multiplier": 0.00100355026369473,
+      "natr": 0.00100355026369473,
+      "macd_signal_z": 0.4545012293903831,
+      "price_multiplier": 0.00036491627307475705
+    },
+    "100": {
+      "reference_price": 99054.14392432146,
+      "spread_multiplier": 0.0011913148417676937,
+      "natr": 0.0011913148417676937,
+      "macd_signal_z": 1.3070917688474206,
+      "price_multiplier": 9.146074550315652e-05
+    },
+    "141": {
+      "reference_price": 99543.8583482235,
+      "spread_multiplier": 0.001183949261490826,
+      "natr": 0.001183949261490826,
+      "macd_signal_z": -1.8164376431177944,
+      "price_multiplier": -0.00024165518615565582
+    },
+    "142": {
+      "reference_price": 99538.45109271532,
+      "spread_multiplier": 0.001154971819126768,
+      "natr": 0.001154971819126768,
+      "macd_signal_z": -1.7394789920234763,
+      "price_multiplier": -0.0007910052587192299
+    },
+    "200": {
+      "reference_price": 100112.33539384647,
+      "spread_multiplier": 0.0011264877855087026,
+      "natr": 0.0011264877855087026,
+      "macd_signal_z": -1.1074530922210821,
+      "price_multiplier": -3.02611489755473e-05
+    },
+    "300": {
+      "reference_price": 98850.37808132726,
+      "spread_multiplier": 0.0011803320883146489,
+      "natr": 0.0011803320883146489,
+      "macd_signal_z": 0.3885448075191288,
+      "price_multiplier": -0.00018043004606294556
+    },
+    "400": {
+      "reference_price": 98943.8295654681,
+      "spread_multiplier": 0.0012310474208009432,
+      "natr": 0.0012310474208009432,
+      "macd_signal_z": -3.0054320409389494,
+      "price_multiplier": -0.0006171954853973664
+    },
+    "499": {
+      "reference_price": 98243.93583365914,
+      "spread_multiplier": 0.0011548740071623109,
+      "natr": 0.0011548740071623109,
+      "macd_signal_z": 0.7383644013304548,
+      "price_multiplier": -7.553903806295197e-05
+    }
+  },
+  "expected_yaml_fields": {
+    "controller_name": "pmm_dynamic",
+    "controller_type": "market_making",
+    "macd_fast": 21,
+    "macd_slow": 42,
+    "macd_signal": 9,
+    "natr_length": 14,
+    "total_amount_quote": 100.0,
+    "stop_loss": 0.03,
+    "take_profit": 0.015
+  },
+  "metadata": {
+    "name": "long_500bar_compat",
+    "created": "2026-03-15T00:48:59.716860+00:00",
+    "n_bars": 500,
+    "dataset_hash": "b56a02eaf0769efa3b0e1aab71d31c932dcf37eac8e3b9a609fca4c81a9ec27f",
+    "warmup_end": 52,
+    "config_params": {
+      "macd_fast": 21,
+      "macd_slow": 42,
+      "macd_signal": 9,
+      "natr_length": 14,
+      "buy_n_levels": 2,
+      "sell_n_levels": 2,
+      "buy_spread_base": 1.0,
+      "buy_spread_ratio": 2.0,
+      "sell_spread_base": 1.0,
+      "sell_spread_ratio": 2.0,
+      "buy_side_weight": 0.5,
+      "amount_skew": 1.0,
+      "total_amount_quote": 100.0,
+      "executor_refresh_time": 3120.0,
+      "cooldown_time": 3120.0,
+      "stop_loss": 0.03,
+      "take_profit": 0.015,
+      "time_limit": 43200,
+      "trailing_stop_activation": 0.0,
+      "trailing_stop_delta": 0.001
+    }
+  }
+}
