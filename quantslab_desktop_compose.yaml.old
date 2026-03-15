@@ -12,21 +12,12 @@
 # (same folder as Dockerfile + environment.yml).
 #
 # PREREQUISITES:
-#   1. Build the image first:
-#        Linux/macOS:  ./Build_quantslab.sh        (add --gpu for CUDA)
-#        Windows:      .\Build_quantslab.ps1       (add -Gpu for CUDA)
-#      OR let compose build it:
-#        docker compose -f quantslab_desktop_compose.yaml build
-#   2. Trading pod is running with hummingbot_App_mongodb.yaml overlay
-#   3. Port 27017 is punched through Gluetun on the trading pod
-#   4. Set variables in a local .env file (see below)
-#
-# Required .env variables:
-#   TRUENAS_LAN_IP=192.168.1.54
-#   JUPYTER_TOKEN=<your-token>
-#   MONGO_ROOT_PASSWORD=<mongo-password>
+#   1. Trading pod is running with hummingbot_App_mongodb.yaml overlay
+#   2. Port 27017 is punched through Gluetun on the trading pod
+#   3. Set TRUENAS_LAN_IP in a local .env file (e.g. 192.168.1.50)
 #
 # Usage:
+#   echo "TRUENAS_LAN_IP=192.168.1.50" > .env
 #   docker compose -f quantslab_desktop_compose.yaml up -d
 #   docker compose -f quantslab_desktop_compose.yaml logs -f ql-jupyter
 #
@@ -72,8 +63,6 @@ services:
 
   # ── Quants Lab JupyterLab ──────────────────────────────────────────────
   quantslab-jupyter:
-    # Build locally if the image doesn't exist yet.
-    # Preferred: run Build_quantslab.sh/.ps1 first, then this is a no-op.
     build:
       context: .
       dockerfile: Dockerfile
@@ -86,7 +75,6 @@ services:
         condition: service_healthy
 
     # RTX 4090 GPU access (requires NVIDIA Container Toolkit)
-    # Comment out the deploy block if running without a GPU.
     deploy:
       resources:
         reservations:
@@ -99,7 +87,8 @@ services:
 
     environment:
       # ── MongoDB on the Trading Pod (over LAN) ──
-      MONGO_URI: "mongodb://admin:${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}@${TRUENAS_LAN_IP:?Set TRUENAS_LAN_IP in .env}:27017/quants_lab?authSource=admin&retryWrites=true&w=majority"
+      # TRUENAS_LAN_IP must be set in .env or shell environment
+      MONGO_URI: "mongodb://admin:hoxK62LLspRuYK14TryK34ubhToI63@${TRUENAS_LAN_IP:?Set TRUENAS_LAN_IP in .env}:27017/quants_lab?authSource=admin&retryWrites=true&w=majority"
       MONGO_DATABASE: "quants_lab"
 
       # ── Optuna Postgres (local to this stack) ──
@@ -112,7 +101,7 @@ services:
       NUMEXPR_MAX_THREADS: "12"
 
       # Jupyter
-      JUPYTER_TOKEN: "${JUPYTER_TOKEN:-change-me}"
+      JUPYTER_TOKEN: "change-me"
       PYTHONUNBUFFERED: "1"
       TZ: "America/Boise"
 
@@ -122,21 +111,18 @@ services:
     ports:
       - "127.0.0.1:8888:8888"
 
-    # All base packages (psycopg2, optuna, pymongo, etc.) are baked into
-    # the image via environment.yml.  Only GPU packages are installed at
-    # runtime since they're large and optional.
-    #
-    # If you built with --gpu / -Gpu, the runtime install is a fast no-op.
+    # Install psycopg2-binary + optuna into the conda env at startup,
+    # then launch JupyterLab.  Once you bake these into the Dockerfile
+    # you can remove the pip install line.
     command:
       - bash
       - -lc
       - |
           set -e
 
-          # GPU packages — skipped silently if already installed via --gpu build
-          conda run --no-capture-output -n quants-lab pip install --quiet --no-cache-dir \
-            "cupy-cuda12x[ctk]" "numba-cuda[cu12]" 2>/dev/null || \
-            echo "Note: GPU packages not installed (no CUDA toolkit found). CPU-only mode."
+          conda run --no-capture-output -n quants-lab pip install --quiet --upgrade --no-cache-dir \
+            psycopg2-binary optuna optuna-dashboard \
+            "cupy-cuda12x[ctk]" "numba-cuda[cu12]"
 
           exec conda run --no-capture-output -n quants-lab \
             jupyter lab \
