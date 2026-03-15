@@ -55,7 +55,7 @@ class PMMDynamicStrategy:
     @classmethod
     def from_sim_config(cls, sim_config) -> 'PMMDynamicStrategy':
         """Create from a legacy SimConfig for backward compatibility."""
-        controller_compat = getattr(sim_config, 'controller_compat', True)
+        controller_compat = sim_config.controller_compat
         return cls(PMMDynamicStrategyConfig(
             macd_fast=sim_config.macd_fast,
             macd_slow=sim_config.macd_slow,

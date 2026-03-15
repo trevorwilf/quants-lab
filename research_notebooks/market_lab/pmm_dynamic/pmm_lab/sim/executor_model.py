@@ -79,6 +79,10 @@ class SimConfig:
     # Timestamp
     timestamp_mode: str = "open"            # "open" or "close"
 
+    # Feature computation mode
+    controller_compat: bool = True          # True = sliding-window (matches live controller, slower)
+                                            # False = full-history vectorized (faster, for search phase)
+
     # Rebalance (v2) — defaults preserve v1 behavior
     initial_base_pct: float = 0.0
     position_rebalance_threshold_pct: float = 0.0

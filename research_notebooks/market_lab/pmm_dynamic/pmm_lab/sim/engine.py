@@ -255,13 +255,48 @@ class SimEngine:
         -------
         SimResult
         """
+        signals = strategy.compute_signals(candles)
+        return self.run_with_signals(candles, strategy, signals, sim_start_idx)
+
+    def run_with_signals(
+        self,
+        candles: np.ndarray,
+        strategy: Strategy,
+        precomputed_signals: SignalOutput,
+        sim_start_idx: Optional[int] = None,
+    ) -> SimResult:
+        """Run a backtest using pre-computed signals (skips signal computation).
+
+        This is identical to run() except it uses precomputed_signals instead of
+        calling strategy.compute_signals(candles). Use this when running the same
+        strategy config across multiple candle slices (walk-forward folds) or
+        stress scenarios where signals don't change.
+
+        IMPORTANT: precomputed_signals must have been computed on a candle array
+        that is >= len(candles). Signal arrays are indexed by bar position, so
+        signals[0:len(candles)] are used.
+
+        Parameters
+        ----------
+        candles : np.ndarray
+            Canonical structured candle array (may be a slice of the full array).
+        strategy : Strategy
+            Strategy implementation (used for build_orders only, NOT compute_signals).
+        precomputed_signals : SignalOutput
+            Pre-computed signals from strategy.compute_signals() on the full candle array.
+        sim_start_idx : int, optional
+            Bar index where simulation starts.
+
+        Returns
+        -------
+        SimResult
+        """
         cfg = self.config
         rules = self.pair_rules
         n = len(candles)
         self._warned_no_orders = False
 
-        # 1. Compute signals via strategy
-        signals = strategy.compute_signals(candles)
+        signals = precomputed_signals
         warmup_end = signals.warmup_end
 
         loop_start = max(warmup_end, sim_start_idx) if sim_start_idx is not None else warmup_end

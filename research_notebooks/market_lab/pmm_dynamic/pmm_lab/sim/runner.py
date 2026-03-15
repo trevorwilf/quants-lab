@@ -64,3 +64,18 @@ class CandleSimRunner:
     def run(self, candles: np.ndarray, sim_start_idx: Optional[int] = None) -> SimResult:
         """Run a full backtest. Delegates to SimEngine."""
         return self._engine.run(candles, self._strategy, sim_start_idx)
+
+    def run_with_signals(
+        self,
+        candles: np.ndarray,
+        precomputed_signals,
+        sim_start_idx: Optional[int] = None,
+    ) -> SimResult:
+        """Run backtest with pre-computed signals (skips signal computation)."""
+        return self._engine.run_with_signals(
+            candles, self._strategy, precomputed_signals, sim_start_idx
+        )
+
+    def compute_signals(self, candles: np.ndarray):
+        """Compute signals without running the simulation. For pre-computation."""
+        return self._strategy.compute_signals(candles)

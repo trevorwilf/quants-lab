@@ -105,11 +105,11 @@ services:
       # ── Optuna Postgres (local to this stack) ──
       OPTUNA_STORAGE: "postgresql+psycopg2://optuna:optuna@optuna-postgres:5432/optuna"
 
-      # Threading — match to your CPU core count
-      OMP_NUM_THREADS: "12"
-      OPENBLAS_NUM_THREADS: "12"
-      MKL_NUM_THREADS: "12"
-      NUMEXPR_MAX_THREADS: "12"
+      # Threading — pinned to 1 to prevent thread oversubscription with multi-worker Optuna
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
 
       # Jupyter
       JUPYTER_TOKEN: "${JUPYTER_TOKEN:-change-me}"

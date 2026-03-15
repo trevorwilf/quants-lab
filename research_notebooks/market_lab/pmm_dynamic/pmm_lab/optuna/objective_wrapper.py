@@ -34,6 +34,7 @@ def create_objective(
     run_stress: bool = True,
     lambda_mad: float = 0.5,
     fixed_quote: Optional[float] = None,  # if set, passed to suggest_params
+    controller_compat: bool = True,        # feature computation mode
 ):
     """Create an Optuna-compatible objective function (closure).
 
@@ -64,6 +65,10 @@ def create_objective(
             trial.set_user_attr("objective_score", REJECT_SCORE)
             trial.set_user_attr("dataset_hash", dataset_hash)
             return REJECT_SCORE
+
+        # Override controller_compat from the sweep-level setting
+        from dataclasses import replace
+        config = replace(config, controller_compat=controller_compat)
 
         trial.set_user_attr("reject_reason", None)
         trial.set_user_attr("buy_n_levels", len(config.buy_spreads))
@@ -104,12 +109,16 @@ def create_objective(
         fold_trades = []
         fold_fees = []
 
+        # Compute signals ONCE on the full candle array (before the fold loop)
+        runner_for_signals = CandleSimRunner(config, pair_rules)
+        full_signals = runner_for_signals.compute_signals(candles)
+
         for fold_def in fold_defs:
             # Slice candles for feature warmup through test end
             candle_slice = candles[:fold_def.test_end_idx]
 
             runner = CandleSimRunner(config, pair_rules)
-            sim_result = runner.run(candle_slice, sim_start_idx=fold_def.test_start_idx)
+            sim_result = runner.run_with_signals(candle_slice, full_signals, sim_start_idx=fold_def.test_start_idx)
 
             # Extract test window
             test_eq = sim_result.equity_curve[fold_def.test_start_idx:fold_def.test_end_idx]
@@ -165,6 +174,7 @@ def create_objective(
                     fold_test_end_idx=fold_def.test_end_idx,
                     scenarios=scenarios,
                     objective_weights=_stress_weights if isinstance(_obj_weights, ObjectiveWeights) else ObjectiveWeights(),
+                    precomputed_signals=full_signals,
                 )
                 fold_stress_scores_list.append(fold_stress)
 
