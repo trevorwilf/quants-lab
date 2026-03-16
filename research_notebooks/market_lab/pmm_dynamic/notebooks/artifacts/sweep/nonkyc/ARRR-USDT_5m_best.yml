@@ -1,36 +1,44 @@
 buy_amounts_pct:
-- 0.43313510573242653
+- 0.03743198883713699
+- 0.07136093541520627
+- 0.1360436156756114
+- 0.259355700123707
 buy_spreads:
-- 0.4422409636473741
+- 0.29108863775520694
+- 0.4141317942666675
+- 0.5891852885263008
+- 0.8382338883942113
 candles_config: []
 candles_connector: nonkyc
 candles_trading_pair: ARRR-USDT
 connector_name: nonkyc
 controller_name: pmm_dynamic
 controller_type: market_making
-cooldown_time: 244
-executor_refresh_time: 973
-id: ARRR-USDT-PMM-DYNAMIC_42.06748937437969
+cooldown_time: 253
+executor_refresh_time: 1115
+id: ARRR-USDT-PMM-DYNAMIC_170.29948144066157
 interval: 5m
 leverage: 1
-macd_fast: 31
-macd_signal: 22
-macd_slow: 57
+macd_fast: 44
+macd_signal: 21
+macd_slow: 61
 manual_kill_switch: false
-natr_length: 12
+natr_length: 42
 position_mode: HEDGE
-position_rebalance_threshold_pct: 0.05
+position_rebalance_threshold_pct: 0.0
 sell_amounts_pct:
-- 0.5668648942675735
+- 0.17059078670139122
+- 0.3252169732469472
 sell_spreads:
-- 0.3349188837094918
-skip_rebalance: false
-stop_loss: 0.24357568021925105
-take_profit: 0.09140777759934406
+- 0.2036059123919964
+- 0.2574362435764824
+skip_rebalance: true
+stop_loss: 0.1876808611684624
+take_profit: 0.09750939809239499
 take_profit_order_type: 2
-time_limit: 138190
-total_amount_quote: 42.06748937437969
+time_limit: 151130
+total_amount_quote: 170.29948144066157
 trading_pair: ARRR-USDT
 trailing_stop:
-  activation_price: 0.05020507262030969
-  trailing_delta: 0.0010168897358866884
+  activation_price: 0.04140165921989172
+  trailing_delta: 0.003197167498462713

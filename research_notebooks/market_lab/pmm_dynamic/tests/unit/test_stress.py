@@ -2,6 +2,8 @@
 
 import pytest
 import numpy as np
+
+pytestmark = pytest.mark.slow
 from dataclasses import replace
 
 from pmm_lab.config.params import PairRules, FeeConfig

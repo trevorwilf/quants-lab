@@ -99,6 +99,8 @@ def evaluate_holdout(
     objective_version: int = 1,
     objective_weights=None,
     collapse_threshold: float = 0.60,
+    full_candles: Optional[np.ndarray] = None,     # full dataset for warm-start
+    holdout_start_idx: Optional[int] = None,        # index where holdout begins
 ) -> HoldoutReport:
     """Evaluate top-k candidates on holdout data.
 
@@ -143,16 +145,48 @@ def evaluate_holdout(
 
         # Run simulation on holdout
         runner = CandleSimRunner(config, pair_rules)
-        result = runner.run(holdout_candles)
-        metrics = compute_metrics(result, initial_equity, holdout_candles, bar_interval_seconds)
+        if full_candles is not None and holdout_start_idx is not None:
+            # Warm-start: compute signals on full history, sim starts at holdout boundary
+            signals = runner.compute_signals(full_candles)
+            candles_through_holdout = full_candles[:holdout_start_idx + len(holdout_candles)]
+            result = runner.run_with_signals(
+                candles_through_holdout, signals,
+                sim_start_idx=holdout_start_idx,
+            )
+            # Extract holdout-window metrics
+            holdout_eq = result.equity_curve[holdout_start_idx:]
+            holdout_pos = result.position_history[holdout_start_idx:]
+            holdout_trades = [t for t in result.trades if t.entry_bar >= holdout_start_idx]
+            holdout_result = SimResult(
+                trades=holdout_trades,
+                equity_curve=holdout_eq,
+                position_history=holdout_pos,
+                n_orders_placed=result.n_orders_placed,
+                n_orders_filled=result.n_orders_filled,
+                n_orders_rejected=result.n_orders_rejected,
+                n_market_exits=result.n_market_exits,
+                final_base_balance=result.final_base_balance,
+                final_quote_balance=result.final_quote_balance,
+            )
+            metrics = compute_metrics(holdout_result, initial_equity, holdout_candles, bar_interval_seconds)
+        else:
+            # Legacy cold-start path (backward compatible)
+            result = runner.run(holdout_candles)
+            metrics = compute_metrics(result, initial_equity, holdout_candles, bar_interval_seconds)
         obj = obj_fn(metrics)
 
         # Optional stress on holdout
         stress_report = None
         if run_stress:
-            stress_report = run_stress_tests(
-                holdout_candles, config, pair_rules, bar_interval_seconds,
-            )
+            if full_candles is not None and holdout_start_idx is not None:
+                stress_report = run_stress_tests(
+                    candles_through_holdout, config, pair_rules, bar_interval_seconds,
+                    precomputed_signals=signals,
+                )
+            else:
+                stress_report = run_stress_tests(
+                    holdout_candles, config, pair_rules, bar_interval_seconds,
+                )
 
         candidates.append(HoldoutCandidateResult(
             rank=rank,

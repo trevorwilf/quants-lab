@@ -3,6 +3,8 @@
 import numpy as np
 import pytest
 
+pytestmark = pytest.mark.slow
+
 from pmm_lab.optuna.sensitivity import (
     compute_sensitivity, SensitivityReport,
     _perturb_params, PERTURBABLE_PARAMS,

@@ -83,6 +83,18 @@ def _perturb_params(
     return variants
 
 
+def _signal_cache_key(config) -> tuple:
+    """Cache key covering all feature-affecting config fields."""
+    return (
+        config.macd_fast,
+        config.macd_slow,
+        config.macd_signal,
+        config.natr_length,
+        config.controller_compat,
+        config.timestamp_mode,
+    )
+
+
 def compute_sensitivity(
     params: Dict[str, Any],
     candles: np.ndarray,
@@ -143,6 +155,15 @@ def compute_sensitivity(
         _weights = objective_weights or ObjectiveWeights()
         obj_fn = lambda m: objective_v1(m, _weights)
 
+    # Signal cache — reuse signals when indicator params are unchanged
+    _signal_cache = {}
+
+    def _get_or_compute_signals(cfg):
+        key = _signal_cache_key(cfg)
+        if key not in _signal_cache:
+            _signal_cache[key] = CandleSimRunner(cfg, pair_rules).compute_signals(candles)
+        return _signal_cache[key]
+
     # Compute baseline
     baseline_config, reject = canonicalize_params(params, pair_rules, reference_price)
     if baseline_config is None:
@@ -154,8 +175,9 @@ def compute_sensitivity(
             n_perturbations=0, n_rejected=0,
         )
 
+    baseline_signals = _get_or_compute_signals(baseline_config)
     runner = CandleSimRunner(baseline_config, pair_rules)
-    result = runner.run(candles)
+    result = runner.run_with_signals(candles, baseline_signals)
     metrics = compute_metrics(result, baseline_config.total_amount_quote, candles, bar_interval_seconds)
     baseline_obj = obj_fn(metrics)
     baseline_score = baseline_obj.raw_score
@@ -183,7 +205,8 @@ def compute_sensitivity(
                 scores_for_param.append(REJECT_SCORE)
                 continue
 
-            r = CandleSimRunner(config, pair_rules).run(candles)
+            variant_signals = _get_or_compute_signals(config)
+            r = CandleSimRunner(config, pair_rules).run_with_signals(candles, variant_signals)
             m = compute_metrics(r, config.total_amount_quote, candles, bar_interval_seconds)
             obj = obj_fn(m)
             score = obj.raw_score

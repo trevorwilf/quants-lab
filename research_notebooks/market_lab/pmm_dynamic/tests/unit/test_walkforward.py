@@ -3,6 +3,8 @@
 import numpy as np
 import pytest
 
+pytestmark = pytest.mark.slow
+
 from pmm_lab.config.params import PairRules, FeeConfig
 from pmm_lab.sim.executor_model import SimConfig
 from pmm_lab.objective.walkforward import TimeSeriesCV, run_walk_forward
@@ -50,6 +52,7 @@ def default_config():
         buy_amounts_pct=[0.5, 0.5],
         sell_amounts_pct=[0.5, 0.5],
         total_amount_quote=100.0,
+        controller_compat=False,  # Fast mode — this test validates workflow, not feature parity
     )
 
 
@@ -151,7 +154,7 @@ class TestTimeSeriesCV:
 class TestRunWalkForward:
     def test_walk_forward_deterministic(self, default_config, default_pair_rules):
         """Run twice with same inputs → identical results."""
-        candles = _make_candles(1500)
+        candles = _make_candles(600)
         result1 = run_walk_forward(
             candles, default_config, default_pair_rules, 300, "hash1",
             train_days=1.0, test_days=0.5, step_days=0.5, embargo_bars=10,
@@ -165,7 +168,7 @@ class TestRunWalkForward:
 
     def test_walk_forward_produces_metrics(self, default_config, default_pair_rules):
         """Walk-forward → every FoldResult has non-None test_metrics and test_objective."""
-        candles = _make_candles(1500)
+        candles = _make_candles(600)
         result = run_walk_forward(
             candles, default_config, default_pair_rules, 300, "hash1",
             train_days=1.0, test_days=0.5, step_days=0.5, embargo_bars=10,

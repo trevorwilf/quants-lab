@@ -133,7 +133,9 @@ class ObjectiveWeightsV2:
     w_edge: float = 0.30                # negative edge penalty
     min_trades_soft: int = 50
     min_trades_hard: int = 3
-    estimated_round_trip_cost_bps: float = 10.0  # estimated cost per round-trip in bps
+    estimated_round_trip_cost_bps: float = 10.0  # UNUSED — reserved for future edge normalization
+    # NOTE: The current edge penalty in objective_v2() normalizes by avg_trade_value,
+    # not by this field. This field is kept for forward compatibility but has no effect.
 
 
 def objective_v2(

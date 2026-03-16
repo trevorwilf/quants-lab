@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-live test-regression data-audit backtest-smoke \
+.PHONY: test test-unit test-slow test-full test-live test-regression data-audit backtest-smoke \
         walkforward-smoke stress-smoke optimize-smoke export-validate \
         clean-artifacts help
 
@@ -19,10 +19,16 @@ help:
 	@echo "  clean-artifacts   Remove old artifacts"
 
 test:
-	python -m pytest tests/ -q --tb=short -m "not live_mongo"
+	python -m pytest tests/ -q --tb=short -m "not live_mongo and not slow"
 
 test-unit:
-	python -m pytest tests/unit/ -q --tb=short
+	python -m pytest tests/unit/ -q --tb=short -m "not slow"
+
+test-slow:
+	python -m pytest tests/ -q --tb=short -m "slow and not live_mongo"
+
+test-full:
+	python -m pytest tests/ -q --tb=short -m "not live_mongo"
 
 test-live:
 	python -m pytest tests/integration/ -q --tb=short -m live_mongo

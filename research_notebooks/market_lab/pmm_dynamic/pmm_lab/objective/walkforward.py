@@ -34,10 +34,10 @@ class FoldDefinition:
 class FoldResult:
     """Result of evaluating one fold."""
     fold_index: int
-    train_metrics: Metrics
+    train_metrics: Optional[Metrics]
     test_metrics: Metrics
     test_objective: ObjectiveDecomposition
-    train_trade_count: int
+    train_trade_count: Optional[int]
     test_trade_count: int
 
 
@@ -144,6 +144,7 @@ def run_walk_forward(
     embargo_bars: Optional[int] = None,
     objective_weights=None,
     objective_version: int = 1,
+    include_train_metrics: bool = True,
 ) -> WalkForwardResult:
     """Run a full walk-forward evaluation.
 
@@ -174,13 +175,20 @@ def run_walk_forward(
     fold_results = []
     per_fold_scores = []
 
+    # Precompute signals ONCE on full candle array — exact reuse pattern
+    # from objective_wrapper.py. Parity proven in test_signal_cache.py.
+    runner_for_signals = CandleSimRunner(config, pair_rules)
+    full_signals = runner_for_signals.compute_signals(candles)
+
     for fold_def in fold_defs:
         # Slice candles: full history up to test end for feature warmup
         candle_slice = candles[:fold_def.test_end_idx]
 
-        # Run simulation — features computed on full slice, sim starts at test_start_idx
+        # Run simulation — reuse precomputed signals, sim starts at test_start_idx
         runner = CandleSimRunner(config, pair_rules)
-        sim_result = runner.run(candle_slice, sim_start_idx=fold_def.test_start_idx)
+        sim_result = runner.run_with_signals(
+            candle_slice, full_signals, sim_start_idx=fold_def.test_start_idx
+        )
 
         # Compute test metrics: use only the test window portion of equity/position
         test_eq = sim_result.equity_curve[fold_def.test_start_idx:fold_def.test_end_idx]
@@ -214,43 +222,47 @@ def run_walk_forward(
             _weights = objective_weights if isinstance(objective_weights, ObjectiveWeights) else ObjectiveWeights()
             test_obj = objective_v1(test_metrics, _weights)
 
-        # Train diagnostics: use the declared rolling train window
-        train_candle_slice = candles[:fold_def.train_end_idx]  # need full history for feature warmup
-        train_runner = CandleSimRunner(config, pair_rules)
-        train_sim_result = train_runner.run(
-            train_candle_slice,
-            sim_start_idx=fold_def.train_start_idx,  # start sim at train window start
-        )
-        train_candles_window = candles[fold_def.train_start_idx:fold_def.train_end_idx]
+        # Train diagnostics: use the declared rolling train window (optional)
+        train_metrics = None
+        train_trade_count = None
+        if include_train_metrics:
+            train_candle_slice = candles[:fold_def.train_end_idx]  # need full history for feature warmup
+            train_runner = CandleSimRunner(config, pair_rules)
+            train_sim_result = train_runner.run_with_signals(
+                train_candle_slice, full_signals,
+                sim_start_idx=fold_def.train_start_idx,
+            )
+            train_candles_window = candles[fold_def.train_start_idx:fold_def.train_end_idx]
 
-        # Extract train-window metrics
-        train_eq = train_sim_result.equity_curve[fold_def.train_start_idx:fold_def.train_end_idx]
-        train_pos = train_sim_result.position_history[fold_def.train_start_idx:fold_def.train_end_idx]
-        train_trades = [t for t in train_sim_result.trades if t.entry_bar >= fold_def.train_start_idx]
+            # Extract train-window metrics
+            train_eq = train_sim_result.equity_curve[fold_def.train_start_idx:fold_def.train_end_idx]
+            train_pos = train_sim_result.position_history[fold_def.train_start_idx:fold_def.train_end_idx]
+            train_trades = [t for t in train_sim_result.trades if t.entry_bar >= fold_def.train_start_idx]
 
-        train_sim_window = SimResult(
-            trades=train_trades,
-            equity_curve=train_eq,
-            position_history=train_pos,
-            n_orders_placed=train_sim_result.n_orders_placed,
-            n_orders_filled=train_sim_result.n_orders_filled,
-            n_orders_rejected=train_sim_result.n_orders_rejected,
-            n_market_exits=train_sim_result.n_market_exits,
-            final_base_balance=train_sim_result.final_base_balance,
-            final_quote_balance=train_sim_result.final_quote_balance,
-        )
+            train_sim_window = SimResult(
+                trades=train_trades,
+                equity_curve=train_eq,
+                position_history=train_pos,
+                n_orders_placed=train_sim_result.n_orders_placed,
+                n_orders_filled=train_sim_result.n_orders_filled,
+                n_orders_rejected=train_sim_result.n_orders_rejected,
+                n_market_exits=train_sim_result.n_market_exits,
+                final_base_balance=train_sim_result.final_base_balance,
+                final_quote_balance=train_sim_result.final_quote_balance,
+            )
 
-        train_metrics = compute_metrics(
-            train_sim_window, initial_equity,
-            train_candles_window, bar_interval_seconds
-        )
+            train_metrics = compute_metrics(
+                train_sim_window, initial_equity,
+                train_candles_window, bar_interval_seconds
+            )
+            train_trade_count = train_metrics.trade_count
 
         fold_results.append(FoldResult(
             fold_index=fold_def.fold_index,
             train_metrics=train_metrics,
             test_metrics=test_metrics,
             test_objective=test_obj,
-            train_trade_count=train_metrics.trade_count,
+            train_trade_count=train_trade_count,
             test_trade_count=test_metrics.trade_count,
         ))
 

@@ -187,8 +187,11 @@ def run_stop_ship_checks(
     else:
         checks["dataset_audit"] = False
 
-    # 2. feature_parity — require trades AND non-degenerate metrics
-    checks["feature_parity"] = bool(
+    # 2. runtime_sanity — require trades AND non-degenerate metrics
+    # NOTE: This checks that the simulation produces non-degenerate output.
+    # It does NOT verify feature parity with the live Hummingbot controller.
+    # True native parity is tracked separately in pmm_lab/parity/feature_parity.py.
+    checks["runtime_sanity"] = bool(
         best_metrics.trade_count >= 5  # at least 5 round-trip trades
         and best_metrics.pnl_pct != 0.0
         and best_metrics.total_fees_quote > 0  # fees were actually computed

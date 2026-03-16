@@ -29,3 +29,9 @@ include = ["pmm_lab*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: expensive tests excluded from default fast lane (deselect with '-m \"not slow\"')",
+    "integration: cross-module workflow tests",
+    "parity: controller/fixture parity tests",
+    "live_mongo: requires a live MongoDB instance",
+]

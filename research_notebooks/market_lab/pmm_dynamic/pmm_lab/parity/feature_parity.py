@@ -119,7 +119,16 @@ def check_feature_parity_native(
 ) -> ParityResult:
     """Compare local features against native Hummingbot controller.
 
-    Only works when Hummingbot is installed.
+    STATUS: NOT YET IMPLEMENTED.
+
+    This function is a placeholder. When Hummingbot is installed, it should:
+    1. Instantiate the Hummingbot PMM Dynamic controller
+    2. Feed it aligned historical candles
+    3. Extract reference_price / spread_multiplier / NATR / MACD outputs
+    4. Compare bar-by-bar against pmm_lab outputs
+
+    The stop-ship check in report_md.py (named 'runtime_sanity') is NOT
+    a substitute for this function. It only checks non-degeneracy.
 
     Raises ImportError if Hummingbot is not available.
     """

@@ -7,6 +7,8 @@ import numpy as np
 import optuna
 import pytest
 
+pytestmark = pytest.mark.slow
+
 from pmm_lab.config.params import PairRules, FeeConfig
 from pmm_lab.data.hashing import hash_candles
 from pmm_lab.optuna.objective_wrapper import create_objective

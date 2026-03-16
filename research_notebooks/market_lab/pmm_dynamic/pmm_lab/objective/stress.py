@@ -145,10 +145,13 @@ def run_stress_tests(
 
     # Run baseline
     baseline_runner = CandleSimRunner(config, pair_rules)
-    if precomputed_signals is not None:
-        baseline_result = baseline_runner.run_with_signals(candles, precomputed_signals)
-    else:
-        baseline_result = baseline_runner.run(candles)
+
+    # Auto-precompute signals if not supplied — safe because apply_scenario()
+    # does not modify indicator parameters (only fees, latency, slippage, fill rate)
+    if precomputed_signals is None:
+        precomputed_signals = baseline_runner.compute_signals(candles)
+
+    baseline_result = baseline_runner.run_with_signals(candles, precomputed_signals)
     baseline_metrics = compute_metrics(baseline_result, initial_equity, candles, bar_interval_seconds)
     baseline_objective = _score(baseline_metrics)
 
@@ -157,10 +160,7 @@ def run_stress_tests(
     for scenario in scenarios:
         stressed_config, stressed_rules = apply_scenario(config, pair_rules, scenario)
         runner = CandleSimRunner(stressed_config, stressed_rules)
-        if precomputed_signals is not None:
-            sim_result = runner.run_with_signals(candles, precomputed_signals)
-        else:
-            sim_result = runner.run(candles)
+        sim_result = runner.run_with_signals(candles, precomputed_signals)
         metrics = compute_metrics(sim_result, initial_equity, candles, bar_interval_seconds)
         obj = _score(metrics)
         scenario_results.append(StressResult(
@@ -241,14 +241,15 @@ def run_fold_local_stress(
     initial_equity = config.total_amount_quote
     candle_slice = candles[:fold_test_end_idx]
 
+    # Auto-precompute signals if not supplied
+    if precomputed_signals is None:
+        precomputed_signals = CandleSimRunner(config, pair_rules).compute_signals(candles)
+
     stress_scores = []
     for scenario in scenarios:
         stressed_config, stressed_rules = apply_scenario(config, pair_rules, scenario)
         runner = CandleSimRunner(stressed_config, stressed_rules)
-        if precomputed_signals is not None:
-            sim_result = runner.run_with_signals(candle_slice, precomputed_signals, sim_start_idx=fold_test_start_idx)
-        else:
-            sim_result = runner.run(candle_slice, sim_start_idx=fold_test_start_idx)
+        sim_result = runner.run_with_signals(candle_slice, precomputed_signals, sim_start_idx=fold_test_start_idx)
 
         # Extract test window
         test_eq = sim_result.equity_curve[fold_test_start_idx:fold_test_end_idx]

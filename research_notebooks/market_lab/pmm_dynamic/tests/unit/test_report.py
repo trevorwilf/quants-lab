@@ -157,7 +157,7 @@ class TestStopShipChecksAllFailWhenEmpty:
             best_metrics=_make_metrics(trade_count=0, pnl_pct=0.0),
             best_objective=_make_objective(raw_score=REJECT_SCORE, is_rejected=True),
         )
-        assert checks["feature_parity"] is False
+        assert checks["runtime_sanity"] is False
         assert checks["objective_not_degenerate"] is False
         assert checks["stress_not_collapsed"] is False
         assert checks["yaml_validates"] is False
@@ -214,5 +214,5 @@ class TestStopShipChecksBackwardCompat:
         assert checks["holdout_no_collapse"] is False
         assert checks["sensitivity_stable"] is False
         # But core checks can still pass
-        assert checks["feature_parity"] is True
+        assert checks["runtime_sanity"] is True
         assert checks["objective_not_degenerate"] is True

@@ -1,6 +1,6 @@
-# PMM Dynamic Optimization Report: nonkyc_ARRR-USDT_5m_sweep_nonkyc_v1
+# PMM Dynamic Optimization Report: nonkyc_ARRR-USDT_5m_sweep_nonkyc_v2
 
-Generated: 2026-03-09 14:55:10 UTC
+Generated: 2026-03-15 23:31:53 UTC
 
 ## Dataset Summary
 
@@ -16,83 +16,83 @@ Generated: 2026-03-09 14:55:10 UTC
 
 | Parameter | Value |
 |-----------|-------|
-| amount_skew | 3.786515081741557 |
-| buy_n_levels | 9 |
-| buy_side_weight | 0.43313510573242653 |
-| buy_spread_base | 0.4422409636473741 |
-| buy_spread_ratio | 2.7795230624830056 |
-| cooldown_time | 244.27591883332423 |
-| executor_refresh_time | 973.5847645273673 |
-| macd_fast | 31 |
-| macd_signal | 22 |
-| macd_slow | 57 |
-| natr_length | 12 |
-| sell_n_levels | 3 |
-| sell_spread_base | 0.3349188837094918 |
-| sell_spread_ratio | 1.2158693648232959 |
-| stop_loss | 0.24357568021925105 |
-| take_profit | 0.09140777759934406 |
-| time_limit | 138190 |
-| total_amount_quote | 42.06748937437969 |
-| trailing_stop_activation | 0.05020507262030969 |
-| trailing_stop_delta | 0.0010168897358866884 |
+| amount_skew | 1.9064158125738626 |
+| buy_n_levels | 6 |
+| buy_side_weight | 0.5041922400516616 |
+| buy_spread_base | 0.29108863775520694 |
+| buy_spread_ratio | 1.4226999633525188 |
+| cooldown_time | 253.29338935936653 |
+| executor_refresh_time | 1115.000515225536 |
+| macd_fast | 44 |
+| macd_signal | 21 |
+| macd_slow | 61 |
+| natr_length | 42 |
+| sell_n_levels | 2 |
+| sell_spread_base | 0.2036059123919964 |
+| sell_spread_ratio | 1.264384911774311 |
+| stop_loss | 0.1876808611684624 |
+| take_profit | 0.09750939809239499 |
+| time_limit | 151130 |
+| total_amount_quote | 170.29948144066157 |
+| trailing_stop_activation | 0.04140165921989172 |
+| trailing_stop_delta | 0.003197167498462713 |
 
 ## Best Metrics
 
-- **PnL %**: 3931.6168
-- **Net PnL (quote)**: 1653.9325
-- **Sharpe Ratio**: 5.8422
-- **Max Drawdown %**: 45.2092
-- **Profit Factor**: 1.1783218117943637
-- **Trade Count**: 18117
-- **Total Fees (quote)**: 707.2007
-- **Maker Fees**: 247.8315
-- **Taker Fees**: 459.3693
-- **Fee Drag %**: 1681.1099
+- **PnL %**: 3379.0898
+- **Net PnL (quote)**: 5754.5725
+- **Sharpe Ratio**: 5.5361
+- **Max Drawdown %**: 50.4494
+- **Profit Factor**: 1.2576725681209082
+- **Trade Count**: 43292
+- **Total Fees (quote)**: 2183.1171
+- **Maker Fees**: 760.8422
+- **Taker Fees**: 1422.2749
+- **Fee Drag %**: 1281.9282
 
 ## Objective Decomposition
 
-- **Raw Score**: 3579.7967
-- **PnL Component**: 3931.6168
+- **Raw Score**: 3105.6205
+- **PnL Component**: 3379.0898
 - **Sharpe Component**: 2.5000
-- **Drawdown Component**: -13.5628
-- **Fee Drag Component**: -336.2220
-- **Inventory Component**: -4.2534
+- **Drawdown Component**: -15.1348
+- **Fee Drag Component**: -256.3856
+- **Inventory Component**: -4.1605
 - **Trade Count Penalty**: -0.0000
 - **Rejected**: False
 
 ## Walk-Forward Results
 
-Aggregate Score: **383.9697**
+Aggregate Score: **294.3823**
 
-| Fold | PnL % | Sharpe | Max DD % | Trades | Objective |
-|------|-------|--------|----------|--------|-----------|
-| 0 | 901.85 | 21.28 | 10.36 | 1237 | 879.6862 |
-| 1 | 449.58 | 28.52 | 11.97 | 754 | 428.6764 |
-| 2 | 472.91 | 20.01 | 13.99 | 882 | 446.7864 |
-| 3 | 591.86 | 28.69 | 9.89 | 831 | 568.2793 |
-| 4 | 227.11 | 26.57 | 10.82 | 861 | 204.0478 |
-| 5 | 500.23 | 28.15 | 13.24 | 865 | 475.2675 |
-| 6 | 367.91 | 16.97 | 27.52 | 829 | 339.2630 |
-| 7 | 419.40 | 28.39 | 15.13 | 817 | 395.7066 |
-| 8 | 195.92 | 26.29 | 7.49 | 809 | 174.7529 |
+| Fold | PnL % | Sharpe | Max DD % | Trades | Objective | Regime |
+|------|-------|--------|----------|--------|-----------|--------|
+| 0 | 543.93 | 22.59 | 13.02 | 3105 | 526.0184 | n/a |
+| 1 | 344.21 | 24.17 | 11.26 | 2526 | 323.2328 | n/a |
+| 2 | 393.51 | 18.68 | 15.05 | 2704 | 369.9112 | n/a |
+| 3 | 504.66 | 25.41 | 7.30 | 2451 | 485.3947 | n/a |
+| 4 | 287.45 | 28.09 | 11.34 | 2643 | 265.5319 | n/a |
+| 5 | 617.06 | 29.20 | 7.96 | 2731 | 595.0579 | n/a |
+| 6 | 323.59 | 17.11 | 18.13 | 2552 | 299.1912 | n/a |
+| 7 | 297.55 | 24.55 | 18.62 | 2694 | 273.7927 | n/a |
+| 8 | 179.84 | 26.01 | 6.96 | 2428 | 161.6401 | n/a |
 
 ## Stress Test Results
 
-Worst Scenario: **fees_2x** (score: 1801.1192)
+Worst Scenario: **combined_adverse** (score: 1409.9449)
 
 | Scenario | PnL % | Sharpe | Max DD % | Objective |
 |----------|-------|--------|----------|-----------|
-| fees_1.5x | 3241.59 | 5.58 | 44.86 | 2737.4615 |
-| fees_2x | 2447.23 | 5.25 | 40.73 | 1801.1192 |
-| latency_plus1 | 3306.07 | 5.61 | 43.97 | 2985.6979 |
-| latency_plus2 | 2879.64 | 5.40 | 42.96 | 2590.8909 |
-| latency_plus3 | 2196.39 | 4.96 | 42.09 | 1965.2020 |
-| low_liquidity | 3412.33 | 5.63 | 43.00 | 3098.8385 |
-| very_low_liquidity | 2887.93 | 5.24 | 41.80 | 2611.5618 |
-| high_slippage | 3566.51 | 5.79 | 43.76 | 3219.1368 |
-| extreme_slippage | 3282.28 | 5.60 | 44.95 | 2939.6491 |
-| combined_adverse | 2251.55 | 5.04 | 41.55 | 1838.1030 |
+| fees_1.5x | 2990.47 | 5.28 | 52.26 | 2595.4406 |
+| fees_2x | 2576.51 | 5.04 | 53.60 | 2067.2759 |
+| latency_plus1 | 3057.25 | 5.32 | 52.33 | 2808.4565 |
+| latency_plus2 | 2437.72 | 5.02 | 50.94 | 2220.0976 |
+| latency_plus3 | 1734.78 | 4.67 | 51.90 | 1552.4014 |
+| low_liquidity | 2611.83 | 5.15 | 50.86 | 2386.8211 |
+| very_low_liquidity | 1624.41 | 4.48 | 52.86 | 1458.7669 |
+| high_slippage | 3277.10 | 5.43 | 51.66 | 3004.7130 |
+| extreme_slippage | 2990.20 | 5.29 | 52.30 | 2721.2750 |
+| combined_adverse | 1694.81 | 4.52 | 52.35 | 1409.9449 |
 
 ## Stop-Ship Checks
 
@@ -101,6 +101,10 @@ Worst Scenario: **fees_2x** (score: 1801.1192)
 - objective_not_degenerate: PASS
 - stress_not_collapsed: PASS
 - yaml_validates: **FAIL**
-- determinism: PASS
+- walkforward_robust: PASS
+- walkforward_positive_majority: PASS
+- holdout_passed: **FAIL**
+- holdout_no_collapse: **FAIL**
+- sensitivity_stable: **FAIL**
 
 > **WARNING**: One or more stop-ship checks FAILED.

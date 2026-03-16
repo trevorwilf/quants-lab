@@ -5,6 +5,8 @@ import pandas as pd
 import pandas_ta as ta
 import pytest
 
+pytestmark = pytest.mark.slow
+
 from tests.conftest import _make_sample_candles_500, _make_sample_candles_5m
 from pmm_lab.features.pmm_dynamic_features import (
     compute_pmm_dynamic_features, PMMDynamicConfig, PMMDynamicFeatures,

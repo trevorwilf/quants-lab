@@ -4,6 +4,8 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
+pytestmark = pytest.mark.slow
+
 from pmm_lab.deploy.runner import PipelineResult, run_full_pipeline
 
 
@@ -23,7 +25,7 @@ class TestPipelineResultFields:
             holdout_score=0.3, holdout_passed=True,
             stress_worst_score=-1.0, sensitivity_penalty=0.05,
             top_k_clustered=True,
-            stop_ship_checks={"dataset_audit": True, "feature_parity": True},
+            stop_ship_checks={"dataset_audit": True, "runtime_sanity": True},
             stop_ship_passed=True,
             package_dir="/tmp/deploy",
             report_path="/tmp/report.md",

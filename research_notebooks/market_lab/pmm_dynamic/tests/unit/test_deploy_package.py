@@ -133,7 +133,7 @@ class TestPackageWithOptionalFields:
             holdout_score=0.8,
             stress_worst_score=-1.5,
             sensitivity_penalty=0.1,
-            stop_ship_checks={"dataset_audit": True, "feature_parity": True},
+            stop_ship_checks={"dataset_audit": True, "runtime_sanity": True},
             environment_hash="env123",
         )
         assert package.expected.wf_median_pnl_pct == 3.0

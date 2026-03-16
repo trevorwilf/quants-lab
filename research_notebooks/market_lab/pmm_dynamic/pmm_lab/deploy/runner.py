@@ -23,6 +23,7 @@ Usage:
 """
 
 import logging
+import os
 import time
 import numpy as np
 from pathlib import Path
@@ -89,7 +90,7 @@ def run_full_pipeline(
     trading_pair: str = "XMR-USDT",
     interval: str = "5m",
     n_trials: int = 200,
-    n_jobs: int = 8,
+    n_jobs: int = 1,  # Default to 1; use process-based workers for real parallelism
     output_dir: str = "artifacts",
     study_name: Optional[str] = None,
     holdout_fraction: float = 0.20,
@@ -215,6 +216,17 @@ def run_full_pipeline(
     reference_price = float(np.median(dev_candles["close"]))
 
     # ---- Step 4: Optimize ----
+    # Enforce preflight check when n_jobs > 1
+    if n_jobs > 1:
+        from pmm_lab.optuna.preflight import run_preflight
+        storage_url = os.environ.get("OPTUNA_STORAGE")
+        run_preflight(
+            n_workers=n_jobs,
+            storage_url=storage_url,
+            worker_model="threads",  # pipeline currently uses threaded study.optimize
+            strict=False,  # warn but don't abort for backward compat
+        )
+
     logger.info("Step 4: Optimization (%d trials, %d jobs)", n_trials, n_jobs)
     dev_hash = hash_candles(dev_candles)
     study = create_study(study_name=study_name)
@@ -290,6 +302,8 @@ def run_full_pipeline(
     holdout_report = evaluate_holdout(
         holdout_candles, candidates, pair_rules, bar_interval,
         run_stress=run_stress, objective_version=objective_version,
+        full_candles=candles,
+        holdout_start_idx=len(dev_candles),
     )
     logger.info("  Holdout score=%.4f, passed=%s", holdout_report.best_holdout_score, holdout_report.passed)
 

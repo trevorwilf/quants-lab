@@ -274,7 +274,7 @@ class TestStopShipChecksIntegrated:
         )
 
         expected_keys = {
-            "dataset_audit", "feature_parity", "objective_not_degenerate",
+            "dataset_audit", "runtime_sanity", "objective_not_degenerate",
             "stress_not_collapsed", "yaml_validates",
             "walkforward_robust", "walkforward_positive_majority",
             "holdout_passed", "holdout_no_collapse", "sensitivity_stable",
@@ -282,5 +282,5 @@ class TestStopShipChecksIntegrated:
         assert set(checks.keys()) == expected_keys
         # Core checks should pass
         assert checks["dataset_audit"] is True
-        assert checks["feature_parity"] is True
+        assert checks["runtime_sanity"] is True
         assert checks["objective_not_degenerate"] is True
