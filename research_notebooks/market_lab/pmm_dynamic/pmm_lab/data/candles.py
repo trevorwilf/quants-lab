@@ -11,6 +11,8 @@ from pmm_lab.config.defaults import (
     MAX_MISSING_ROW_FRACTION,
     MAX_LONGEST_GAP_MULTIPLIER,
     MAX_FORWARD_FILL_FRACTION,
+    MAX_UNEXPECTED_FORWARD_FILL_FRACTION,
+    MAX_SOURCE_SYNTHETIC_FRACTION,
 )
 from pmm_lab.config.params import AuditResult
 from pmm_lab.data.hashing import hash_candles
@@ -128,8 +130,21 @@ def validate_candles(
     volume_zero_count = int(np.sum(v == 0))
     volume_zero_fraction = volume_zero_count / n
 
-    # --- Forward-fill detection ---
-    ff_mask = detect_forward_fill(candles)
+    # --- Forward-fill detection (source-declared vs heuristic) ---
+    source_ff = candles["is_forward_fill"].astype(bool)
+    source_synthetic_count = int(np.sum(source_ff))
+    source_synthetic_fraction = source_synthetic_count / n
+
+    heuristic_ff = detect_forward_fill(candles)
+    heuristic_forward_fill_count = int(np.sum(heuristic_ff))
+
+    # Unexpected = heuristic-detected but NOT source-declared
+    unexpected_ff = heuristic_ff & ~source_ff
+    unexpected_forward_fill_count = int(np.sum(unexpected_ff))
+    unexpected_forward_fill_fraction = unexpected_forward_fill_count / n
+
+    # Total forward-fill = union of source + heuristic
+    ff_mask = source_ff | heuristic_ff
     forward_fill_count = int(np.sum(ff_mask))
     forward_fill_fraction = forward_fill_count / n
 
@@ -175,9 +190,15 @@ def validate_candles(
             failure_reasons.append(
                 f"longest gap {longest_gap}s exceeds {MAX_LONGEST_GAP_MULTIPLIER}x interval ({MAX_LONGEST_GAP_MULTIPLIER * interval_sec}s)"
             )
-        if forward_fill_fraction > MAX_FORWARD_FILL_FRACTION:
+        if unexpected_forward_fill_fraction > MAX_UNEXPECTED_FORWARD_FILL_FRACTION:
             failure_reasons.append(
-                f"forward-fill fraction {forward_fill_fraction:.4f} exceeds threshold {MAX_FORWARD_FILL_FRACTION}"
+                f"unexpected forward-fill fraction {unexpected_forward_fill_fraction:.4f} "
+                f"exceeds threshold {MAX_UNEXPECTED_FORWARD_FILL_FRACTION}"
+            )
+        if source_synthetic_fraction > MAX_SOURCE_SYNTHETIC_FRACTION:
+            failure_reasons.append(
+                f"source synthetic fraction {source_synthetic_fraction:.4f} "
+                f"exceeds threshold {MAX_SOURCE_SYNTHETIC_FRACTION}"
             )
 
     return AuditResult(
@@ -200,4 +221,9 @@ def validate_candles(
         longest_gap_seconds=longest_gap,
         passed_strict=len(failure_reasons) == 0,
         failure_reasons=failure_reasons,
+        source_synthetic_count=source_synthetic_count,
+        source_synthetic_fraction=source_synthetic_fraction,
+        heuristic_forward_fill_count=heuristic_forward_fill_count,
+        unexpected_forward_fill_count=unexpected_forward_fill_count,
+        unexpected_forward_fill_fraction=unexpected_forward_fill_fraction,
     )

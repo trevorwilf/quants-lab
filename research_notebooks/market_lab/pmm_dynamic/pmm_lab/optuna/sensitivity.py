@@ -84,15 +84,12 @@ def _perturb_params(
 
 
 def _signal_cache_key(config) -> tuple:
-    """Cache key covering all feature-affecting config fields."""
-    return (
-        config.macd_fast,
-        config.macd_slow,
-        config.macd_signal,
-        config.natr_length,
-        config.controller_compat,
-        config.timestamp_mode,
-    )
+    """Cache key covering all feature-affecting config fields.
+
+    Delegates to the shared signal_cache module.
+    """
+    from pmm_lab.objective.signal_cache import signal_cache_key
+    return signal_cache_key(config)
 
 
 def compute_sensitivity(

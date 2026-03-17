@@ -24,7 +24,7 @@ nb.cells.append(nbformat.v4.new_markdown_cell(
 # Cell 1 - Code (Setup)
 nb.cells.append(nbformat.v4.new_code_cell(
     'import sys, os, subprocess, time, logging\n'
-    'from datetime import datetime\n'
+    'from datetime import datetime, timezone\n'
     '\n'
     'PMM_DIR = "/quants-lab/research_notebooks/market_lab/pmm_dynamic"\n'
     'if PMM_DIR not in sys.path:\n'
@@ -152,15 +152,17 @@ from pmm_lab.optuna.study import create_study
 from pmm_lab.optuna.objective_wrapper import create_objective
 from pmm_lab.optuna.callbacks import DegeneracyCheckCallback, TrialLoggingCallback
 from pmm_lab.optuna.canonicalizer import canonicalize_params
-from pmm_lab.objective.stress import run_stress_tests
+from pmm_lab.objective.stress import load_stress_scenarios
+from pmm_lab.objective.stress_selection import select_best_stressed_candidate
 from pmm_lab.objective.walkforward import run_walk_forward
-from pmm_lab.objective.objective import REJECT_SCORE
+from pmm_lab.objective.objective import REJECT_SCORE, objective_v1
 from pmm_lab.export.hb_yaml import export_yaml, ExportParams
 from pmm_lab.export.validate_export import validate_yaml_file
-from pmm_lab.metrics.metrics import compute_metrics
-from pmm_lab.objective.objective import objective_v1
 from pmm_lab.report.report_md import generate_report, run_stop_ship_checks
 from pmm_lab.sim.runner import CandleSimRunner
+
+# Preload stress scenarios once (Task 4.1)
+stress_scenarios = load_stress_scenarios()
 
 rules_db = load_exchange_rules()
 sweep_results = []
@@ -258,7 +260,7 @@ for pair_idx, pair_info in enumerate(candidates):
         sweep_results.append({"pair": pair, "status": "optim_fail", "robust_score": None})
         continue
 
-    # ── Phase 2: Stress top N ──
+    # ── Phase 2: Stress top N (with signal cache, dedup, early pruning) ──
     try:
         completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         ranked = sorted(completed, key=lambda t: t.value, reverse=True)
@@ -280,33 +282,41 @@ for pair_idx, pair_info in enumerate(candidates):
             sweep_results.append({"pair": pair, "status": "no_valid_configs", "robust_score": None})
             continue
 
-        print(f"  Stress testing {len(top_candidates)} candidates...")
+        # Deduplicate by full config fingerprint (Task 4.4)
+        seen_configs = {}
+        deduped_candidates = []
         for candidate in top_candidates:
-            stress_report = run_stress_tests(
-                candles=candles,
-                config=candidate["config"],
-                pair_rules=pair_rules,
-                bar_interval_seconds=BAR_INTERVAL_SECONDS,
-            )
-            candidate["stress_report"] = stress_report
-            candidate["baseline_score"] = stress_report.baseline_objective.raw_score
-            candidate["worst_scenario"] = stress_report.worst_scenario
-            candidate["worst_score"] = stress_report.worst_score
-            candidate["robust_score"] = (
-                0.5 * stress_report.baseline_objective.raw_score
-                + 0.5 * stress_report.worst_score
-            )
+            fingerprint = candidate["config"].to_fingerprint()
+            if fingerprint not in seen_configs:
+                seen_configs[fingerprint] = True
+                deduped_candidates.append(candidate)
+        print(f"  Deduped: {len(top_candidates)} -> {len(deduped_candidates)} unique configs")
+        top_candidates = deduped_candidates
 
-        # Find best by robust score
-        top_candidates.sort(key=lambda c: c["robust_score"], reverse=True)
-        best = top_candidates[0]
+        # Signal cache + early pruning (Tasks 4.3, 4.5)
+        signal_cache = {}
+        best, diag = select_best_stressed_candidate(
+            top_candidates, candles, pair_rules, BAR_INTERVAL_SECONDS,
+            scenarios=stress_scenarios,
+            signal_cache=signal_cache,
+        )
+
+        if best is None:
+            print(f"  SKIP: no candidates survived stress testing")
+            sweep_results.append({"pair": pair, "status": "stress_fail", "robust_score": None})
+            continue
+
         best_config = best["config"]
         best_stress = best["stress_report"]
+        # Reuse winner baseline metrics (Task 4.2) — no extra sim needed
         bm = best_stress.baseline_metrics
 
         pair_elapsed = time.time() - pair_start
         print(f"  Best: trial {best['trial_number']}  robust={best['robust_score']:.4f}  "
               f"PnL={bm.pnl_pct:.2f}%  trades={bm.trade_count}  ({pair_elapsed/60:.1f}min)")
+        print(f"  Stress diag: evaluated={diag['candidates_evaluated']} "
+              f"pruned={diag['candidates_pruned']} "
+              f"cache_hits={diag['signal_cache_hits']} misses={diag['signal_cache_misses']}")
 
     except Exception as e:
         print(f"  SKIP: stress testing failed — {e}")
@@ -314,6 +324,8 @@ for pair_idx, pair_info in enumerate(candidates):
         continue
 
     # ── Record result ──
+    best_metrics = bm
+    best_obj = best_stress.baseline_objective
     result_entry = {
         "pair": pair,
         "status": "complete",
@@ -363,7 +375,7 @@ for pair_idx, pair_info in enumerate(candidates):
                     "robust_score": best["robust_score"],
                     "worst_scenario": best["worst_scenario"],
                     "worst_score": best["worst_score"],
-                    "sweep_date": datetime.utcnow().isoformat(),
+                    "sweep_date": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -373,12 +385,6 @@ for pair_idx, pair_info in enumerate(candidates):
                 bar_interval_seconds=BAR_INTERVAL_SECONDS, dataset_hash=dataset_hash,
                 train_days=train_days, test_days=test_days, step_days=step_days,
             )
-
-            # Metrics for report
-            runner = CandleSimRunner(best_config, pair_rules)
-            sim_result = runner.run(candles)
-            best_metrics = compute_metrics(sim_result, best_config.total_amount_quote, candles, BAR_INTERVAL_SECONDS)
-            best_obj = objective_v1(best_metrics)
 
             checks = run_stop_ship_checks(
                 best_metrics=best_metrics, best_objective=best_obj,

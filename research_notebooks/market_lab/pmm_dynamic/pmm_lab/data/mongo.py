@@ -126,13 +126,17 @@ class MongoCandleLoader:
             })
         return results
 
-    def load_range(self, query: DataQuery) -> np.ndarray:
+    def load_range(self, query: DataQuery, enrich_synthetic: bool = True) -> np.ndarray:
         """Load candles matching query, return as canonical structured NumPy array.
 
         Parameters
         ----------
         query : DataQuery
             Query parameters.
+        enrich_synthetic : bool
+            If True, look up `candle_features` collection to populate
+            `is_forward_fill` from `is_synthetic` / `no_trade_interval` flags.
+            Falls back gracefully if the collection doesn't exist.
 
         Returns
         -------
@@ -219,6 +223,63 @@ class MongoCandleLoader:
             # No duplicates — just ensure sorted
             unique_indices.sort()
             arr = arr[unique_indices]
+
+        # Enrich with synthetic flags from candle_features collection
+        if enrich_synthetic:
+            arr = self._enrich_synthetic_flags(arr, query)
+
+        return arr
+
+    def _enrich_synthetic_flags(
+        self, arr: np.ndarray, query: DataQuery
+    ) -> np.ndarray:
+        """Populate is_forward_fill from candle_features collection.
+
+        Looks up (connector, trading_pair, interval, timestamp) in the
+        candle_features collection. Rows where is_synthetic=True or
+        no_trade_interval=True are marked as is_forward_fill=True.
+
+        Falls back silently if candle_features collection doesn't exist
+        or has no matching documents.
+        """
+        try:
+            features_coll = self._db["candle_features"]
+            # Quick check: bail out if collection is empty or doesn't exist
+            if features_coll.estimated_document_count() == 0:
+                return arr
+        except Exception:
+            return arr
+
+        timestamps = arr["timestamp"].tolist()
+        try:
+            cursor = features_coll.find(
+                {
+                    "connector": query.connector,
+                    "trading_pair": query.trading_pair,
+                    "interval": query.interval,
+                    "timestamp": {"$in": timestamps},
+                    "$or": [
+                        {"is_synthetic": True},
+                        {"no_trade_interval": True},
+                    ],
+                },
+                {"timestamp": 1},
+            )
+            synthetic_timestamps = {doc["timestamp"] for doc in cursor}
+        except Exception:
+            return arr
+
+        if synthetic_timestamps:
+            n_enriched = 0
+            for i in range(len(arr)):
+                if arr[i]["timestamp"] in synthetic_timestamps:
+                    arr[i]["is_forward_fill"] = True
+                    n_enriched += 1
+            if n_enriched > 0:
+                logger.info(
+                    "Enriched %d/%d bars as synthetic from candle_features for %s %s %s",
+                    n_enriched, len(arr), query.connector, query.trading_pair, query.interval,
+                )
 
         return arr
 

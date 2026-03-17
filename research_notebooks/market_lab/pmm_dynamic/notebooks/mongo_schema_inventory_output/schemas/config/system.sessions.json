@@ -1,0 +1,10 @@
+{
+  "database": "config",
+  "collection": "system.sessions",
+  "scan_mode": "full",
+  "scan_limit": null,
+  "documents_scanned_for_schema": 0,
+  "estimated_document_count": 6,
+  "schema_is_exhaustive_for_collection": false,
+  "fields": []
+}

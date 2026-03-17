@@ -2,13 +2,15 @@
 # Runs all pmm_lab tests with output to both console and log file.
 #
 # Usage:
-#   .\all_tests.ps1                    # Run from repo root or pmm_dynamic dir
+#   .\all_tests.ps1                    # Run all tests (auto-discovery)
 #   .\all_tests.ps1 -Verbose           # Show extra timing info
 #   .\all_tests.ps1 -Quick             # Unit tests only (fast)
+#   .\all_tests.ps1 -Grouped           # Run by category with per-group status
 
 param(
     [switch]$Quick,
-    [switch]$Verbose
+    [switch]$Verbose,
+    [switch]$Grouped
 )
 
 # --- Resolve project directory ---
@@ -38,8 +40,8 @@ else {
 # --- Setup ---
 $logFile = Join-Path $pmmDynamic "test_results.log"
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$testPath = if ($Quick) { "tests/unit" } else { "tests" }
-$label = if ($Quick) { "UNIT TESTS ONLY" } else { "ALL TESTS" }
+$label = if ($Quick) { "UNIT TESTS ONLY" } elseif ($Grouped) { "GROUPED TESTS" } else { "ALL TESTS" }
+$tbFlag = if ($Verbose) { "--tb=long" } else { "--tb=short" }
 
 # --- Header ---
 $header = @"
@@ -53,19 +55,233 @@ $header = @"
 Write-Host $header -ForegroundColor Cyan
 $header | Out-File -FilePath $logFile -Encoding UTF8
 
-# --- Run pytest with tee to both console and file ---
-Push-Location $pmmDynamic
+# --- Test group definitions ---
+# Each group: label, pytest arguments
+# All paths are relative to $pmmDynamic
+$testGroups = @(
+    # --Core simulation engine --
+    @{ Label = "Core Engine";
+       Args  = @(
+           "tests/unit/test_engine.py",
+           "tests/unit/test_engine_config.py",
+           "tests/unit/test_engine_parity.py",
+           "tests/unit/test_engine_fill_realism.py",
+           "tests/unit/test_executor_model.py",
+           "tests/unit/test_fill_model.py",
+           "tests/unit/test_fill_model_v2.py",
+           "tests/unit/test_inventory.py",
+           "tests/unit/test_fees_maker_taker.py",
+           "tests/unit/test_trailing_stop.py",
+           "tests/unit/test_volume_and_order_size.py",
+           "tests/unit/test_equity.py",
+           "tests/unit/test_rebalance.py"
+       )
+    },
 
+    # --Features & alignment --
+    @{ Label = "Features & Alignment";
+       Args  = @(
+           "tests/unit/test_alignment.py",
+           "tests/unit/test_feature_controller_compat.py",
+           "tests/unit/test_features_parity.py",
+           "tests/unit/test_regime.py",
+           "tests/unit/test_simconfig_controller_compat.py",
+           "-m", "not slow"
+       )
+    },
+
+    # --Data pipeline & candle audit --
+    @{ Label = "Data Pipeline & Audit";
+       Args  = @(
+           "tests/unit/test_candles.py",
+           "tests/unit/test_gaps.py",
+           "tests/unit/test_hashing.py",
+           "tests/unit/test_mongo_loader.py",
+           "tests/unit/test_quality.py",
+           "tests/unit/test_synthetic_audit.py"
+       )
+    },
+
+    # --Strategies --
+    @{ Label = "Strategies";
+       Args  = @(
+           "tests/unit/test_pmm_dynamic_strategy.py",
+           "tests/unit/test_bollinger_strategy.py",
+           "tests/unit/test_bollinger_engine_integration.py",
+           "tests/unit/test_strategy_factory.py",
+           "tests/unit/test_strategy_protocol.py",
+           "tests/unit/test_generic_runner.py"
+       )
+    },
+
+    # --Signal caching --
+    @{ Label = "Signal Caching";
+       Args  = @(
+           "tests/unit/test_signal_cache.py",
+           "tests/unit/test_signal_cache_shared.py",
+           "tests/unit/test_signal_cache_perf.py",
+           "tests/unit/test_signal_output.py",
+           "tests/unit/test_walkforward_signal_cache_parity.py",
+           "tests/unit/test_sensitivity_signal_cache_parity.py"
+       )
+    },
+
+    # --Objective functions (v1 & v2) --
+    @{ Label = "Objectives & Metrics";
+       Args  = @(
+           "tests/unit/test_objective.py",
+           "tests/unit/test_objective_v2.py",
+           "tests/unit/test_metrics.py",
+           "tests/unit/test_metrics_v2_fields.py",
+           "tests/unit/test_robustness.py"
+       )
+    },
+
+    # --Stress testing --
+    @{ Label = "Stress Testing";
+       Args  = @(
+           "tests/unit/test_stress.py",
+           "tests/unit/test_fold_local_stress.py",
+           "tests/unit/test_objective_v2_stress_passthrough.py",
+           "tests/unit/test_stress_selection.py"
+       )
+    },
+
+    # --Holdout & walk-forward --
+    @{ Label = "Holdout & Walk-Forward";
+       Args  = @(
+           "tests/unit/test_holdout.py",
+           "tests/unit/test_holdout_warmstart.py",
+           "tests/unit/test_holdout_stress_local.py",
+           "tests/unit/test_walkforward.py"
+       )
+    },
+
+    # --Recent-window evaluation --
+    @{ Label = "Recent Window";
+       Args  = @(
+           "tests/unit/test_recent_window.py"
+       )
+    },
+
+    # --Optuna optimization --
+    @{ Label = "Optuna & Optimization";
+       Args  = @(
+           "tests/unit/test_search_space.py",
+           "tests/unit/test_canonicalizer.py",
+           "tests/unit/test_sensitivity.py",
+           "tests/unit/test_clustering.py",
+           "tests/unit/test_parallel.py",
+           "tests/unit/test_preflight.py",
+           "tests/unit/test_storage.py",
+           "tests/unit/test_storage_safety.py"
+       )
+    },
+
+    # --Export & validation --
+    @{ Label = "Export & Validation";
+       Args  = @(
+           "tests/unit/test_yaml_export.py",
+           "tests/unit/test_yaml_validates.py",
+           "tests/unit/test_validate_export_v2.py",
+           "tests/unit/test_exchange_rules.py"
+       )
+    },
+
+    # --Deploy, report & parity --
+    @{ Label = "Deploy & Report";
+       Args  = @(
+           "tests/unit/test_deploy_package.py",
+           "tests/unit/test_pipeline_runner.py",
+           "tests/unit/test_report.py",
+           "tests/unit/test_comparison.py",
+           "tests/unit/test_monitor.py",
+           "tests/unit/test_parity_harness.py"
+       )
+    },
+
+    # --Determinism & reproducibility --
+    @{ Label = "Determinism & Reproducibility";
+       Args  = @(
+           "tests/unit/test_determinism.py",
+           "tests/unit/test_reproducibility.py",
+           "tests/unit/test_replay.py"
+       )
+    },
+
+    # --Frozen regression (golden values) --
+    @{ Label = "Frozen Regression";
+       Args  = @(
+           "tests/regression/test_determinism_regression.py"
+       )
+    },
+
+    # --Integration tests --
+    @{ Label = "Integration";
+       Args  = @(
+           "tests/integration/test_acceptance.py",
+           "tests/integration/test_end_to_end.py",
+           "tests/integration/test_optuna_smoke.py"
+       )
+    }
+)
+
+# --- Run ---
+Push-Location $pmmDynamic
 $startTime = Get-Date
 
 try {
-    if ($Verbose) {
-        python -m pytest $testPath -v --tb=long 2>&1 | Tee-Object -FilePath $logFile -Append
+    if ($Grouped) {
+        # --- Grouped mode: run each category separately ---
+        $totalPassed  = 0
+        $totalFailed  = 0
+        $totalSkipped = 0
+        $groupResults = @()
+
+        foreach ($group in $testGroups) {
+            $lbl = $group.Label
+            Write-Host "`n--$lbl --" -ForegroundColor Yellow
+            "--$lbl --" | Out-File -FilePath $logFile -Append -Encoding UTF8
+
+            $pytestArgs = @("-m", "pytest") + $group.Args + @("-v", $tbFlag, "-q")
+            $output = & python @pytestArgs 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            Write-Host $output
+            $output | Out-File -FilePath $logFile -Append -Encoding UTF8
+
+            # Parse counts from pytest summary line, e.g. "36 passed, 2 failed in 1.5s"
+            if ($output -match "(\d+)\s+passed")  { $p = [int]$Matches[1] } else { $p = 0 }
+            if ($output -match "(\d+)\s+failed")  { $f = [int]$Matches[1] } else { $f = 0 }
+            if ($output -match "(\d+)\s+skipped") { $s = [int]$Matches[1] } else { $s = 0 }
+
+            $totalPassed  += $p
+            $totalFailed  += $f
+            $totalSkipped += $s
+            $status = if ($f -eq 0) { "PASS" } else { "FAIL" }
+            $groupResults += [PSCustomObject]@{ Group = $lbl; Passed = $p; Failed = $f; Skipped = $s; Status = $status }
+        }
+
+        # --- Group summary table ---
+        Write-Host "`n`n============================================================" -ForegroundColor Cyan
+        Write-Host "  GROUP SUMMARY" -ForegroundColor Cyan
+        Write-Host "============================================================" -ForegroundColor Cyan
+        $groupResults | Format-Table -AutoSize | Out-String | Write-Host
+        Write-Host "  TOTALS: $totalPassed passed, $totalFailed failed, $totalSkipped skipped" -ForegroundColor $(if ($totalFailed -eq 0) { "Green" } else { "Red" })
+
+        $exitCode = if ($totalFailed -eq 0) { 0 } else { 1 }
     }
     else {
-        python -m pytest $testPath -v --tb=short 2>&1 | Tee-Object -FilePath $logFile -Append
+        # --- Standard mode: single pytest run (auto-discovery) ---
+        $testPath = if ($Quick) { "tests/unit" } else { "tests" }
+
+        if ($Verbose) {
+            python -m pytest $testPath -v --tb=long 2>&1 | Tee-Object -FilePath $logFile -Append
+        }
+        else {
+            python -m pytest $testPath -v --tb=short 2>&1 | Tee-Object -FilePath $logFile -Append
+        }
+        $exitCode = $LASTEXITCODE
     }
-    $exitCode = $LASTEXITCODE
 }
 catch {
     Write-Host "ERROR: pytest failed to run: $_" -ForegroundColor Red

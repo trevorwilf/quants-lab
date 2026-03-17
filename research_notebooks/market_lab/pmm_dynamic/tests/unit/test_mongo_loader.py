@@ -148,8 +148,8 @@ def test_load_range_invalid_interval_raises(mock_loader):
         mock_loader.load_range(query)
 
 
-def test_is_forward_fill_always_false(populated_loader):
-    """is_forward_fill column is all False."""
+def test_is_forward_fill_all_false_without_features(populated_loader):
+    """is_forward_fill column is all False when candle_features has no synthetic rows."""
     query = DataQuery(connector="nonkyc", trading_pair="BTC-USDT", interval="5m")
     arr = populated_loader.load_range(query)
     assert not np.any(arr["is_forward_fill"])

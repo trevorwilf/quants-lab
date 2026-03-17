@@ -160,4 +160,4 @@ def test_strict_fails_on_high_forward_fill_fraction():
     candles = np.array([tuple(r) for r in rows], dtype=CANDLE_DTYPE)
     audit = validate_candles(candles, "5m", strict=True)
     assert audit.passed_strict is False
-    assert any("forward-fill fraction" in r for r in audit.failure_reasons)
+    assert any("unexpected forward-fill fraction" in r for r in audit.failure_reasons)

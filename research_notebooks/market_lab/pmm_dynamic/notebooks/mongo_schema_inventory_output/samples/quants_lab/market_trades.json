@@ -1,0 +1,87 @@
+[
+  {
+    "_id": {
+      "$oid": "69b8c352f7f2f0931fa01cd2"
+    },
+    "connector": "nonkyc",
+    "trade_id": "ws_69b8c33d4d4d4223aac536a9",
+    "trading_pair": "ETH-USDT",
+    "base_volume": 4.53327,
+    "ingested_at": 1773716306,
+    "price": 2352.06,
+    "quote_volume": 10662.5230362,
+    "schema_version": 2,
+    "side": "buy",
+    "source": "ws_trades",
+    "timestamp": 1773716285,
+    "timestampms": 1773716285432
+  },
+  {
+    "_id": {
+      "$oid": "69b8c352f7f2f0931fa01cd3"
+    },
+    "connector": "nonkyc",
+    "trade_id": "ws_69b8c32d4d4d4223aac52701",
+    "trading_pair": "ETH-USDT",
+    "base_volume": 4.61058,
+    "ingested_at": 1773716306,
+    "price": 2352.32,
+    "quote_volume": 10845.5595456,
+    "schema_version": 2,
+    "side": "sell",
+    "source": "ws_trades",
+    "timestamp": 1773716269,
+    "timestampms": 1773716269402
+  },
+  {
+    "_id": {
+      "$oid": "69b8c352f7f2f0931fa01cd4"
+    },
+    "connector": "nonkyc",
+    "trade_id": "ws_69b8c31f4d4d4223aac51b65",
+    "trading_pair": "ETH-USDT",
+    "base_volume": 2.30689,
+    "ingested_at": 1773716306,
+    "price": 2352.63,
+    "quote_volume": 5427.2586207,
+    "schema_version": 2,
+    "side": "sell",
+    "source": "ws_trades",
+    "timestamp": 1773716255,
+    "timestampms": 1773716255363
+  },
+  {
+    "_id": {
+      "$oid": "69b8c352f7f2f0931fa01cd5"
+    },
+    "connector": "nonkyc",
+    "trade_id": "ws_69b8c30e4d4d4223aac50c6e",
+    "trading_pair": "ETH-USDT",
+    "base_volume": 1.06756,
+    "ingested_at": 1773716306,
+    "price": 2352.42,
+    "quote_volume": 2511.3494952,
+    "schema_version": 2,
+    "side": "sell",
+    "source": "ws_trades",
+    "timestamp": 1773716238,
+    "timestampms": 1773716238424
+  },
+  {
+    "_id": {
+      "$oid": "69b8c352f7f2f0931fa01cd6"
+    },
+    "connector": "nonkyc",
+    "trade_id": "ws_69b8c3044d4d4223aac502f4",
+    "trading_pair": "ETH-USDT",
+    "base_volume": 5.37018,
+    "ingested_at": 1773716306,
+    "price": 2352.44,
+    "quote_volume": 12633.0262392,
+    "schema_version": 2,
+    "side": "sell",
+    "source": "ws_trades",
+    "timestamp": 1773716228,
+    "timestampms": 1773716228389
+  }
+]

@@ -1,0 +1,54 @@
+{
+  "database": "admin",
+  "collection": "system.version",
+  "scan_mode": "full",
+  "scan_limit": null,
+  "documents_scanned_for_schema": 2,
+  "estimated_document_count": 2,
+  "schema_is_exhaustive_for_collection": true,
+  "fields": [
+    {
+      "path": "_id",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 2,
+      "occurrences": 2,
+      "non_null_occurrences": 2,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"featureCompatibilityVersion\"",
+        "\"authSchema\""
+      ]
+    },
+    {
+      "path": "currentVersion",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "5"
+      ]
+    },
+    {
+      "path": "version",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"7.0\""
+      ]
+    }
+  ]
+}

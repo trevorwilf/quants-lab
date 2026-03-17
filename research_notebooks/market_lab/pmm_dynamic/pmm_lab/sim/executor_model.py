@@ -98,6 +98,18 @@ class SimConfig:
     buy_volume_fraction: float = 0.5
     volume_is_base: bool = True
 
+    def to_fingerprint(self) -> tuple:
+        """Produce a hashable fingerprint of ALL fields. Exact match only."""
+        from dataclasses import fields
+        parts = []
+        for f in fields(self):
+            val = getattr(self, f.name)
+            # Convert lists to tuples for hashability
+            if isinstance(val, list):
+                val = tuple(val)
+            parts.append(val)
+        return tuple(parts)
+
 
 @dataclass
 class SimResult:

@@ -1,0 +1,298 @@
+{
+  "database": "quants_lab",
+  "collection": "symbol_metadata",
+  "scan_mode": "full",
+  "scan_limit": null,
+  "documents_scanned_for_schema": 33,
+  "estimated_document_count": 33,
+  "schema_is_exhaustive_for_collection": true,
+  "fields": [
+    {
+      "path": "_id",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 33,
+      "types": [
+        "objectId"
+      ],
+      "examples": [
+        "{\"$oid\": \"69b8c34cf7f2f0931fa01a84\"}",
+        "{\"$oid\": \"69b8c34cf7f2f0931fa01a85\"}",
+        "{\"$oid\": \"69b8c34cf7f2f0931fa01a86\"}"
+      ]
+    },
+    {
+      "path": "base_asset",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 33,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"BTC\"",
+        "\"ETH\"",
+        "\"SOL\""
+      ]
+    },
+    {
+      "path": "connector",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 33,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"nonkyc\"",
+        "\"mexc\""
+      ]
+    },
+    {
+      "path": "maker_fee",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 0,
+      "types": [
+        "null"
+      ],
+      "examples": [
+        "null"
+      ]
+    },
+    {
+      "path": "min_notional",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 0,
+      "types": [
+        "null"
+      ],
+      "examples": [
+        "null"
+      ]
+    },
+    {
+      "path": "min_order_qty",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 0,
+      "types": [
+        "null"
+      ],
+      "examples": [
+        "null"
+      ]
+    },
+    {
+      "path": "permissions",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 12,
+      "occurrences": 12,
+      "non_null_occurrences": 12,
+      "types": [
+        "array"
+      ],
+      "examples": [
+        "[\"SPOT\"]"
+      ]
+    },
+    {
+      "path": "permissions[]",
+      "parent_path": "permissions",
+      "depth": 1,
+      "documents_with_field": 12,
+      "occurrences": 12,
+      "non_null_occurrences": 12,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"SPOT\""
+      ]
+    },
+    {
+      "path": "price_decimals",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 21,
+      "types": [
+        "int",
+        "null"
+      ],
+      "examples": [
+        "8",
+        "null"
+      ]
+    },
+    {
+      "path": "quantity_decimals",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 21,
+      "types": [
+        "int",
+        "null"
+      ],
+      "examples": [
+        "8",
+        "null"
+      ]
+    },
+    {
+      "path": "quantity_step",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 21,
+      "types": [
+        "double",
+        "null"
+      ],
+      "examples": [
+        "1e-08",
+        "null"
+      ]
+    },
+    {
+      "path": "quote_asset",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 33,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"USDT\"",
+        "\"XMR\"",
+        "\"BTC\""
+      ]
+    },
+    {
+      "path": "schema_version",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 33,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "1"
+      ]
+    },
+    {
+      "path": "source",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 33,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"market_info\"",
+        "\"exchangeInfo\""
+      ]
+    },
+    {
+      "path": "status",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 33,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"ACTIVE\"",
+        "\"1\""
+      ]
+    },
+    {
+      "path": "taker_fee",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 0,
+      "types": [
+        "null"
+      ],
+      "examples": [
+        "null"
+      ]
+    },
+    {
+      "path": "tick_size",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 21,
+      "types": [
+        "double",
+        "null"
+      ],
+      "examples": [
+        "1e-08",
+        "null"
+      ]
+    },
+    {
+      "path": "trading_pair",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 33,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"BTC-USDT\"",
+        "\"ETH-USDT\"",
+        "\"SOL-USDT\""
+      ]
+    },
+    {
+      "path": "updated_at",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 33,
+      "occurrences": 33,
+      "non_null_occurrences": 33,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "1773783822",
+        "1773783823",
+        "1773783824"
+      ]
+    }
+  ]
+}

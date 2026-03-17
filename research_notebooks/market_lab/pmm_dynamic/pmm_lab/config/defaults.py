@@ -26,6 +26,12 @@ MAX_DUPLICATE_FRACTION = 0.0         # zero tolerance for duplicates
 # Forward-fill detection thresholds
 MAX_FORWARD_FILL_FRACTION = 0.01     # fail audit if > 1% forward-filled bars
 
+# Maximum fraction of unexpected (not source-declared) forward-filled bars
+MAX_UNEXPECTED_FORWARD_FILL_FRACTION = 0.01  # 1%
+
+# Maximum fraction of source-declared synthetic bars (more permissive for low-liquidity exchanges)
+MAX_SOURCE_SYNTHETIC_FRACTION = 0.05  # 5%, can be overridden per-connector
+
 # Gap thresholds (strict mode)
 MAX_MISSING_ROW_FRACTION = 0.05      # fail if > 5% of expected rows are missing
 MAX_LONGEST_GAP_MULTIPLIER = 100     # fail if longest gap > 100 × interval_seconds

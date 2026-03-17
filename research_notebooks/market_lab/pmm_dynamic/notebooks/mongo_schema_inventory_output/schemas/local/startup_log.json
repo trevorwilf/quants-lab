@@ -1,0 +1,754 @@
+{
+  "database": "local",
+  "collection": "startup_log",
+  "scan_mode": "full",
+  "scan_limit": null,
+  "documents_scanned_for_schema": 4,
+  "estimated_document_count": 4,
+  "schema_is_exhaustive_for_collection": true,
+  "fields": [
+    {
+      "path": "_id",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"02f45e4d741e-1772486063935\"",
+        "\"02f45e4d741e-1772486066930\"",
+        "\"b12b5d1b86ac-1773113207713\""
+      ]
+    },
+    {
+      "path": "buildinfo",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"version\": \"7.0.30\", \"gitVersion\": \"67480f41dfa5802ce14af5c95bd0e9826d3b2131\", \"modules\": [], \"allocator\": \"tcmalloc\", \"javascriptEngine\": \"mozjs\", \"sysInfo\": \"deprecated\", \"versionArray\": [7, 0, 30, 0], \"openssl\": {\"running\": \"OpenSSL ..."
+      ]
+    },
+    {
+      "path": "buildinfo.allocator",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"tcmalloc\""
+      ]
+    },
+    {
+      "path": "buildinfo.bits",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "64"
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"distmod\": \"ubuntu2204\", \"distarch\": \"x86_64\", \"cc\": \"/opt/mongodbtoolchain/v4/bin/gcc: gcc (GCC) 11.3.0\", \"ccflags\": \"-Werror -include mongo/platform/basic.h -ffp-contract=off -fasynchronous-unwind-tables -g2 -Wall -Wsign-compare -Wno-..."
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment.cc",
+      "parent_path": "buildinfo.buildEnvironment",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"/opt/mongodbtoolchain/v4/bin/gcc: gcc (GCC) 11.3.0\""
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment.ccflags",
+      "parent_path": "buildinfo.buildEnvironment",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"-Werror -include mongo/platform/basic.h -ffp-contract=off -fasynchronous-unwind-tables -g2 -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch -gdwarf-5 -fno-omit-frame-pointer -fno-strict-aliasing -O2 -march=sandybridge -mtune=gene..."
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment.cppdefines",
+      "parent_path": "buildinfo.buildEnvironment",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"SAFEINT_USE_INTRINSICS 0 PCRE2_STATIC NDEBUG _XOPEN_SOURCE 700 _GNU_SOURCE _FORTIFY_SOURCE 2 ABSL_FORCE_ALIGNED_ACCESS BOOST_ENABLE_ASSERT_DEBUG_HANDLER BOOST_FILESYSTEM_NO_CXX20_ATOMIC_REF BOOST_LOG_NO_SHORTHAND_NAMES BOOST_LOG_USE_NAT..."
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment.cxx",
+      "parent_path": "buildinfo.buildEnvironment",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"/opt/mongodbtoolchain/v4/bin/g++: g++ (GCC) 11.3.0\""
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment.cxxflags",
+      "parent_path": "buildinfo.buildEnvironment",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"-Woverloaded-virtual -Wpessimizing-move -Wno-maybe-uninitialized -fsized-deallocation -Wno-deprecated -std=c++20\""
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment.distarch",
+      "parent_path": "buildinfo.buildEnvironment",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"x86_64\""
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment.distmod",
+      "parent_path": "buildinfo.buildEnvironment",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"ubuntu2204\""
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment.linkflags",
+      "parent_path": "buildinfo.buildEnvironment",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"-Wl,--fatal-warnings -B/opt/mongodbtoolchain/v4/bin -gdwarf-5 -pthread -Wl,-z,now -fuse-ld=lld -fstack-protector-strong -gdwarf64 -Wl,--build-id -Wl,--hash-style=gnu -Wl,-z,noexecstack -Wl,--warn-execstack -Wl,-z,relro -Wl,--compress-de..."
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment.target_arch",
+      "parent_path": "buildinfo.buildEnvironment",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"x86_64\""
+      ]
+    },
+    {
+      "path": "buildinfo.buildEnvironment.target_os",
+      "parent_path": "buildinfo.buildEnvironment",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"linux\""
+      ]
+    },
+    {
+      "path": "buildinfo.debug",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "bool"
+      ],
+      "examples": [
+        "false"
+      ]
+    },
+    {
+      "path": "buildinfo.gitVersion",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"67480f41dfa5802ce14af5c95bd0e9826d3b2131\""
+      ]
+    },
+    {
+      "path": "buildinfo.javascriptEngine",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"mozjs\""
+      ]
+    },
+    {
+      "path": "buildinfo.maxBsonObjectSize",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "16777216"
+      ]
+    },
+    {
+      "path": "buildinfo.modules",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "array"
+      ],
+      "examples": [
+        "[]"
+      ]
+    },
+    {
+      "path": "buildinfo.openssl",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"running\": \"OpenSSL 3.0.2 15 Mar 2022\", \"compiled\": \"OpenSSL 3.0.2 15 Mar 2022\"}"
+      ]
+    },
+    {
+      "path": "buildinfo.openssl.compiled",
+      "parent_path": "buildinfo.openssl",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"OpenSSL 3.0.2 15 Mar 2022\""
+      ]
+    },
+    {
+      "path": "buildinfo.openssl.running",
+      "parent_path": "buildinfo.openssl",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"OpenSSL 3.0.2 15 Mar 2022\""
+      ]
+    },
+    {
+      "path": "buildinfo.storageEngines",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "array"
+      ],
+      "examples": [
+        "[\"devnull\", \"wiredTiger\"]"
+      ]
+    },
+    {
+      "path": "buildinfo.storageEngines[]",
+      "parent_path": "buildinfo.storageEngines",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 8,
+      "non_null_occurrences": 8,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"devnull\"",
+        "\"wiredTiger\""
+      ]
+    },
+    {
+      "path": "buildinfo.sysInfo",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"deprecated\""
+      ]
+    },
+    {
+      "path": "buildinfo.version",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"7.0.30\""
+      ]
+    },
+    {
+      "path": "buildinfo.versionArray",
+      "parent_path": "buildinfo",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "array"
+      ],
+      "examples": [
+        "[7, 0, 30, 0]"
+      ]
+    },
+    {
+      "path": "buildinfo.versionArray[]",
+      "parent_path": "buildinfo.versionArray",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 16,
+      "non_null_occurrences": 16,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "7",
+        "0",
+        "30"
+      ]
+    },
+    {
+      "path": "cmdLine",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"net\": {\"bindIp\": \"127.0.0.1\", \"port\": 27017, \"tls\": {\"mode\": \"disabled\"}}, \"processManagement\": {\"fork\": true, \"pidFilePath\": \"/tmp/docker-entrypoint-temp-mongod.pid\"}, \"storage\": {\"wiredTiger\": {\"engineConfig\": {\"cacheSizeGB\": 2.0}}},...",
+        "{\"net\": {\"bindIp\": \"*\"}, \"security\": {\"authorization\": \"enabled\"}, \"storage\": {\"wiredTiger\": {\"engineConfig\": {\"cacheSizeGB\": 2.0}}}}"
+      ]
+    },
+    {
+      "path": "cmdLine.net",
+      "parent_path": "cmdLine",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"bindIp\": \"127.0.0.1\", \"port\": 27017, \"tls\": {\"mode\": \"disabled\"}}",
+        "{\"bindIp\": \"*\"}"
+      ]
+    },
+    {
+      "path": "cmdLine.net.bindIp",
+      "parent_path": "cmdLine.net",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"127.0.0.1\"",
+        "\"*\""
+      ]
+    },
+    {
+      "path": "cmdLine.net.port",
+      "parent_path": "cmdLine.net",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "27017"
+      ]
+    },
+    {
+      "path": "cmdLine.net.tls",
+      "parent_path": "cmdLine.net",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"mode\": \"disabled\"}"
+      ]
+    },
+    {
+      "path": "cmdLine.net.tls.mode",
+      "parent_path": "cmdLine.net.tls",
+      "depth": 3,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"disabled\""
+      ]
+    },
+    {
+      "path": "cmdLine.processManagement",
+      "parent_path": "cmdLine",
+      "depth": 1,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"fork\": true, \"pidFilePath\": \"/tmp/docker-entrypoint-temp-mongod.pid\"}"
+      ]
+    },
+    {
+      "path": "cmdLine.processManagement.fork",
+      "parent_path": "cmdLine.processManagement",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "bool"
+      ],
+      "examples": [
+        "true"
+      ]
+    },
+    {
+      "path": "cmdLine.processManagement.pidFilePath",
+      "parent_path": "cmdLine.processManagement",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"/tmp/docker-entrypoint-temp-mongod.pid\""
+      ]
+    },
+    {
+      "path": "cmdLine.security",
+      "parent_path": "cmdLine",
+      "depth": 1,
+      "documents_with_field": 3,
+      "occurrences": 3,
+      "non_null_occurrences": 3,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"authorization\": \"enabled\"}"
+      ]
+    },
+    {
+      "path": "cmdLine.security.authorization",
+      "parent_path": "cmdLine.security",
+      "depth": 2,
+      "documents_with_field": 3,
+      "occurrences": 3,
+      "non_null_occurrences": 3,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"enabled\""
+      ]
+    },
+    {
+      "path": "cmdLine.storage",
+      "parent_path": "cmdLine",
+      "depth": 1,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"wiredTiger\": {\"engineConfig\": {\"cacheSizeGB\": 2.0}}}"
+      ]
+    },
+    {
+      "path": "cmdLine.storage.wiredTiger",
+      "parent_path": "cmdLine.storage",
+      "depth": 2,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"engineConfig\": {\"cacheSizeGB\": 2.0}}"
+      ]
+    },
+    {
+      "path": "cmdLine.storage.wiredTiger.engineConfig",
+      "parent_path": "cmdLine.storage.wiredTiger",
+      "depth": 3,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"cacheSizeGB\": 2.0}"
+      ]
+    },
+    {
+      "path": "cmdLine.storage.wiredTiger.engineConfig.cacheSizeGB",
+      "parent_path": "cmdLine.storage.wiredTiger.engineConfig",
+      "depth": 4,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "double"
+      ],
+      "examples": [
+        "2.0"
+      ]
+    },
+    {
+      "path": "cmdLine.systemLog",
+      "parent_path": "cmdLine",
+      "depth": 1,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"destination\": \"file\", \"logAppend\": true, \"path\": \"/proc/1/fd/1\"}"
+      ]
+    },
+    {
+      "path": "cmdLine.systemLog.destination",
+      "parent_path": "cmdLine.systemLog",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"file\""
+      ]
+    },
+    {
+      "path": "cmdLine.systemLog.logAppend",
+      "parent_path": "cmdLine.systemLog",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "bool"
+      ],
+      "examples": [
+        "true"
+      ]
+    },
+    {
+      "path": "cmdLine.systemLog.path",
+      "parent_path": "cmdLine.systemLog",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"/proc/1/fd/1\""
+      ]
+    },
+    {
+      "path": "hostname",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"02f45e4d741e\"",
+        "\"b12b5d1b86ac\"",
+        "\"aa8895121acf\""
+      ]
+    },
+    {
+      "path": "pid",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "28",
+        "1"
+      ]
+    },
+    {
+      "path": "startTime",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "date"
+      ],
+      "examples": [
+        "{\"$date\": \"2026-03-02T21:14:23Z\"}",
+        "{\"$date\": \"2026-03-02T21:14:26Z\"}",
+        "{\"$date\": \"2026-03-10T03:26:47Z\"}"
+      ]
+    },
+    {
+      "path": "startTimeLocal",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"Mon Mar 2 22:14:23.935\"",
+        "\"Mon Mar 2 22:14:26.930\"",
+        "\"Tue Mar 10 04:26:47.713\""
+      ]
+    }
+  ]
+}

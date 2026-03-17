@@ -1,0 +1,60 @@
+buy_amounts_pct:
+- 0.006841541259536021
+- 0.012389172081553929
+- 0.02243523484600965
+- 0.04062739295913255
+- 0.07357110678738216
+- 0.13322803556125493
+- 0.24125924203922913
+buy_spreads:
+- 4.7520377246275425
+- 9.108768638677395
+- 17.459807964688636
+- 33.46719038063839
+- 64.150352297066
+- 122.96424208404616
+- 235.69948238609211
+candles_config: []
+candles_connector: nonkyc
+candles_trading_pair: UNI-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 421
+executor_refresh_time: 7826
+id: UNI-USDT-PMM-DYNAMIC_867.0870968610116
+interval: 5m
+leverage: 1
+macd_fast: 17
+macd_signal: 6
+macd_slow: 41
+manual_kill_switch: false
+natr_length: 38
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.006058466282904136
+- 0.010971121634992828
+- 0.019867323561650704
+- 0.03597722809346825
+- 0.06515024216890022
+- 0.11797890720316374
+- 0.21364498552082176
+sell_spreads:
+- 5.351394107058694
+- 12.638665837001154
+- 29.849394558453906
+- 70.49686786541915
+- 166.4961200168405
+- 393.22254761136884
+- 928.694145751478
+skip_rebalance: true
+stop_loss: 0.010334254103639268
+take_profit: 0.006431161117072493
+take_profit_order_type: 2
+time_limit: 157992
+total_amount_quote: 867.0870968610116
+trading_pair: UNI-USDT
+trailing_stop:
+  activation_price: 0.025331633760433885
+  trailing_delta: 0.0010533891752120556

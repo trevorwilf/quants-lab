@@ -7,7 +7,7 @@ walk-forward metrics, stress results, and stop-ship check status.
 
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pmm_lab.metrics.metrics import Metrics
 from pmm_lab.objective.objective import ObjectiveDecomposition, REJECT_SCORE
@@ -34,7 +34,7 @@ def generate_report(
     # 1. Header
     lines.append(f"# PMM Dynamic Optimization Report: {study_name}")
     lines.append(f"")
-    lines.append(f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    lines.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
     lines.append("")
 
     # 2. Dataset Summary
@@ -173,6 +173,7 @@ def run_stop_ship_checks(
     validation_result: Optional[Any] = None,
     holdout_report: Optional['HoldoutReport'] = None,
     sensitivity_penalty: Optional[float] = None,
+    recent_window_result: Optional[Any] = None,
 ) -> Dict[str, bool]:
     """Run all stop-ship condition checks.
 
@@ -247,5 +248,11 @@ def run_stop_ship_checks(
         checks["sensitivity_stable"] = sensitivity_penalty < 0.50
     else:
         checks["sensitivity_stable"] = False  # not tested = fail
+
+    # 9. recent_28d_passed — recent window evaluation
+    if recent_window_result is not None:
+        checks["recent_28d_passed"] = bool(getattr(recent_window_result, 'passed', False))
+    else:
+        checks["recent_28d_passed"] = False  # not tested = fail
 
     return checks

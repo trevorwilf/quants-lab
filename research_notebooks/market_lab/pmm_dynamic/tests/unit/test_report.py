@@ -168,6 +168,10 @@ class TestStopShipChecksAllFailWhenEmpty:
 
 class TestStopShipChecksAllPass:
     def test_stop_ship_checks_all_pass(self):
+        # Fake recent window result that passes
+        _fake_recent = MagicMock()
+        _fake_recent.passed = True
+
         checks = run_stop_ship_checks(
             best_metrics=_make_metrics(),
             best_objective=_make_objective(),
@@ -177,6 +181,7 @@ class TestStopShipChecksAllPass:
             validation_result=_FakeValidation(valid=True),
             holdout_report=_make_holdout_report(passed=True),
             sensitivity_penalty=0.1,
+            recent_window_result=_fake_recent,
         )
         for check_name, passed in checks.items():
             assert passed, f"Check '{check_name}' unexpectedly failed"

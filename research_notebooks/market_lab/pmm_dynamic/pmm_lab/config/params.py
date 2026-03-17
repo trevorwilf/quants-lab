@@ -54,3 +54,9 @@ class AuditResult:
     longest_gap_seconds: int
     passed_strict: bool
     failure_reasons: list          # list of strings explaining failures
+    # Source-declared vs heuristic forward-fill split
+    source_synthetic_count: int = 0
+    source_synthetic_fraction: float = 0.0
+    heuristic_forward_fill_count: int = 0
+    unexpected_forward_fill_count: int = 0
+    unexpected_forward_fill_fraction: float = 0.0

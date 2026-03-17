@@ -3,6 +3,9 @@ name = "pmm-lab"
 version = "0.1.0"
 description = "PMM Dynamic Hyper-Bayesian Optimization for Hummingbot"
 requires-python = ">=3.10"
+# NOTE: Frozen regression tests (tests/regression/) must be run against the
+# pinned environment in requirements-regression.txt. Dependency version drift
+# can alter numerical output and invalidate golden values.
 dependencies = [
     "numpy>=1.24",
     "pymongo>=4.0",

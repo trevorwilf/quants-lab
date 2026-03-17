@@ -25,8 +25,8 @@ else:
 ## Architecture
 
 ### Data Pipeline
-- **`pmm_lab.data.mongo`** — MongoDB candle loader (4.6M+ candles)
-- **`pmm_lab.data.candles`** — validation, gap detection, forward-fill detection
+- **`pmm_lab.data.mongo`** — MongoDB candle loader (4.6M+ candles, synthetic enrichment from `candle_features`)
+- **`pmm_lab.data.candles`** — validation, gap detection, source-declared vs unexpected forward-fill audit
 - **`pmm_lab.data.hashing`** — deterministic dataset hashing for audit trail
 
 ### Simulation Engine
@@ -59,8 +59,11 @@ else:
 - **`pmm_lab.objective.objective`** — v1 (linear PnL + Sharpe) and v2 (log-return + edge penalty)
 - **`pmm_lab.objective.robustness`** — Median - λ×MAD aggregation (v1 and v2)
 - **`pmm_lab.objective.walkforward`** — Time-series cross-validation with embargo
-- **`pmm_lab.objective.stress`** — 15+ stress scenarios + fold-local stress
-- **`pmm_lab.objective.holdout`** — 80/20 split, collapse detection
+- **`pmm_lab.objective.stress`** — 15+ stress scenarios + fold-local stress (holdout-local scoring)
+- **`pmm_lab.objective.holdout`** — 80/20 split, collapse detection (holdout-local stress)
+- **`pmm_lab.objective.signal_cache`** — Shared signal cache key for cross-candidate reuse
+- **`pmm_lab.objective.stress_selection`** — Phase-2 candidate selection with early pruning
+- **`pmm_lab.objective.recent_window`** — Recent N-day warm-started evaluation
 
 ### Export & Validation
 - **`pmm_lab.export.hb_yaml`** — Export SimConfig → Hummingbot YAML
@@ -89,7 +92,17 @@ python -m pytest tests/ -v --tb=long
 
 # Quick smoke test
 python -m pytest tests/unit/ -v -x --tb=short
+
+# Frozen regression tests (use pinned environment)
+pip install -r requirements-regression.txt
+python -m pytest tests/unit/test_features_parity.py tests/regression/ -v --tb=long
 ```
+
+### Regression Environment
+
+Frozen regression tests depend on exact dependency versions. See `requirements-regression.txt`
+for the pinned versions. The test suite will emit a warning if the current environment
+doesn't match the pins.
 
 ## Configuration
 

@@ -278,6 +278,7 @@ class TestStopShipChecksIntegrated:
             "stress_not_collapsed", "yaml_validates",
             "walkforward_robust", "walkforward_positive_majority",
             "holdout_passed", "holdout_no_collapse", "sensitivity_stable",
+            "recent_28d_passed",
         }
         assert set(checks.keys()) == expected_keys
         # Core checks should pass

@@ -1,0 +1,107 @@
+[
+  {
+    "_id": {
+      "$oid": "69b8c34cf7f2f0931fa01a84"
+    },
+    "connector": "nonkyc",
+    "trading_pair": "BTC-USDT",
+    "base_asset": "BTC",
+    "maker_fee": null,
+    "min_notional": null,
+    "min_order_qty": null,
+    "price_decimals": 8,
+    "quantity_decimals": 8,
+    "quantity_step": 1e-08,
+    "quote_asset": "USDT",
+    "schema_version": 1,
+    "source": "market_info",
+    "status": "ACTIVE",
+    "taker_fee": null,
+    "tick_size": 1e-08,
+    "updated_at": 1773783822
+  },
+  {
+    "_id": {
+      "$oid": "69b8c34cf7f2f0931fa01a85"
+    },
+    "connector": "nonkyc",
+    "trading_pair": "ETH-USDT",
+    "base_asset": "ETH",
+    "maker_fee": null,
+    "min_notional": null,
+    "min_order_qty": null,
+    "price_decimals": 8,
+    "quantity_decimals": 8,
+    "quantity_step": 1e-08,
+    "quote_asset": "USDT",
+    "schema_version": 1,
+    "source": "market_info",
+    "status": "ACTIVE",
+    "taker_fee": null,
+    "tick_size": 1e-08,
+    "updated_at": 1773783823
+  },
+  {
+    "_id": {
+      "$oid": "69b8c34cf7f2f0931fa01a86"
+    },
+    "connector": "nonkyc",
+    "trading_pair": "SOL-USDT",
+    "base_asset": "SOL",
+    "maker_fee": null,
+    "min_notional": null,
+    "min_order_qty": null,
+    "price_decimals": 8,
+    "quantity_decimals": 8,
+    "quantity_step": 1e-08,
+    "quote_asset": "USDT",
+    "schema_version": 1,
+    "source": "market_info",
+    "status": "ACTIVE",
+    "taker_fee": null,
+    "tick_size": 1e-08,
+    "updated_at": 1773783824
+  },
+  {
+    "_id": {
+      "$oid": "69b8c34cf7f2f0931fa01a87"
+    },
+    "connector": "nonkyc",
+    "trading_pair": "DOGE-USDT",
+    "base_asset": "DOGE",
+    "maker_fee": null,
+    "min_notional": null,
+    "min_order_qty": null,
+    "price_decimals": 8,
+    "quantity_decimals": 8,
+    "quantity_step": 1e-08,
+    "quote_asset": "USDT",
+    "schema_version": 1,
+    "source": "market_info",
+    "status": "ACTIVE",
+    "taker_fee": null,
+    "tick_size": 1e-08,
+    "updated_at": 1773783825
+  },
+  {
+    "_id": {
+      "$oid": "69b8c34cf7f2f0931fa01a88"
+    },
+    "connector": "nonkyc",
+    "trading_pair": "SAL-USDT",
+    "base_asset": "SAL",
+    "maker_fee": null,
+    "min_notional": null,
+    "min_order_qty": null,
+    "price_decimals": 8,
+    "quantity_decimals": 8,
+    "quantity_step": 1e-08,
+    "quote_asset": "USDT",
+    "schema_version": 1,
+    "source": "market_info",
+    "status": "ACTIVE",
+    "taker_fee": null,
+    "tick_size": 1e-08,
+    "updated_at": 1773783826
+  }
+]

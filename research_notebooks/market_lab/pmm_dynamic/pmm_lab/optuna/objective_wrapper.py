@@ -16,7 +16,7 @@ from pmm_lab.optuna.canonicalizer import canonicalize_params
 from pmm_lab.objective.walkforward import run_walk_forward, WalkForwardResult
 from pmm_lab.objective.stress import run_stress_tests
 from pmm_lab.objective.robustness import robust_aggregate
-from pmm_lab.objective.objective import REJECT_SCORE, ObjectiveWeights
+from pmm_lab.objective.objective import REJECT_SCORE, ObjectiveWeights, ObjectiveWeightsV2
 
 
 def create_objective(
@@ -50,8 +50,15 @@ def create_objective(
         _obj_weights = objective_weights if objective_weights is not None else OW()
         obj_fn = lambda m: objective_v1(m, _obj_weights)
 
-    # Stress tests always use v1 objective (stress.py hardcodes objective_v1)
-    _stress_weights = objective_weights if isinstance(objective_weights, ObjectiveWeights) else ObjectiveWeights()
+    # Validate weight type matches objective version
+    if objective_version == 1 and objective_weights is not None:
+        assert isinstance(objective_weights, ObjectiveWeights), (
+            f"objective_version=1 requires ObjectiveWeights, got {type(objective_weights).__name__}"
+        )
+    elif objective_version == 2 and objective_weights is not None:
+        assert isinstance(objective_weights, ObjectiveWeightsV2), (
+            f"objective_version=2 requires ObjectiveWeightsV2, got {type(objective_weights).__name__}"
+        )
 
     def objective(trial: optuna.Trial) -> float:
         # 1. Suggest params
@@ -173,7 +180,8 @@ def create_objective(
                     fold_test_start_idx=fold_def.test_start_idx,
                     fold_test_end_idx=fold_def.test_end_idx,
                     scenarios=scenarios,
-                    objective_weights=_stress_weights if isinstance(_obj_weights, ObjectiveWeights) else ObjectiveWeights(),
+                    objective_version=objective_version,
+                    objective_weights=_obj_weights,
                     precomputed_signals=full_signals,
                 )
                 fold_stress_scores_list.append(fold_stress)

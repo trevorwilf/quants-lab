@@ -1,0 +1,7 @@
+# Pinned dependency versions for frozen regression tests.
+# Run `pip install -r requirements-regression.txt` before executing
+# tests/regression/ to ensure golden-value reproducibility.
+numpy==2.2.6
+pandas==2.3.3
+pandas_ta==0.4.71b0
+optuna==4.7.0

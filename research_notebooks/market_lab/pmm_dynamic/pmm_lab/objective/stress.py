@@ -122,6 +122,9 @@ def run_stress_tests(
     objective_weights=None,
     objective_version: int = 1,
     precomputed_signals=None,
+    score_start_idx: Optional[int] = None,
+    score_end_idx: Optional[int] = None,
+    sim_start_idx: Optional[int] = None,
 ) -> StressReport:
     """Run the baseline + all stress scenarios and return a StressReport.
 
@@ -129,6 +132,14 @@ def run_stress_tests(
     2. For each scenario: apply_scenario() -> run sim -> compute metrics -> compute objective.
     3. Identify the worst scenario (lowest objective score).
     4. Return StressReport.
+
+    Parameters
+    ----------
+    score_start_idx, score_end_idx : int, optional
+        If provided, metrics are scored only on the candles[score_start_idx:score_end_idx]
+        window. The full candle prefix is still used for feature warmup and simulation.
+    sim_start_idx : int, optional
+        If provided, simulation starts at this bar index (warm-start).
     """
     if scenarios is None:
         scenarios = load_stress_scenarios()
@@ -151,8 +162,17 @@ def run_stress_tests(
     if precomputed_signals is None:
         precomputed_signals = baseline_runner.compute_signals(candles)
 
-    baseline_result = baseline_runner.run_with_signals(candles, precomputed_signals)
-    baseline_metrics = compute_metrics(baseline_result, initial_equity, candles, bar_interval_seconds)
+    baseline_result = baseline_runner.run_with_signals(candles, precomputed_signals, sim_start_idx=sim_start_idx)
+
+    # Extract scoring window if specified
+    if score_start_idx is not None:
+        _end = score_end_idx if score_end_idx is not None else len(candles)
+        baseline_metrics = _extract_window_metrics(
+            baseline_result, candles, initial_equity, bar_interval_seconds,
+            score_start_idx, _end,
+        )
+    else:
+        baseline_metrics = compute_metrics(baseline_result, initial_equity, candles, bar_interval_seconds)
     baseline_objective = _score(baseline_metrics)
 
     # Run each scenario
@@ -160,8 +180,16 @@ def run_stress_tests(
     for scenario in scenarios:
         stressed_config, stressed_rules = apply_scenario(config, pair_rules, scenario)
         runner = CandleSimRunner(stressed_config, stressed_rules)
-        sim_result = runner.run_with_signals(candles, precomputed_signals)
-        metrics = compute_metrics(sim_result, initial_equity, candles, bar_interval_seconds)
+        sim_result = runner.run_with_signals(candles, precomputed_signals, sim_start_idx=sim_start_idx)
+
+        if score_start_idx is not None:
+            _end = score_end_idx if score_end_idx is not None else len(candles)
+            metrics = _extract_window_metrics(
+                sim_result, candles, initial_equity, bar_interval_seconds,
+                score_start_idx, _end,
+            )
+        else:
+            metrics = compute_metrics(sim_result, initial_equity, candles, bar_interval_seconds)
         obj = _score(metrics)
         scenario_results.append(StressResult(
             scenario=scenario,
@@ -184,6 +212,34 @@ def run_stress_tests(
         worst_scenario=scenario_results[worst_idx].scenario.name,
         worst_score=worst_score,
     )
+
+
+def _extract_window_metrics(
+    sim_result: SimResult,
+    candles: np.ndarray,
+    initial_equity: float,
+    bar_interval_seconds: int,
+    start_idx: int,
+    end_idx: int,
+) -> Metrics:
+    """Extract metrics for a scoring window from a full simulation result."""
+    window_eq = sim_result.equity_curve[start_idx:end_idx]
+    window_pos = sim_result.position_history[start_idx:end_idx]
+    window_candles = candles[start_idx:end_idx]
+    window_trades = [t for t in sim_result.trades if t.entry_bar >= start_idx]
+
+    window_result = SimResult(
+        trades=window_trades,
+        equity_curve=window_eq,
+        position_history=window_pos,
+        n_orders_placed=sim_result.n_orders_placed,
+        n_orders_filled=sim_result.n_orders_filled,
+        n_orders_rejected=sim_result.n_orders_rejected,
+        n_market_exits=sim_result.n_market_exits,
+        final_base_balance=sim_result.final_base_balance,
+        final_quote_balance=sim_result.final_quote_balance,
+    )
+    return compute_metrics(window_result, initial_equity, window_candles, bar_interval_seconds)
 
 
 def run_fold_local_stress(

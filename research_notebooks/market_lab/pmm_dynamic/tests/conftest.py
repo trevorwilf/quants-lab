@@ -1,12 +1,44 @@
 """Shared test fixtures for PMM Lab tests."""
 
 import os
+import warnings
 from pathlib import Path
 
 import pytest
 import numpy as np
 
 from pmm_lab.config.params import PairRules, FeeConfig
+
+
+# --- Regression environment version check ---
+_REGRESSION_PINS = {
+    "numpy": "2.2.6",
+    "pandas": "2.3.3",
+    "optuna": "4.7.0",
+}
+
+
+def _check_regression_versions():
+    """Warn if current environment differs from pinned regression versions."""
+    mismatches = []
+    for pkg, expected in _REGRESSION_PINS.items():
+        try:
+            mod = __import__(pkg)
+            actual = mod.__version__
+            if actual != expected:
+                mismatches.append(f"{pkg}: expected {expected}, got {actual}")
+        except ImportError:
+            pass
+    if mismatches:
+        warnings.warn(
+            "Regression test environment mismatch (see requirements-regression.txt): "
+            + "; ".join(mismatches),
+            UserWarning,
+            stacklevel=2,
+        )
+
+
+_check_regression_versions()
 
 
 def _load_dotenv() -> dict:

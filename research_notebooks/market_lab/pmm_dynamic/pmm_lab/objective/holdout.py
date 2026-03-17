@@ -179,13 +179,22 @@ def evaluate_holdout(
         stress_report = None
         if run_stress:
             if full_candles is not None and holdout_start_idx is not None:
+                # Holdout-local stress: run on full prefix for warmup,
+                # but score only the holdout window
                 stress_report = run_stress_tests(
                     candles_through_holdout, config, pair_rules, bar_interval_seconds,
                     precomputed_signals=signals,
+                    objective_version=objective_version,
+                    objective_weights=_weights,
+                    score_start_idx=holdout_start_idx,
+                    score_end_idx=holdout_start_idx + len(holdout_candles),
+                    sim_start_idx=holdout_start_idx,
                 )
             else:
                 stress_report = run_stress_tests(
                     holdout_candles, config, pair_rules, bar_interval_seconds,
+                    objective_version=objective_version,
+                    objective_weights=_weights,
                 )
 
         candidates.append(HoldoutCandidateResult(

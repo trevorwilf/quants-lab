@@ -1,0 +1,277 @@
+{
+  "database": "admin",
+  "collection": "system.users",
+  "scan_mode": "full",
+  "scan_limit": null,
+  "documents_scanned_for_schema": 1,
+  "estimated_document_count": 1,
+  "schema_is_exhaustive_for_collection": true,
+  "fields": [
+    {
+      "path": "_id",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"admin.admin\""
+      ]
+    },
+    {
+      "path": "credentials",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"SCRAM-SHA-1\": {\"iterationCount\": 10000, \"salt\": \"7NaliXi2Wn5Ivkgb/1XS5Q==\", \"storedKey\": \"s77puzNwvzhD8Zv2MM3JB93EVBI=\", \"serverKey\": \"Gmh0J2vEpWpXxrjq9X55IPxtJGs=\"}, \"SCRAM-SHA-256\": {\"iterationCount\": 15000, \"salt\": \"WmYSY1lZx+NZC0iw..."
+      ]
+    },
+    {
+      "path": "credentials.SCRAM-SHA-1",
+      "parent_path": "credentials",
+      "depth": 1,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"iterationCount\": 10000, \"salt\": \"7NaliXi2Wn5Ivkgb/1XS5Q==\", \"storedKey\": \"s77puzNwvzhD8Zv2MM3JB93EVBI=\", \"serverKey\": \"Gmh0J2vEpWpXxrjq9X55IPxtJGs=\"}"
+      ]
+    },
+    {
+      "path": "credentials.SCRAM-SHA-1.iterationCount",
+      "parent_path": "credentials.SCRAM-SHA-1",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "10000"
+      ]
+    },
+    {
+      "path": "credentials.SCRAM-SHA-1.salt",
+      "parent_path": "credentials.SCRAM-SHA-1",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"7NaliXi2Wn5Ivkgb/1XS5Q==\""
+      ]
+    },
+    {
+      "path": "credentials.SCRAM-SHA-1.serverKey",
+      "parent_path": "credentials.SCRAM-SHA-1",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"Gmh0J2vEpWpXxrjq9X55IPxtJGs=\""
+      ]
+    },
+    {
+      "path": "credentials.SCRAM-SHA-1.storedKey",
+      "parent_path": "credentials.SCRAM-SHA-1",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"s77puzNwvzhD8Zv2MM3JB93EVBI=\""
+      ]
+    },
+    {
+      "path": "credentials.SCRAM-SHA-256",
+      "parent_path": "credentials",
+      "depth": 1,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"iterationCount\": 15000, \"salt\": \"WmYSY1lZx+NZC0iwUKr+bGbEAKcx4bzLVtT1cQ==\", \"storedKey\": \"6z8tfXt/PBHz30PXC3a4hgVzeU2HYILlxM/llhF0JwI=\", \"serverKey\": \"BFoRy94qcT5CYFdrIEsAi2TCPPUmhKj9RA37sLjLh9U=\"}"
+      ]
+    },
+    {
+      "path": "credentials.SCRAM-SHA-256.iterationCount",
+      "parent_path": "credentials.SCRAM-SHA-256",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "15000"
+      ]
+    },
+    {
+      "path": "credentials.SCRAM-SHA-256.salt",
+      "parent_path": "credentials.SCRAM-SHA-256",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"WmYSY1lZx+NZC0iwUKr+bGbEAKcx4bzLVtT1cQ==\""
+      ]
+    },
+    {
+      "path": "credentials.SCRAM-SHA-256.serverKey",
+      "parent_path": "credentials.SCRAM-SHA-256",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"BFoRy94qcT5CYFdrIEsAi2TCPPUmhKj9RA37sLjLh9U=\""
+      ]
+    },
+    {
+      "path": "credentials.SCRAM-SHA-256.storedKey",
+      "parent_path": "credentials.SCRAM-SHA-256",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"6z8tfXt/PBHz30PXC3a4hgVzeU2HYILlxM/llhF0JwI=\""
+      ]
+    },
+    {
+      "path": "db",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"admin\""
+      ]
+    },
+    {
+      "path": "roles",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "array"
+      ],
+      "examples": [
+        "[{\"role\": \"root\", \"db\": \"admin\"}]"
+      ]
+    },
+    {
+      "path": "roles[]",
+      "parent_path": "roles",
+      "depth": 1,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "object"
+      ],
+      "examples": [
+        "{\"role\": \"root\", \"db\": \"admin\"}"
+      ]
+    },
+    {
+      "path": "roles[].db",
+      "parent_path": "roles[]",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"admin\""
+      ]
+    },
+    {
+      "path": "roles[].role",
+      "parent_path": "roles[]",
+      "depth": 2,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"root\""
+      ]
+    },
+    {
+      "path": "user",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"admin\""
+      ]
+    },
+    {
+      "path": "userId",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 1,
+      "occurrences": 1,
+      "non_null_occurrences": 1,
+      "types": [
+        "bytes"
+      ],
+      "examples": [
+        "{\"$binary\": {\"base64\": \"4MbmB4zFSFyZQrGK6cfDaA==\", \"subType\": \"04\"}}"
+      ]
+    }
+  ]
+}
