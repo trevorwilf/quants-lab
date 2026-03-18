@@ -195,8 +195,17 @@ def run_stress_tests(
     scenario_results = []
     for scenario in scenarios:
         stressed_config, stressed_rules = apply_scenario(config, pair_rules, scenario)
+
+        # Apply volume scaling to candles if specified
+        if scenario.volume_multiplier != 1.0:
+            stressed_candles = candles.copy()
+            stressed_candles["volume"] = (candles["volume"].astype("float64") *
+                                           scenario.volume_multiplier).astype(candles["volume"].dtype)
+        else:
+            stressed_candles = candles
+
         runner = CandleSimRunner(stressed_config, stressed_rules)
-        sim_result = runner.run_with_signals(candles, precomputed_signals, sim_start_idx=sim_start_idx)
+        sim_result = runner.run_with_signals(stressed_candles, precomputed_signals, sim_start_idx=sim_start_idx)
 
         if score_start_idx is not None:
             _end = score_end_idx if score_end_idx is not None else len(candles)
@@ -212,6 +221,16 @@ def run_stress_tests(
             metrics=metrics,
             objective=obj,
         ))
+
+    # Handle empty scenario list
+    if not scenario_results:
+        return StressReport(
+            baseline_metrics=baseline_metrics,
+            baseline_objective=baseline_objective,
+            scenario_results=[],
+            worst_scenario="none",
+            worst_score=baseline_objective.raw_score,
+        )
 
     # Find worst scenario
     worst_idx = 0
@@ -320,8 +339,17 @@ def run_fold_local_stress(
     stress_scores = []
     for scenario in scenarios:
         stressed_config, stressed_rules = apply_scenario(config, pair_rules, scenario)
+
+        # Apply volume scaling if specified
+        if scenario.volume_multiplier != 1.0:
+            stressed_slice = candle_slice.copy()
+            stressed_slice["volume"] = (candle_slice["volume"].astype("float64") *
+                                         scenario.volume_multiplier).astype(candle_slice["volume"].dtype)
+        else:
+            stressed_slice = candle_slice
+
         runner = CandleSimRunner(stressed_config, stressed_rules)
-        sim_result = runner.run_with_signals(candle_slice, precomputed_signals, sim_start_idx=fold_test_start_idx)
+        sim_result = runner.run_with_signals(stressed_slice, precomputed_signals, sim_start_idx=fold_test_start_idx)
 
         # Extract test window
         test_eq = sim_result.equity_curve[fold_test_start_idx:fold_test_end_idx]

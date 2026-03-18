@@ -187,3 +187,23 @@ def test_dedup_keeps_highest_volume(mock_loader):
     assert len(ts1300_row) == 1
     assert ts1300_row[0]["volume"] == 5.0
     assert ts1300_row[0]["open"] == 102.0
+
+
+class TestMongoProjection:
+    """Mongo queries should project only OHLCV fields."""
+
+    def test_load_range_returns_correct_fields(self, sample_candles_5m, mongo_docs_5m):
+        import mongomock
+        client = mongomock.MongoClient()
+        db = client["test_db"]
+        db["candles"].insert_many(mongo_docs_5m)
+
+        from pmm_lab.data.mongo import MongoCandleLoader
+        from pmm_lab.config.params import DataQuery
+        loader = MongoCandleLoader(client=client, db_name="test_db")
+        query = DataQuery(connector="nonkyc", trading_pair="BTC-USDT", interval="5m")
+        candles = loader.load_range(query, enrich_synthetic=False)
+
+        assert len(candles) == len(sample_candles_5m)
+        for field in ["timestamp", "open", "high", "low", "close", "volume", "is_forward_fill"]:
+            assert field in candles.dtype.names

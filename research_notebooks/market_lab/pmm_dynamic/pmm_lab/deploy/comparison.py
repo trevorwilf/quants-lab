@@ -98,13 +98,17 @@ def compare_performance(
     # 2. Buy/sell balance check
     if live.trade_count > 0:
         buy_frac = live.buy_count / live.trade_count
-        expected_buy_frac = 0.5  # balanced market making
+        # Use expected buy fraction from backtest if available
+        if getattr(expected, 'buy_fraction', None) is not None:
+            expected_buy_frac = expected.buy_fraction
+        else:
+            expected_buy_frac = 0.5  # legacy fallback
         deviation = abs(buy_frac - expected_buy_frac) * 100
 
         passed = deviation <= thresholds.get("buy_sell_ratio", 30.0)
         checks.append(DriftCheck(
             metric_name="buy_sell_balance",
-            expected=50.0, actual=buy_frac * 100,
+            expected=expected_buy_frac * 100, actual=buy_frac * 100,
             deviation_pct=deviation,
             threshold_pct=thresholds.get("buy_sell_ratio", 30.0),
             passed=passed,
@@ -113,7 +117,7 @@ def compare_performance(
         if not passed:
             warnings.append(
                 f"Buy/sell imbalance: {buy_frac*100:.1f}% buys "
-                f"(expected ~50%, deviation {deviation:.1f}%)"
+                f"(expected ~{expected_buy_frac*100:.0f}%, deviation {deviation:.1f}%)"
             )
 
     # 3. PnL direction check
@@ -138,8 +142,14 @@ def compare_performance(
     # 4. Fee drag check (if enough data)
     if live.total_fees_quote > 0 and live.total_volume_quote > 0:
         live_fee_rate = live.total_fees_quote / live.total_volume_quote * 100
-        # Compare against expected fee drag (rough)
-        expected_fee_rate = expected.fee_drag_pct / 100 if expected.fee_drag_pct > 0 else 0.1
+        # Prefer volume-normalized expected fee rate (Phase 2 field)
+        if getattr(expected, 'fee_rate_pct_of_volume', None) is not None and expected.fee_rate_pct_of_volume > 0:
+            expected_fee_rate = expected.fee_rate_pct_of_volume
+        elif expected.fee_drag_pct > 0:
+            # Legacy fallback: fee_drag_pct is % of equity, not volume — rough approximation
+            expected_fee_rate = expected.fee_drag_pct / 100
+        else:
+            expected_fee_rate = 0.1
         if expected_fee_rate > 0:
             fee_deviation = abs(live_fee_rate - expected_fee_rate) / expected_fee_rate * 100
             passed = fee_deviation <= thresholds.get("fee_drag", 100.0)

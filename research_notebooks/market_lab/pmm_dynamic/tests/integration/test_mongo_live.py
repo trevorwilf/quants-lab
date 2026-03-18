@@ -19,12 +19,14 @@ def loader():
     return MongoCandleLoader()
 
 
+@pytest.mark.live_mongo
 @pytest.mark.skipif(not MONGO_AVAILABLE, reason="MongoDB not reachable")
 def test_live_ping(loader):
     """MongoDB is reachable."""
     assert loader.ping() is True
 
 
+@pytest.mark.live_mongo
 @pytest.mark.skipif(not MONGO_AVAILABLE, reason="MongoDB not reachable")
 def test_live_list_combos_not_empty(loader):
     """At least one USDT combo exists."""
@@ -32,6 +34,7 @@ def test_live_list_combos_not_empty(loader):
     assert len(combos) > 0
 
 
+@pytest.mark.live_mongo
 @pytest.mark.skipif(not MONGO_AVAILABLE, reason="MongoDB not reachable")
 def test_live_load_range_btc_usdt_5m(loader):
     """Load BTC-USDT 5m candles from nonkyc."""
@@ -44,6 +47,7 @@ def test_live_load_range_btc_usdt_5m(loader):
     assert np.all(np.diff(arr["timestamp"]) > 0)
 
 
+@pytest.mark.live_mongo
 @pytest.mark.skipif(not MONGO_AVAILABLE, reason="MongoDB not reachable")
 def test_live_audit_passes_strict(loader):
     """Real data passes strict validation."""

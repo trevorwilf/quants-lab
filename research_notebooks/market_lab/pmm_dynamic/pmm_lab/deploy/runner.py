@@ -224,26 +224,17 @@ def run_full_pipeline(
     reference_price = float(np.median(dev_candles["close"]))
 
     # ---- Step 4: Optimize ----
-    # Enforce serial mode for SQLite storage
+    # n_jobs > 1 is not yet wired into the pipeline optimizer.
+    # The infrastructure exists in pmm_lab.optuna.parallel but is not integrated.
     if n_jobs > 1:
-        from pmm_lab.optuna.storage import get_storage_type
-        storage_type = get_storage_type()
-        if storage_type == "sqlite":
-            logger.warning(
-                "  n_jobs=%d requested but storage is SQLite — forcing n_jobs=1. "
-                "Use PostgreSQL (set OPTUNA_STORAGE) for multi-worker optimization.",
-                n_jobs,
-            )
-            n_jobs = 1
-        else:
-            from pmm_lab.optuna.preflight import run_preflight
-            storage_url = os.environ.get("OPTUNA_STORAGE")
-            run_preflight(
-                n_workers=n_jobs,
-                storage_url=storage_url,
-                worker_model="threads",  # pipeline currently uses threaded study.optimize
-                strict=False,  # warn but don't abort for backward compat
-            )
+        import warnings
+        warnings.warn(
+            f"n_jobs={n_jobs} requested but the pipeline currently runs Optuna serially. "
+            f"Process-based parallelism is not yet integrated. Falling back to n_jobs=1.",
+            UserWarning,
+            stacklevel=2,
+        )
+        n_jobs = 1
 
     logger.info("Step 4: Optimization (%d trials, %d jobs)", n_trials, n_jobs)
     dev_hash = hash_candles(dev_candles)
@@ -321,8 +312,9 @@ def run_full_pipeline(
     # Apply validation controller_compat setting
     val_config = _replace(best_config, controller_compat=validation_controller_compat)
     runner = CandleSimRunner(val_config, pair_rules)
-    sim_result = runner.run(dev_candles)
-    metrics = compute_metrics(sim_result, best_config.total_amount_quote, dev_candles, bar_interval)
+    _step6_signals = runner.compute_signals(dev_candles)
+    sim_result = runner.run_with_signals(dev_candles, _step6_signals)
+    metrics = compute_metrics(sim_result, val_config.total_amount_quote, dev_candles, bar_interval)
 
     if objective_version == 2:
         from pmm_lab.objective.objective import ObjectiveWeightsV2
@@ -333,9 +325,10 @@ def run_full_pipeline(
     # ---- Step 7: Walk-forward ----
     logger.info("Step 7: Walk-forward validation")
     wf_result = run_walk_forward(
-        dev_candles, best_config, pair_rules, bar_interval, dev_hash,
+        dev_candles, val_config, pair_rules, bar_interval, dev_hash,
         train_days=train_days, test_days=test_days, step_days=step_days,
         objective_version=objective_version,
+        include_train_metrics=False,
     )
     wf_pnls = [f.test_metrics.pnl_pct for f in wf_result.folds]
     wf_sharpes = [f.test_metrics.sharpe for f in wf_result.folds]
@@ -347,7 +340,7 @@ def run_full_pipeline(
     logger.info("Step 8: Holdout evaluation")
     # Evaluate holdout ONLY on the exported config to prevent config mismatch
     # best_config was already canonicalized from the dev winner above
-    holdout_candidates = [(best_config, best_trial.value or 0.0)]
+    holdout_candidates = [(val_config, best_trial.value or 0.0)]
 
     # Optionally evaluate additional top-k for diagnostic purposes only
     import optuna as _optuna
@@ -359,6 +352,7 @@ def run_full_pipeline(
             p["total_amount_quote"] = fixed_quote
         cfg, rej = canonicalize_params(p, pair_rules, reference_price)
         if cfg is not None:
+            cfg = _replace(cfg, controller_compat=validation_controller_compat)
             holdout_candidates.append((cfg, t.value or 0.0))
 
     holdout_report = evaluate_holdout(
@@ -368,18 +362,19 @@ def run_full_pipeline(
         holdout_start_idx=len(dev_candles),
     )
     # The exported config is always candidate index 0
-    # holdout pass/fail MUST refer to this same config
-    logger.info("  Holdout score=%.4f (exported config, rank 0), passed=%s",
-                holdout_report.candidates[0].metrics.pnl_pct if holdout_report.candidates else 0.0,
-                holdout_report.passed)
+    logger.info("  Holdout: exported_score=%.4f, exported_passed=%s, best_rank=%d",
+                holdout_report.exported_holdout_score,
+                holdout_report.exported_holdout_passed,
+                holdout_report.best_holdout_rank)
 
     # ---- Step 9: Stress ----
     stress_report = None
     stress_worst = 0.0
     if run_stress:
         logger.info("Step 9: Stress testing")
-        stress_report = run_stress_tests(dev_candles, best_config, pair_rules, bar_interval,
-                                          objective_version=objective_version)
+        stress_report = run_stress_tests(dev_candles, val_config, pair_rules, bar_interval,
+                                          objective_version=objective_version,
+                                          precomputed_signals=_step6_signals)
         stress_worst = stress_report.worst_score
         logger.info("  Worst scenario: %s (%.4f)", stress_report.worst_scenario, stress_worst)
 
@@ -390,6 +385,7 @@ def run_full_pipeline(
         sens_report = compute_sensitivity(
             best_params, dev_candles, pair_rules, bar_interval, reference_price,
             objective_version=objective_version,
+            controller_compat=validation_controller_compat,
         )
         sensitivity_penalty = sens_report.sensitivity_penalty
         logger.info("  Sensitivity penalty=%.4f", sensitivity_penalty)
@@ -400,7 +396,7 @@ def run_full_pipeline(
         logger.info("Step 10b: Recent-window evaluation")
         from pmm_lab.objective.recent_window import evaluate_recent_window
         recent_window_result = evaluate_recent_window(
-            candles, best_config, pair_rules, bar_interval,  # full candles, NOT dev_candles
+            candles, val_config, pair_rules, bar_interval,  # full candles, NOT dev_candles
             recent_days=28,
             run_stress=run_stress,
             objective_version=objective_version,
@@ -431,6 +427,22 @@ def run_full_pipeline(
     else:
         logger.warning("  Frozen fixture not found at %s — skipping parity", fixture_dir)
 
+    # Long-history parity check (catches divergence beyond max_records window)
+    long_fixture_dir = _Path(__file__).resolve().parent.parent.parent / "fixtures" / "long_500bar_compat"
+    long_parity_result = None
+    if long_fixture_dir.is_dir():
+        try:
+            long_fixture = load_frozen_fixture(str(long_fixture_dir))
+            long_parity_result = check_feature_parity_frozen(
+                long_fixture.candles, long_fixture.expected_features, long_fixture.config_params,
+            )
+            logger.info("  Long-history parity: passed=%s, max_abs_diff=%.2e",
+                        long_parity_result.passed, long_parity_result.max_abs_diff)
+        except Exception as e:
+            logger.warning("  Long-history parity check failed: %s", e)
+    else:
+        logger.warning("  Long fixture not found at %s — skipping", long_fixture_dir)
+
     # ---- Step 11: Clustering ----
     logger.info("Step 11: Top-k clustering")
     cluster_report = analyze_top_k(study, k=top_k)
@@ -446,7 +458,7 @@ def run_full_pipeline(
         interval=interval,
     )
     yaml_path = str(out_dir / "config.yml")
-    export_yaml(best_config, yaml_path, export_params)
+    export_yaml(val_config, yaml_path, export_params)
 
     # Validate the export
     from pmm_lab.export.validate_export import validate_yaml_file
@@ -465,6 +477,7 @@ def run_full_pipeline(
         recent_window_result=recent_window_result,
         parity_result=parity_result,
         cluster_report=cluster_report,
+        long_parity_result=long_parity_result,
     )
     all_passed = all(stop_ship.values())
     logger.info("  Stop-ship: %s (%d/%d passed)",
@@ -480,7 +493,7 @@ def run_full_pipeline(
         logger.warning("  Stop-ship FAILED — writing to rejected/ (NOT deployable)")
 
     package = create_deployment_package(
-        config=best_config, metrics=metrics, objective=obj_decomp,
+        config=val_config, metrics=metrics, objective=obj_decomp,
         study_name=study_name, dataset_hash=dataset_hash,
         dataset_bars=len(candles), export_params=export_params,
         objective_version=objective_version,
@@ -548,7 +561,7 @@ def run_full_pipeline(
         n_trials=n_trials, best_trial_number=best_trial.number,
         best_score=best_trial.value, objective_version=objective_version,
         wf_aggregate_score=wf_result.aggregate_score, wf_fold_count=len(wf_result.folds),
-        holdout_score=holdout_report.best_holdout_score, holdout_passed=holdout_report.passed,
+        holdout_score=holdout_report.exported_holdout_score, holdout_passed=holdout_report.exported_holdout_passed,
         stress_worst_score=stress_worst, sensitivity_penalty=sensitivity_penalty,
         top_k_clustered=cluster_report.is_clustered,
         stop_ship_checks=stop_ship, stop_ship_passed=all_passed,

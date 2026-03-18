@@ -78,3 +78,41 @@ class TestFeeConversion:
         expected = 1.0 + (0.0001 * 60000.0)  # quote + base converted
         assert abs(metrics.total_fees_quote - expected) < 1e-6
         assert metrics.unresolved_fee_count == 1
+
+
+from pmm_lab.deploy.live_tracker import LivePerformanceTracker
+
+class TestProductionFeeConversion:
+    """get_performance() must handle fee currencies correctly."""
+
+    def test_get_performance_returns_metrics(self):
+        from unittest.mock import patch
+        tracker = LivePerformanceTracker.__new__(LivePerformanceTracker)
+        tracker._db_url = "postgresql+psycopg2://x:x@localhost/test"
+        tracker._engine = None
+        tracker._last_health = "ok"
+        tracker._last_error = None
+
+        with patch.object(tracker, 'get_trades', return_value=[]):
+            metrics = tracker.get_performance("nonkyc", "XMR-USDT", hours=24)
+
+        assert metrics.trade_count == 0
+        assert metrics.total_fees_quote == 0.0
+
+    def test_get_performance_with_mock_trades(self):
+        from unittest.mock import patch
+        tracker = LivePerformanceTracker.__new__(LivePerformanceTracker)
+        tracker._db_url = "postgresql+psycopg2://x:x@localhost/test"
+        tracker._engine = None
+        tracker._last_health = "ok"
+        tracker._last_error = None
+
+        mock_trades = [
+            _make_trade(fee_amount=0.5, fee_currency="USDT", trade_id="t1"),
+            _make_trade(fee_amount=0.001, fee_currency="BTC", price=50000.0, trade_id="t2"),
+        ]
+        with patch.object(tracker, 'get_trades', return_value=mock_trades):
+            metrics = tracker.get_performance("nonkyc", "BTC-USDT", hours=24)
+
+        expected_fees = 0.5 + (0.001 * 50000.0)
+        assert abs(metrics.total_fees_quote - expected_fees) < 1e-6

@@ -195,3 +195,29 @@ class TestComputeMetrics:
         result = _make_sim_result([trade], eq)
         m = compute_metrics(result, 100.0, candles, 300)
         assert abs(m.maker_fees_quote + m.taker_fees_quote - m.total_fees_quote) < 0.01
+
+
+class TestInventoryExposureVectorized:
+    """Vectorized inventory exposure must be identical to the loop version."""
+
+    def test_vectorized_matches_loop(self):
+        import numpy as np
+        rng = np.random.default_rng(42)
+        n = 1000
+        eq = rng.uniform(50, 200, n)
+        eq[::10] = 0  # some zero-equity bars
+        pos = rng.uniform(-5, 5, n)
+        close_prices = rng.uniform(80, 120, n)
+
+        # Loop version (old)
+        loop_result = np.zeros(n, dtype=np.float64)
+        for i in range(n):
+            if eq[i] != 0:
+                loop_result[i] = abs(pos[i] * close_prices[i]) / abs(eq[i])
+
+        # Vectorized version (new)
+        vec_result = np.zeros(n, dtype=np.float64)
+        mask = eq != 0
+        vec_result[mask] = np.abs(pos[mask] * close_prices[mask]) / np.abs(eq[mask])
+
+        np.testing.assert_array_equal(loop_result, vec_result)

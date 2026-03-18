@@ -176,6 +176,7 @@ def run_stop_ship_checks(
     recent_window_result: Optional[Any] = None,
     parity_result: Optional[Any] = None,
     cluster_report: Optional[Any] = None,
+    long_parity_result: Optional[Any] = None,
 ) -> Dict[str, bool]:
     """Run all stop-ship condition checks.
 
@@ -237,10 +238,10 @@ def run_stop_ship_checks(
         checks["walkforward_robust"] = False
         checks["walkforward_positive_majority"] = False
 
-    # 7. holdout_passed
+    # 7. holdout_passed — use exported-candidate gating
     if holdout_report is not None:
-        checks["holdout_passed"] = bool(holdout_report.passed)
-        checks["holdout_no_collapse"] = bool(not holdout_report.dev_vs_holdout_collapse)
+        checks["holdout_passed"] = bool(getattr(holdout_report, 'exported_holdout_passed', holdout_report.passed))
+        checks["holdout_no_collapse"] = bool(not getattr(holdout_report, 'exported_holdout_collapse', holdout_report.dev_vs_holdout_collapse))
     else:
         checks["holdout_passed"] = False
         checks["holdout_no_collapse"] = False
@@ -262,6 +263,11 @@ def run_stop_ship_checks(
         checks["frozen_parity"] = bool(parity_result.passed)
     else:
         checks["frozen_parity"] = False  # not tested = fail
+
+    # 10b. long_parity_passed — long-history fixture parity
+    if long_parity_result is not None:
+        checks["long_parity_passed"] = bool(long_parity_result.passed)
+    # Don't fail if long fixture is missing — just skip the check
 
     # 11. top_k_clustered — parameter surface stability
     if cluster_report is not None:

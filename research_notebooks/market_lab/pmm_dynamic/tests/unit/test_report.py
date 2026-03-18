@@ -53,6 +53,9 @@ def _make_holdout_report(passed=True, collapse=False):
         best_holdout_score=3.0 if passed else -1.0,
         dev_vs_holdout_collapse=collapse,
         passed=passed,
+        exported_holdout_score=3.0 if passed else -1.0,
+        exported_holdout_passed=passed,
+        exported_holdout_collapse=collapse,
     )
 
 

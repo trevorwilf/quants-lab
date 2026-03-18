@@ -91,6 +91,7 @@ $testGroups = @(
            "tests/unit/test_native_parity.py",           # Phase 2: native controller parity
            "tests/unit/test_regime.py",
            "tests/unit/test_simconfig_controller_compat.py",
+           "tests/unit/test_controller_compat_propagation.py", # Fix 4: compat propagation
            "-m", "not slow"
        )
     },
@@ -138,7 +139,8 @@ $testGroups = @(
            "tests/unit/test_objective_v2.py",
            "tests/unit/test_metrics.py",
            "tests/unit/test_metrics_v2_fields.py",
-           "tests/unit/test_robustness.py"
+           "tests/unit/test_robustness.py",
+           "tests/unit/test_market_tp_fee_attribution.py"
        )
     },
 
@@ -159,6 +161,8 @@ $testGroups = @(
            "tests/unit/test_holdout_warmstart.py",
            "tests/unit/test_holdout_stress_local.py",
            "tests/unit/test_holdout_config_consistency.py",  # Phase 1: export matches holdout config
+           "tests/unit/test_holdout_exported_candidate.py", # Fix 3: exported candidate gating
+           "tests/unit/test_holdout_signal_cache.py",
            "tests/unit/test_walkforward.py"
        )
     },
@@ -210,7 +214,8 @@ $testGroups = @(
            "tests/unit/test_parity_harness.py",
            "tests/unit/test_stop_ship_parity.py",        # Phase 2: parity gate in stop-ship
            "tests/unit/test_stop_ship_clustering.py",    # Phase 2: clustering gate in stop-ship
-           "tests/unit/test_live_tracker_fees.py"         # Phase 2: fee conversion
+           "tests/unit/test_live_tracker_fees.py",        # Phase 2: fee conversion
+           "tests/unit/test_live_tracker_health.py"
        )
     },
 
@@ -235,7 +240,9 @@ $testGroups = @(
        Args  = @(
            "tests/integration/test_acceptance.py",
            "tests/integration/test_end_to_end.py",
-           "tests/integration/test_optuna_smoke.py"
+           "tests/integration/test_optuna_smoke.py",
+           "tests/integration/test_live_tracker.py",
+           "tests/integration/test_mongo_live.py"
        )
     }
 )
@@ -271,7 +278,13 @@ try {
             $totalPassed  += $p
             $totalFailed  += $f
             $totalSkipped += $s
-            $status = if ($f -eq 0) { "PASS" } else { "FAIL" }
+            # Fail on non-zero exit code OR parsed failures OR errors
+            if ($output -match "(\d+)\s+error") { $e = [int]$Matches[1] } else { $e = 0 }
+            $status = if ($f -eq 0 -and $e -eq 0 -and $code -eq 0) { "PASS" } else { "FAIL" }
+            if ($code -ne 0 -and $f -eq 0 -and $e -eq 0) {
+                Write-Host "  WARNING: pytest exited $code but no failures parsed — possible collection error" -ForegroundColor Yellow
+            }
+            if ($code -ne 0 -and $f -eq 0) { $totalFailed += 1 }  # count collection errors as failures
             $groupResults += [PSCustomObject]@{ Group = $lbl; Passed = $p; Failed = $f; Skipped = $s; Status = $status }
         }
 

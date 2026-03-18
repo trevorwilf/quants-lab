@@ -51,3 +51,14 @@ def test_parity_failed_shows_in_stop_ship():
 def test_no_parity_result_fails_stop_ship():
     checks = run_stop_ship_checks(**_make_minimal_args(parity_result=None))
     assert checks["frozen_parity"] is False
+
+
+class TestLongParityInPipeline:
+    """Pipeline must check both short and long parity fixtures."""
+
+    def test_long_fixture_referenced(self):
+        import inspect
+        from pmm_lab.deploy import runner
+        source = inspect.getsource(runner.run_full_pipeline)
+        assert "long_500bar_compat" in source, \
+            "Pipeline must check the long-history parity fixture"

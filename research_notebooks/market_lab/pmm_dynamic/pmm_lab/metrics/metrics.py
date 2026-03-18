@@ -141,11 +141,17 @@ def compute_metrics(
 
         # Exact maker/taker split
         maker_fees += t.entry_fee_quote  # entries are always maker
-        # LIMIT take-profit exits are maker; all other exits are taker
-        if t.exit_type == "take_profit":
+        # Use the fee type recorded by the engine
+        if t.exit_fee_type == "maker":
             maker_fees += t.exit_fee_quote
-        else:
+        elif t.exit_fee_type == "taker":
             taker_fees += t.exit_fee_quote
+        else:
+            # Legacy fallback: LIMIT TP = maker, everything else = taker
+            if t.exit_type == "take_profit":
+                maker_fees += t.exit_fee_quote
+            else:
+                taker_fees += t.exit_fee_quote
 
     # Profit factor
     if gross_loss == 0 and gross_win > 0:
@@ -161,10 +167,9 @@ def compute_metrics(
     # Inventory exposure
     close_prices = candles["close"].astype("float64")
     pos = result.position_history
-    inv_exposure = np.zeros(n, dtype="float64")
-    for i in range(n):
-        if eq[i] != 0:
-            inv_exposure[i] = abs(pos[i] * close_prices[i]) / abs(eq[i])
+    inv_exposure = np.zeros(n, dtype=np.float64)
+    mask = eq != 0
+    inv_exposure[mask] = np.abs(pos[mask] * close_prices[mask]) / np.abs(eq[mask])
 
     inv_mean = float(np.mean(inv_exposure)) if n > 0 else 0.0
     inv_max = float(np.max(inv_exposure)) if n > 0 else 0.0

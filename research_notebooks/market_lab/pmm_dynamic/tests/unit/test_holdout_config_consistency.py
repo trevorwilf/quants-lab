@@ -14,8 +14,8 @@ def test_holdout_evaluates_exported_config_first():
     import inspect
     from pmm_lab.deploy.runner import run_full_pipeline
     source = inspect.getsource(run_full_pipeline)
-    assert "holdout_candidates = [(best_config," in source, (
-        "Pipeline must construct holdout_candidates with best_config as first element"
+    assert "holdout_candidates = [(val_config," in source, (
+        "Pipeline must construct holdout_candidates with val_config as first element"
     )
     assert "holdout_report.candidates[0]" in source, (
         "Pipeline must reference candidates[0] for package metadata"

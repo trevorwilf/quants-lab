@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-slow test-full test-live test-regression data-audit backtest-smoke \
+.PHONY: test test-unit test-slow test-full test-live test-live-db test-regression data-audit backtest-smoke \
         walkforward-smoke stress-smoke optimize-smoke export-validate \
         test-phase1 test-phase2 test-phase3 test-all-phases test-parity test-stop-ship \
         test-trade-accounting clean-artifacts help
@@ -10,6 +10,7 @@ help:
 	@echo "  test              Run all unit + integration tests (no MongoDB needed)"
 	@echo "  test-unit         Run unit tests only"
 	@echo "  test-live         Run integration tests requiring MongoDB"
+	@echo "  test-live-db      Run integration tests requiring Hummingbot PostgreSQL"
 	@echo "  test-regression   Run regression tests"
 	@echo "  test-phase1       Run Phase 1 correctness fix tests"
 	@echo "  test-phase2       Run Phase 2 parity & contract tests"
@@ -40,6 +41,9 @@ test-full:
 
 test-live:
 	python -m pytest tests/integration/ -q --tb=short -m live_mongo
+
+test-live-db:
+	python -m pytest tests/integration/ -q --tb=short -m live_hbot_db
 
 test-regression:
 	python -m pytest tests/regression/ -q --tb=short

@@ -19,6 +19,7 @@ def _hbot_db_reachable() -> bool:
 HBOT_DB_AVAILABLE = _hbot_db_reachable()
 
 
+@pytest.mark.live_hbot_db
 @pytest.mark.skipif(not HBOT_DB_AVAILABLE, reason="Hummingbot PostgreSQL not reachable")
 class TestTrackerPing:
     def test_tracker_ping(self):
@@ -26,6 +27,7 @@ class TestTrackerPing:
         assert tracker.ping() is True
 
 
+@pytest.mark.live_hbot_db
 @pytest.mark.skipif(not HBOT_DB_AVAILABLE, reason="Hummingbot PostgreSQL not reachable")
 class TestTrackerGetTradesReturnsList:
     def test_tracker_get_trades_returns_list(self):
@@ -34,6 +36,7 @@ class TestTrackerGetTradesReturnsList:
         assert isinstance(trades, list)
 
 
+@pytest.mark.live_hbot_db
 @pytest.mark.skipif(not HBOT_DB_AVAILABLE, reason="Hummingbot PostgreSQL not reachable")
 class TestTrackerGetPerformanceReturnsMetrics:
     def test_tracker_get_performance_returns_metrics(self):

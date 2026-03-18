@@ -152,3 +152,77 @@ class TestRunStressTests:
         )
         assert report.baseline_metrics is not None
         assert report.baseline_objective is not None
+
+
+class TestEmptyStressScenarios:
+    def test_empty_scenarios_returns_baseline(self):
+        """Empty scenario list must not crash — returns baseline-only report."""
+        from tests.conftest import _make_sample_candles_5m
+        from pmm_lab.sim.executor_model import SimConfig
+        from pmm_lab.config.params import PairRules, FeeConfig
+        from pmm_lab.objective.stress import run_stress_tests
+
+        candles = _make_sample_candles_5m()
+        config = SimConfig(
+            buy_spreads=[1.0, 2.0], sell_spreads=[1.0, 2.0],
+            buy_amounts_pct=[0.5, 0.5], sell_amounts_pct=[0.5, 0.5],
+        )
+        rules = PairRules(price_tick=0.01, amount_step=0.000001, min_notional_quote=5.0,
+                          fees=FeeConfig(0.001, 0.002))
+
+        report = run_stress_tests(candles, config, rules, 300, scenarios=[])
+        assert report.worst_scenario == "none"
+        assert len(report.scenario_results) == 0
+        assert report.worst_score == report.baseline_objective.raw_score
+
+
+class TestVolumeMultiplier:
+    def test_volume_multiplier_scales_fills(self):
+        """volume_multiplier < 1.0 should reduce candle volume and potentially reduce fills."""
+        from tests.conftest import _make_sample_candles_5m
+        from pmm_lab.sim.executor_model import SimConfig
+        from pmm_lab.config.params import PairRules, FeeConfig
+        from pmm_lab.objective.stress import run_stress_tests, StressScenario
+
+        candles = _make_sample_candles_5m()
+        config = SimConfig(
+            buy_spreads=[1.0, 2.0], sell_spreads=[1.0, 2.0],
+            buy_amounts_pct=[0.5, 0.5], sell_amounts_pct=[0.5, 0.5],
+        )
+        rules = PairRules(price_tick=0.01, amount_step=0.000001, min_notional_quote=5.0,
+                          fees=FeeConfig(0.001, 0.002))
+
+        thin_scenario = StressScenario(
+            name="thin_liquidity",
+            description="10% volume",
+            volume_multiplier=0.1,
+        )
+        stressed = run_stress_tests(candles, config, rules, 300, scenarios=[thin_scenario])
+
+        assert len(stressed.scenario_results) == 1
+        assert stressed.scenario_results[0].scenario.name == "thin_liquidity"
+        assert isinstance(stressed.scenario_results[0].objective.raw_score, float)
+
+    def test_volume_1_0_matches_baseline(self):
+        """volume_multiplier=1.0 must produce identical results to no multiplier."""
+        from tests.conftest import _make_sample_candles_5m
+        from pmm_lab.sim.executor_model import SimConfig
+        from pmm_lab.config.params import PairRules, FeeConfig
+        from pmm_lab.objective.stress import run_stress_tests, StressScenario
+
+        candles = _make_sample_candles_5m()
+        config = SimConfig(
+            buy_spreads=[1.0, 2.0], sell_spreads=[1.0, 2.0],
+            buy_amounts_pct=[0.5, 0.5], sell_amounts_pct=[0.5, 0.5],
+        )
+        rules = PairRules(price_tick=0.01, amount_step=0.000001,
+                          min_notional_quote=5.0, fees=FeeConfig(0.001, 0.002))
+
+        noop_scenario = StressScenario(
+            name="noop", description="1x volume", volume_multiplier=1.0,
+        )
+        report = run_stress_tests(candles, config, rules, 300, scenarios=[noop_scenario])
+        baseline_score = report.baseline_objective.raw_score
+        scenario_score = report.scenario_results[0].objective.raw_score
+        assert abs(baseline_score - scenario_score) < 1e-10, \
+            "volume_multiplier=1.0 should produce identical score to baseline"

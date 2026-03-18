@@ -306,6 +306,14 @@ class SimEngine:
         equity_curve = np.zeros(n, dtype="float64")
         position_history = np.zeros(n, dtype="float64")
 
+        # Pre-bind structured array fields to avoid repeated lookup overhead
+        _ts_arr = candles["timestamp"]
+        _open_arr = candles["open"]
+        _high_arr = candles["high"]
+        _low_arr = candles["low"]
+        _close_arr = candles["close"]
+        _vol_arr = candles["volume"]
+
         trades: List[Trade] = []
         open_trades: List[Trade] = []
         active_orders: List[Order] = []
@@ -322,7 +330,7 @@ class SimEngine:
         # Initial base allocation (pre-buys base at market open)
         initial_rebal_fee = 0.0
         if cfg.initial_base_pct > 0 and n > 0:
-            open_price = float(candles["close"][min(loop_start, n - 1)])
+            open_price = float(_close_arr[min(loop_start, n - 1)])
             initial_quote = cfg.initial_base_pct * cfg.total_amount_quote
             initial_buy_price = compute_slippage(open_price, cfg.slippage_bps, "sell")
             initial_qty = initial_quote / initial_buy_price if initial_buy_price > 0 else 0.0
@@ -335,17 +343,17 @@ class SimEngine:
 
         # Fill pre-loop bars with initial equity
         for i in range(min(loop_start, n)):
-            equity_curve[i] = inventory.equity(float(candles["close"][i]))
+            equity_curve[i] = inventory.equity(float(_close_arr[i]))
             position_history[i] = inventory.base_balance
 
         # 3. Main simulation loop
         for bar in range(loop_start, n):
-            ts = int(candles["timestamp"][bar])
-            c_open = float(candles["open"][bar])
-            c_high = float(candles["high"][bar])
-            c_low = float(candles["low"][bar])
-            c_close = float(candles["close"][bar])
-            c_volume = float(candles["volume"][bar])
+            ts = int(_ts_arr[bar])
+            c_open = float(_open_arr[bar])
+            c_high = float(_high_arr[bar])
+            c_low = float(_low_arr[bar])
+            c_close = float(_close_arr[bar])
+            c_volume = float(_vol_arr[bar])
 
             # Skip bar if signals are not valid
             if not signals.is_valid(bar):
@@ -403,6 +411,7 @@ class SimEngine:
                         trade.pnl_quote = (trade.entry_price - exit_price) * close_qty - trade.fee_quote - exit_fee
 
                     trade.exit_fee_quote = exit_fee
+                    trade.exit_fee_type = fee_type
                     trade.fee_quote += exit_fee
                     closed_trade_ids.add(trade.trade_id)
 
@@ -583,8 +592,8 @@ class SimEngine:
         # 4. Force-close remaining open trades at final bar close
         force_close_failures = 0
         if open_trades and n > 0:
-            final_close = float(candles["close"][n - 1])
-            final_ts = int(candles["timestamp"][n - 1])
+            final_close = float(_close_arr[n - 1])
+            final_ts = int(_ts_arr[n - 1])
             for trade in open_trades:
                 exit_price = compute_slippage(final_close, cfg.slippage_bps, trade.side)
 
@@ -628,6 +637,7 @@ class SimEngine:
                 trade.exit_timestamp = final_ts
                 trade.exit_type = "final_liquidation"
                 trade.exit_fee_quote = exit_fee
+                trade.exit_fee_type = "taker"
                 trade.fee_quote += exit_fee
                 n_market_exits += 1
 

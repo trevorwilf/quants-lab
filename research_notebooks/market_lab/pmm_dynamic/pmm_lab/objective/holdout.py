@@ -84,10 +84,15 @@ class HoldoutReport:
     holdout_end_timestamp: int
     regime: RegimeClassification
     candidates: List[HoldoutCandidateResult]
-    best_holdout_rank: int                    # which candidate scored best on holdout
+    # Best-of-k diagnostics (for research/reporting only)
+    best_holdout_rank: int
     best_holdout_score: float
-    dev_vs_holdout_collapse: bool             # True if holdout score << development score
-    passed: bool                              # overall holdout validation pass/fail
+    dev_vs_holdout_collapse: bool
+    passed: bool  # mirrors exported_holdout_passed for backward compat
+    # Exported candidate gating (these drive stop-ship decisions)
+    exported_holdout_score: float = 0.0
+    exported_holdout_passed: bool = False
+    exported_holdout_collapse: bool = False
 
 
 def evaluate_holdout(
@@ -139,6 +144,10 @@ def evaluate_holdout(
     # Classify holdout regime
     holdout_regime = classify_regime(holdout_candles)
 
+    # Signal cache — reuse signals for candidates with identical indicator params
+    from pmm_lab.objective.signal_cache import signal_cache_key
+    _signal_cache: dict = {}
+
     candidates = []
     for rank, (config, dev_score) in enumerate(candidate_configs):
         initial_equity = config.total_amount_quote
@@ -147,7 +156,11 @@ def evaluate_holdout(
         runner = CandleSimRunner(config, pair_rules)
         if full_candles is not None and holdout_start_idx is not None:
             # Warm-start: compute signals on full history, sim starts at holdout boundary
-            signals = runner.compute_signals(full_candles)
+            _sig_key = signal_cache_key(config)
+            signals = _signal_cache.get(_sig_key)
+            if signals is None:
+                signals = runner.compute_signals(full_candles)
+                _signal_cache[_sig_key] = signals
             candles_through_holdout = full_candles[:holdout_start_idx + len(holdout_candles)]
             result = runner.run_with_signals(
                 candles_through_holdout, signals,
@@ -226,8 +239,21 @@ def evaluate_holdout(
         elif best_dev > 0 and best_score < 0:
             collapse = True
 
-    # Overall pass: holdout score > 0 and no dramatic collapse
-    passed = bool(best_score > 0 and not collapse)
+    # Overall pass (best-of-k, for diagnostics)
+    best_passed = bool(best_score > 0 and not collapse)
+
+    # Exported candidate gating — candidate 0 is always the exported config
+    exported_score = candidates[0].objective.raw_score if candidates else REJECT_SCORE
+    exported_dev_score = candidates[0].development_score if candidates else 0.0
+
+    exported_collapse = False
+    if exported_score != REJECT_SCORE and exported_dev_score > 0:
+        if exported_score < exported_dev_score * (1 - collapse_threshold):
+            exported_collapse = True
+        elif exported_score < 0:
+            exported_collapse = True
+
+    exported_passed = bool(exported_score > 0 and not exported_collapse)
 
     return HoldoutReport(
         holdout_bars=len(holdout_candles),
@@ -238,5 +264,8 @@ def evaluate_holdout(
         best_holdout_rank=best_rank,
         best_holdout_score=best_score,
         dev_vs_holdout_collapse=collapse,
-        passed=passed,
+        passed=exported_passed,
+        exported_holdout_score=exported_score,
+        exported_holdout_passed=exported_passed,
+        exported_holdout_collapse=exported_collapse,
     )

@@ -161,6 +161,26 @@ class TestPackageWithoutOptionalFields:
         assert package.expected.pnl_pct == 5.0
 
 
+class TestExpectedPerformanceMonitoringFields:
+    """ExpectedPerformance must include monitoring-compatible fields."""
+
+    def test_monitoring_fields_exist(self):
+        from pmm_lab.deploy.package import ExpectedPerformance
+        ep = ExpectedPerformance(
+            pnl_pct=5.0, max_drawdown_pct=10.0, trade_count=50,
+            sharpe=1.5, profit_factor=2.0, fee_drag_pct=1.0,
+            median_trade_pnl_quote=0.5,
+            evaluation_hours=168.0,
+            total_volume_quote=5000.0,
+            fee_rate_pct_of_volume=0.15,
+            buy_fraction=0.55,
+            sell_fraction=0.45,
+        )
+        assert ep.evaluation_hours == 168.0
+        assert ep.fee_rate_pct_of_volume == 0.15
+        assert ep.buy_fraction == 0.55
+
+
 class TestPackageCreatedAtIsUtc:
     def test_package_created_at_is_utc(self):
         package = _make_test_package()

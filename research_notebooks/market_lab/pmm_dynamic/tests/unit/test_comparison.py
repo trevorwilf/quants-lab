@@ -136,3 +136,31 @@ class TestComparisonEmptyLiveNoCrash:
         report = compare_performance(expected, live)
         assert isinstance(report, ComparisonReport)
         assert isinstance(report.summary, str)
+
+
+class TestComparisonUsesVolumeNormalizedFeeRate:
+    """Fee comparison should use fee_rate_pct_of_volume when available."""
+
+    def test_volume_fee_rate_used_when_available(self):
+        expected = _make_expected(fee_drag_pct=1.0)
+        expected.fee_rate_pct_of_volume = 0.15
+        live = _make_live(total_fees_quote=0.30, total_volume_quote=200.0)
+        report = compare_performance(expected, live)
+        fee_checks = [c for c in report.checks if c.metric_name == "fee_rate"]
+        if fee_checks:
+            assert fee_checks[0].expected == 0.15, \
+                "Should use fee_rate_pct_of_volume, not fee_drag_pct"
+
+
+class TestComparisonUsesExpectedBuyFraction:
+    """Buy/sell balance should use expected buy_fraction when available."""
+
+    def test_no_false_alarm_with_correct_buy_fraction(self):
+        expected = _make_expected()
+        expected.buy_fraction = 0.8
+        live = _make_live(trade_count=20, buy_count=16, sell_count=4)
+        report = compare_performance(expected, live)
+        balance_checks = [c for c in report.checks if c.metric_name == "buy_sell_balance"]
+        assert len(balance_checks) == 1
+        assert balance_checks[0].passed, \
+            "Should not warn when live buy fraction matches expected"

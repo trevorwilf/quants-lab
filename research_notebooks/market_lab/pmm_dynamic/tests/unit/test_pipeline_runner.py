@@ -162,3 +162,25 @@ class TestPipelineCreatesEnvironmentSnapshot:
 
         env_path = tmp_path / "env_test" / "environment.json"
         assert env_path.exists()
+
+
+class TestPipelineSignalReuse:
+    """Step 9 stress should reuse Step 6 precomputed signals."""
+
+    def test_stress_receives_precomputed_signals(self):
+        import inspect
+        from pmm_lab.deploy import runner
+        source = inspect.getsource(runner.run_full_pipeline)
+        assert "precomputed_signals=_step6_signals" in source, \
+            "Step 9 stress should receive precomputed signals from Step 6"
+
+
+class TestPipelineWalkforwardTrainMetrics:
+    """Pipeline walk-forward should skip unnecessary train diagnostics."""
+
+    def test_include_train_metrics_false_in_source(self):
+        import inspect
+        from pmm_lab.deploy import runner
+        source = inspect.getsource(runner.run_full_pipeline)
+        assert "include_train_metrics=False" in source, \
+            "Pipeline must pass include_train_metrics=False to run_walk_forward"

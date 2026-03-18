@@ -37,4 +37,5 @@ markers = [
     "integration: cross-module workflow tests",
     "parity: controller/fixture parity tests",
     "live_mongo: requires a live MongoDB instance",
+    "live_hbot_db: requires a live Hummingbot PostgreSQL instance",
 ]

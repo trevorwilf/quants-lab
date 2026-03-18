@@ -168,7 +168,16 @@ class MongoCandleLoader:
                 ts_filter["$lte"] = query.end_ts
             mongo_filter["timestamp"] = ts_filter
 
-        cursor = self._collection.find(mongo_filter).sort("timestamp", 1)
+        _projection = {
+            "_id": 0,
+            "timestamp": 1,
+            "open": 1,
+            "high": 1,
+            "low": 1,
+            "close": 1,
+            "volume": 1,
+        }
+        cursor = self._collection.find(mongo_filter, projection=_projection).sort("timestamp", 1)
         docs = list(cursor)
 
         if not docs:

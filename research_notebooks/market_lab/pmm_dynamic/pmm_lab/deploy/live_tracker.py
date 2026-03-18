@@ -22,6 +22,14 @@ from typing import Optional, List, Dict, Any
 logger = logging.getLogger(__name__)
 
 
+class TrackerHealth:
+    """Health state for the last tracker query."""
+    OK = "ok"
+    NO_DATA = "no_data"
+    DB_ERROR = "db_error"
+    SCHEMA_ERROR = "schema_error"
+
+
 @dataclass
 class LiveTrade:
     """One trade from the Hummingbot database."""
@@ -78,6 +86,8 @@ class LivePerformanceTracker:
             db_url = self._build_db_url()
         self._db_url = db_url
         self._engine = None
+        self._last_health: str = TrackerHealth.OK
+        self._last_error: Optional[str] = None
 
     @staticmethod
     def _build_db_url() -> str:
@@ -196,12 +206,24 @@ class LivePerformanceTracker:
                         timestamp=row[7] if isinstance(row[7], datetime) else datetime.fromisoformat(str(row[7])),
                         order_type=str(row[8]) if row[8] else "LIMIT",
                     ))
+            self._last_health = TrackerHealth.OK if trades else TrackerHealth.NO_DATA
+            self._last_error = None
         except Exception as e:
             logger.warning("Failed to fetch trades: %s", e)
-            # Table might not exist yet or have different schema
-            # Return empty list rather than crashing
+            self._last_health = TrackerHealth.DB_ERROR
+            self._last_error = str(e)
 
         return trades
+
+    @property
+    def last_health(self) -> str:
+        """Health state from the last get_trades() call."""
+        return self._last_health
+
+    @property
+    def last_error(self) -> Optional[str]:
+        """Error message from the last get_trades() call, or None."""
+        return self._last_error
 
     def get_performance(
         self,

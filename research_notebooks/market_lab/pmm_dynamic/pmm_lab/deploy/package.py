@@ -51,6 +51,14 @@ class ExpectedPerformance:
     stress_worst_score: Optional[float] = None
     # Sensitivity
     sensitivity_penalty: Optional[float] = None
+    # Monitoring-compatible fields (Phase 2)
+    evaluation_hours: Optional[float] = None
+    total_volume_quote: Optional[float] = None
+    fee_rate_pct_of_volume: Optional[float] = None
+    buy_fraction: Optional[float] = None
+    sell_fraction: Optional[float] = None
+    inventory_exposure_mean: Optional[float] = None
+    inventory_exposure_p95: Optional[float] = None
 
 
 @dataclass
@@ -120,6 +128,13 @@ def create_deployment_package(
     holdout_bars: Optional[int] = None,
     start_ts: Optional[int] = None,
     end_ts: Optional[int] = None,
+    evaluation_hours: Optional[float] = None,
+    total_volume_quote: Optional[float] = None,
+    fee_rate_pct_of_volume: Optional[float] = None,
+    buy_fraction: Optional[float] = None,
+    sell_fraction: Optional[float] = None,
+    inventory_exposure_mean: Optional[float] = None,
+    inventory_exposure_p95: Optional[float] = None,
 ) -> DeploymentPackage:
     """Create a deployment package from optimization results.
 
@@ -172,6 +187,13 @@ def create_deployment_package(
         holdout_score=holdout_score,
         stress_worst_score=stress_worst_score,
         sensitivity_penalty=sensitivity_penalty,
+        evaluation_hours=evaluation_hours,
+        total_volume_quote=total_volume_quote,
+        fee_rate_pct_of_volume=fee_rate_pct_of_volume,
+        buy_fraction=buy_fraction,
+        sell_fraction=sell_fraction,
+        inventory_exposure_mean=inventory_exposure_mean,
+        inventory_exposure_p95=inventory_exposure_p95,
     )
 
     return DeploymentPackage(

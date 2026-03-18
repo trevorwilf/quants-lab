@@ -38,6 +38,7 @@ class Trade:
     exit_fee_quote: float = 0.0       # exit fee (maker or taker depending on exit_type)
     peak_price: Optional[float] = None  # for trailing stop tracking
     trailing_activated: bool = False
+    exit_fee_type: Optional[str] = None  # "maker" or "taker" — set by engine on exit
 
 
 @dataclass(frozen=True)

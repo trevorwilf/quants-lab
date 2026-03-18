@@ -103,6 +103,7 @@ def compute_sensitivity(
     objective_weights=None,
     perturb_params: Optional[List[str]] = None,
     collapse_threshold: float = 0.50,
+    controller_compat: Optional[bool] = None,
 ) -> SensitivityReport:
     """Compute sensitivity of objective to parameter perturbations.
 
@@ -171,6 +172,9 @@ def compute_sensitivity(
             sensitivity_penalty=1.0,
             n_perturbations=0, n_rejected=0,
         )
+    if controller_compat is not None:
+        from dataclasses import replace
+        baseline_config = replace(baseline_config, controller_compat=controller_compat)
 
     baseline_signals = _get_or_compute_signals(baseline_config)
     runner = CandleSimRunner(baseline_config, pair_rules)
@@ -201,6 +205,10 @@ def compute_sensitivity(
                 n_rejected += 1
                 scores_for_param.append(REJECT_SCORE)
                 continue
+
+            if controller_compat is not None:
+                from dataclasses import replace
+                config = replace(config, controller_compat=controller_compat)
 
             variant_signals = _get_or_compute_signals(config)
             r = CandleSimRunner(config, pair_rules).run_with_signals(candles, variant_signals)
