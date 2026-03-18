@@ -172,6 +172,14 @@ class TestStopShipChecksAllPass:
         _fake_recent = MagicMock()
         _fake_recent.passed = True
 
+        # Fake parity result that passes
+        _fake_parity = MagicMock()
+        _fake_parity.passed = True
+
+        # Fake cluster report that passes
+        _fake_cluster = MagicMock()
+        _fake_cluster.is_clustered = True
+
         checks = run_stop_ship_checks(
             best_metrics=_make_metrics(),
             best_objective=_make_objective(),
@@ -182,6 +190,8 @@ class TestStopShipChecksAllPass:
             holdout_report=_make_holdout_report(passed=True),
             sensitivity_penalty=0.1,
             recent_window_result=_fake_recent,
+            parity_result=_fake_parity,
+            cluster_report=_fake_cluster,
         )
         for check_name, passed in checks.items():
             assert passed, f"Check '{check_name}' unexpectedly failed"

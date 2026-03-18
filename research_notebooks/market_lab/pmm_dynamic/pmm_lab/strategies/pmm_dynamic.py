@@ -20,7 +20,7 @@ from pmm_lab.features.pmm_dynamic_features import (
     PMMDynamicConfig, compute_pmm_dynamic_features
 )
 from pmm_lab.features.alignment import align_features
-from pmm_lab.config.exchange_rules import round_price, round_amount, check_min_notional, check_order_size
+from pmm_lab.config.exchange_rules import round_price, round_price_up, round_amount, check_min_notional, check_order_size
 
 
 @dataclass(frozen=True)
@@ -158,7 +158,7 @@ class PMMDynamicStrategy:
         # Sell side
         for i, spread in enumerate(scfg.sell_spreads):
             price = reference_price * (1.0 + spread * spread_multiplier)
-            price = round_price(price, rules)
+            price = round_price_up(price, rules)
             if price <= 0:
                 n_rejected += 1
                 continue

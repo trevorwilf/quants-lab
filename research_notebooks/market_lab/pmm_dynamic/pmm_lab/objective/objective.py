@@ -104,7 +104,7 @@ def objective_v1(
     tc_penalty_comp = weights.w_trade_count_penalty * trade_penalty
 
     # Expected Shortfall penalty (ES is negative for losses, so we penalize)
-    es_comp = weights.w_es * abs(metrics.expected_shortfall_5pct) * 100.0
+    es_comp = weights.w_es * max(0.0, -metrics.expected_shortfall_5pct) * 100.0
 
     raw_score = pnl_comp + sharpe_comp - dd_comp - fee_comp - inv_comp - tc_penalty_comp - es_comp
 
@@ -187,7 +187,7 @@ def objective_v2(
     dd_comp = weights.w_drawdown * dd
 
     # Expected shortfall penalty
-    es_comp = weights.w_es * abs(metrics.expected_shortfall_5pct)
+    es_comp = weights.w_es * max(0.0, -metrics.expected_shortfall_5pct)
 
     # Fee drag penalty
     fee_comp = weights.w_fee_drag * fd

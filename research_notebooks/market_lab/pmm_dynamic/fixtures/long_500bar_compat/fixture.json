@@ -7,26 +7,33 @@
       "macd_signal_z": 0.4545012293903831,
       "price_multiplier": 0.00036491627307475705
     },
-    "100": {
-      "reference_price": 99054.14392432146,
-      "spread_multiplier": 0.0011913148417676937,
-      "natr": 0.0011913148417676937,
-      "macd_signal_z": 1.3070917688474206,
-      "price_multiplier": 9.146074550315652e-05
+    "70": {
+      "reference_price": 99421.79301150156,
+      "spread_multiplier": 0.001083426312077453,
+      "natr": 0.001083426312077453,
+      "macd_signal_z": -1.9785025239055571,
+      "price_multiplier": -0.0002650338452083694
     },
-    "141": {
-      "reference_price": 99543.8583482235,
-      "spread_multiplier": 0.001183949261490826,
-      "natr": 0.001183949261490826,
-      "macd_signal_z": -1.8164376431177944,
-      "price_multiplier": -0.00024165518615565582
+    "80": {
+      "reference_price": 99564.94980950968,
+      "spread_multiplier": 0.001123071292424841,
+      "natr": 0.001123071292424841,
+      "macd_signal_z": -1.6009814577551982,
+      "price_multiplier": -0.00016873625562112386
     },
-    "142": {
-      "reference_price": 99538.45109271532,
-      "spread_multiplier": 0.001154971819126768,
-      "natr": 0.001154971819126768,
-      "macd_signal_z": -1.7394789920234763,
-      "price_multiplier": -0.0007910052587192299
+    "90": {
+      "reference_price": 99067.57066318147,
+      "spread_multiplier": 0.0011571348121601115,
+      "natr": 0.0011571348121601115,
+      "macd_signal_z": 0.033389077000614484,
+      "price_multiplier": -0.00027962478720420153
+    },
+    "150": {
+      "reference_price": 99526.05212695699,
+      "spread_multiplier": 0.0012155922905593348,
+      "natr": 0.0012155922905593348,
+      "macd_signal_z": -1.5215207812989808,
+      "price_multiplier": -0.0007662853055580478
     },
     "200": {
       "reference_price": 100112.33539384647,
@@ -48,13 +55,6 @@
       "natr": 0.0012310474208009432,
       "macd_signal_z": -3.0054320409389494,
       "price_multiplier": -0.0006171954853973664
-    },
-    "499": {
-      "reference_price": 98243.93583365914,
-      "spread_multiplier": 0.0011548740071623109,
-      "natr": 0.0011548740071623109,
-      "macd_signal_z": 0.7383644013304548,
-      "price_multiplier": -7.553903806295197e-05
     }
   },
   "expected_yaml_fields": {
@@ -70,7 +70,7 @@
   },
   "metadata": {
     "name": "long_500bar_compat",
-    "created": "2026-03-15T00:48:59.716860+00:00",
+    "created": "2026-03-18T19:43:09.508488+00:00",
     "n_bars": 500,
     "dataset_hash": "b56a02eaf0769efa3b0e1aab71d31c932dcf37eac8e3b9a609fca4c81a9ec27f",
     "warmup_end": 52,

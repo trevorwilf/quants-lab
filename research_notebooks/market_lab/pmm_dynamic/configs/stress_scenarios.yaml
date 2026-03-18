@@ -44,3 +44,40 @@ scenarios:
     latency_bars_add: 1
     slippage_bps_multiplier: 2.0
     fill_participation_multiplier: 0.5
+
+  - name: spread_widen_10bps
+    description: "Spread widens by 10bps — adverse selection pressure"
+    spread_widen_bps: 10.0
+
+  - name: spread_widen_25bps
+    description: "Spread widens by 25bps — significant adverse selection"
+    spread_widen_bps: 25.0
+
+  - name: thin_book
+    description: "70% reduction in fill probability — thin order book"
+    maker_fill_probability_override: 0.3
+
+  - name: very_thin_book
+    description: "90% reduction in fill probability — extremely thin book"
+    maker_fill_probability_override: 0.1
+
+  - name: entry_spread_stress
+    description: "Entry spread cost increases by 15bps"
+    entry_spread_bps_add: 15.0
+
+  - name: combined_market_deterioration
+    description: "Spread +10bps, fill prob 0.5, slippage 2x, fees 1.5x"
+    spread_widen_bps: 10.0
+    maker_fill_probability_override: 0.5
+    slippage_bps_multiplier: 2.0
+    maker_fee_multiplier: 1.5
+    taker_fee_multiplier: 1.5
+
+  - name: severe_adverse
+    description: "Spread +25bps, fill prob 0.2, latency +2, slippage 3x, fees 2x"
+    spread_widen_bps: 25.0
+    maker_fill_probability_override: 0.2
+    latency_bars_add: 2
+    slippage_bps_multiplier: 3.0
+    maker_fee_multiplier: 2.0
+    taker_fee_multiplier: 2.0

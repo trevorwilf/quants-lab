@@ -174,6 +174,8 @@ def run_stop_ship_checks(
     holdout_report: Optional['HoldoutReport'] = None,
     sensitivity_penalty: Optional[float] = None,
     recent_window_result: Optional[Any] = None,
+    parity_result: Optional[Any] = None,
+    cluster_report: Optional[Any] = None,
 ) -> Dict[str, bool]:
     """Run all stop-ship condition checks.
 
@@ -254,5 +256,17 @@ def run_stop_ship_checks(
         checks["recent_28d_passed"] = bool(getattr(recent_window_result, 'passed', False))
     else:
         checks["recent_28d_passed"] = False  # not tested = fail
+
+    # 10. frozen_parity — frozen fixture parity check
+    if parity_result is not None:
+        checks["frozen_parity"] = bool(parity_result.passed)
+    else:
+        checks["frozen_parity"] = False  # not tested = fail
+
+    # 11. top_k_clustered — parameter surface stability
+    if cluster_report is not None:
+        checks["top_k_clustered"] = bool(getattr(cluster_report, 'is_clustered', False))
+    else:
+        checks["top_k_clustered"] = False  # not tested = fail
 
     return checks

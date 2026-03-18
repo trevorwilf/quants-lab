@@ -1,6 +1,7 @@
 .PHONY: test test-unit test-slow test-full test-live test-regression data-audit backtest-smoke \
         walkforward-smoke stress-smoke optimize-smoke export-validate \
-        clean-artifacts help
+        test-phase1 test-phase2 test-phase3 test-all-phases test-parity test-stop-ship \
+        test-trade-accounting clean-artifacts help
 
 PROJ_DIR := $(shell pwd)
 
@@ -10,6 +11,13 @@ help:
 	@echo "  test-unit         Run unit tests only"
 	@echo "  test-live         Run integration tests requiring MongoDB"
 	@echo "  test-regression   Run regression tests"
+	@echo "  test-phase1       Run Phase 1 correctness fix tests"
+	@echo "  test-phase2       Run Phase 2 parity & contract tests"
+	@echo "  test-phase3       Run Phase 3 hardening & stress tests"
+	@echo "  test-all-phases   Run all Phase 1-3 tests sequentially"
+	@echo "  test-parity       Run parity tests only"
+	@echo "  test-stop-ship    Run stop-ship gate tests"
+	@echo "  test-trade-accounting  Run trade accounting tests"
 	@echo "  data-audit        Run data audit on default dataset (requires MongoDB)"
 	@echo "  backtest-smoke    Run a single baseline backtest on synthetic data"
 	@echo "  walkforward-smoke Run walk-forward on synthetic data (3 folds)"
@@ -119,6 +127,81 @@ result = validate_yaml_file(path); \
 print(f'Valid: {result.valid}, Mode: {result.mode}, Errors: {result.errors}'); \
 import os; os.remove(path); \
 "
+
+# --- Phase 1-3 specific test targets ---
+
+test-phase1:
+	@echo "Running Phase 1 tests (correctness fixes)..."
+	python -m pytest \
+		tests/unit/test_trade_accounting.py \
+		tests/unit/test_final_liquidation.py \
+		tests/unit/test_objective.py \
+		tests/unit/test_objective_v2.py \
+		tests/unit/test_search_space.py \
+		tests/unit/test_canonicalizer.py \
+		tests/unit/test_holdout.py \
+		tests/unit/test_recent_window.py \
+		tests/unit/test_pipeline_runner.py \
+		-v --tb=short
+
+test-phase2:
+	@echo "Running Phase 2 tests (parity & contract)..."
+	python -m pytest \
+		tests/unit/test_parity_harness.py \
+		tests/unit/test_features_parity.py \
+		tests/unit/test_native_parity.py \
+		tests/unit/test_stop_ship_parity.py \
+		tests/unit/test_stop_ship_clustering.py \
+		tests/unit/test_live_tracker_fees.py \
+		tests/unit/test_export_contract.py \
+		tests/unit/test_yaml_export.py \
+		tests/unit/test_validate_export_v2.py \
+		-v --tb=short
+
+test-phase3:
+	@echo "Running Phase 3 tests (hardening & stress)..."
+	python -m pytest \
+		tests/unit/test_price_rounding.py \
+		tests/unit/test_partial_close.py \
+		tests/unit/test_stress.py \
+		tests/unit/test_fold_local_stress.py \
+		tests/unit/test_parallel.py \
+		tests/unit/test_exchange_rules.py \
+		tests/unit/test_canonicalizer.py \
+		-v --tb=short
+
+test-all-phases:
+	@echo "Running all Phase 1-3 tests..."
+	$(MAKE) test-phase1
+	$(MAKE) test-phase2
+	$(MAKE) test-phase3
+
+test-parity:
+	@echo "Running parity tests only..."
+	python -m pytest \
+		tests/unit/test_parity_harness.py \
+		tests/unit/test_features_parity.py \
+		tests/unit/test_native_parity.py \
+		tests/unit/test_feature_controller_compat.py \
+		-v --tb=short
+
+test-stop-ship:
+	@echo "Running stop-ship gate tests..."
+	python -m pytest \
+		tests/unit/test_stop_ship_parity.py \
+		tests/unit/test_stop_ship_clustering.py \
+		tests/unit/test_report.py \
+		-v --tb=short
+
+test-trade-accounting:
+	@echo "Running trade accounting tests..."
+	python -m pytest \
+		tests/unit/test_trade_accounting.py \
+		tests/unit/test_final_liquidation.py \
+		tests/unit/test_partial_close.py \
+		tests/unit/test_metrics.py \
+		tests/unit/test_engine.py \
+		-v --tb=short
 
 clean-artifacts:
 	find artifacts/ -name "*.yml" -mtime +30 -delete 2>/dev/null || true

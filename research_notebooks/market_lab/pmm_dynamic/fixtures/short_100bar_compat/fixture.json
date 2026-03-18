@@ -1,12 +1,5 @@
 {
   "expected_features": {
-    "55": {
-      "reference_price": 99607.9944159973,
-      "spread_multiplier": 0.0006337211010422838,
-      "natr": 0.0006337211010422838,
-      "macd_signal_z": -0.237385812275502,
-      "price_multiplier": 0.00012082117567880893
-    },
     "60": {
       "reference_price": 99613.79598938077,
       "spread_multiplier": 0.0007348990530329418,
@@ -34,13 +27,6 @@
       "natr": 0.0008079315829842524,
       "macd_signal_z": -1.661280504375095,
       "price_multiplier": -0.0001335673511740988
-    },
-    "99": {
-      "reference_price": 99498.7054543482,
-      "spread_multiplier": 0.0007359282013275319,
-      "natr": 0.0007359282013275319,
-      "macd_signal_z": -0.9653295396235246,
-      "price_multiplier": -0.0003615853582777517
     }
   },
   "expected_yaml_fields": {
@@ -56,7 +42,7 @@
   },
   "metadata": {
     "name": "short_100bar_compat",
-    "created": "2026-03-15T00:48:59.542046+00:00",
+    "created": "2026-03-18T19:43:09.358267+00:00",
     "n_bars": 100,
     "dataset_hash": "d275a72e19e3a8566f67619754f67ec9d395e529ef8da1367464cc07eac017e9",
     "warmup_end": 52,

@@ -2,9 +2,9 @@
 Search space definition for PMM Dynamic Optuna optimization.
 
 v2 changes:
-- total_amount_quote removed from search (fixed deployment parameter)
+- total_amount_quote is optimized when fixed_quote is not provided (backward compat)
+- When fixed_quote is set, total_amount_quote is fixed and excluded from search
 - Spread base/ratio use log-uniform distribution for better exploration
-- Comment accuracy fixed
 """
 
 import optuna
@@ -28,8 +28,8 @@ def suggest_params(
     canonicalize_params() before constructing a SimConfig.
     """
     # Indicator parameters
-    macd_fast = trial.suggest_int("macd_fast", 5, 50)
     macd_slow = trial.suggest_int("macd_slow", 20, 100)
+    macd_fast = trial.suggest_int("macd_fast", 5, min(49, macd_slow - 1))
     macd_signal = trial.suggest_int("macd_signal", 5, 30)
     natr_length = trial.suggest_int("natr_length", 7, 50)
 

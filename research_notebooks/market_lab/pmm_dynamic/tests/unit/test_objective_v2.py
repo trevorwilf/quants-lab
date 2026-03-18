@@ -181,6 +181,24 @@ class TestV2SharpeNotInScore:
 # ── v1 backward compatibility ────────────────────────────────────
 
 
+class TestV2PositiveESProducesZeroPenalty:
+    def test_positive_es_produces_zero_penalty_v2(self):
+        """Positive expected shortfall should not be penalized in v2."""
+        metrics = _make_metrics(expected_shortfall_5pct=0.01)
+        weights = ObjectiveWeightsV2()
+        result = objective_v2(metrics, weights)
+        assert result.es_component == 0.0
+
+
+class TestV2NegativeESProducesPositivePenalty:
+    def test_negative_es_produces_positive_penalty_v2(self):
+        """Negative ES should be penalized in v2."""
+        metrics = _make_metrics(expected_shortfall_5pct=-0.02)
+        weights = ObjectiveWeightsV2()
+        result = objective_v2(metrics, weights)
+        assert result.es_component > 0.0
+
+
 class TestV1StillWorksUnchanged:
     def test_v1_still_works_unchanged(self):
         """objective_v1 produces same result as before (not affected by v2 addition)."""

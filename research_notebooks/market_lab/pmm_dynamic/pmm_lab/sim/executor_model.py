@@ -31,7 +31,7 @@ class Trade:
     exit_price: Optional[float] = None
     exit_bar: Optional[int] = None
     exit_timestamp: Optional[int] = None
-    exit_type: Optional[str] = None   # "take_profit", "stop_loss", "time_limit", "trailing_stop", "refresh"
+    exit_type: Optional[str] = None   # "take_profit", "stop_loss", "time_limit", "trailing_stop", "refresh", "final_liquidation"
     pnl_quote: Optional[float] = None
     fee_quote: float = 0.0            # total fees (entry + exit)
     entry_fee_quote: float = 0.0      # entry fill fee (always maker)
@@ -125,3 +125,6 @@ class SimResult:
     final_quote_balance: float
     n_rebalance_events: int = 0
     total_rebalance_fees: float = 0.0
+    # Track trades that could not be closed
+    open_trade_count: int = 0          # trades with exit_price is None
+    force_close_failures: int = 0      # number of trades that force-close failed on

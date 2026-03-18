@@ -393,6 +393,9 @@ class SimEngine:
                             close_qty = round_amount(max_affordable, rules)
                             if close_qty <= 0:
                                 continue
+                            # If we can't fully close, keep trade open entirely
+                            if close_qty < trade.quantity:
+                                continue
                             exit_fee = compute_fee(exit_price, close_qty, rules.fees, fee_type)
                         executed = inventory.buy(close_qty, exit_price, exit_fee)
                         if not executed:
@@ -578,6 +581,7 @@ class SimEngine:
             position_history[bar] = inventory.base_balance
 
         # 4. Force-close remaining open trades at final bar close
+        force_close_failures = 0
         if open_trades and n > 0:
             final_close = float(candles["close"][n - 1])
             final_ts = int(candles["timestamp"][n - 1])
@@ -589,10 +593,12 @@ class SimEngine:
                     available = inventory.available_base_for_sell()
                     close_qty = min(trade.quantity, available)
                     if close_qty <= 0:
+                        force_close_failures += 1
                         continue
                     exit_fee = compute_fee(exit_price, close_qty, rules.fees, "taker")
                     executed = inventory.sell(close_qty, exit_price, exit_fee)
                     if not executed:
+                        force_close_failures += 1
                         continue
                     trade.pnl_quote = (exit_price - trade.entry_price) * close_qty - trade.fee_quote - exit_fee
                 else:
@@ -604,17 +610,23 @@ class SimEngine:
                         max_affordable = inventory.max_buy_quantity(exit_price, rules.fees.taker_fee)
                         close_qty = round_amount(max_affordable, rules)
                         if close_qty <= 0:
+                            force_close_failures += 1
+                            continue
+                        # If we can't fully close, keep trade open entirely
+                        if close_qty < trade.quantity:
+                            force_close_failures += 1
                             continue
                         exit_fee = compute_fee(exit_price, close_qty, rules.fees, "taker")
                     executed = inventory.buy(close_qty, exit_price, exit_fee)
                     if not executed:
+                        force_close_failures += 1
                         continue
                     trade.pnl_quote = (trade.entry_price - exit_price) * close_qty - trade.fee_quote - exit_fee
 
                 trade.exit_price = exit_price
                 trade.exit_bar = n - 1
                 trade.exit_timestamp = final_ts
-                trade.exit_type = "time_limit"
+                trade.exit_type = "final_liquidation"
                 trade.exit_fee_quote = exit_fee
                 trade.fee_quote += exit_fee
                 n_market_exits += 1
@@ -635,4 +647,6 @@ class SimEngine:
             final_quote_balance=inventory.quote_balance,
             n_rebalance_events=n_rebalance_events,
             total_rebalance_fees=total_rebalance_fees,
+            open_trade_count=sum(1 for t in trades if t.exit_price is None),
+            force_close_failures=force_close_failures,
         )

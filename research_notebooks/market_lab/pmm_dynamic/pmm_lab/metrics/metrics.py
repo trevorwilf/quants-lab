@@ -50,6 +50,9 @@ class Metrics:
     median_trade_pnl_quote: float = 0.0     # median PnL across all trades
     inventory_exposure_p95: float = 0.0      # 95th percentile inventory exposure
 
+    # Unclosed trades
+    open_trade_count: int = 0
+
 
 def compute_metrics(
     result: SimResult,
@@ -110,10 +113,12 @@ def compute_metrics(
         cutoff_idx = max(1, int(len(sorted_returns) * 0.05))
         es_5 = float(np.mean(sorted_returns[:cutoff_idx]))
 
-    # Trade statistics
-    trades = result.trades
-    trade_count = len(trades)
-    fill_count = trade_count * 2  # entry + exit per trade
+    # Trade statistics — only count closed round trips
+    all_trades = result.trades
+    closed_trades = [t for t in all_trades if t.exit_price is not None and t.pnl_quote is not None]
+    open_trades = [t for t in all_trades if t.exit_price is None or t.pnl_quote is None]
+    trade_count = len(closed_trades)
+    fill_count = trade_count * 2  # entry + exit per completed round trip
 
     n_winning = 0
     n_losing = 0
@@ -123,8 +128,8 @@ def compute_metrics(
     maker_fees = 0.0
     taker_fees = 0.0
 
-    for t in trades:
-        pnl = t.pnl_quote if t.pnl_quote is not None else 0.0
+    for t in closed_trades:
+        pnl = t.pnl_quote  # always non-None for closed trades
         if pnl > 0:
             n_winning += 1
             gross_win += pnl
@@ -168,7 +173,7 @@ def compute_metrics(
     inv_p95 = float(np.percentile(inv_exposure, 95)) if n > 0 and np.any(inv_exposure > 0) else 0.0
 
     # Median trade PnL
-    trade_pnls = [t.pnl_quote for t in trades if t.pnl_quote is not None]
+    trade_pnls = [t.pnl_quote for t in closed_trades]
     median_trade_pnl = float(np.median(trade_pnls)) if trade_pnls else 0.0
 
     # Volume zero stats
@@ -199,4 +204,5 @@ def compute_metrics(
         volume_zero_bar_fraction=vol_zero_frac,
         median_trade_pnl_quote=median_trade_pnl,
         inventory_exposure_p95=inv_p95,
+        open_trade_count=len(open_trades),
     )

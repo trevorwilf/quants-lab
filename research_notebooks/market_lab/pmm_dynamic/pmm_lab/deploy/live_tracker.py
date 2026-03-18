@@ -54,6 +54,13 @@ class LivePerformanceMetrics:
     estimated_pnl_quote: float  # rough PnL from avg sell - avg buy
     first_trade_at: Optional[datetime] = None
     last_trade_at: Optional[datetime] = None
+    # Fee currency breakdown
+    unresolved_fee_count: int = 0             # fees in neither base nor quote
+    unresolved_fee_currencies: List[str] = None  # which currencies couldn't be converted
+
+    def __post_init__(self):
+        if self.unresolved_fee_currencies is None:
+            self.unresolved_fee_currencies = []
 
 
 class LivePerformanceTracker:
@@ -245,11 +252,27 @@ class LivePerformanceTracker:
         avg_buy = total_buy_quote / total_buy_base if total_buy_base > 0 else 0.0
         avg_sell = total_sell_quote / total_sell_base if total_sell_base > 0 else 0.0
 
-        # Fee estimation (assume fees in quote currency)
-        total_fees = sum(
-            t.fee_amount * (t.price if t.fee_currency != quote_currency else 1.0)
-            for t in trades
-        )
+        # Fee estimation — branch by fee currency
+        base_currency = trading_pair.split("-")[0] if "-" in trading_pair else ""
+        total_fees = 0.0
+        unresolved_count = 0
+        unresolved_currencies = set()
+
+        for t in trades:
+            if not t.fee_currency or t.fee_currency == quote_currency:
+                # Fee is already in quote currency
+                total_fees += t.fee_amount
+            elif t.fee_currency == base_currency:
+                # Fee is in base currency — convert using trade price
+                total_fees += t.fee_amount * t.price
+            else:
+                # Third-party fee asset — cannot safely convert
+                unresolved_count += 1
+                unresolved_currencies.add(t.fee_currency)
+                logger.warning(
+                    "Trade %s: fee in %s (not %s or %s) — cannot convert, excluded from totals",
+                    t.trade_id, t.fee_currency, quote_currency, base_currency,
+                )
 
         # Net flows
         net_base = total_buy_base - total_sell_base
@@ -278,4 +301,6 @@ class LivePerformanceTracker:
             estimated_pnl_quote=estimated_pnl,
             first_trade_at=trades[0].timestamp if trades else None,
             last_trade_at=trades[-1].timestamp if trades else None,
+            unresolved_fee_count=unresolved_count,
+            unresolved_fee_currencies=sorted(unresolved_currencies),
         )

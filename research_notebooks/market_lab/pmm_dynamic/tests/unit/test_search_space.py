@@ -124,6 +124,23 @@ class TestSuggestParams:
         small_count = sum(1 for v in spread_values if v < 1.0)
         assert small_count > 0, "Log-scaled spread_base should include values < 1.0"
 
+    def test_macd_fast_always_less_than_slow(self):
+        """Search space must never produce macd_fast >= macd_slow."""
+        study = optuna.create_study(direction="maximize")
+
+        violations = 0
+        n_samples = 200
+        for _ in range(n_samples):
+            trial = study.ask()
+            params = suggest_params(trial)
+            if params["macd_fast"] >= params["macd_slow"]:
+                violations += 1
+            study.tell(trial, 0.0)
+
+        assert violations == 0, (
+            f"{violations}/{n_samples} samples had macd_fast >= macd_slow"
+        )
+
     def test_log_scaled_stop_loss_range(self):
         """Verify stop_loss can be both small and large values."""
         study = optuna.create_study(direction="maximize")

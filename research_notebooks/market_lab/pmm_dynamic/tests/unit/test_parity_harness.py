@@ -104,10 +104,14 @@ class TestParityResultHasFields:
         assert isinstance(result.max_rel_diff, float)
 
 
-class TestNativeParityRaisesWithoutHummingbot:
-    def test_native_parity_raises_without_hummingbot(self, sample_candles_5m):
-        with pytest.raises(ImportError, match="Hummingbot is not installed"):
-            check_feature_parity_native(sample_candles_5m, _TEST_PARAMS)
+class TestNativeParityWorksWithoutHummingbot:
+    def test_native_parity_works_without_hummingbot(self, sample_candles_5m):
+        """Native parity now replicates controller logic directly."""
+        result = check_feature_parity_native(sample_candles_5m, _TEST_PARAMS)
+        assert isinstance(result, ParityResult)
+        assert result.mode == "native"
+        # Should pass since both use the same underlying logic
+        assert result.passed
 
 
 class TestComprehensiveValidationPasses:

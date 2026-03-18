@@ -79,6 +79,10 @@ def _worker_fn(
         # Build the objective inside the worker process
         objective_fn = objective_factory(**factory_kwargs)
 
+        # Capture study state before this worker's trials
+        pre_completed = len([t for t in study.trials if t.state == _optuna.trial.TrialState.COMPLETE])
+        pre_pruned = len([t for t in study.trials if t.state == _optuna.trial.TrialState.PRUNED])
+
         t0 = time.time()
         study.optimize(
             objective_fn,
@@ -88,8 +92,11 @@ def _worker_fn(
         )
         elapsed = time.time() - t0
 
-        completed = len([t for t in study.trials if t.state == _optuna.trial.TrialState.COMPLETE])
-        pruned = len([t for t in study.trials if t.state == _optuna.trial.TrialState.PRUNED])
+        # Report only this worker's contribution
+        post_completed = len([t for t in study.trials if t.state == _optuna.trial.TrialState.COMPLETE])
+        post_pruned = len([t for t in study.trials if t.state == _optuna.trial.TrialState.PRUNED])
+        completed = post_completed - pre_completed
+        pruned = post_pruned - pre_pruned
 
         result_queue.put(WorkerResult(
             worker_id=worker_id,

@@ -107,6 +107,8 @@ def run_full_pipeline(
     certified: bool = False,
     start_ts: Optional[int] = None,
     end_ts: Optional[int] = None,
+    search_controller_compat: bool = True,
+    validation_controller_compat: bool = True,
 ) -> PipelineResult:
     """Run the full optimization-to-deployment pipeline.
 
@@ -199,6 +201,11 @@ def run_full_pipeline(
     candles = loader.load_range(query)
     bar_interval = INTERVAL_SECONDS[interval]
 
+    _dup_count = getattr(loader, 'last_raw_duplicate_count', 0)
+    if isinstance(_dup_count, int) and _dup_count > 0:
+        logger.warning("  Raw data had %d duplicate timestamps (removed before audit)",
+                       _dup_count)
+
     audit = validate_candles(candles, interval, strict=True)
     if not audit.passed_strict:
         raise ValueError(f"Data audit failed: {audit}")
@@ -217,20 +224,37 @@ def run_full_pipeline(
     reference_price = float(np.median(dev_candles["close"]))
 
     # ---- Step 4: Optimize ----
-    # Enforce preflight check when n_jobs > 1
+    # Enforce serial mode for SQLite storage
     if n_jobs > 1:
-        from pmm_lab.optuna.preflight import run_preflight
-        storage_url = os.environ.get("OPTUNA_STORAGE")
-        run_preflight(
-            n_workers=n_jobs,
-            storage_url=storage_url,
-            worker_model="threads",  # pipeline currently uses threaded study.optimize
-            strict=False,  # warn but don't abort for backward compat
-        )
+        from pmm_lab.optuna.storage import get_storage_type
+        storage_type = get_storage_type()
+        if storage_type == "sqlite":
+            logger.warning(
+                "  n_jobs=%d requested but storage is SQLite — forcing n_jobs=1. "
+                "Use PostgreSQL (set OPTUNA_STORAGE) for multi-worker optimization.",
+                n_jobs,
+            )
+            n_jobs = 1
+        else:
+            from pmm_lab.optuna.preflight import run_preflight
+            storage_url = os.environ.get("OPTUNA_STORAGE")
+            run_preflight(
+                n_workers=n_jobs,
+                storage_url=storage_url,
+                worker_model="threads",  # pipeline currently uses threaded study.optimize
+                strict=False,  # warn but don't abort for backward compat
+            )
 
     logger.info("Step 4: Optimization (%d trials, %d jobs)", n_trials, n_jobs)
     dev_hash = hash_candles(dev_candles)
     study = create_study(study_name=study_name)
+    if search_controller_compat != validation_controller_compat:
+        logger.info(
+            "  NOTE: Search uses controller_compat=%s, validation uses controller_compat=%s. "
+            "Candidates will be re-scored in validation mode.",
+            search_controller_compat, validation_controller_compat,
+        )
+
     objective_fn = create_objective(
         candles=dev_candles,
         pair_rules=pair_rules,
@@ -243,13 +267,46 @@ def run_full_pipeline(
         train_days=train_days,
         test_days=test_days,
         step_days=step_days,
+        controller_compat=search_controller_compat,
     )
-    study.optimize(objective_fn, n_trials=n_trials, n_jobs=n_jobs)
-    best_trial = study.best_trial
+    from pmm_lab.optuna.study import run_optimization
+    study = run_optimization(study, objective_fn, n_trials=n_trials)
+    logger.info("  Optimization complete: %d trials", len(study.trials))
+
+    # Guard against zero completed trials
+    import optuna
+    completed_trials = [
+        t for t in study.trials
+        if t.state == optuna.trial.TrialState.COMPLETE and t.value is not None
+    ]
+    if not completed_trials:
+        # Build a non-deployable result instead of crashing
+        logger.error("  No completed trials — optimization produced no usable results")
+        elapsed = time.time() - t0
+        completed_at = datetime.now(timezone.utc).isoformat()
+        return PipelineResult(
+            study_name=study_name,
+            connector=connector, trading_pair=trading_pair, interval=interval,
+            started_at=started_at, completed_at=completed_at, elapsed_seconds=elapsed,
+            total_bars=len(candles), dev_bars=len(dev_candles), holdout_bars=len(holdout_candles),
+            dataset_hash=dataset_hash,
+            n_trials=n_trials, best_trial_number=-1,
+            best_score=float("-inf"), objective_version=objective_version,
+            wf_aggregate_score=0.0, wf_fold_count=0,
+            holdout_score=0.0, holdout_passed=False,
+            stress_worst_score=0.0, sensitivity_penalty=0.0,
+            top_k_clustered=False,
+            stop_ship_checks={"no_completed_trials": False},
+            stop_ship_passed=False,
+            deployable=False,
+            package_dir=None, report_path=None, yaml_path=None,
+        )
+
+    best_trial = max(completed_trials, key=lambda t: t.value)
     logger.info("  Best trial #%d, score=%.4f", best_trial.number, best_trial.value)
 
     # ---- Step 5: Canonicalize best config ----
-    best_params = best_trial.params
+    best_params = dict(best_trial.params)  # COPY to avoid mutating trial object
     if fixed_quote is not None:
         best_params["total_amount_quote"] = fixed_quote
     best_config, reject = canonicalize_params(best_params, pair_rules, reference_price)
@@ -259,8 +316,11 @@ def run_full_pipeline(
     # ---- Step 6: Full-dataset metrics ----
     from pmm_lab.sim.runner import CandleSimRunner
     from pmm_lab.objective.objective import objective_v1, objective_v2, ObjectiveWeights
+    from dataclasses import replace as _replace
 
-    runner = CandleSimRunner(best_config, pair_rules)
+    # Apply validation controller_compat setting
+    val_config = _replace(best_config, controller_compat=validation_controller_compat)
+    runner = CandleSimRunner(val_config, pair_rules)
     sim_result = runner.run(dev_candles)
     metrics = compute_metrics(sim_result, best_config.total_amount_quote, dev_candles, bar_interval)
 
@@ -285,28 +345,33 @@ def run_full_pipeline(
 
     # ---- Step 8: Holdout ----
     logger.info("Step 8: Holdout evaluation")
-    # Get top-k configs
-    import optuna
-    completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-    completed.sort(key=lambda t: t.value if t.value is not None else float('-inf'), reverse=True)
-    top_k_trials = completed[:top_k]
+    # Evaluate holdout ONLY on the exported config to prevent config mismatch
+    # best_config was already canonicalized from the dev winner above
+    holdout_candidates = [(best_config, best_trial.value or 0.0)]
 
-    candidates = []
-    for t in top_k_trials:
+    # Optionally evaluate additional top-k for diagnostic purposes only
+    import optuna as _optuna
+    _completed = [t for t in study.trials if t.state == _optuna.trial.TrialState.COMPLETE]
+    _completed.sort(key=lambda t: t.value if t.value is not None else float('-inf'), reverse=True)
+    for t in _completed[1:top_k]:  # skip rank 0, already added
         p = dict(t.params)
         if fixed_quote is not None:
             p["total_amount_quote"] = fixed_quote
         cfg, rej = canonicalize_params(p, pair_rules, reference_price)
         if cfg is not None:
-            candidates.append((cfg, t.value or 0.0))
+            holdout_candidates.append((cfg, t.value or 0.0))
 
     holdout_report = evaluate_holdout(
-        holdout_candles, candidates, pair_rules, bar_interval,
+        holdout_candles, holdout_candidates, pair_rules, bar_interval,
         run_stress=run_stress, objective_version=objective_version,
         full_candles=candles,
         holdout_start_idx=len(dev_candles),
     )
-    logger.info("  Holdout score=%.4f, passed=%s", holdout_report.best_holdout_score, holdout_report.passed)
+    # The exported config is always candidate index 0
+    # holdout pass/fail MUST refer to this same config
+    logger.info("  Holdout score=%.4f (exported config, rank 0), passed=%s",
+                holdout_report.candidates[0].metrics.pnl_pct if holdout_report.candidates else 0.0,
+                holdout_report.passed)
 
     # ---- Step 9: Stress ----
     stress_report = None
@@ -335,13 +400,36 @@ def run_full_pipeline(
         logger.info("Step 10b: Recent-window evaluation")
         from pmm_lab.objective.recent_window import evaluate_recent_window
         recent_window_result = evaluate_recent_window(
-            dev_candles, best_config, pair_rules, bar_interval,
+            candles, best_config, pair_rules, bar_interval,  # full candles, NOT dev_candles
             recent_days=28,
             run_stress=run_stress,
             objective_version=objective_version,
         )
+        logger.info("  Recent window uses full dataset (last timestamp: %d)",
+                    int(candles["timestamp"][-1]))
         logger.info("  Recent 28d: passed=%s, reason=%s",
                     recent_window_result.passed, recent_window_result.reason)
+
+    # ---- Step 10c: Frozen feature parity ----
+    logger.info("Step 10c: Frozen feature parity check")
+    from pmm_lab.parity.feature_parity import check_feature_parity_frozen
+    from pmm_lab.parity.fixtures import load_frozen_fixture
+    from pathlib import Path as _Path
+
+    parity_result = None
+    fixture_dir = _Path(__file__).resolve().parent.parent.parent / "fixtures" / "short_100bar_compat"
+    if fixture_dir.is_dir():
+        try:
+            fixture = load_frozen_fixture(str(fixture_dir))
+            parity_result = check_feature_parity_frozen(
+                fixture.candles, fixture.expected_features, fixture.config_params,
+            )
+            logger.info("  Frozen parity: passed=%s, max_abs_diff=%.2e",
+                        parity_result.passed, parity_result.max_abs_diff)
+        except Exception as e:
+            logger.warning("  Frozen parity check failed: %s", e)
+    else:
+        logger.warning("  Frozen fixture not found at %s — skipping parity", fixture_dir)
 
     # ---- Step 11: Clustering ----
     logger.info("Step 11: Top-k clustering")
@@ -375,6 +463,8 @@ def run_full_pipeline(
         holdout_report=holdout_report,
         sensitivity_penalty=sensitivity_penalty,
         recent_window_result=recent_window_result,
+        parity_result=parity_result,
+        cluster_report=cluster_report,
     )
     all_passed = all(stop_ship.values())
     logger.info("  Stop-ship: %s (%d/%d passed)",
@@ -397,11 +487,15 @@ def run_full_pipeline(
         wf_median_pnl=wf_median_pnl, wf_median_sharpe=wf_median_sharpe,
         wf_fold_count=len(wf_result.folds),
         holdout_pnl_pct=(
-            holdout_report.candidates[holdout_report.best_holdout_rank].metrics.pnl_pct
-            if holdout_report.best_holdout_rank >= 0 and holdout_report.candidates
+            holdout_report.candidates[0].metrics.pnl_pct
+            if holdout_report.candidates
             else None
         ),
-        holdout_score=holdout_report.best_holdout_score,
+        holdout_score=(
+            holdout_report.candidates[0].objective.raw_score
+            if holdout_report.candidates
+            else 0.0
+        ),
         stress_worst_score=stress_worst,
         sensitivity_penalty=sensitivity_penalty,
         stop_ship_checks=stop_ship,

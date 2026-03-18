@@ -90,6 +90,24 @@ class TestObjectiveV1:
         expected_sharpe_comp = w.w_sharpe * w.sharpe_clip_max
         assert abs(r.sharpe_component - expected_sharpe_comp) < 1e-9
 
+    def test_positive_es_produces_zero_penalty(self):
+        """Positive expected shortfall (no tail losses) should not be penalized."""
+        metrics = _make_metrics(expected_shortfall_5pct=0.01)
+        weights = ObjectiveWeights()
+        result = objective_v1(metrics, weights)
+        assert result.es_component == 0.0, (
+            f"Positive ES should produce zero penalty, got {result.es_component}"
+        )
+
+    def test_negative_es_produces_positive_penalty(self):
+        """Negative ES (real tail losses) should be penalized."""
+        metrics = _make_metrics(expected_shortfall_5pct=-0.02)
+        weights = ObjectiveWeights()
+        result = objective_v1(metrics, weights)
+        assert result.es_component > 0.0, (
+            f"Negative ES should produce positive penalty, got {result.es_component}"
+        )
+
     def test_custom_weights(self):
         """Custom ObjectiveWeights with w_pnl=2.0 → pnl_component is doubled."""
         m = _make_metrics()

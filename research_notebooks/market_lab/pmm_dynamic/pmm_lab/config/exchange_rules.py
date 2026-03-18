@@ -1,7 +1,7 @@
 """Exchange rules YAML parser and resolver."""
 
 import math
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from pathlib import Path
 from typing import Optional
 
@@ -162,6 +162,28 @@ def round_price(price: float, rules: PairRules) -> float:
     tick = Decimal(str(rules.price_tick))
     p = Decimal(str(price))
     return float((p / tick).to_integral_value(rounding=ROUND_DOWN) * tick)
+
+
+def round_price_up(price: float, rules: PairRules) -> float:
+    """Round price UP to the nearest price_tick.
+
+    Used for sell-side prices to preserve intended spread.
+
+    Parameters
+    ----------
+    price : float
+        The price to round.
+    rules : PairRules
+        Rules containing price_tick.
+
+    Returns
+    -------
+    float
+        Price rounded up to nearest tick.
+    """
+    tick = Decimal(str(rules.price_tick))
+    p = Decimal(str(price))
+    return float((p / tick).to_integral_value(rounding=ROUND_UP) * tick)
 
 
 def round_amount(amount: float, rules: PairRules) -> float:

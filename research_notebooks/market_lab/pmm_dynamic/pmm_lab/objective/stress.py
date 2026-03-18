@@ -30,6 +30,11 @@ class StressScenario:
     latency_bars_add: int = 0
     slippage_bps_multiplier: float = 1.0
     fill_participation_multiplier: float = 1.0
+    # Additional stress dimensions
+    spread_widen_bps: float = 0.0          # additional spread in bps added to entry
+    volume_multiplier: float = 1.0          # scale candle volume (< 1 = thinner liquidity)
+    entry_spread_bps_add: float = 0.0       # additional entry spread cost
+    maker_fill_probability_override: Optional[float] = None  # override maker fill prob
 
 
 @dataclass
@@ -74,6 +79,10 @@ def load_stress_scenarios(
             latency_bars_add=s.get("latency_bars_add", 0),
             slippage_bps_multiplier=s.get("slippage_bps_multiplier", 1.0),
             fill_participation_multiplier=s.get("fill_participation_multiplier", 1.0),
+            spread_widen_bps=s.get("spread_widen_bps", 0.0),
+            volume_multiplier=s.get("volume_multiplier", 1.0),
+            entry_spread_bps_add=s.get("entry_spread_bps_add", 0.0),
+            maker_fill_probability_override=s.get("maker_fill_probability_override", None),
         ))
 
     return scenarios
@@ -96,11 +105,18 @@ def apply_scenario(
     Returns (modified_config, modified_pair_rules).
     """
     # Modify SimConfig (frozen, use replace)
+    new_entry_spread = config.entry_spread_bps + scenario.entry_spread_bps_add + scenario.spread_widen_bps
+    new_maker_fill = (scenario.maker_fill_probability_override
+                      if scenario.maker_fill_probability_override is not None
+                      else config.maker_fill_probability)
+
     new_config = replace(
         config,
         latency_bars=config.latency_bars + scenario.latency_bars_add,
         slippage_bps=config.slippage_bps * scenario.slippage_bps_multiplier,
         fill_participation_rate=config.fill_participation_rate * scenario.fill_participation_multiplier,
+        entry_spread_bps=new_entry_spread,
+        maker_fill_probability=new_maker_fill,
     )
 
     # Modify PairRules fees (frozen, use replace)

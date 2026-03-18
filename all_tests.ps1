@@ -66,6 +66,7 @@ $testGroups = @(
            "tests/unit/test_engine_config.py",
            "tests/unit/test_engine_parity.py",
            "tests/unit/test_engine_fill_realism.py",
+           "tests/unit/test_engine_capacity_bug.py",
            "tests/unit/test_executor_model.py",
            "tests/unit/test_fill_model.py",
            "tests/unit/test_fill_model_v2.py",
@@ -74,7 +75,10 @@ $testGroups = @(
            "tests/unit/test_trailing_stop.py",
            "tests/unit/test_volume_and_order_size.py",
            "tests/unit/test_equity.py",
-           "tests/unit/test_rebalance.py"
+           "tests/unit/test_rebalance.py",
+           "tests/unit/test_trade_accounting.py",       # Phase 1: closed vs open trade counting
+           "tests/unit/test_final_liquidation.py",       # Phase 1: exit_type labeling
+           "tests/unit/test_partial_close.py"            # Phase 3: sell trade partial close handling
        )
     },
 
@@ -84,6 +88,7 @@ $testGroups = @(
            "tests/unit/test_alignment.py",
            "tests/unit/test_feature_controller_compat.py",
            "tests/unit/test_features_parity.py",
+           "tests/unit/test_native_parity.py",           # Phase 2: native controller parity
            "tests/unit/test_regime.py",
            "tests/unit/test_simconfig_controller_compat.py",
            "-m", "not slow"
@@ -153,6 +158,7 @@ $testGroups = @(
            "tests/unit/test_holdout.py",
            "tests/unit/test_holdout_warmstart.py",
            "tests/unit/test_holdout_stress_local.py",
+           "tests/unit/test_holdout_config_consistency.py",  # Phase 1: export matches holdout config
            "tests/unit/test_walkforward.py"
        )
     },
@@ -174,7 +180,9 @@ $testGroups = @(
            "tests/unit/test_parallel.py",
            "tests/unit/test_preflight.py",
            "tests/unit/test_storage.py",
-           "tests/unit/test_storage_safety.py"
+           "tests/unit/test_storage_safety.py",
+           "tests/unit/test_optuna_failure_telemetry.py",  # Already existed, was missing from script
+           "tests/unit/test_multi_pair_sweep_notebook.py"  # Already existed, was missing from script
        )
     },
 
@@ -184,7 +192,9 @@ $testGroups = @(
            "tests/unit/test_yaml_export.py",
            "tests/unit/test_yaml_validates.py",
            "tests/unit/test_validate_export_v2.py",
-           "tests/unit/test_exchange_rules.py"
+           "tests/unit/test_exchange_rules.py",
+           "tests/unit/test_export_contract.py",         # Phase 2: field set contract
+           "tests/unit/test_price_rounding.py"            # Phase 3: side-aware rounding
        )
     },
 
@@ -193,10 +203,14 @@ $testGroups = @(
        Args  = @(
            "tests/unit/test_deploy_package.py",
            "tests/unit/test_pipeline_runner.py",
+           "tests/unit/test_pipeline_robustness.py",     # Phase 1: zero-trial, SQLite enforcement
            "tests/unit/test_report.py",
            "tests/unit/test_comparison.py",
            "tests/unit/test_monitor.py",
-           "tests/unit/test_parity_harness.py"
+           "tests/unit/test_parity_harness.py",
+           "tests/unit/test_stop_ship_parity.py",        # Phase 2: parity gate in stop-ship
+           "tests/unit/test_stop_ship_clustering.py",    # Phase 2: clustering gate in stop-ship
+           "tests/unit/test_live_tracker_fees.py"         # Phase 2: fee conversion
        )
     },
 

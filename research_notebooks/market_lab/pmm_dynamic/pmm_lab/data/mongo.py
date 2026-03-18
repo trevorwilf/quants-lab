@@ -203,6 +203,8 @@ class MongoCandleLoader:
                 "Removed %d duplicate timestamps from %s %s %s",
                 dup_count, query.connector, query.trading_pair, query.interval,
             )
+            # Store for pipeline audit visibility
+            self._last_raw_duplicate_count = dup_count
 
             # For each unique timestamp, pick the row with max volume
             ts_vals = arr["timestamp"]
@@ -220,6 +222,7 @@ class MongoCandleLoader:
             keep_indices.sort()  # restore chronological order
             arr = arr[np.array(keep_indices)]
         else:
+            self._last_raw_duplicate_count = 0
             # No duplicates — just ensure sorted
             unique_indices.sort()
             arr = arr[unique_indices]
@@ -282,6 +285,11 @@ class MongoCandleLoader:
                 )
 
         return arr
+
+    @property
+    def last_raw_duplicate_count(self) -> int:
+        """Number of duplicate timestamps removed during the last load() call."""
+        return getattr(self, '_last_raw_duplicate_count', 0)
 
     def ping(self) -> bool:
         """Return True if MongoDB is reachable.

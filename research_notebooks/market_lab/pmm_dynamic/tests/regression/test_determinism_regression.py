@@ -16,8 +16,11 @@ from pmm_lab.export.hb_yaml import export_yaml
 # Baseline regenerated after switching to controller_compat=True default.
 # Previous objective used full-history MACD which diverges from the live controller.
 # Baseline change reason: Section 4.2 of expert review v4.
+# 2026-03-18: Phase 1 correctness fixes — ES penalty now uses max(0,-es) instead of abs(es),
+# trade accounting excludes unclosed trades, final_liquidation label replaces time_limit for
+# end-of-backtest forced exits. These changes shift the objective score.
 GOLDEN_HASH = "d275a72e19e3a8566f67619754f67ec9d395e529ef8da1367464cc07eac017e9"
-GOLDEN_OBJECTIVE = -3.2586692657549623
+GOLDEN_OBJECTIVE = -3.2736966392549625
 
 
 @pytest.fixture

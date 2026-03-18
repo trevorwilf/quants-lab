@@ -215,10 +215,16 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
     if cc is not None and not isinstance(cc, list):
         errors.append(f"candles_config must be a list, got {type(cc).__name__}")
 
-    # NOTE: rebalance_cooldown_time and use_wallet_balance are documented in
-    # controller_yml_data_dictionary.md but are NOT exported by the PMM Dynamic
-    # lab exporter. They are controller-level defaults that the lab does not
-    # optimize. If added to the exporter in the future, add validation here.
+    # CONTRACT NOTE: The following fields are documented in
+    # controller_yml_data_dictionary.md as base-class fields:
+    #   - rebalance_cooldown_time (integer, default 60)
+    #   - use_wallet_balance (boolean, default false)
+    # These are MarketMakingControllerConfigBase defaults and are NOT
+    # exported by the lab exporter. The controller uses its base-class
+    # defaults at runtime. If the lab adds simulation support for these
+    # fields in the future, add them to the exporter and validator.
+    #
+    # candles_config IS exported (as empty list []) and is validated above.
 
     # 20. Rebalance fields present (v2)
     if "position_rebalance_threshold_pct" not in config_dict:

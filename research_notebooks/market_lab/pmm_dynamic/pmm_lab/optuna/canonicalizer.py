@@ -42,8 +42,14 @@ def _check_side_feasibility(
     reference_price: float,
     pair_rules: PairRules,
     amount_skew: float = 1.0,
+    spreads: Optional[List[float]] = None,
+    spread_multiplier: float = 0.001,
+    side: str = "buy",
 ) -> int:
     """Check how many levels pass min_notional, reducing from n_levels down.
+
+    If spreads are provided, uses approximate per-level prices instead of
+    reference_price for more accurate feasibility checks.
 
     Returns the maximum feasible number of levels (may be 0).
     """
@@ -51,10 +57,20 @@ def _check_side_feasibility(
         w = generate_amount_weights(n, skew=amount_skew)  # use actual skew
         all_ok = True
         for i in range(n):
+            # Approximate per-level price
+            if spreads is not None and i < len(spreads):
+                spread = spreads[i] * spread_multiplier
+                if side == "buy":
+                    level_price = reference_price * (1.0 - spread)
+                else:
+                    level_price = reference_price * (1.0 + spread)
+            else:
+                level_price = reference_price
+
             order_quote = side_capital * w[i]
-            order_base = order_quote / reference_price if reference_price > 0 else 0.0
+            order_base = order_quote / level_price if level_price > 0 else 0.0
             order_base_rounded = round_amount(order_base, pair_rules)
-            if not check_min_notional(reference_price, order_base_rounded, pair_rules):
+            if not check_min_notional(level_price, order_base_rounded, pair_rules):
                 all_ok = False
                 break
         if all_ok:
@@ -81,10 +97,6 @@ def canonicalize_params(
     total_amount_quote = raw_params["total_amount_quote"]
     buy_side_weight = raw_params["buy_side_weight"]
     amount_skew = raw_params["amount_skew"]
-
-    # Assert macd constraint
-    if raw_params["macd_fast"] >= raw_params["macd_slow"]:
-        return None, f"macd_fast ({raw_params['macd_fast']}) >= macd_slow ({raw_params['macd_slow']})"
 
     # Generate spread ladders
     buy_spreads = generate_geometric_ladder(
@@ -126,11 +138,17 @@ def canonicalize_params(
     feasible_buy = _check_side_feasibility(
         buy_n_levels, buy_capital, buy_weights, reference_price, pair_rules,
         amount_skew=amount_skew,
+        spreads=buy_spreads,
+        spread_multiplier=0.001,
+        side="buy",
     )
     # Check feasibility for sell side
     feasible_sell = _check_side_feasibility(
         sell_n_levels, sell_capital, sell_weights, reference_price, pair_rules,
         amount_skew=amount_skew,
+        spreads=sell_spreads,
+        spread_multiplier=0.001,
+        side="sell",
     )
 
     if feasible_buy == 0 and feasible_sell == 0:
