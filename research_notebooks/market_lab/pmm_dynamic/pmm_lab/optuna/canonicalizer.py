@@ -94,6 +94,18 @@ def canonicalize_params(
         raw_params["sell_spread_base"], raw_params["sell_spread_ratio"], sell_n_levels
     )
 
+    # Cap spreads at MAX_SPREAD_PCT to prevent pathological far-tail levels
+    MAX_SPREAD_PCT = 50.0
+    buy_spreads = [s for s in buy_spreads if s <= MAX_SPREAD_PCT]
+    sell_spreads = [s for s in sell_spreads if s <= MAX_SPREAD_PCT]
+
+    if len(buy_spreads) == 0 or len(sell_spreads) == 0:
+        return None, "all levels exceed max spread cap"
+
+    # Update level counts after capping
+    buy_n_levels = len(buy_spreads)
+    sell_n_levels = len(sell_spreads)
+
     # Verify spreads are positive and monotonically increasing
     for spreads, name in [(buy_spreads, "buy"), (sell_spreads, "sell")]:
         for i, s in enumerate(spreads):

@@ -33,7 +33,7 @@ sell_spreads:
 skip_rebalance: false
 stop_loss: 0.23340128741805705
 take_profit: 0.12323926102658198
-take_profit_order_type: LIMIT
+take_profit_order_type: 2
 time_limit: 101836
 total_amount_quote: 163.33310471881157
 trading_pair: SAL-USDT

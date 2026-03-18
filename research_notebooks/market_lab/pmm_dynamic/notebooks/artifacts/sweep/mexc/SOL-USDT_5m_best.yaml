@@ -31,7 +31,7 @@ sell_spreads:
 skip_rebalance: false
 stop_loss: 0.2487872891911428
 take_profit: 0.13481925609842887
-take_profit_order_type: LIMIT
+take_profit_order_type: 2
 time_limit: 146874
 total_amount_quote: 149.7958626374804
 trading_pair: SOL-USDT

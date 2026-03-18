@@ -31,7 +31,7 @@ sell_spreads:
 skip_rebalance: false
 stop_loss: 0.19839511854177744
 take_profit: 0.14811385446210756
-take_profit_order_type: LIMIT
+take_profit_order_type: 2
 time_limit: 167300
 total_amount_quote: 187.1809810475968
 trading_pair: DOGE-USDT

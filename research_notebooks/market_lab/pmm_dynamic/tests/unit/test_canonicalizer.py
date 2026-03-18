@@ -35,8 +35,8 @@ def _default_raw_params():
         "buy_side_weight": 0.5,
         "amount_skew": 1.0,
         "total_amount_quote": 100.0,
-        "executor_refresh_time": 3120.0,
-        "cooldown_time": 3120.0,
+        "executor_refresh_time": 3120,
+        "cooldown_time": 3120,
         "stop_loss": 0.03,
         "take_profit": 0.015,
         "time_limit": 43200,
@@ -163,3 +163,53 @@ class TestAmountWeights:
         assert abs(sum(result) - 1.0) < 1e-9
         for i in range(1, len(result)):
             assert result[i] > result[i - 1]
+
+
+class TestSpreadCap:
+    """Verify pathological spread ladders are capped."""
+
+    def test_extreme_ladder_is_capped(self):
+        """Ladders with absurd far-tail levels are truncated to <= 50%."""
+        params = dict(_default_raw_params())
+        params["buy_spread_base"] = 5.0
+        params["buy_spread_ratio"] = 3.0
+        params["buy_n_levels"] = 10  # 5 * 3^9 = 98415 — way beyond cap
+        params["sell_spread_base"] = 5.0
+        params["sell_spread_ratio"] = 3.0
+        params["sell_n_levels"] = 10
+
+        config, rejection = canonicalize_params(params, _default_pair_rules(), 100000.0)
+
+        if config is not None:
+            assert all(s <= 50.0 for s in config.buy_spreads)
+            assert all(s <= 50.0 for s in config.sell_spreads)
+        # If rejected, that's also acceptable (all levels beyond cap)
+
+    def test_moderate_ladder_unchanged(self):
+        """Ladders that are all within cap are not truncated."""
+        params = dict(_default_raw_params())
+        params["buy_spread_base"] = 1.0
+        params["buy_spread_ratio"] = 2.0
+        params["buy_n_levels"] = 3  # 1, 2, 4 — all within 50
+        params["sell_spread_base"] = 1.0
+        params["sell_spread_ratio"] = 2.0
+        params["sell_n_levels"] = 3
+
+        config, _ = canonicalize_params(params, _default_pair_rules(), 100000.0)
+        assert config is not None
+        assert len(config.buy_spreads) == 3
+        assert len(config.sell_spreads) == 3
+
+    def test_all_levels_beyond_cap_rejected(self):
+        """When ALL levels exceed cap, config is rejected."""
+        params = dict(_default_raw_params())
+        params["buy_spread_base"] = 60.0  # Already > 50
+        params["buy_spread_ratio"] = 2.0
+        params["buy_n_levels"] = 3
+        params["sell_spread_base"] = 60.0
+        params["sell_spread_ratio"] = 2.0
+        params["sell_n_levels"] = 3
+
+        config, rejection = canonicalize_params(params, _default_pair_rules(), 100000.0)
+        assert config is None
+        assert "max spread cap" in rejection

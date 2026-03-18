@@ -102,6 +102,7 @@ def run_full_pipeline(
     top_k: int = 5,
     run_stress: bool = True,
     run_sensitivity: bool = True,
+    run_recent_window: bool = True,
     mongo_loader_kwargs: Optional[Dict[str, Any]] = None,
     certified: bool = False,
     start_ts: Optional[int] = None,
@@ -328,6 +329,20 @@ def run_full_pipeline(
         sensitivity_penalty = sens_report.sensitivity_penalty
         logger.info("  Sensitivity penalty=%.4f", sensitivity_penalty)
 
+    # ---- Step 10b: Recent-window evaluation ----
+    recent_window_result = None
+    if run_recent_window:
+        logger.info("Step 10b: Recent-window evaluation")
+        from pmm_lab.objective.recent_window import evaluate_recent_window
+        recent_window_result = evaluate_recent_window(
+            dev_candles, best_config, pair_rules, bar_interval,
+            recent_days=28,
+            run_stress=run_stress,
+            objective_version=objective_version,
+        )
+        logger.info("  Recent 28d: passed=%s, reason=%s",
+                    recent_window_result.passed, recent_window_result.reason)
+
     # ---- Step 11: Clustering ----
     logger.info("Step 11: Top-k clustering")
     cluster_report = analyze_top_k(study, k=top_k)
@@ -359,6 +374,7 @@ def run_full_pipeline(
         validation_result=validation_result,
         holdout_report=holdout_report,
         sensitivity_penalty=sensitivity_penalty,
+        recent_window_result=recent_window_result,
     )
     all_passed = all(stop_ship.values())
     logger.info("  Stop-ship: %s (%d/%d passed)",

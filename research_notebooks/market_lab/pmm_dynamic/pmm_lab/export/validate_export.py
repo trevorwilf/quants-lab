@@ -23,7 +23,7 @@ class ValidationResult:
 
 
 REQUIRED_KEYS = [
-    "controller_name", "controller_type", "connector_name",
+    "id", "controller_name", "controller_type", "connector_name",
     "trading_pair", "buy_spreads", "sell_spreads", "buy_amounts_pct",
     "sell_amounts_pct", "total_amount_quote", "macd_fast", "macd_slow",
     "macd_signal", "natr_length", "candles_connector", "candles_trading_pair",
@@ -166,7 +166,8 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
             errors.append(f"{key} is NaN")
 
     # 14. Integer type checks — Hummingbot expects int for these fields
-    int_fields = ["macd_fast", "macd_slow", "macd_signal", "natr_length", "leverage", "time_limit"]
+    int_fields = ["macd_fast", "macd_slow", "macd_signal", "natr_length", "leverage",
+                  "time_limit", "cooldown_time", "executor_refresh_time"]
     for key in int_fields:
         val = config_dict.get(key)
         if val is not None and not isinstance(val, int):
@@ -179,7 +180,6 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
     # 15. Float type checks — these should be numeric (int or float)
     numeric_fields = [
         "stop_loss", "take_profit", "total_amount_quote",
-        "cooldown_time", "executor_refresh_time",
         "position_rebalance_threshold_pct",
     ]
     for key in numeric_fields:
@@ -210,7 +210,17 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
                     warnings.append(f"{key} is not strictly ascending at index {i}: {val}")
                     break
 
-    # 19. Rebalance fields present (v2)
+    # 19. candles_config (optional but if present, must be list)
+    cc = config_dict.get("candles_config")
+    if cc is not None and not isinstance(cc, list):
+        errors.append(f"candles_config must be a list, got {type(cc).__name__}")
+
+    # NOTE: rebalance_cooldown_time and use_wallet_balance are documented in
+    # controller_yml_data_dictionary.md but are NOT exported by the PMM Dynamic
+    # lab exporter. They are controller-level defaults that the lab does not
+    # optimize. If added to the exporter in the future, add validation here.
+
+    # 20. Rebalance fields present (v2)
     if "position_rebalance_threshold_pct" not in config_dict:
         warnings.append("Missing position_rebalance_threshold_pct (v2 field)")
     if "skip_rebalance" not in config_dict:

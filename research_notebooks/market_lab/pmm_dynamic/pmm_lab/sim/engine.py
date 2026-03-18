@@ -464,17 +464,6 @@ class SimEngine:
                 if fill.filled:
                     actual_qty = fill.fill_quantity
 
-                    # Decrement the correct capacity pool
-                    if cfg.split_volume_by_side:
-                        if order.side == "buy":
-                            buy_bar_capacity -= actual_qty
-                        else:
-                            sell_bar_capacity -= actual_qty
-                    else:
-                        # Shared pool — decrement both in lockstep
-                        buy_bar_capacity -= actual_qty
-                        sell_bar_capacity -= actual_qty
-
                     if order.side == "buy":
                         # Check if we can afford this buy (spot constraint)
                         entry_fee = compute_fee(fill.fill_price, actual_qty, rules.fees, "maker")
@@ -506,6 +495,17 @@ class SimEngine:
                         if not executed:
                             remaining_orders.append(order)
                             continue
+
+                    # Decrement capacity by the ACTUALLY EXECUTED quantity
+                    # (after spot-constraint clamping, not the original fill request)
+                    if cfg.split_volume_by_side:
+                        if order.side == "buy":
+                            buy_bar_capacity -= actual_qty
+                        else:
+                            sell_bar_capacity -= actual_qty
+                    else:
+                        buy_bar_capacity -= actual_qty
+                        sell_bar_capacity -= actual_qty
 
                     trade = Trade(
                         trade_id=trade_counter,

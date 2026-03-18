@@ -54,8 +54,8 @@ class SimConfig:
     total_amount_quote: float = 100.0
 
     # Timing
-    executor_refresh_time: float = 3120.0   # seconds between order refreshes
-    cooldown_time: float = 3120.0           # seconds cooldown after a fill
+    executor_refresh_time: int = 3120   # seconds between order refreshes
+    cooldown_time: int = 3120           # seconds cooldown after a fill
 
     # Triple barrier
     stop_loss: float = 0.03                 # fraction (e.g., 0.03 = 3%)

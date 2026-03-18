@@ -35,7 +35,7 @@ sell_spreads:
 skip_rebalance: false
 stop_loss: 0.19365668801919939
 take_profit: 0.07831641645285256
-take_profit_order_type: LIMIT
+take_profit_order_type: 2
 time_limit: 164356
 total_amount_quote: 149.26156457884147
 trading_pair: XMR-USDT

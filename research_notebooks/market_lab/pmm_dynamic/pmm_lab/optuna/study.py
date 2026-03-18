@@ -57,6 +57,18 @@ def create_study(
     return study
 
 
+def _wrapped_objective(objective):
+    """Wrap objective to record exception info on failed trials."""
+    def wrapper(trial):
+        try:
+            return objective(trial)
+        except Exception as e:
+            trial.set_user_attr("failure_type", type(e).__name__)
+            trial.set_user_attr("failure_message", str(e)[:500])
+            raise
+    return wrapper
+
+
 def run_optimization(
     study: optuna.Study,
     objective: Callable,
@@ -64,9 +76,13 @@ def run_optimization(
     timeout: Optional[int] = None,
     callbacks: Optional[list] = None,
 ) -> optuna.Study:
-    """Run optimization trials."""
+    """Run optimization trials.
+
+    Failed trials will have ``failure_type`` and ``failure_message``
+    user attributes for post-hoc diagnostics.
+    """
     study.optimize(
-        objective,
+        _wrapped_objective(objective),
         n_trials=n_trials,
         timeout=timeout,
         callbacks=callbacks,

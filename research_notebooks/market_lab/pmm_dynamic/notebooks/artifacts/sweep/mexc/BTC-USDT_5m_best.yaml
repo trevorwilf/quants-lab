@@ -41,7 +41,7 @@ sell_spreads:
 skip_rebalance: false
 stop_loss: 0.13436167981572847
 take_profit: 0.12975663794574682
-take_profit_order_type: LIMIT
+take_profit_order_type: 2
 time_limit: 164132
 total_amount_quote: 347.885184113805
 trading_pair: BTC-USDT

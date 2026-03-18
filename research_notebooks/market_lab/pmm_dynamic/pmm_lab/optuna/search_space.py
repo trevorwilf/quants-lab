@@ -54,8 +54,8 @@ def suggest_params(
         total_amount_quote = trial.suggest_float("total_amount_quote", 25.0, 1000.0)
 
     # Timing
-    executor_refresh_time = trial.suggest_float("executor_refresh_time", 300.0, 14400.0)
-    cooldown_time = trial.suggest_float("cooldown_time", 60.0, 7200.0)
+    executor_refresh_time = trial.suggest_int("executor_refresh_time", 300, 14400)
+    cooldown_time = trial.suggest_int("cooldown_time", 60, 7200)
 
     # Triple barrier
     stop_loss = trial.suggest_float("stop_loss", 0.01, 0.25, log=True)

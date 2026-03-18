@@ -33,7 +33,7 @@ sell_spreads:
 skip_rebalance: false
 stop_loss: 0.1749916775884484
 take_profit: 0.037834424382468354
-take_profit_order_type: LIMIT
+take_profit_order_type: 2
 time_limit: 136280
 total_amount_quote: 199.85170089501645
 trading_pair: ETH-USDT

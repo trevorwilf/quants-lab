@@ -37,7 +37,7 @@ sell_spreads:
 skip_rebalance: false
 stop_loss: 0.10861185425476265
 take_profit: 0.14778626600016176
-take_profit_order_type: LIMIT
+take_profit_order_type: 2
 time_limit: 168529
 total_amount_quote: 616.1388827035574
 trading_pair: XRP-USDT

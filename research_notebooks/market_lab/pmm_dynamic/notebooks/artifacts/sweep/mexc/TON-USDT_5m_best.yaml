@@ -35,7 +35,7 @@ sell_spreads:
 skip_rebalance: false
 stop_loss: 0.19096129712918566
 take_profit: 0.0858907626889277
-take_profit_order_type: LIMIT
+take_profit_order_type: 2
 time_limit: 166203
 total_amount_quote: 57.01318228091297
 trading_pair: TON-USDT

@@ -31,7 +31,7 @@ sell_spreads:
 skip_rebalance: false
 stop_loss: 0.16109910215285206
 take_profit: 0.12856207007443915
-take_profit_order_type: LIMIT
+take_profit_order_type: 2
 time_limit: 138255
 total_amount_quote: 60.7205312158917
 trading_pair: APT-USDT

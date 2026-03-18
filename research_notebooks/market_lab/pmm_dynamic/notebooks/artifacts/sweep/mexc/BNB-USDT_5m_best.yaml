@@ -39,7 +39,7 @@ sell_spreads:
 skip_rebalance: false
 stop_loss: 0.09096392019468098
 take_profit: 0.08903515108738597
-take_profit_order_type: LIMIT
+take_profit_order_type: 2
 time_limit: 27917
 total_amount_quote: 896.8074530152488
 trading_pair: BNB-USDT
