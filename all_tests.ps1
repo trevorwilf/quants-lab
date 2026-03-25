@@ -235,6 +235,17 @@ $testGroups = @(
        )
     },
 
+    # --Public Screeners --
+    @{ Label = "Public Screeners";
+       Args  = @(
+           "tests/unit/test_public_screeners.py",
+           "tests/unit/test_public_screener_notebooks.py",
+           "tests/unit/test_screener_common.py",
+           "tests/unit/test_screener_quant_patch.py",
+           "tests/unit/test_screener_multi_quote.py"
+       )
+    },
+
     # --Integration tests --
     @{ Label = "Integration";
        Args  = @(

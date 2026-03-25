@@ -1,0 +1,23 @@
+{
+  "generated_started_utc": "2026-03-24T01:59:33.186943+00:00",
+  "generated_finished_utc": "2026-03-24T01:59:35.959094+00:00",
+  "mongo_uri_redacted": "192.168.1.54:27017/quants_lab?authSource=admin&retryWrites=true&w=majority",
+  "config": {
+    "INCLUDE_DATABASES": [],
+    "EXCLUDE_DATABASES": [],
+    "SKIP_SYSTEM_DATABASES": false,
+    "SCAN_POLICY": "adaptive",
+    "ADAPTIVE_FULL_SCAN_MAX_DOCS": 25000,
+    "SAMPLE_SCAN_SIZE": 5000,
+    "MAX_SAMPLE_DOCS_PER_COLLECTION": 5,
+    "SAMPLE_DOCUMENT_STRATEGY": "first",
+    "FIELD_EXAMPLE_LIMIT": 3,
+    "TRUNCATE_LONG_VALUES_AT": 240
+  },
+  "counts": {
+    "databases_visible": 4,
+    "collections_and_views": 8,
+    "indexes": 20,
+    "observed_field_paths": 186
+  }
+}

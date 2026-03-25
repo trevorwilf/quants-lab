@@ -1,5 +1,0 @@
-database,sizeOnDisk,empty,list_source,list_error,db_collections,db_views,db_objects,db_avgObjSize,db_dataSize,db_storageSize,db_indexes,db_indexSize,db_fsUsedSize,db_fsTotalSize,dbStats_error
-admin,102400,False,listDatabases,,2,0,3,209.33333333333334,628.0,40960.0,3,61440.0,1101922304.0,10441366437888.0,
-config,110592,False,listDatabases,,1,0,6,132.0,792.0,36864.0,2,73728.0,1101922304.0,10441366437888.0,
-local,73728,False,listDatabases,,1,0,4,2374.25,9497.0,36864.0,1,36864.0,1101922304.0,10441366437888.0,
-quants_lab,1133674496,False,listDatabases,,4,0,5704656,395.3455379255121,2255310295.0,750882816.0,14,382791680.0,1101922304.0,10441366437888.0,

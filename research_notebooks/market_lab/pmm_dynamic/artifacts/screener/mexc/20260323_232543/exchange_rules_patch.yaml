@@ -1,0 +1,128 @@
+connectors:
+  mexc:
+    pairs:
+      BTC-USDT:
+        price_tick: 0.01
+        amount_step: 1.0e-06
+        min_notional_quote: 1.0
+        min_order_size_base: 1.0e-06
+      SOL-USDT:
+        price_tick: 0.01
+        amount_step: 0.01
+        min_notional_quote: 1.0
+        min_order_size_base: 0.01
+      XRP-USDT:
+        price_tick: 0.0001
+        amount_step: 0.1
+        min_notional_quote: 1.0
+        min_order_size_base: 0.1
+      DOGE-USDT:
+        price_tick: 1.0e-05
+        amount_step: 1.0
+        min_notional_quote: 1.0
+        min_order_size_base: 1.0
+      BNB-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      SUI-USDT:
+        price_tick: 0.0001
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0
+      TRX-USDT:
+        price_tick: 0.0001
+        amount_step: 1.0
+        min_notional_quote: 1.0
+        min_order_size_base: 1.0
+      GOLD(PAXG)-USDT:
+        price_tick: 0.01
+        amount_step: 1.0e-06
+        min_notional_quote: 1.0
+        min_order_size_base: 1.0e-06
+      LTC-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      ADA-USDT:
+        price_tick: 0.0001
+        amount_step: 0.1
+        min_notional_quote: 1.0
+        min_order_size_base: 0.1
+      LINK-USDT:
+        price_tick: 0.001
+        amount_step: 0.01
+        min_notional_quote: 1.0
+        min_order_size_base: 0.01
+      UNI-USDT:
+        price_tick: 0.001
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      WLD-USDT:
+        price_tick: 0.0001
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0
+      TRUMP-USDT:
+        price_tick: 0.001
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0
+      WXT-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0
+      XLM-USDT:
+        price_tick: 0.0001
+        amount_step: 0.1
+        min_notional_quote: 1.0
+        min_order_size_base: 0.1
+      PUMP-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0
+      SHIB-USDT:
+        price_tick: 1.0e-09
+        amount_step: 10000.0
+        min_notional_quote: 1.0
+        min_order_size_base: 10000.0
+      DOT-USDT:
+        price_tick: 0.001
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      ETC-USDT:
+        price_tick: 0.01
+        amount_step: 0.1
+        min_notional_quote: 1.0
+        min_order_size_base: 0.1
+      CHZ-USDT:
+        price_tick: 1.0e-05
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      OP-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+        min_notional_quote: 1.0
+        min_order_size_base: 0.01
+      CRV-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+        min_notional_quote: 1.0
+        min_order_size_base: 0.01
+      RENDER-USDT:
+        price_tick: 0.001
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0
+      CAKE-USDT:
+        price_tick: 0.001
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001

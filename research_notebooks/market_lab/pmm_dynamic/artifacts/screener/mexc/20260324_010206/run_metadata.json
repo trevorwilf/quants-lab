@@ -1,0 +1,83 @@
+{
+  "connector": "mexc",
+  "config": {
+    "connector": "mexc",
+    "quote_asset": "USDT",
+    "interval": "5m",
+    "universe_top_k": 100,
+    "final_top_n": 30,
+    "candle_limit": 288,
+    "depth_limit": 200,
+    "recent_trade_limit": 500,
+    "request_pause_sec": 0.12,
+    "timeout_seconds": 30.0,
+    "max_retries": 3,
+    "retry_backoff": 1.8,
+    "user_agent": "pmm-lab-screener/0.1",
+    "min_quote_volume_24h": 1000000.0,
+    "max_spread_bps": 50.0,
+    "min_top_of_book_quote": 250.0,
+    "min_depth_10bps_quote": 1000.0,
+    "max_last_trade_age_sec": 1800.0,
+    "min_recent_trade_count": 100,
+    "min_candle_count": 240,
+    "min_candle_coverage_ratio": 0.97,
+    "max_zero_volume_fraction": 0.2,
+    "min_natr_bps": 10.0,
+    "max_natr_bps": 250.0,
+    "natr_soft_min": 6.0,
+    "natr_target_min": 15.0,
+    "natr_target_max": 120.0,
+    "natr_soft_max": 250.0,
+    "efficiency_soft_min": 0.0,
+    "efficiency_target_min": 0.05,
+    "efficiency_target_max": 0.4,
+    "efficiency_soft_max": 0.75,
+    "vol_to_spread_soft_min": 1.0,
+    "vol_to_spread_target_min": 3.0,
+    "vol_to_spread_target_max": 20.0,
+    "vol_to_spread_soft_max": 50.0,
+    "exclude_regex": [
+      "(?:^|[^A-Z])(3L|3S|5L|5S)$",
+      "(?:UP|DOWN|BULL|BEAR)$"
+    ],
+    "include_symbols": [],
+    "exclude_symbols": [],
+    "score_weights": {
+      "volume": 0.24,
+      "depth": 0.2,
+      "spread": 0.16,
+      "top_of_book": 0.08,
+      "activity": 0.12,
+      "quality": 0.1,
+      "alpha": 0.1
+    },
+    "interval_seconds": 300
+  },
+  "counts": {
+    "universe": 2018,
+    "shortlist": 100,
+    "final": 100,
+    "selected": 24
+  },
+  "started_at": "2026-03-24T01:02:08Z",
+  "finished_at": "2026-03-24T01:03:39Z",
+  "notes": [
+    "Research/ingestion only. Passing the screener does not imply live readiness.",
+    "Rule fields in exports are estimates unless the exchange API exposes exact constraints."
+  ],
+  "exported_at": "2026-03-24T01:03:39Z",
+  "artifact_paths": {
+    "universe_csv": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/universe.csv",
+    "shortlist_csv": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/shortlist.csv",
+    "final_csv": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/final_screen.csv",
+    "selected_csv": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/selected_pairs.csv",
+    "selected_pairs_txt": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/selected_pairs.txt",
+    "selected_pairs_json": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/selected_pairs.json",
+    "symbol_metadata_json": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/symbol_metadata.json",
+    "candle_ingestor_manifest_yaml": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/candle_ingestor_manifest.yaml",
+    "exchange_rules_patch_yaml": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/exchange_rules_patch.yaml",
+    "screening_report_md": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/screening_report.md",
+    "run_metadata_json": "/quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts/screener/mexc/20260324_010206/run_metadata.json"
+  }
+}

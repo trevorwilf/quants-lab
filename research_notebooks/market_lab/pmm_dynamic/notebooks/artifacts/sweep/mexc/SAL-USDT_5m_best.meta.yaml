@@ -1,7 +1,0 @@
-dataset_hash: 47ae9e45b5250e96afa43140a7bd73630f2eff0016fdb8516c4cdfd4ea2e1d79
-phase1_score: 1.1749159608192468
-robust_score: 47.07801544606279
-sweep_date: '2026-03-09T08:57:42.663444'
-trial: 2028
-worst_scenario: very_low_liquidity
-worst_score: 26.14357524140504

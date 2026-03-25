@@ -1,7 +1,0 @@
-dataset_hash: 46b73fbd6434c11929de9b25359eb5d0259f3909bf5beab2103604303398be17
-phase1_score: 0.710670862701332
-robust_score: 3.802209658097115
-sweep_date: '2026-03-09T04:15:54.009898'
-trial: 1329
-worst_scenario: extreme_slippage
-worst_score: 3.1286326948562007

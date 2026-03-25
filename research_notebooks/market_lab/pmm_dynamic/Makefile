@@ -1,7 +1,7 @@
 .PHONY: test test-unit test-slow test-full test-live test-live-db test-regression data-audit backtest-smoke \
         walkforward-smoke stress-smoke optimize-smoke export-validate \
         test-phase1 test-phase2 test-phase3 test-all-phases test-parity test-stop-ship \
-        test-trade-accounting clean-artifacts help
+        test-trade-accounting test-screener clean-artifacts help
 
 PROJ_DIR := $(shell pwd)
 
@@ -19,6 +19,7 @@ help:
 	@echo "  test-parity       Run parity tests only"
 	@echo "  test-stop-ship    Run stop-ship gate tests"
 	@echo "  test-trade-accounting  Run trade accounting tests"
+	@echo "  test-screener     Run public screener unit tests"
 	@echo "  data-audit        Run data audit on default dataset (requires MongoDB)"
 	@echo "  backtest-smoke    Run a single baseline backtest on synthetic data"
 	@echo "  walkforward-smoke Run walk-forward on synthetic data (3 folds)"
@@ -205,6 +206,16 @@ test-trade-accounting:
 		tests/unit/test_partial_close.py \
 		tests/unit/test_metrics.py \
 		tests/unit/test_engine.py \
+		-v --tb=short
+
+test-screener:
+	@echo "Running public screener tests..."
+	python -m pytest \
+		tests/unit/test_public_screeners.py \
+		tests/unit/test_public_screener_notebooks.py \
+		tests/unit/test_screener_common.py \
+		tests/unit/test_screener_quant_patch.py \
+		tests/unit/test_screener_multi_quote.py \
 		-v --tb=short
 
 clean-artifacts:

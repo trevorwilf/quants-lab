@@ -1,0 +1,355 @@
+{
+  "database": "quants_lab",
+  "collection": "candles",
+  "scan_mode": "sample",
+  "scan_limit": 5000,
+  "documents_scanned_for_schema": 5000,
+  "estimated_document_count": 5183473,
+  "schema_is_exhaustive_for_collection": false,
+  "fields": [
+    {
+      "path": "_id",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "objectId"
+      ],
+      "examples": [
+        "{\"$oid\": \"69a6081c3963f2b299061764\"}",
+        "{\"$oid\": \"69a6081c3963f2b299061765\"}",
+        "{\"$oid\": \"69a6081c3963f2b299061766\"}"
+      ]
+    },
+    {
+      "path": "base_asset",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"BTC\""
+      ]
+    },
+    {
+      "path": "base_volume",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "double"
+      ],
+      "examples": [
+        "0.443",
+        "1.285",
+        "1.79"
+      ]
+    },
+    {
+      "path": "close",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "double"
+      ],
+      "examples": [
+        "67312.49",
+        "67191.21",
+        "67238.38"
+      ]
+    },
+    {
+      "path": "close_ts",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "1772338500",
+        "1772338800",
+        "1772339100"
+      ]
+    },
+    {
+      "path": "connector",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"nonkyc\""
+      ]
+    },
+    {
+      "path": "high",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "double"
+      ],
+      "examples": [
+        "67408.39",
+        "67326.31",
+        "67287.0"
+      ]
+    },
+    {
+      "path": "ingested_at",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "1772953582"
+      ]
+    },
+    {
+      "path": "interval",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"5m\""
+      ]
+    },
+    {
+      "path": "is_closed",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "bool"
+      ],
+      "examples": [
+        "true"
+      ]
+    },
+    {
+      "path": "low",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "double"
+      ],
+      "examples": [
+        "67225.44",
+        "67081.45",
+        "67191.78"
+      ]
+    },
+    {
+      "path": "open",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "double"
+      ],
+      "examples": [
+        "67368.44",
+        "67276.85",
+        "67211.42"
+      ]
+    },
+    {
+      "path": "open_ts",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "1772338200",
+        "1772338500",
+        "1772338800"
+      ]
+    },
+    {
+      "path": "qc_flags",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "array"
+      ],
+      "examples": [
+        "[]"
+      ]
+    },
+    {
+      "path": "qc_ok",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "bool"
+      ],
+      "examples": [
+        "true"
+      ]
+    },
+    {
+      "path": "quote_asset",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"USDT\""
+      ]
+    },
+    {
+      "path": "quote_volume",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "double"
+      ],
+      "examples": [
+        "29820.73992",
+        "86351.55881666667",
+        "120357.90546666666"
+      ]
+    },
+    {
+      "path": "quote_volume_is_estimated",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "bool"
+      ],
+      "examples": [
+        "true"
+      ]
+    },
+    {
+      "path": "schema_version",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "3"
+      ]
+    },
+    {
+      "path": "timestamp",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "1772338200",
+        "1772338500",
+        "1772338800"
+      ]
+    },
+    {
+      "path": "trading_pair",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "string"
+      ],
+      "examples": [
+        "\"BTC-USDT\""
+      ]
+    },
+    {
+      "path": "updated_at",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "int"
+      ],
+      "examples": [
+        "1773716190"
+      ]
+    },
+    {
+      "path": "volume",
+      "parent_path": null,
+      "depth": 0,
+      "documents_with_field": 5000,
+      "occurrences": 5000,
+      "non_null_occurrences": 5000,
+      "types": [
+        "double"
+      ],
+      "examples": [
+        "0.443",
+        "1.285",
+        "1.79"
+      ]
+    }
+  ]
+}

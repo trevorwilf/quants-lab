@@ -1,0 +1,46 @@
+backfill_days: 180
+request_delay: 0.5
+overlap_candles: 2
+include_open_candle: false
+http:
+  timeout_seconds: 30.0
+  max_retries: 3
+  retry_backoff: 1.8
+  user_agent: pmm-lab-screener/0.1
+exchanges:
+  mexc:
+    enabled: true
+    base_url: https://api.mexc.com
+    pairs:
+    - BTC/USDT
+    - SOL/USDT
+    - XRP/USDT
+    - DOGE/USDT
+    - BNB/USDT
+    - SUI/USDT
+    - TRX/USDT
+    - GOLD(PAXG)/USDT
+    - LTC/USDT
+    - ADA/USDT
+    - LINK/USDT
+    - UNI/USDT
+    - WLD/USDT
+    - TRUMP/USDT
+    - WXT/USDT
+    - XLM/USDT
+    - PUMP/USDT
+    - SHIB/USDT
+    - DOT/USDT
+    - ETC/USDT
+    - CHZ/USDT
+    - OP/USDT
+    - CRV/USDT
+    - RENDER/USDT
+    - CAKE/USDT
+    intervals:
+    - 5m
+    trades:
+      enabled: true
+      limit: 500
+      update_recent_candles: false
+      recent_window_minutes: 120
