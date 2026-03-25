@@ -2,8 +2,9 @@
 
 import math
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
+from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import yaml
 
@@ -142,10 +143,22 @@ def resolve_pair_rules(
     )
 
 
+@lru_cache(maxsize=64)
+def _decimal_quantizers(tick_str: str, step_str: str) -> Tuple[Decimal, Decimal]:
+    """Return cached (tick_decimal, step_decimal) for the given string representations.
+
+    Using lru_cache avoids re-creating Decimal objects on every rounding call.
+    The string representations are used as cache keys because Decimal objects
+    are not hashable in all Python versions when created from floats.
+    """
+    return Decimal(tick_str), Decimal(step_str)
+
+
 def round_price(price: float, rules: PairRules) -> float:
     """Round price DOWN to the nearest price_tick.
 
     Uses Decimal arithmetic to avoid float precision issues.
+    Tick Decimal is cached via lru_cache for performance.
 
     Parameters
     ----------
@@ -159,7 +172,7 @@ def round_price(price: float, rules: PairRules) -> float:
     float
         Price rounded down to nearest tick.
     """
-    tick = Decimal(str(rules.price_tick))
+    tick, _ = _decimal_quantizers(str(rules.price_tick), str(rules.amount_step))
     p = Decimal(str(price))
     return float((p / tick).to_integral_value(rounding=ROUND_DOWN) * tick)
 
@@ -168,6 +181,7 @@ def round_price_up(price: float, rules: PairRules) -> float:
     """Round price UP to the nearest price_tick.
 
     Used for sell-side prices to preserve intended spread.
+    Tick Decimal is cached via lru_cache for performance.
 
     Parameters
     ----------
@@ -181,7 +195,7 @@ def round_price_up(price: float, rules: PairRules) -> float:
     float
         Price rounded up to nearest tick.
     """
-    tick = Decimal(str(rules.price_tick))
+    tick, _ = _decimal_quantizers(str(rules.price_tick), str(rules.amount_step))
     p = Decimal(str(price))
     return float((p / tick).to_integral_value(rounding=ROUND_UP) * tick)
 
@@ -190,6 +204,7 @@ def round_amount(amount: float, rules: PairRules) -> float:
     """Round amount DOWN to the nearest amount_step.
 
     Uses Decimal arithmetic to avoid float precision issues.
+    Step Decimal is cached via lru_cache for performance.
 
     Parameters
     ----------
@@ -203,7 +218,7 @@ def round_amount(amount: float, rules: PairRules) -> float:
     float
         Amount rounded down to nearest step.
     """
-    step = Decimal(str(rules.amount_step))
+    _, step = _decimal_quantizers(str(rules.price_tick), str(rules.amount_step))
     a = Decimal(str(amount))
     return float((a / step).to_integral_value(rounding=ROUND_DOWN) * step)
 

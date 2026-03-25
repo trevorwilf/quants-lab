@@ -77,7 +77,8 @@ def _worker_fn(
         )
 
         # Build the objective inside the worker process
-        objective_fn = objective_factory(**factory_kwargs)
+        from pmm_lab.optuna.study import _wrapped_objective
+        objective_fn = _wrapped_objective(objective_factory(**factory_kwargs))
 
         # Capture study state before this worker's trials
         pre_completed = len([t for t in study.trials if t.state == _optuna.trial.TrialState.COMPLETE])

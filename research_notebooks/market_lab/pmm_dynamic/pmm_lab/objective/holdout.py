@@ -106,6 +106,8 @@ def evaluate_holdout(
     collapse_threshold: float = 0.60,
     full_candles: Optional[np.ndarray] = None,     # full dataset for warm-start
     holdout_start_idx: Optional[int] = None,        # index where holdout begins
+    shared_signal_cache=None,
+    dataset_key: str = "full",
 ) -> HoldoutReport:
     """Evaluate top-k candidates on holdout data.
 
@@ -145,8 +147,9 @@ def evaluate_holdout(
     holdout_regime = classify_regime(holdout_candles)
 
     # Signal cache — reuse signals for candidates with identical indicator params
-    from pmm_lab.objective.signal_cache import signal_cache_key
+    from pmm_lab.objective.signal_cache import signal_cache_key, SharedSignalCache
     _signal_cache: dict = {}
+    _shared = shared_signal_cache  # cross-step cache (may be None)
 
     candidates = []
     for rank, (config, dev_score) in enumerate(candidate_configs):
@@ -158,9 +161,13 @@ def evaluate_holdout(
             # Warm-start: compute signals on full history, sim starts at holdout boundary
             _sig_key = signal_cache_key(config)
             signals = _signal_cache.get(_sig_key)
+            if signals is None and _shared is not None:
+                signals = _shared.get(_sig_key, dataset_key)
             if signals is None:
                 signals = runner.compute_signals(full_candles)
                 _signal_cache[_sig_key] = signals
+                if _shared is not None:
+                    _shared.put(_sig_key, dataset_key, signals)
             candles_through_holdout = full_candles[:holdout_start_idx + len(holdout_candles)]
             result = runner.run_with_signals(
                 candles_through_holdout, signals,

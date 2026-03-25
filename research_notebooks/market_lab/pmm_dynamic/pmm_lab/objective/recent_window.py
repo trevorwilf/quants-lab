@@ -54,6 +54,9 @@ def evaluate_recent_window(
     min_trades: int = 5,
     max_drawdown_pct: float = 50.0,
     min_stress_score: float = -10.0,
+    precomputed_signals=None,
+    shared_signal_cache=None,
+    dataset_key: str = "full",
 ) -> RecentWindowResult:
     """Warm-started evaluation of the most recent N days.
 
@@ -134,7 +137,13 @@ def evaluate_recent_window(
 
     # Compute signals on full history, run warm-started at recent window
     runner = CandleSimRunner(config, pair_rules)
-    signals = runner.compute_signals(full_candles)
+    if precomputed_signals is not None:
+        signals = precomputed_signals
+    elif shared_signal_cache is not None:
+        from pmm_lab.objective.signal_cache import signal_cache_key
+        signals = shared_signal_cache.get_or_compute(config, dataset_key, full_candles, pair_rules)
+    else:
+        signals = runner.compute_signals(full_candles)
     result = runner.run_with_signals(full_candles, signals, sim_start_idx=recent_start_idx)
 
     # Extract recent-window metrics

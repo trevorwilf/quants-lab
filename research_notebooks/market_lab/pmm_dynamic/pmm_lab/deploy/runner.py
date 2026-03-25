@@ -224,18 +224,6 @@ def run_full_pipeline(
     reference_price = float(np.median(dev_candles["close"]))
 
     # ---- Step 4: Optimize ----
-    # n_jobs > 1 is not yet wired into the pipeline optimizer.
-    # The infrastructure exists in pmm_lab.optuna.parallel but is not integrated.
-    if n_jobs > 1:
-        import warnings
-        warnings.warn(
-            f"n_jobs={n_jobs} requested but the pipeline currently runs Optuna serially. "
-            f"Process-based parallelism is not yet integrated. Falling back to n_jobs=1.",
-            UserWarning,
-            stacklevel=2,
-        )
-        n_jobs = 1
-
     logger.info("Step 4: Optimization (%d trials, %d jobs)", n_trials, n_jobs)
     dev_hash = hash_candles(dev_candles)
     study = create_study(study_name=study_name)
@@ -246,7 +234,10 @@ def run_full_pipeline(
             search_controller_compat, validation_controller_compat,
         )
 
-    objective_fn = create_objective(
+    from pmm_lab.optuna.dispatcher import run_optimization_dispatch
+    from pmm_lab.optuna.storage import get_storage_url
+
+    factory_kwargs = dict(
         candles=dev_candles,
         pair_rules=pair_rules,
         bar_interval_seconds=bar_interval,
@@ -260,8 +251,16 @@ def run_full_pipeline(
         step_days=step_days,
         controller_compat=search_controller_compat,
     )
-    from pmm_lab.optuna.study import run_optimization
-    study = run_optimization(study, objective_fn, n_trials=n_trials)
+    study = run_optimization_dispatch(
+        study=study,
+        study_name=study_name,
+        objective_factory=create_objective,
+        factory_kwargs=factory_kwargs,
+        n_trials=n_trials,
+        n_jobs=n_jobs,
+        certified=certified,
+        storage_url=get_storage_url(),
+    )
     logger.info("  Optimization complete: %d trials", len(study.trials))
 
     # Guard against zero completed trials
@@ -308,11 +307,15 @@ def run_full_pipeline(
     from pmm_lab.sim.runner import CandleSimRunner
     from pmm_lab.objective.objective import objective_v1, objective_v2, ObjectiveWeights
     from dataclasses import replace as _replace
+    from pmm_lab.objective.signal_cache import SharedSignalCache
+
+    # Shared signal cache across pipeline steps
+    _shared_cache = SharedSignalCache()
 
     # Apply validation controller_compat setting
     val_config = _replace(best_config, controller_compat=validation_controller_compat)
+    _step6_signals = _shared_cache.get_or_compute(val_config, "dev", dev_candles, pair_rules)
     runner = CandleSimRunner(val_config, pair_rules)
-    _step6_signals = runner.compute_signals(dev_candles)
     sim_result = runner.run_with_signals(dev_candles, _step6_signals)
     metrics = compute_metrics(sim_result, val_config.total_amount_quote, dev_candles, bar_interval)
 
@@ -329,6 +332,7 @@ def run_full_pipeline(
         train_days=train_days, test_days=test_days, step_days=step_days,
         objective_version=objective_version,
         include_train_metrics=False,
+        precomputed_signals=_step6_signals,
     )
     wf_pnls = [f.test_metrics.pnl_pct for f in wf_result.folds]
     wf_sharpes = [f.test_metrics.sharpe for f in wf_result.folds]
@@ -360,6 +364,8 @@ def run_full_pipeline(
         run_stress=run_stress, objective_version=objective_version,
         full_candles=candles,
         holdout_start_idx=len(dev_candles),
+        shared_signal_cache=_shared_cache,
+        dataset_key="full",
     )
     # The exported config is always candidate index 0
     logger.info("  Holdout: exported_score=%.4f, exported_passed=%s, best_rank=%d",
@@ -374,7 +380,10 @@ def run_full_pipeline(
         logger.info("Step 9: Stress testing")
         stress_report = run_stress_tests(dev_candles, val_config, pair_rules, bar_interval,
                                           objective_version=objective_version,
-                                          precomputed_signals=_step6_signals)
+                                          precomputed_signals=_step6_signals,
+                                          baseline_result=sim_result,
+                                          baseline_metrics=metrics,
+                                          baseline_objective=obj_decomp)
         stress_worst = stress_report.worst_score
         logger.info("  Worst scenario: %s (%.4f)", stress_report.worst_scenario, stress_worst)
 
@@ -386,6 +395,8 @@ def run_full_pipeline(
             best_params, dev_candles, pair_rules, bar_interval, reference_price,
             objective_version=objective_version,
             controller_compat=validation_controller_compat,
+            shared_signal_cache=_shared_cache,
+            dataset_key="dev",
         )
         sensitivity_penalty = sens_report.sensitivity_penalty
         logger.info("  Sensitivity penalty=%.4f", sensitivity_penalty)
@@ -400,6 +411,8 @@ def run_full_pipeline(
             recent_days=28,
             run_stress=run_stress,
             objective_version=objective_version,
+            shared_signal_cache=_shared_cache,
+            dataset_key="full",
         )
         logger.info("  Recent window uses full dataset (last timestamp: %d)",
                     int(candles["timestamp"][-1]))

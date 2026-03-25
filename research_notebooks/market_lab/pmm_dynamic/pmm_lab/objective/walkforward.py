@@ -145,6 +145,7 @@ def run_walk_forward(
     objective_weights=None,
     objective_version: int = 1,
     include_train_metrics: bool = True,
+    precomputed_signals=None,
 ) -> WalkForwardResult:
     """Run a full walk-forward evaluation.
 
@@ -177,8 +178,11 @@ def run_walk_forward(
 
     # Precompute signals ONCE on full candle array — exact reuse pattern
     # from objective_wrapper.py. Parity proven in test_signal_cache.py.
-    runner_for_signals = CandleSimRunner(config, pair_rules)
-    full_signals = runner_for_signals.compute_signals(candles)
+    if precomputed_signals is not None:
+        full_signals = precomputed_signals
+    else:
+        runner_for_signals = CandleSimRunner(config, pair_rules)
+        full_signals = runner_for_signals.compute_signals(candles)
 
     for fold_def in fold_defs:
         # Slice candles: full history up to test end for feature warmup

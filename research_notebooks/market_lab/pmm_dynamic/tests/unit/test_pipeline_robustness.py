@@ -31,15 +31,15 @@ class TestPipelineSQLiteEnforcement:
                 os.environ["OPTUNA_STORAGE"] = env_backup
 
 
-class TestPipelineNJobsDeprecation:
-    """n_jobs > 1 must warn and fall back to 1."""
+class TestPipelineDispatchIntegration:
+    """Pipeline must use run_optimization_dispatch for optimization."""
 
-    def test_n_jobs_gt1_warns(self):
-        """Requesting n_jobs > 1 emits a deprecation-style warning in source."""
+    def test_dispatch_in_runner_source(self):
+        """run_full_pipeline must call run_optimization_dispatch."""
         import inspect
         from pmm_lab.deploy import runner
         source = inspect.getsource(runner.run_full_pipeline)
-        assert "Falling back to n_jobs=1" in source
+        assert "run_optimization_dispatch" in source
 
 
 class TestPipelineWalkforwardSkipsTrainMetrics:

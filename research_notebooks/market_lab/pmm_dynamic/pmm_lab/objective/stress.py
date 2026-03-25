@@ -141,6 +141,9 @@ def run_stress_tests(
     score_start_idx: Optional[int] = None,
     score_end_idx: Optional[int] = None,
     sim_start_idx: Optional[int] = None,
+    baseline_result: Optional[SimResult] = None,
+    baseline_metrics: Optional[Metrics] = None,
+    baseline_objective: Optional[ObjectiveDecomposition] = None,
 ) -> StressReport:
     """Run the baseline + all stress scenarios and return a StressReport.
 
@@ -170,26 +173,28 @@ def run_stress_tests(
 
     initial_equity = config.total_amount_quote
 
-    # Run baseline
-    baseline_runner = CandleSimRunner(config, pair_rules)
-
     # Auto-precompute signals if not supplied — safe because apply_scenario()
     # does not modify indicator parameters (only fees, latency, slippage, fill rate)
     if precomputed_signals is None:
-        precomputed_signals = baseline_runner.compute_signals(candles)
+        precomputed_signals = CandleSimRunner(config, pair_rules).compute_signals(candles)
 
-    baseline_result = baseline_runner.run_with_signals(candles, precomputed_signals, sim_start_idx=sim_start_idx)
+    # Reuse baseline artifacts if provided; otherwise compute them
+    if baseline_result is None:
+        baseline_runner = CandleSimRunner(config, pair_rules)
+        baseline_result = baseline_runner.run_with_signals(candles, precomputed_signals, sim_start_idx=sim_start_idx)
 
-    # Extract scoring window if specified
-    if score_start_idx is not None:
-        _end = score_end_idx if score_end_idx is not None else len(candles)
-        baseline_metrics = _extract_window_metrics(
-            baseline_result, candles, initial_equity, bar_interval_seconds,
-            score_start_idx, _end,
-        )
-    else:
-        baseline_metrics = compute_metrics(baseline_result, initial_equity, candles, bar_interval_seconds)
-    baseline_objective = _score(baseline_metrics)
+    if baseline_metrics is None:
+        if score_start_idx is not None:
+            _end = score_end_idx if score_end_idx is not None else len(candles)
+            baseline_metrics = _extract_window_metrics(
+                baseline_result, candles, initial_equity, bar_interval_seconds,
+                score_start_idx, _end,
+            )
+        else:
+            baseline_metrics = compute_metrics(baseline_result, initial_equity, candles, bar_interval_seconds)
+
+    if baseline_objective is None:
+        baseline_objective = _score(baseline_metrics)
 
     # Run each scenario
     scenario_results = []
