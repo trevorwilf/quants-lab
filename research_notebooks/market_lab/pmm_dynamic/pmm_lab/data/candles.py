@@ -190,6 +190,11 @@ def validate_candles(
             failure_reasons.append(
                 f"longest gap {longest_gap}s exceeds {MAX_LONGEST_GAP_MULTIPLIER}x interval ({MAX_LONGEST_GAP_MULTIPLIER * interval_sec}s)"
             )
+        if forward_fill_fraction > MAX_FORWARD_FILL_FRACTION:
+            failure_reasons.append(
+                f"total forward-fill fraction {forward_fill_fraction:.4f} "
+                f"exceeds threshold {MAX_FORWARD_FILL_FRACTION}"
+            )
         if unexpected_forward_fill_fraction > MAX_UNEXPECTED_FORWARD_FILL_FRACTION:
             failure_reasons.append(
                 f"unexpected forward-fill fraction {unexpected_forward_fill_fraction:.4f} "

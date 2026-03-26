@@ -145,6 +145,13 @@ def generate_report(
     output_path: Optional[str] = None,
     holdout_report: Optional[HoldoutReport] = None,
     validation_coverage: Optional[List] = None,
+    dataset_audit: Optional[Any] = None,
+    sensitivity_report: Optional[Any] = None,
+    recent_window_result: Optional[Any] = None,
+    cluster_report: Optional[Any] = None,
+    yaml_validation_result: Optional[Any] = None,
+    dataset_slices: Optional[Any] = None,
+    execution_realism: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Generate a markdown report."""
     lines = []
@@ -254,6 +261,69 @@ def generate_report(
                 f"| {c.rank} | {c.development_score:.4f} | {c.objective.raw_score:.4f} | "
                 f"{c.metrics.pnl_pct:.2f} | {c.metrics.max_drawdown_pct:.2f} | {c.metrics.trade_count} |"
             )
+        lines.append("")
+
+    # 8b. Dataset Audit
+    if dataset_audit is not None:
+        lines.append("## Dataset Audit")
+        lines.append("")
+        lines.append(f"- **Passed strict**: {getattr(dataset_audit, 'passed_strict', 'N/A')}")
+        lines.append(f"- **Passed lenient**: {getattr(dataset_audit, 'passed_lenient', 'N/A')}")
+        lines.append(f"- **Total bars**: {getattr(dataset_audit, 'total_bars', 'N/A')}")
+        lines.append(f"- **Gap count**: {getattr(dataset_audit, 'gap_count', 'N/A')}")
+        lines.append(f"- **Forward-fill count**: {getattr(dataset_audit, 'ffill_count', 'N/A')}")
+        lines.append("")
+
+    # 8c. Recent 28-Day Window
+    if recent_window_result is not None:
+        lines.append("## Recent 28-Day Window")
+        lines.append("")
+        lines.append(f"- **Passed**: {getattr(recent_window_result, 'passed', 'N/A')}")
+        lines.append(f"- **Reason**: {getattr(recent_window_result, 'reason', 'N/A')}")
+        lines.append(f"- **PnL %**: {getattr(recent_window_result, 'pnl_pct', 'N/A')}")
+        lines.append(f"- **Trade count**: {getattr(recent_window_result, 'trade_count', 'N/A')}")
+        lines.append("")
+
+    # 8d. Sensitivity Analysis
+    if sensitivity_report is not None:
+        lines.append("## Sensitivity Analysis")
+        lines.append("")
+        lines.append(f"- **Sensitivity penalty**: {getattr(sensitivity_report, 'sensitivity_penalty', 'N/A')}")
+        lines.append(f"- **Worst parameter**: {getattr(sensitivity_report, 'worst_param', 'N/A')}")
+        lines.append(f"- **Worst delta**: {getattr(sensitivity_report, 'worst_delta', 'N/A')}")
+        lines.append("")
+
+    # 8e. Top-K Clustering
+    if cluster_report is not None:
+        lines.append("## Top-K Clustering")
+        lines.append("")
+        lines.append(f"- **Is clustered**: {getattr(cluster_report, 'is_clustered', 'N/A')}")
+        lines.append(f"- **Mean CV**: {getattr(cluster_report, 'mean_cv', 'N/A')}")
+        lines.append(f"- **Cluster count**: {getattr(cluster_report, 'n_clusters', 'N/A')}")
+        lines.append("")
+
+    # 8f. YAML Validation
+    if yaml_validation_result is not None:
+        lines.append("## YAML Validation")
+        lines.append("")
+        lines.append(f"- **Valid**: {getattr(yaml_validation_result, 'valid', 'N/A')}")
+        lines.append(f"- **Mode**: {getattr(yaml_validation_result, 'mode', 'N/A')}")
+        errors = getattr(yaml_validation_result, 'errors', [])
+        warnings = getattr(yaml_validation_result, 'warnings', [])
+        lines.append(f"- **Errors**: {len(errors)}")
+        for e in errors:
+            lines.append(f"  - {e}")
+        lines.append(f"- **Warnings**: {len(warnings)}")
+        for w in warnings:
+            lines.append(f"  - {w}")
+        lines.append("")
+
+    # 8g. Execution Realism Assumptions
+    if execution_realism is not None:
+        lines.append("## Execution Realism Assumptions")
+        lines.append("")
+        for key, val in execution_realism.items():
+            lines.append(f"- **{key}**: {val}")
         lines.append("")
 
     # 9. Stop-Ship Checks

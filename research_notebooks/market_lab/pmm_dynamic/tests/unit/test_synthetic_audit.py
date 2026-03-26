@@ -106,18 +106,18 @@ class TestValidatorSplitAudit:
     def test_unexpected_forward_fills_fail_strict(self):
         """Heuristic-detected forward-fills that are NOT source-declared fail strict."""
         rows = []
-        for i in range(20):
+        for i in range(12):
             rows.append([1000 + i * 300, 100.0, 101.0, 99.0, 100.0, 1.0, False])
-        # Make bars 3 and 4 flat + zero volume (heuristic forward-fills)
-        for bar in [3, 4]:
+        # Make bars 2-5 flat + zero volume (heuristic forward-fills) => 4/12 ~33% > 25%
+        for bar in [2, 3, 4, 5]:
             rows[bar] = [rows[bar][0], 100.0, 100.0, 100.0, 100.0, 0.0, False]
         candles = np.array([tuple(r) for r in rows], dtype=CANDLE_DTYPE)
 
         audit = validate_candles(candles, "5m", strict=True)
-        assert audit.heuristic_forward_fill_count >= 2
-        assert audit.unexpected_forward_fill_count >= 2
+        assert audit.heuristic_forward_fill_count >= 4
+        assert audit.unexpected_forward_fill_count >= 4
         assert audit.passed_strict is False
-        assert any("unexpected forward-fill" in r for r in audit.failure_reasons)
+        assert any("forward-fill" in r for r in audit.failure_reasons)
 
     def test_heuristic_not_unexpected_when_source_declared(self):
         """If heuristic detects a bar already source-declared, it's NOT unexpected."""

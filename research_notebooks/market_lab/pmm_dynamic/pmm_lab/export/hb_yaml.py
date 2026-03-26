@@ -91,7 +91,6 @@ def sim_config_to_hb_dict(
     d = {
         "buy_amounts_pct": buy_final,
         "buy_spreads": list(config.buy_spreads),
-        "candles_config": [],
         "candles_connector": export_params.candles_connector,
         "candles_trading_pair": export_params.candles_trading_pair,
         "connector_name": export_params.connector_name,

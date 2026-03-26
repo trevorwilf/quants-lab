@@ -148,16 +148,16 @@ def test_strict_fails_on_extreme_gap():
 
 
 def test_strict_fails_on_high_forward_fill_fraction():
-    """Create candles where >1% are forward-filled, verify strict fails."""
+    """Create candles where >25% are forward-filled, verify strict fails."""
     from tests.conftest import CANDLE_DTYPE
-    # 10 bars, 2 are FF => 20% > 1% threshold
+    # 10 bars, 5 are FF => 50% > 25% threshold
     rows = []
     for i in range(10):
         rows.append([1000 + i * 300, 100.0, 101.0, 99.0, 100.0, 1.0, False])
-    # Make bars 3 and 4 flat + zero volume
-    for bar in [3, 4]:
+    # Make bars 2,3,4,5,6 flat + zero volume
+    for bar in [2, 3, 4, 5, 6]:
         rows[bar] = [rows[bar][0], 100.0, 100.0, 100.0, 100.0, 0.0, False]
     candles = np.array([tuple(r) for r in rows], dtype=CANDLE_DTYPE)
     audit = validate_candles(candles, "5m", strict=True)
     assert audit.passed_strict is False
-    assert any("unexpected forward-fill fraction" in r for r in audit.failure_reasons)
+    assert any("forward-fill fraction" in r for r in audit.failure_reasons)

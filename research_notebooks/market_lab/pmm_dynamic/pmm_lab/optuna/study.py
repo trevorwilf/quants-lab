@@ -81,11 +81,16 @@ def run_optimization(
     Failed trials will have ``failure_type`` and ``failure_message``
     user attributes for post-hoc diagnostics.
     """
-    study.optimize(
-        _wrapped_objective(objective),
-        n_trials=n_trials,
-        timeout=timeout,
-        callbacks=callbacks,
-        catch=(Exception,),
-    )
+    import logging
+    _logger = logging.getLogger(__name__)
+    try:
+        study.optimize(
+            _wrapped_objective(objective),
+            n_trials=n_trials,
+            timeout=timeout,
+            callbacks=callbacks,
+            catch=(Exception,),
+        )
+    except KeyboardInterrupt:
+        _logger.warning("Optimization interrupted by user, returning partial study")
     return study

@@ -10,6 +10,7 @@ import os
 import time
 import logging
 import multiprocessing as mp
+import queue as _queue  # for _queue.Empty in result draining
 from typing import Callable, Optional, List
 from dataclasses import dataclass
 
@@ -85,12 +86,15 @@ def _worker_fn(
         pre_pruned = len([t for t in study.trials if t.state == _optuna.trial.TrialState.PRUNED])
 
         t0 = time.time()
-        study.optimize(
-            objective_fn,
-            n_trials=n_trials,
-            n_jobs=1,  # single thread per process — the key fix
-            catch=(Exception,),
-        )
+        try:
+            study.optimize(
+                objective_fn,
+                n_trials=n_trials,
+                n_jobs=1,  # single thread per process — the key fix
+                catch=(Exception,),
+            )
+        except KeyboardInterrupt:
+            logger.info("Worker %d: interrupted, returning partial results", worker_id)
         elapsed = time.time() - t0
 
         # Report only this worker's contribution
@@ -106,6 +110,14 @@ def _worker_fn(
             wall_time=elapsed,
         ))
 
+    except KeyboardInterrupt:
+        result_queue.put(WorkerResult(
+            worker_id=worker_id,
+            n_completed=0,
+            n_pruned=0,
+            wall_time=0.0,
+            error="interrupted",
+        ))
     except Exception as e:
         result_queue.put(WorkerResult(
             worker_id=worker_id,
@@ -200,20 +212,82 @@ def run_parallel_optimization(
     for p in processes:
         p.start()
 
-    # Collect results
+    # ── Collect results ──
+    # Normal operation: block on result_queue.get() with NO timeout.
+    # Workers always enqueue exactly one WorkerResult (guaranteed by
+    # _worker_fn's try/except structure), so we expect exactly n_workers
+    # results. This call blocks for as long as the optimization takes —
+    # which can be hours. That is correct.
+    #
+    # On Ctrl+C: KeyboardInterrupt breaks out of the blocking get().
+    # We then terminate workers and drain whatever partial results
+    # are already in the queue.
     results = []
-    for _ in processes:
-        results.append(result_queue.get())
+    interrupted = False
 
-    # Wait for all workers to finish
+    try:
+        for i in range(n_workers):
+            result = result_queue.get()  # Block indefinitely — workers WILL finish
+            results.append(result)
+            logger.info(
+                "  Worker %d finished: %d completed, %d pruned, %.1fs",
+                result.worker_id, result.n_completed, result.n_pruned, result.wall_time,
+            )
+    except KeyboardInterrupt:
+        interrupted = True
+        logger.warning(
+            "Optimization interrupted — terminating %d worker processes "
+            "(%d/%d already reported)",
+            n_workers, len(results), n_workers,
+        )
+        for p in processes:
+            if p.is_alive():
+                p.terminate()
+
+        # Give workers a moment to enqueue their partial results after SIGTERM
+        import time as _time
+        _time.sleep(2)
+
+        # Drain any results that arrived between the interrupt and termination
+        while True:
+            try:
+                results.append(result_queue.get_nowait())
+            except _queue.Empty:
+                break
+
+    # ── Wait for all workers to exit ──
     for p in processes:
-        p.join(timeout=30)
+        p.join(timeout=60)
+        if p.is_alive():
+            logger.warning("Worker PID %d still alive after 60s — force killing", p.pid)
+            p.kill()
+            p.join(timeout=5)
 
-    # Report errors
-    for r in results:
-        if r.error:
-            logger.error("Worker %d failed: %s", r.worker_id, r.error)
+    # ── Summary ──
+    total_completed = sum(r.n_completed for r in results)
+    total_pruned = sum(r.n_pruned for r in results)
+    errors = [r for r in results if r.error]
 
+    if interrupted:
+        logger.warning(
+            "Interrupted: %d/%d workers reported, %d completed trials preserved in storage",
+            len(results), n_workers, total_completed,
+        )
+    else:
+        logger.info(
+            "Parallel optimization complete: %d completed, %d pruned, %d worker errors",
+            total_completed, total_pruned, len(errors),
+        )
+
+    for r in errors:
+        if r.error != "interrupted":
+            logger.error("  Worker %d error: %s", r.worker_id, r.error)
+
+    # Reload study from storage to get all worker results
+    study = optuna.load_study(
+        study_name=study_name,
+        storage=storage_url,
+    )
     return results
 
 

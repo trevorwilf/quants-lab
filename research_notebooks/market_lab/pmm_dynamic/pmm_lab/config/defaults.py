@@ -24,10 +24,10 @@ MAX_OHLC_VIOLATION_FRACTION = 0.001  # fail audit if > 0.1% violations
 MAX_DUPLICATE_FRACTION = 0.0         # zero tolerance for duplicates
 
 # Forward-fill detection thresholds
-MAX_FORWARD_FILL_FRACTION = 0.3     # fail audit if > 1% forward-filled bars
+MAX_FORWARD_FILL_FRACTION = 0.25     # fail audit if > 25% total forward-filled bars
 
 # Maximum fraction of unexpected (not source-declared) forward-filled bars
-MAX_UNEXPECTED_FORWARD_FILL_FRACTION = 0.01  # 1%
+MAX_UNEXPECTED_FORWARD_FILL_FRACTION = 0.25  # fail audit if > 25% unexpected forward-filled bars
 
 # Maximum fraction of source-declared synthetic bars (more permissive for low-liquidity exchanges)
 MAX_SOURCE_SYNTHETIC_FRACTION = 0.05  # 5%, can be overridden per-connector

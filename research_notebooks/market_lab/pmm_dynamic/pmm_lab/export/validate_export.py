@@ -210,11 +210,6 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
                     warnings.append(f"{key} is not strictly ascending at index {i}: {val}")
                     break
 
-    # 19. candles_config (optional but if present, must be list)
-    cc = config_dict.get("candles_config")
-    if cc is not None and not isinstance(cc, list):
-        errors.append(f"candles_config must be a list, got {type(cc).__name__}")
-
     # CONTRACT NOTE: The following fields are documented in
     # controller_yml_data_dictionary.md as base-class fields:
     #   - rebalance_cooldown_time (integer, default 60)
@@ -223,8 +218,6 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
     # exported by the lab exporter. The controller uses its base-class
     # defaults at runtime. If the lab adds simulation support for these
     # fields in the future, add them to the exporter and validator.
-    #
-    # candles_config IS exported (as empty list []) and is validated above.
 
     # 20. Rebalance fields present (v2)
     if "position_rebalance_threshold_pct" not in config_dict:

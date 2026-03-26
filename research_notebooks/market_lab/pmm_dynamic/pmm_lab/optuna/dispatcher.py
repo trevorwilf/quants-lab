@@ -82,27 +82,30 @@ def run_optimization_dispatch(
 
     from pmm_lab.optuna.parallel import run_parallel_optimization
 
-    worker_results = run_parallel_optimization(
-        study_name=study_name,
-        storage_url=storage_url,
-        n_total_trials=n_trials,
-        n_workers=n_jobs,
-        objective_factory=objective_factory,
-        factory_kwargs=factory_kwargs,
-        sampler_seed=sampler_seed,
-        n_startup_trials=n_startup_trials,
-    )
+    try:
+        worker_results = run_parallel_optimization(
+            study_name=study_name,
+            storage_url=storage_url,
+            n_total_trials=n_trials,
+            n_workers=n_jobs,
+            objective_factory=objective_factory,
+            factory_kwargs=factory_kwargs,
+            sampler_seed=sampler_seed,
+            n_startup_trials=n_startup_trials,
+        )
 
-    # Report worker results
-    total_completed = sum(r.n_completed for r in worker_results)
-    total_pruned = sum(r.n_pruned for r in worker_results)
-    errors = [r for r in worker_results if r.error]
-    logger.info(
-        "  Parallel optimization complete: %d completed, %d pruned, %d worker errors",
-        total_completed, total_pruned, len(errors),
-    )
-    for r in errors:
-        logger.error("  Worker %d failed: %s", r.worker_id, r.error)
+        # Report worker results
+        total_completed = sum(r.n_completed for r in worker_results)
+        total_pruned = sum(r.n_pruned for r in worker_results)
+        errors = [r for r in worker_results if r.error]
+        logger.info(
+            "  Parallel optimization complete: %d completed, %d pruned, %d worker errors",
+            total_completed, total_pruned, len(errors),
+        )
+        for r in errors:
+            logger.error("  Worker %d failed: %s", r.worker_id, r.error)
+    except KeyboardInterrupt:
+        logger.warning("Parallel optimization interrupted, reloading partial study")
 
     # Reload study from storage to get all worker results
     study = optuna.load_study(

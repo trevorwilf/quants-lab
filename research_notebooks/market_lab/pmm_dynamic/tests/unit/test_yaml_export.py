@@ -64,9 +64,9 @@ class TestSimConfigToHbDict:
         assert "activation_price" in d["trailing_stop"]
         assert "trailing_delta" in d["trailing_stop"]
 
-    def test_candles_config_empty_list(self):
+    def test_candles_config_not_in_output(self):
         d = sim_config_to_hb_dict(_default_config())
-        assert d["candles_config"] == []
+        assert "candles_config" not in d
 
     def test_amounts_renormalized(self):
         """buy_side_weight=0.7 → sum(buy_amounts_pct) + sum(sell_amounts_pct) ≈ 1.0."""

@@ -5,7 +5,7 @@ from pmm_lab.sim.executor_model import SimConfig
 
 # Fields that the lab exports for pmm_dynamic
 EXPORTED_FIELDS = {
-    "buy_amounts_pct", "buy_spreads", "candles_config",
+    "buy_amounts_pct", "buy_spreads",
     "candles_connector", "candles_trading_pair", "connector_name",
     "controller_name", "controller_type", "cooldown_time",
     "executor_refresh_time", "id", "interval", "leverage",

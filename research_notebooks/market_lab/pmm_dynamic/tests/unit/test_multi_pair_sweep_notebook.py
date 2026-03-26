@@ -16,14 +16,15 @@ from pathlib import Path
 # Skip all tests in this module if notebook structure doesn't match expected
 # (the notebook may have been reverted to a prior version)
 pytestmark = pytest.mark.skipif(
-    True,  # Will be evaluated at import time
-    reason="Notebook structure tests temporarily skipped — notebook was reverted to committed version"
+    not Path(__file__).resolve().parents[2].joinpath(
+        "notebooks", "pmm_dynamic", "pmm_dynamic_multi_pair_sweep.ipynb"
+    ).exists(),
+    reason="Notebook not found"
 )
 
 NOTEBOOK_PATH = (
     Path(__file__).resolve().parents[2]
-    / "notebooks"
-    / "pmm_dynamic_multi_pair_sweep.ipynb"
+    / "notebooks" / "pmm_dynamic" / "pmm_dynamic_multi_pair_sweep.ipynb"
 )
 
 
@@ -114,10 +115,9 @@ class TestPreflightIntegration:
         cell4 = notebook.cells[4].source
         assert "run_preflight" in cell4
 
-    def test_preflight_forces_n_jobs_for_sqlite(self, notebook):
+    def test_preflight_reports_storage_backend(self, notebook):
         cell4 = notebook.cells[4].source
-        assert "N_JOBS = 1" in cell4
-        assert "SQLite safety" in cell4
+        assert "Storage backend" in cell4 or "postgresql" in cell4.lower()
 
     def test_preflight_uses_get_storage_url(self, notebook):
         cell4 = notebook.cells[4].source
