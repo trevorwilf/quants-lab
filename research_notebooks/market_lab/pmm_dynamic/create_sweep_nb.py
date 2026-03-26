@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 NOTEBOOK_DIR = Path(__file__).parent / "notebooks"
-SOURCE = NOTEBOOK_DIR / "pmm_dynamic_multi_pair_sweep.ipynb"
+SOURCE = NOTEBOOK_DIR / "pmm_dynamic" / "pmm_dynamic_multi_pair_sweep.ipynb"
 
 
 def copy_notebook(dest: str | None = None) -> Path:

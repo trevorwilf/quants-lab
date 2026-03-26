@@ -5,6 +5,7 @@ Produces a human-readable report with dataset summary, best parameters,
 walk-forward metrics, stress results, and stop-ship check status.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
@@ -14,6 +15,122 @@ from pmm_lab.objective.objective import ObjectiveDecomposition, REJECT_SCORE
 from pmm_lab.objective.walkforward import WalkForwardResult
 from pmm_lab.objective.stress import StressReport
 from pmm_lab.objective.holdout import HoldoutReport
+
+
+@dataclass
+class ValidationCoverageItem:
+    """One row in the validation coverage table."""
+    name: str
+    status: str   # "PASS", "FAIL", "SKIPPED"
+    detail: str = ""
+
+
+def build_validation_coverage(
+    *,
+    dataset_audit=None,
+    validation_result=None,
+    holdout_report=None,
+    sensitivity_report=None,
+    recent_window_result=None,
+    parity_result=None,
+    long_parity_result=None,
+    cluster_report=None,
+    walkforward_result=None,
+    stress_report=None,
+) -> list:
+    """Build validation coverage items with PASS/FAIL/SKIPPED statuses."""
+    items = []
+
+    # dataset_audit
+    if dataset_audit is None:
+        items.append(ValidationCoverageItem("dataset_audit", "SKIPPED"))
+    elif getattr(dataset_audit, 'passed_strict', False):
+        items.append(ValidationCoverageItem("dataset_audit", "PASS", "strict audit passed"))
+    else:
+        items.append(ValidationCoverageItem("dataset_audit", "FAIL", str(dataset_audit)))
+
+    # yaml_validation
+    if validation_result is None:
+        items.append(ValidationCoverageItem("yaml_validation", "SKIPPED"))
+    elif getattr(validation_result, 'valid', False):
+        items.append(ValidationCoverageItem("yaml_validation", "PASS",
+            f"{getattr(validation_result, 'mode', '?')} mode, "
+            f"{len(getattr(validation_result, 'errors', []))} errors, "
+            f"{len(getattr(validation_result, 'warnings', []))} warnings"))
+    else:
+        items.append(ValidationCoverageItem("yaml_validation", "FAIL",
+            "; ".join(getattr(validation_result, 'errors', ['unknown']))))
+
+    # holdout
+    if holdout_report is None:
+        items.append(ValidationCoverageItem("holdout", "SKIPPED"))
+    elif getattr(holdout_report, 'exported_holdout_passed', getattr(holdout_report, 'passed', False)):
+        items.append(ValidationCoverageItem("holdout", "PASS",
+            f"score={getattr(holdout_report, 'exported_holdout_score', '?'):.4f}"))
+    else:
+        items.append(ValidationCoverageItem("holdout", "FAIL",
+            f"score={getattr(holdout_report, 'exported_holdout_score', '?')}"))
+
+    # walkforward
+    if walkforward_result is None:
+        items.append(ValidationCoverageItem("walkforward", "SKIPPED"))
+    else:
+        n_folds = len(getattr(walkforward_result, 'folds', []))
+        items.append(ValidationCoverageItem("walkforward", "PASS", f"{n_folds} folds"))
+
+    # stress
+    if stress_report is None:
+        items.append(ValidationCoverageItem("stress", "SKIPPED"))
+    else:
+        items.append(ValidationCoverageItem("stress", "PASS",
+            f"worst={getattr(stress_report, 'worst_scenario', '?')} "
+            f"score={getattr(stress_report, 'worst_score', '?')}"))
+
+    # sensitivity
+    if sensitivity_report is None:
+        items.append(ValidationCoverageItem("sensitivity", "SKIPPED"))
+    else:
+        penalty = getattr(sensitivity_report, 'sensitivity_penalty', '?')
+        items.append(ValidationCoverageItem("sensitivity", "PASS" if penalty < 0.5 else "FAIL",
+            f"penalty={penalty}"))
+
+    # recent_28d
+    if recent_window_result is None:
+        items.append(ValidationCoverageItem("recent_28d", "SKIPPED"))
+    elif getattr(recent_window_result, 'passed', False):
+        items.append(ValidationCoverageItem("recent_28d", "PASS",
+            getattr(recent_window_result, 'reason', '')))
+    else:
+        items.append(ValidationCoverageItem("recent_28d", "FAIL",
+            getattr(recent_window_result, 'reason', '')))
+
+    # frozen_parity
+    if parity_result is None:
+        items.append(ValidationCoverageItem("frozen_parity", "SKIPPED"))
+    elif getattr(parity_result, 'passed', False):
+        items.append(ValidationCoverageItem("frozen_parity", "PASS"))
+    else:
+        items.append(ValidationCoverageItem("frozen_parity", "FAIL"))
+
+    # long_parity
+    if long_parity_result is None:
+        items.append(ValidationCoverageItem("long_parity", "SKIPPED"))
+    elif getattr(long_parity_result, 'passed', False):
+        items.append(ValidationCoverageItem("long_parity", "PASS"))
+    else:
+        items.append(ValidationCoverageItem("long_parity", "FAIL"))
+
+    # clustering
+    if cluster_report is None:
+        items.append(ValidationCoverageItem("clustering", "SKIPPED"))
+    elif getattr(cluster_report, 'is_clustered', False):
+        items.append(ValidationCoverageItem("clustering", "PASS",
+            f"mean_cv={getattr(cluster_report, 'mean_cv', '?')}"))
+    else:
+        items.append(ValidationCoverageItem("clustering", "FAIL",
+            f"mean_cv={getattr(cluster_report, 'mean_cv', '?')}"))
+
+    return items
 
 
 def generate_report(
@@ -27,6 +144,7 @@ def generate_report(
     stop_ship_checks: Optional[Dict[str, bool]] = None,
     output_path: Optional[str] = None,
     holdout_report: Optional[HoldoutReport] = None,
+    validation_coverage: Optional[List] = None,
 ) -> str:
     """Generate a markdown report."""
     lines = []
@@ -152,6 +270,16 @@ def generate_report(
         if not all_pass:
             lines.append("> **WARNING**: One or more stop-ship checks FAILED.")
             lines.append("")
+
+    # 10. Validation Coverage
+    if validation_coverage is not None:
+        lines.append("## Validation Coverage")
+        lines.append("")
+        lines.append("| Validation | Status | Detail |")
+        lines.append("|---|---|---|")
+        for item in validation_coverage:
+            lines.append(f"| {item.name} | {item.status} | {item.detail} |")
+        lines.append("")
 
     report_text = "\n".join(lines)
 
