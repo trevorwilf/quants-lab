@@ -158,6 +158,8 @@ def generate_report(
     analysis_status: Optional[Dict[str, Any]] = None,
     run_provenance: Optional[Dict[str, Any]] = None,
     canonical_config: Optional[Any] = None,
+    parity_result: Optional[Any] = None,
+    long_parity_result: Optional[Any] = None,
 ) -> str:
     """Generate a markdown report."""
     lines = []
@@ -170,16 +172,31 @@ def generate_report(
 
     # -- Report Status (if analysis_status provided)
     if analysis_status is not None:
+        report_mode = analysis_status.get("report_mode", "unknown")
+        if report_mode == "analysis_only" or report_mode == "screening":
+            lines.append("> **ANALYSIS ONLY — NOT DEPLOYABLE**")
+        elif report_mode == "strict_validation" or report_mode == "validated":
+            lines.append("> **STRICT VALIDATION REPORT — DEPLOYABLE CANDIDATE**")
+        lines.append("")
         lines.append("## Report Status")
         lines.append("")
-        report_mode = analysis_status.get("report_mode", "unknown")
-        lines.append(f"> **Report Mode**: {report_mode}")
-        lines.append("")
-        lines.append("| Gate | Status |")
-        lines.append("|------|--------|")
+        lines.append("| Field | Value |")
+        lines.append("|-------|-------|")
+        lines.append(f"| Report Mode | {report_mode} |")
         for gate_key in ["preflight", "score", "analysis"]:
-            gate_val = analysis_status.get(gate_key, "N/A")
+            gate_val = analysis_status.get(gate_key,
+                       analysis_status.get(f"{gate_key}_passed",
+                       analysis_status.get(f"{gate_key}_gate_passed", "N/A")))
+            if isinstance(gate_val, bool):
+                gate_val = "PASS" if gate_val else "FAIL"
             lines.append(f"| {gate_key} | {gate_val} |")
+        # Extra fields
+        if analysis_status.get("deployability_status"):
+            lines.append(f"| Deployability Status | {analysis_status['deployability_status']} |")
+        if analysis_status.get("objective_version") is not None:
+            lines.append(f"| Objective Version | {analysis_status['objective_version']} |")
+        if analysis_status.get("search_controller_compat") is not None:
+            lines.append(f"| Search Controller Compat | {analysis_status['search_controller_compat']} |")
         lines.append("")
 
     # -- Selection Score Summary (if score_summary provided)
@@ -189,11 +206,16 @@ def generate_report(
         lines.append("| Metric | Value |")
         lines.append("|--------|-------|")
         for score_key in ["phase1", "robust", "worst"]:
-            score_val = score_summary.get(score_key, "N/A")
+            score_val = score_summary.get(score_key,
+                        score_summary.get(f"{score_key}_best" if score_key == "phase1" else f"{score_key}_score", "N/A"))
             if isinstance(score_val, float):
                 lines.append(f"| {score_key} | {score_val:.4f} |")
             else:
                 lines.append(f"| {score_key} | {score_val} |")
+        # Additional fields
+        for extra in ["baseline", "worst_scenario", "min_robust_score", "score_gate_passed"]:
+            if extra in score_summary:
+                lines.append(f"| {extra} | {score_summary[extra]} |")
         lines.append("")
 
     # -- Run Provenance (if run_provenance provided)
@@ -430,6 +452,20 @@ def generate_report(
                 )
         lines.append("")
 
+    # 8e2. Feature Parity Checks
+    if parity_result is not None or long_parity_result is not None:
+        lines.append("## Feature Parity Checks")
+        lines.append("")
+        if parity_result is not None:
+            lines.append(f"- **Short fixture (100-bar)**: {'PASS' if parity_result.passed else '**FAIL**'}")
+            if hasattr(parity_result, 'max_abs_diff'):
+                lines.append(f"  - Max absolute diff: {parity_result.max_abs_diff}")
+        if long_parity_result is not None:
+            lines.append(f"- **Long fixture (500-bar)**: {'PASS' if long_parity_result.passed else '**FAIL**'}")
+            if hasattr(long_parity_result, 'max_abs_diff'):
+                lines.append(f"  - Max absolute diff: {long_parity_result.max_abs_diff}")
+        lines.append("")
+
     # 8f. YAML Validation
     if yaml_validation_result is not None:
         lines.append("## YAML Validation")
@@ -470,12 +506,26 @@ def generate_report(
             lines.append("")
 
     # 10. Validation Coverage
-    if validation_coverage is not None:
+    _vc = validation_coverage
+    if _vc is None:
+        _vc = build_validation_coverage(
+            dataset_audit=dataset_audit,
+            validation_result=yaml_validation_result,
+            holdout_report=holdout_report,
+            sensitivity_report=sensitivity_report,
+            recent_window_result=recent_window_result,
+            parity_result=parity_result,
+            long_parity_result=long_parity_result,
+            cluster_report=cluster_report,
+            walkforward_result=walkforward_result,
+            stress_report=stress_report,
+        )
+    if _vc:
         lines.append("## Validation Coverage")
         lines.append("")
         lines.append("| Validation | Status | Detail |")
         lines.append("|---|---|---|")
-        for item in validation_coverage:
+        for item in _vc:
             lines.append(f"| {item.name} | {item.status} | {item.detail} |")
         lines.append("")
 
@@ -493,20 +543,6 @@ def generate_report(
         else:
             json_path = output_path + ".json"
 
-        # Build validation coverage for JSON
-        _vc = validation_coverage
-        if _vc is None:
-            _vc = build_validation_coverage(
-                dataset_audit=dataset_audit,
-                validation_result=yaml_validation_result,
-                holdout_report=holdout_report,
-                sensitivity_report=sensitivity_report,
-                recent_window_result=recent_window_result,
-                cluster_report=cluster_report,
-                walkforward_result=walkforward_result,
-                stress_report=stress_report,
-            )
-
         json_data = {
             "analysis_status": analysis_status,
             "score_summary": score_summary,
@@ -514,7 +550,8 @@ def generate_report(
             "validation_coverage": [
                 {"name": item.name, "status": item.status, "detail": item.detail}
                 for item in _vc
-            ],
+            ] if _vc else [],
+            "stop_ship_checks": stop_ship_checks,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
