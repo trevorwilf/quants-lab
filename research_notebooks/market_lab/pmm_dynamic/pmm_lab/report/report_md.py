@@ -5,6 +5,7 @@ Produces a human-readable report with dataset summary, best parameters,
 walk-forward metrics, stress results, and stop-ship check status.
 """
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -152,6 +153,11 @@ def generate_report(
     yaml_validation_result: Optional[Any] = None,
     dataset_slices: Optional[Any] = None,
     execution_realism: Optional[Dict[str, Any]] = None,
+    preflight_report: Optional[Any] = None,
+    score_summary: Optional[Dict[str, Any]] = None,
+    analysis_status: Optional[Dict[str, Any]] = None,
+    run_provenance: Optional[Dict[str, Any]] = None,
+    canonical_config: Optional[Any] = None,
 ) -> str:
     """Generate a markdown report."""
     lines = []
@@ -161,6 +167,58 @@ def generate_report(
     lines.append(f"")
     lines.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
     lines.append("")
+
+    # -- Report Status (if analysis_status provided)
+    if analysis_status is not None:
+        lines.append("## Report Status")
+        lines.append("")
+        report_mode = analysis_status.get("report_mode", "unknown")
+        lines.append(f"> **Report Mode**: {report_mode}")
+        lines.append("")
+        lines.append("| Gate | Status |")
+        lines.append("|------|--------|")
+        for gate_key in ["preflight", "score", "analysis"]:
+            gate_val = analysis_status.get(gate_key, "N/A")
+            lines.append(f"| {gate_key} | {gate_val} |")
+        lines.append("")
+
+    # -- Selection Score Summary (if score_summary provided)
+    if score_summary is not None:
+        lines.append("## Selection Score Summary")
+        lines.append("")
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
+        for score_key in ["phase1", "robust", "worst"]:
+            score_val = score_summary.get(score_key, "N/A")
+            if isinstance(score_val, float):
+                lines.append(f"| {score_key} | {score_val:.4f} |")
+            else:
+                lines.append(f"| {score_key} | {score_val} |")
+        lines.append("")
+
+    # -- Run Provenance (if run_provenance provided)
+    if run_provenance is not None:
+        lines.append("## Run Provenance")
+        lines.append("")
+        lines.append("| Key | Value |")
+        lines.append("|-----|-------|")
+        for prov_key, prov_val in run_provenance.items():
+            lines.append(f"| {prov_key} | {prov_val} |")
+        lines.append("")
+
+    # -- Preflight (if preflight_report provided)
+    if preflight_report is not None:
+        lines.append("## Preflight")
+        lines.append("")
+        if isinstance(preflight_report, dict):
+            for pf_key, pf_val in preflight_report.items():
+                lines.append(f"- **{pf_key}**: {pf_val}")
+        elif hasattr(preflight_report, '__dict__'):
+            for pf_key, pf_val in vars(preflight_report).items():
+                lines.append(f"- **{pf_key}**: {pf_val}")
+        else:
+            lines.append(f"- {preflight_report}")
+        lines.append("")
 
     # 2. Dataset Summary
     lines.append("## Dataset Summary")
@@ -178,8 +236,40 @@ def generate_report(
         lines.append(f"| {key} | {val} |")
     lines.append("")
 
+    # 3b. Capital/Budget Analysis
+    _taq_min = dataset_summary.get("total_amount_quote_search_min")
+    _taq_max = dataset_summary.get("total_amount_quote_search_max")
+    _taq_ideal = dataset_summary.get("total_amount_quote_ideal")
+    if _taq_min is not None and _taq_max is not None and _taq_ideal is not None:
+        lines.append("## Capital/Budget Analysis")
+        lines.append("")
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
+        lines.append(f"| Search Min | {_taq_min} |")
+        lines.append(f"| Search Max | {_taq_max} |")
+        lines.append(f"| Ideal | {_taq_ideal} |")
+        selected_quote = best_params.get("total_amount_quote")
+        if selected_quote is not None:
+            lines.append(f"| Selected | {selected_quote} |")
+            # Boundary warnings
+            try:
+                sel = float(selected_quote)
+                lo = float(_taq_min)
+                hi = float(_taq_max)
+                if hi > lo:
+                    range_size = hi - lo
+                    if (sel - lo) / range_size < 0.05:
+                        lines.append("")
+                        lines.append("> **WARNING**: Selected quote is within 5% of search minimum.")
+                    if (hi - sel) / range_size < 0.05:
+                        lines.append("")
+                        lines.append("> **WARNING**: Selected quote is within 5% of search maximum.")
+            except (ValueError, TypeError, ZeroDivisionError):
+                pass
+        lines.append("")
+
     # 4. Best Metrics
-    lines.append("## Best Metrics")
+    lines.append("## Selected Candidate Single-Run Diagnostics")
     lines.append("")
     lines.append(f"- **PnL %**: {best_metrics.pnl_pct:.4f}")
     lines.append(f"- **Net PnL (quote)**: {best_metrics.net_pnl_quote:.4f}")
@@ -194,7 +284,7 @@ def generate_report(
     lines.append("")
 
     # 5. Objective Decomposition
-    lines.append("## Objective Decomposition")
+    lines.append("## Selected Candidate Single-Run Objective")
     lines.append("")
     lines.append(f"- **Raw Score**: {best_objective.raw_score:.4f}")
     lines.append(f"- **PnL Component**: {best_objective.pnl_component:.4f}")
@@ -268,10 +358,15 @@ def generate_report(
         lines.append("## Dataset Audit")
         lines.append("")
         lines.append(f"- **Passed strict**: {getattr(dataset_audit, 'passed_strict', 'N/A')}")
-        lines.append(f"- **Passed lenient**: {getattr(dataset_audit, 'passed_lenient', 'N/A')}")
-        lines.append(f"- **Total bars**: {getattr(dataset_audit, 'total_bars', 'N/A')}")
-        lines.append(f"- **Gap count**: {getattr(dataset_audit, 'gap_count', 'N/A')}")
-        lines.append(f"- **Forward-fill count**: {getattr(dataset_audit, 'ffill_count', 'N/A')}")
+        lines.append(f"- **Total rows**: {getattr(dataset_audit, 'total_rows', 'N/A')}")
+        lines.append(f"- **Expected rows**: {getattr(dataset_audit, 'expected_rows', 'N/A')}")
+        lines.append(f"- **Missing rows**: {getattr(dataset_audit, 'missing_rows', 'N/A')}")
+        lines.append(f"- **Forward-fill count**: {getattr(dataset_audit, 'forward_fill_count', 'N/A')}")
+        lines.append(f"- **Forward-fill fraction**: {getattr(dataset_audit, 'forward_fill_fraction', 'N/A')}")
+        lines.append(f"- **Longest gap (seconds)**: {getattr(dataset_audit, 'longest_gap_seconds', 'N/A')}")
+        failure_reasons = getattr(dataset_audit, 'failure_reasons', [])
+        if failure_reasons:
+            lines.append(f"- **Failure reasons**: {', '.join(str(r) for r in failure_reasons)}")
         lines.append("")
 
     # 8c. Recent 28-Day Window
@@ -280,8 +375,10 @@ def generate_report(
         lines.append("")
         lines.append(f"- **Passed**: {getattr(recent_window_result, 'passed', 'N/A')}")
         lines.append(f"- **Reason**: {getattr(recent_window_result, 'reason', 'N/A')}")
-        lines.append(f"- **PnL %**: {getattr(recent_window_result, 'pnl_pct', 'N/A')}")
-        lines.append(f"- **Trade count**: {getattr(recent_window_result, 'trade_count', 'N/A')}")
+        _rw_metrics = getattr(recent_window_result, 'metrics', None)
+        if _rw_metrics is not None:
+            lines.append(f"- **PnL %**: {getattr(_rw_metrics, 'pnl_pct', 'N/A')}")
+            lines.append(f"- **Trade count**: {getattr(_rw_metrics, 'trade_count', 'N/A')}")
         lines.append("")
 
     # 8d. Sensitivity Analysis
@@ -289,17 +386,48 @@ def generate_report(
         lines.append("## Sensitivity Analysis")
         lines.append("")
         lines.append(f"- **Sensitivity penalty**: {getattr(sensitivity_report, 'sensitivity_penalty', 'N/A')}")
-        lines.append(f"- **Worst parameter**: {getattr(sensitivity_report, 'worst_param', 'N/A')}")
-        lines.append(f"- **Worst delta**: {getattr(sensitivity_report, 'worst_delta', 'N/A')}")
+        lines.append(f"- **Baseline score**: {getattr(sensitivity_report, 'baseline_score', 'N/A')}")
+        lines.append(f"- **Sign flips**: {getattr(sensitivity_report, 'sign_flips', 'N/A')}")
+        lines.append(f"- **Collapse count**: {getattr(sensitivity_report, 'collapse_count', 'N/A')}")
+        lines.append(f"- **Perturbations**: {getattr(sensitivity_report, 'n_perturbations', 'N/A')}")
+        lines.append(f"- **Rejected**: {getattr(sensitivity_report, 'n_rejected', 'N/A')}")
+        perturbed_scores = getattr(sensitivity_report, 'perturbed_scores', None)
+        if perturbed_scores:
+            lines.append("")
+            lines.append("| Parameter | Scores |")
+            lines.append("|-----------|--------|")
+            for p_name, p_scores in perturbed_scores.items():
+                scores_str = ", ".join(f"{s:.4f}" for s in p_scores)
+                lines.append(f"| {p_name} | {scores_str} |")
         lines.append("")
 
     # 8e. Top-K Clustering
     if cluster_report is not None:
         lines.append("## Top-K Clustering")
         lines.append("")
+        lines.append(f"- **K**: {getattr(cluster_report, 'k', 'N/A')}")
         lines.append(f"- **Is clustered**: {getattr(cluster_report, 'is_clustered', 'N/A')}")
         lines.append(f"- **Mean CV**: {getattr(cluster_report, 'mean_cv', 'N/A')}")
-        lines.append(f"- **Cluster count**: {getattr(cluster_report, 'n_clusters', 'N/A')}")
+        lines.append(f"- **Max CV**: {getattr(cluster_report, 'max_cv', 'N/A')}")
+        clustered_params = getattr(cluster_report, 'clustered_params', [])
+        scattered_params = getattr(cluster_report, 'scattered_params', [])
+        if clustered_params:
+            lines.append(f"- **Clustered params**: {', '.join(clustered_params)}")
+        if scattered_params:
+            lines.append(f"- **Scattered params**: {', '.join(scattered_params)}")
+        param_ranges = getattr(cluster_report, 'param_ranges', {})
+        param_cv = getattr(cluster_report, 'param_cv', {})
+        if param_cv:
+            lines.append("")
+            lines.append("| Parameter | CV | Min | Max | Mean |")
+            lines.append("|-----------|-----|-----|-----|------|")
+            for p_name, cv_val in param_cv.items():
+                pr = param_ranges.get(p_name, {})
+                lines.append(
+                    f"| {p_name} | {cv_val:.4f} | "
+                    f"{pr.get('min', 'N/A')} | {pr.get('max', 'N/A')} | "
+                    f"{pr.get('mean', 'N/A')} |"
+                )
         lines.append("")
 
     # 8f. YAML Validation
@@ -358,6 +486,40 @@ def generate_report(
         out.parent.mkdir(parents=True, exist_ok=True)
         with open(out, "w") as f:
             f.write(report_text)
+
+        # JSON sidecar output
+        if output_path.endswith("_report.md"):
+            json_path = output_path[:-len("_report.md")] + "_report.json"
+        else:
+            json_path = output_path + ".json"
+
+        # Build validation coverage for JSON
+        _vc = validation_coverage
+        if _vc is None:
+            _vc = build_validation_coverage(
+                dataset_audit=dataset_audit,
+                validation_result=yaml_validation_result,
+                holdout_report=holdout_report,
+                sensitivity_report=sensitivity_report,
+                recent_window_result=recent_window_result,
+                cluster_report=cluster_report,
+                walkforward_result=walkforward_result,
+                stress_report=stress_report,
+            )
+
+        json_data = {
+            "analysis_status": analysis_status,
+            "score_summary": score_summary,
+            "dataset_summary": dataset_summary,
+            "validation_coverage": [
+                {"name": item.name, "status": item.status, "detail": item.detail}
+                for item in _vc
+            ],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        with open(json_path, "w") as jf:
+            json.dump(json_data, jf, indent=2, default=str)
 
     return report_text
 

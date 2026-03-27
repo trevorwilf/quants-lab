@@ -31,6 +31,7 @@ PERTURBABLE_PARAMS = [
     "take_profit",
     "executor_refresh_time",
     "cooldown_time",
+    "total_amount_quote",
 ]
 
 

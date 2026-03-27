@@ -71,7 +71,7 @@ class TestFullPipelineV1Objective:
         assert "acceptance_v1" in report
         assert "Walk-Forward" in report
         assert "Stress Test" in report
-        assert "Best Metrics" in report
+        assert "Selected Candidate Single-Run Diagnostics" in report
 
 
 class TestFullPipelineV2Objective:

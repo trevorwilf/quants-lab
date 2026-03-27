@@ -45,7 +45,7 @@ def validate_finalist(
     ranked_trials: list,
     reference_price: float,
     objective_version: int = 2,
-    fixed_quote: Optional[float] = 100.0,
+    fixed_quote: Optional[float] = None,
     train_days: float = 42.0,
     test_days: float = 14.0,
     step_days: float = 14.0,

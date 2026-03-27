@@ -41,6 +41,7 @@ def _make_tight_params(base_val=1.0, noise=0.01):
         "take_profit": 0.015 + random.uniform(-noise, noise),
         "executor_refresh_time": 3000.0 + random.uniform(-10, 10),
         "cooldown_time": 3000.0 + random.uniform(-10, 10),
+        "total_amount_quote": 100.0 + random.uniform(-1, 1),
     }
 
 
@@ -58,6 +59,7 @@ def _make_scattered_params():
         "take_profit": random.uniform(0.001, 1.0),
         "executor_refresh_time": random.uniform(10, 50000),
         "cooldown_time": random.uniform(10, 50000),
+        "total_amount_quote": random.uniform(10, 1000),
     }
 
 

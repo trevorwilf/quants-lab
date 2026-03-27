@@ -23,6 +23,7 @@ CLUSTER_PARAMS = [
     "buy_side_weight", "amount_skew",
     "stop_loss", "take_profit",
     "executor_refresh_time", "cooldown_time",
+    "total_amount_quote",
 ]
 
 

@@ -115,7 +115,7 @@ class TestGenerateReportBasic:
         assert "# PMM Dynamic Optimization Report" in report
         assert "test_study" in report
         assert "Best Parameters" in report
-        assert "Best Metrics" in report
+        assert "Selected Candidate Single-Run Diagnostics" in report
 
 
 class TestGenerateReportWithHoldout:

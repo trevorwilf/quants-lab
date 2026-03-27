@@ -95,7 +95,7 @@ def run_full_pipeline(
     study_name: Optional[str] = None,
     holdout_fraction: float = 0.20,
     objective_version: int = 2,
-    fixed_quote: float = 100.0,
+    fixed_quote: Optional[float] = None,
     train_days: float = 42.0,
     test_days: float = 14.0,
     step_days: float = 14.0,
