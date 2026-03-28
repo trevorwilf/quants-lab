@@ -18,6 +18,24 @@ from pmm_lab.objective.stress import StressReport
 from pmm_lab.objective.holdout import HoldoutReport
 
 
+def _safe_serialize(obj):
+    """Convert dataclass/namedtuple to dict for JSON serialization."""
+    if obj is None:
+        return None
+    if hasattr(obj, '__dict__'):
+        return {k: _safe_serialize(v) for k, v in obj.__dict__.items()
+                if not k.startswith('_')}
+    if isinstance(obj, (list, tuple)):
+        return [_safe_serialize(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _safe_serialize(v) for k, v in obj.items()}
+    try:
+        json.dumps(obj)
+        return obj
+    except (TypeError, ValueError):
+        return str(obj)
+
+
 @dataclass
 class ValidationCoverageItem:
     """One row in the validation coverage table."""
@@ -98,12 +116,16 @@ def build_validation_coverage(
     # recent_28d
     if recent_window_result is None:
         items.append(ValidationCoverageItem("recent_28d", "SKIPPED"))
-    elif getattr(recent_window_result, 'passed', False):
-        items.append(ValidationCoverageItem("recent_28d", "PASS",
-            getattr(recent_window_result, 'reason', '')))
     else:
-        items.append(ValidationCoverageItem("recent_28d", "FAIL",
-            getattr(recent_window_result, 'reason', '')))
+        _rw_obj = getattr(recent_window_result, 'objective', None)
+        _rw_met = getattr(recent_window_result, 'metrics', None)
+        _rw_score = f"{getattr(_rw_obj, 'raw_score', 'N/A')}" if _rw_obj else "N/A"
+        _rw_pnl = f"{getattr(_rw_met, 'pnl_pct', 'N/A')}" if _rw_met else "N/A"
+        _rw_trades = f"{getattr(_rw_met, 'trade_count', 'N/A')}" if _rw_met else "N/A"
+        _rw_reason = getattr(recent_window_result, 'reason', '')
+        _detail = f"score={_rw_score}, pnl={_rw_pnl}, trades={_rw_trades}, reason={_rw_reason}"
+        _status = "PASS" if getattr(recent_window_result, 'passed', False) else "FAIL"
+        items.append(ValidationCoverageItem("recent_28d", _status, _detail))
 
     # frozen_parity
     if parity_result is None:
@@ -397,6 +419,9 @@ def generate_report(
         lines.append("")
         lines.append(f"- **Passed**: {getattr(recent_window_result, 'passed', 'N/A')}")
         lines.append(f"- **Reason**: {getattr(recent_window_result, 'reason', 'N/A')}")
+        _rw_objective = getattr(recent_window_result, 'objective', None)
+        if _rw_objective is not None:
+            lines.append(f"- **Objective score**: {getattr(_rw_objective, 'raw_score', 'N/A')}")
         _rw_metrics = getattr(recent_window_result, 'metrics', None)
         if _rw_metrics is not None:
             lines.append(f"- **PnL %**: {getattr(_rw_metrics, 'pnl_pct', 'N/A')}")
@@ -505,6 +530,27 @@ def generate_report(
             lines.append("> **WARNING**: One or more stop-ship checks FAILED.")
             lines.append("")
 
+        # Gate Thresholds Detail
+        lines.append("### Gate Thresholds Detail")
+        lines.append("")
+        lines.append("| Gate | Threshold | Actual | Status |")
+        lines.append("|---|---|---|---|")
+        if recent_window_result is not None:
+            _rw_obj = getattr(recent_window_result, 'objective', None)
+            _rw_met = getattr(recent_window_result, 'metrics', None)
+            _rw_score = getattr(_rw_obj, 'raw_score', None) if _rw_obj else None
+            lines.append(f"| recent_objective | > 0 | {_rw_score} | {'PASS' if _rw_score and _rw_score > 0 else 'FAIL'} |")
+            _rw_pnl = getattr(_rw_met, 'pnl_pct', None) if _rw_met else None
+            lines.append(f"| recent_pnl | >= 0 | {_rw_pnl} | {'PASS' if _rw_pnl is not None and _rw_pnl >= 0 else 'FAIL'} |")
+            _rw_trades = getattr(_rw_met, 'trade_count', None) if _rw_met else None
+            lines.append(f"| recent_trades | >= 5 | {_rw_trades} | {'PASS' if _rw_trades is not None and _rw_trades >= 5 else 'FAIL'} |")
+        if stress_report is not None:
+            lines.append(f"| worst_stress | > -10 | {getattr(stress_report, 'worst_score', 'N/A')} | {'PASS' if getattr(stress_report, 'worst_score', -999) > -10 else 'FAIL'} |")
+        if sensitivity_report is not None:
+            _sp = getattr(sensitivity_report, 'sensitivity_penalty', None)
+            lines.append(f"| sensitivity_penalty | < 0.50 | {_sp} | {'PASS' if _sp is not None and _sp < 0.50 else 'FAIL'} |")
+        lines.append("")
+
     # 10. Validation Coverage
     _vc = validation_coverage
     if _vc is None:
@@ -527,6 +573,61 @@ def generate_report(
         lines.append("|---|---|---|")
         for item in _vc:
             lines.append(f"| {item.name} | {item.status} | {item.detail} |")
+        lines.append("")
+
+    # 11. Validation Execution Manifest
+    lines.append("## Validation Execution Manifest")
+    lines.append("")
+    lines.append("| Validation | Ran | Status | Dataset | Obj Version | Bars | Reason |")
+    lines.append("|---|---|---|---|---|---|---|")
+
+    def _manifest_row(name, obj, dataset_label, obj_ver=None, bars=None):
+        ran = obj is not None
+        if not ran:
+            return f"| {name} | false | NOT_RUN | — | — | — | not executed |"
+        status = "PASS" if getattr(obj, 'passed', getattr(obj, 'passed_strict', getattr(obj, 'valid', getattr(obj, 'is_clustered', False)))) else "FAIL"
+        reason = getattr(obj, 'reason', getattr(obj, 'failure_reasons', ''))
+        if isinstance(reason, list):
+            reason = '; '.join(str(r) for r in reason)
+        bars_str = str(bars) if bars else "—"
+        ver_str = str(obj_ver) if obj_ver else "—"
+        return f"| {name} | true | {status} | {dataset_label} | {ver_str} | {bars_str} | {reason} |"
+
+    lines.append(_manifest_row("dataset_audit", dataset_audit, "full", bars=dataset_summary.get("n_candles") if dataset_summary else None))
+    lines.append(_manifest_row("yaml_validation", yaml_validation_result, "—"))
+    lines.append(_manifest_row("holdout", holdout_report, "pre_release_holdout"))
+    lines.append(_manifest_row("recent_28d", recent_window_result, "recent_28d"))
+    lines.append(_manifest_row("sensitivity", sensitivity_report, "full"))
+    lines.append(_manifest_row("clustering", cluster_report, "—"))
+    lines.append(_manifest_row("frozen_parity", parity_result, "fixture"))
+    lines.append(_manifest_row("long_parity", long_parity_result, "fixture"))
+    lines.append(_manifest_row("walkforward", walkforward_result, "full"))
+    lines.append(_manifest_row("stress", stress_report, "full"))
+    lines.append("")
+
+    # 12. Dataset Slice Lineage
+    if dataset_slices is not None:
+        lines.append("## Dataset Slice Lineage")
+        lines.append("")
+        lines.append(f"- **Full bars**: {getattr(dataset_slices, 'full_bars', 'N/A')}")
+        lines.append(f"- **Pre-release bars**: {getattr(dataset_slices, 'pre_release_bars', 'N/A')}")
+        lines.append(f"- **Dev bars**: {len(getattr(dataset_slices, 'dev_candles', []))}")
+        lines.append(f"- **Holdout bars**: {len(getattr(dataset_slices, 'holdout_candles', []))}")
+        lines.append(f"- **Recent 28d bars**: {len(getattr(dataset_slices, 'recent_release_candles', []))}")
+        _recent_start = getattr(dataset_slices, 'recent_start_ts', None)
+        _recent_end = getattr(dataset_slices, 'recent_end_ts', None)
+        if _recent_start is not None:
+            lines.append(f"- **Recent window start**: {_recent_start}")
+        if _recent_end is not None:
+            lines.append(f"- **Recent window end**: {_recent_end}")
+        lines.append("")
+
+    # 13. Run Provenance
+    if run_provenance is not None:
+        lines.append("## Run Provenance")
+        lines.append("")
+        for k, v in run_provenance.items():
+            lines.append(f"- **{k}**: {v}")
         lines.append("")
 
     report_text = "\n".join(lines)
@@ -553,6 +654,18 @@ def generate_report(
             ] if _vc else [],
             "stop_ship_checks": stop_ship_checks,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "raw_validations": {
+                "dataset_audit": _safe_serialize(dataset_audit),
+                "yaml_validation": _safe_serialize(yaml_validation_result),
+                "holdout_report": _safe_serialize(holdout_report),
+                "recent_window_result": _safe_serialize(recent_window_result),
+                "sensitivity_report": _safe_serialize(sensitivity_report),
+                "cluster_report": _safe_serialize(cluster_report),
+                "parity_result": _safe_serialize(parity_result),
+                "long_parity_result": _safe_serialize(long_parity_result),
+                "dataset_slices": _safe_serialize(dataset_slices),
+            },
+            "run_provenance": _safe_serialize(run_provenance),
         }
 
         with open(json_path, "w") as jf:
