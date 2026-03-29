@@ -1,0 +1,43 @@
+buy_amounts_pct:
+- 0.03692861894956943
+- 0.10778984092716773
+- 0.314624541550574
+buy_spreads:
+- 0.26569983156493754
+- 0.39019511010395486
+- 0.573023411615625
+candles_connector: mexc
+candles_trading_pair: SOL-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 66
+executor_refresh_time: 915
+id: SOL-USDT-PMM-DYNAMIC_198.0026256616942
+interval: 5m
+leverage: 1
+macd_fast: 5
+macd_signal: 9
+macd_slow: 90
+manual_kill_switch: false
+natr_length: 47
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.04346581143213131
+- 0.12687105646809813
+- 0.37032013067245934
+sell_spreads:
+- 0.31930249624597773
+- 0.49778401597809907
+- 0.7760319116716138
+skip_rebalance: true
+stop_loss: 0.19585699129091666
+take_profit: 0.03238043379894899
+take_profit_order_type: 2
+time_limit: 159899
+total_amount_quote: 198.0026256616942
+trading_pair: SOL-USDT
+trailing_stop:
+  activation_price: 0.01566295594934379
+  trailing_delta: 0.001144861674587267

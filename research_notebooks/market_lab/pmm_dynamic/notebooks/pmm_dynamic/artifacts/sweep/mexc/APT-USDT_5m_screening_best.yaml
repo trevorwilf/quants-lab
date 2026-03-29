@@ -1,0 +1,49 @@
+buy_amounts_pct:
+- 0.006919625964803017
+- 0.018478031853985614
+- 0.04934336955980638
+- 0.131765554835888
+buy_spreads:
+- 2.1365653951682124
+- 5.429851390198906
+- 13.799383901995553
+- 35.069651522760815
+candles_connector: mexc
+candles_trading_pair: APT-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 2515
+executor_refresh_time: 3962
+id: APT-USDT-PMM-DYNAMIC_881.1740340546743
+interval: 5m
+leverage: 1
+macd_fast: 38
+macd_signal: 11
+macd_slow: 42
+manual_kill_switch: false
+natr_length: 47
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.00983339134429091
+- 0.026258893098665692
+- 0.07012122701365699
+- 0.18725033303672153
+- 0.5000295732921819
+sell_spreads:
+- 4.672217151413237
+- 6.245641367442262
+- 8.348934740523998
+- 11.160536957003384
+- 14.918979371591163
+skip_rebalance: true
+stop_loss: 0.013340788492611859
+take_profit: 0.0058853687566104845
+take_profit_order_type: 2
+time_limit: 171734
+total_amount_quote: 881.1740340546743
+trading_pair: APT-USDT
+trailing_stop:
+  activation_price: 0.052151969820407526
+  trailing_delta: 0.0025760028307467335

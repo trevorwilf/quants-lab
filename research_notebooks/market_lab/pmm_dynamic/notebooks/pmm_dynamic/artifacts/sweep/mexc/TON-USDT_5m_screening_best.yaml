@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.009226668619873053
+- 0.02941379521646863
+- 0.09376855121607873
+- 0.2989257636579819
+buy_spreads:
+- 2.568735665345852
+- 4.990520077911222
+- 9.6955443816294
+- 18.836429748518423
+candles_connector: mexc
+candles_trading_pair: TON-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 459
+executor_refresh_time: 8198
+id: TON-USDT-PMM-DYNAMIC_678.7117765546244
+interval: 5m
+leverage: 1
+macd_fast: 45
+macd_signal: 15
+macd_slow: 86
+manual_kill_switch: false
+natr_length: 30
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.012164299777015315
+- 0.03877870088692817
+- 0.12362303379922288
+- 0.39409918682643136
+sell_spreads:
+- 3.499285071132285
+- 4.671621037983784
+- 6.236714837145564
+- 8.32614881293088
+skip_rebalance: true
+stop_loss: 0.014313996463421075
+take_profit: 0.005246702649291513
+take_profit_order_type: 2
+time_limit: 119395
+total_amount_quote: 678.7117765546244
+trading_pair: TON-USDT
+trailing_stop:
+  activation_price: 0.0032639484218802634
+  trailing_delta: 0.0018962862326897315

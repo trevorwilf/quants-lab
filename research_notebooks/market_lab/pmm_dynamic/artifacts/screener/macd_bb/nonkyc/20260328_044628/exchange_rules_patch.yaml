@@ -1,0 +1,63 @@
+connectors:
+  nonkyc:
+    pairs:
+      ALGO-USDC:
+        price_tick: 0.0001
+        amount_step: 0.01
+      ARB-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+      AAVE-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+      ETC-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+      LTC-USDT:
+        price_tick: 0.01
+        amount_step: 0.0001
+      SAL-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0001
+      SCASH-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0001
+      ZEC-USDT:
+        price_tick: 0.01
+        amount_step: 1.0e-06
+      ARB-USDC:
+        price_tick: 0.0001
+        amount_step: 0.01
+      ADA-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+      EQPAY-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0001
+      SHIB-USDT:
+        price_tick: 1.0e-09
+        amount_step: 1.0
+      UNI-USDT:
+        price_tick: 0.001
+        amount_step: 0.01
+      BTC-USDC:
+        price_tick: 0.01
+        amount_step: 1.0e-06
+      CAKE-USDC:
+        price_tick: 0.001
+        amount_step: 0.01
+      PEP-DOGE:
+        price_tick: 1.0e-09
+        amount_step: 0.0001
+      XLM-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+      PEP-USDC:
+        price_tick: 1.0e-08
+        amount_step: 0.0001
+      ARRR-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0001
+      PEP-USDT:
+        price_tick: 1.0e-08
+        amount_step: 0.0001

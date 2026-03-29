@@ -1,0 +1,7 @@
+dataset_hash: 4a651f847665e052aa1f7ac280abad4068a02129f1138c092c022439c32fbf94
+phase1_score: 1.1849975850050904
+robust_score: 2.010938869015502
+sweep_date: '2026-03-28T13:46:04.183336+00:00'
+trial: 6165
+worst_scenario: severe_adverse
+worst_score: 1.5398201361840123
