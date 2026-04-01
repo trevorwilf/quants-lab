@@ -1,0 +1,49 @@
+buy_amounts_pct:
+- 0.00631131460695415
+- 0.017557381922711057
+- 0.04884270222249442
+- 0.13587501661106977
+buy_spreads:
+- 3.9603449428685287
+- 7.325957653152515
+- 13.551762866623
+- 25.06843275488405
+candles_connector: nonkyc
+candles_trading_pair: ARB-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 448
+executor_refresh_time: 2634
+id: ARB-USDT-PMM-DYNAMIC_801.0340248915945
+interval: 5m
+leverage: 1
+macd_fast: 20
+macd_signal: 28
+macd_slow: 22
+manual_kill_switch: false
+natr_length: 18
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.008515285847381187
+- 0.023688587103357795
+- 0.0658990395637683
+- 0.1833238680077942
+- 0.5099868041144691
+sell_spreads:
+- 3.2592118527764424
+- 4.084683929547658
+- 5.119226229522839
+- 6.415790705239893
+- 8.0407406369457
+skip_rebalance: true
+stop_loss: 0.016137747685562743
+take_profit: 0.005418157151359408
+take_profit_order_type: 2
+time_limit: 66969
+total_amount_quote: 801.0340248915945
+trading_pair: ARB-USDT
+trailing_stop:
+  activation_price: 0.03394393657301109
+  trailing_delta: 0.003865485064980348

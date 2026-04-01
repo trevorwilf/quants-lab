@@ -2,6 +2,7 @@
 
 import numpy as np
 import math
+import pytest
 
 from pmm_lab.sim.strategy import SignalOutput
 
@@ -50,3 +51,29 @@ class TestSignalOutputEmpty:
         assert so.is_valid(3)
         result = so.get("anything", 0)
         assert math.isnan(result)
+
+
+class TestSignalOutputSlice:
+    """Verify sliced signals preserve local indexing and warmup semantics."""
+
+    def test_signal_output_slice_preserves_values(self):
+        data = {
+            "price": np.array([10.0, 20.0, 30.0, 40.0]),
+            "signal": np.array([0.0, 1.0, 0.0, -1.0]),
+        }
+        so = SignalOutput(warmup_end=2, data=data)
+        sliced = so.slice(1, 4)
+
+        assert sliced.warmup_end == 1
+        assert sliced.get("price", 0) == 20.0
+        assert sliced.get("price", 2) == 40.0
+        assert sliced.get("signal", 2) == -1.0
+        assert not sliced.is_valid(0)
+        assert sliced.is_valid(1)
+
+    def test_signal_output_slice_rejects_invalid_bounds(self):
+        so = SignalOutput(warmup_end=0, data={"x": np.array([1.0, 2.0])})
+        with pytest.raises(ValueError):
+            so.slice(-1, 1)
+        with pytest.raises(ValueError):
+            so.slice(2, 1)

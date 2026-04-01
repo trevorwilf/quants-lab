@@ -150,6 +150,77 @@ def export_yaml(
     return str(out)
 
 
+def export_macd_bb_yaml(
+    candidate,
+    connector_name: str,
+    trading_pair: str,
+    candles_connector: str,
+    candles_trading_pair: str,
+    interval: str,
+    output_path: str,
+    config_id: Optional[str] = None,
+    leverage: int = 1,
+    position_mode: str = "ONEWAY",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Export a MACD-BB CandidateBundle as a Hummingbot YAML file."""
+    sc = candidate.strategy_config
+    ec = candidate.engine_config
+
+    if config_id is None:
+        config_id = f"{trading_pair}-MACD-BB_{ec.total_amount_quote}"
+
+    tp_order_type = ORDER_TYPE_MAP.get(ec.take_profit_order_type, 2)
+
+    d = {
+        "bb_length": sc.bb_length,
+        "bb_long_threshold": sc.bb_long_threshold,
+        "bb_short_threshold": sc.bb_short_threshold,
+        "bb_std": sc.bb_std,
+        "candles_connector": candles_connector,
+        "candles_trading_pair": candles_trading_pair,
+        "connector_name": connector_name,
+        "controller_name": "macd_bb_v1",
+        "controller_type": "directional_trading",
+        "cooldown_time": int(ec.cooldown_time),
+        "id": config_id,
+        "initial_positions": None,
+        "interval": interval,
+        "leverage": leverage,
+        "macd_fast": sc.macd_fast,
+        "macd_signal": sc.macd_signal,
+        "macd_slow": sc.macd_slow,
+        "manual_kill_switch": None,
+        "max_executors_per_side": sc.max_executors_per_side,
+        "position_mode": position_mode,
+        "stop_loss": ec.stop_loss,
+        "take_profit": ec.take_profit,
+        "take_profit_order_type": tp_order_type,
+        "time_limit": int(ec.time_limit),
+        "total_amount_quote": ec.total_amount_quote,
+        "trading_pair": trading_pair,
+        "trailing_stop": {
+            "activation_price": ec.trailing_stop_activation,
+            "trailing_delta": ec.trailing_stop_delta,
+        },
+    }
+
+    d = dict(sorted(d.items()))
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(out, "w") as f:
+        yaml.dump(_sanitize_for_yaml(d), f, default_flow_style=False, sort_keys=True)
+
+    if metadata is not None:
+        meta_path = out.with_suffix(".meta.yml")
+        with open(meta_path, "w") as f:
+            yaml.dump(_sanitize_for_yaml(metadata), f, default_flow_style=False, sort_keys=True)
+
+    return str(out)
+
+
 def export_top_n(
     configs: list,
     output_dir: str,

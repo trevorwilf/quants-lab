@@ -56,9 +56,11 @@ def create_strategy(name: str, config: Any) -> Strategy:
 def _register_builtins():
     from pmm_lab.strategies.pmm_dynamic import PMMDynamicStrategy
     from pmm_lab.strategies.bollinger import BollingerStrategy
+    from pmm_lab.strategies.macd_bb import MACDBBStrategy
 
     register_strategy("pmm_dynamic", PMMDynamicStrategy)
     register_strategy("bollinger", BollingerStrategy)
+    register_strategy("macd_bb", MACDBBStrategy)
 
 
 _register_builtins()

@@ -1,0 +1,63 @@
+connectors:
+  nonkyc:
+    pairs:
+      XMR-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+      NKYC-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0001
+      RXD-USDT:
+        price_tick: 1.0e-09
+        amount_step: 0.01
+      EPIC-USDT:
+        price_tick: 1.0e-05
+        amount_step: 0.001
+      SHIB-USDT:
+        price_tick: 1.0e-09
+        amount_step: 1.0
+      MANA-USDT:
+        price_tick: 1.0e-05
+        amount_step: 0.01
+      DIVI-USDT:
+        price_tick: 1.0e-07
+        amount_step: 1.0
+      XRP-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+      RVN-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.01
+      ZSD-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0001
+      PEP-USDT:
+        price_tick: 1.0e-08
+        amount_step: 0.0001
+      INJ-USDT:
+        price_tick: 0.01
+        amount_step: 0.01
+      BDX-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0001
+      LINK-USDT:
+        price_tick: 0.01
+        amount_step: 0.01
+      ADA-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+      ERG-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0001
+      ARB-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+      ZANO-USDT:
+        price_tick: 0.001
+        amount_step: 0.01
+      AVAX-USDT:
+        price_tick: 0.01
+        amount_step: 0.01
+      BCH-USDT:
+        price_tick: 0.1
+        amount_step: 1.0e-05

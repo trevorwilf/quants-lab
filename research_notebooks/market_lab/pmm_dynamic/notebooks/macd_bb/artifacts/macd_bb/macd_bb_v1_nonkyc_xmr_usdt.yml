@@ -1,0 +1,29 @@
+bb_length: 200
+bb_long_threshold: 0.11822798805339782
+bb_short_threshold: 0.6090226028855998
+bb_std: 1.8568853004851789
+candles_connector: nonkyc
+candles_trading_pair: XMR-USDT
+connector_name: nonkyc
+controller_name: macd_bb_v1
+controller_type: directional_trading
+cooldown_time: 2111
+id: XMR-USDT-MACD-BB_719.1933191071053
+initial_positions: null
+interval: 5m
+leverage: 1
+macd_fast: 38
+macd_signal: 9
+macd_slow: 143
+manual_kill_switch: null
+max_executors_per_side: 1
+position_mode: ONEWAY
+stop_loss: 0.033602972502757185
+take_profit: 0.019978485937149577
+take_profit_order_type: 2
+time_limit: 213351
+total_amount_quote: 719.1933191071053
+trading_pair: XMR-USDT
+trailing_stop:
+  activation_price: 3.4980168624271116e-05
+  trailing_delta: 1.7490084312135558e-05

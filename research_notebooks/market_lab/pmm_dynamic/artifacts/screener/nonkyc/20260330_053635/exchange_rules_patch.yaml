@@ -1,0 +1,24 @@
+connectors:
+  nonkyc:
+    pairs:
+      NKYC-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0001
+      TRX-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+      SOL-USDT:
+        price_tick: 0.01
+        amount_step: 0.01
+      BNB-USDT:
+        price_tick: 0.01
+        amount_step: 0.0001
+      LTC-USDT:
+        price_tick: 0.01
+        amount_step: 0.0001
+      USDC-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+      AAVE-USDT:
+        price_tick: 0.01
+        amount_step: 0.001

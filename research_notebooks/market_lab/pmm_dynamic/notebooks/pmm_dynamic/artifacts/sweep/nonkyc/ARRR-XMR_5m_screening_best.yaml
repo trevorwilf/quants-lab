@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.11102160221739561
+- 0.17810852546780837
+- 0.2857340032095702
+buy_spreads:
+- 5.187778431420069
+- 13.751984705578742
+- 36.4543485891906
+candles_connector: nonkyc
+candles_trading_pair: ARRR-XMR
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 286
+executor_refresh_time: 7406
+id: ARRR-XMR-PMM-DYNAMIC_614.1251262333785
+interval: 5m
+leverage: 1
+macd_fast: 18
+macd_signal: 5
+macd_slow: 91
+manual_kill_switch: false
+natr_length: 15
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.02668666523454077
+- 0.04281259232117558
+- 0.0686829187967188
+- 0.1101858840746585
+- 0.17676780867813227
+sell_spreads:
+- 1.890720413405929
+- 3.89880642899971
+- 8.039629478282864
+- 16.578315267797972
+- 34.18572184961003
+skip_rebalance: true
+stop_loss: 0.16728191880267676
+take_profit: 0.0606321208935608
+take_profit_order_type: 2
+time_limit: 68458
+total_amount_quote: 614.1251262333785
+trading_pair: ARRR-XMR
+trailing_stop:
+  activation_price: 0.011588266069481741
+  trailing_delta: 0.0052230674655871666

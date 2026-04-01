@@ -1,0 +1,43 @@
+buy_amounts_pct:
+- 0.09594792392121505
+- 0.2914316178128312
+buy_spreads:
+- 3.023424791261331
+- 8.242696406733607
+candles_connector: nonkyc
+candles_trading_pair: EPIC-XMR
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 416
+executor_refresh_time: 8499
+id: EPIC-XMR-PMM-DYNAMIC_901.49864494684
+interval: 5m
+leverage: 1
+macd_fast: 9
+macd_signal: 27
+macd_slow: 48
+manual_kill_switch: false
+natr_length: 9
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.014838663471266444
+- 0.04507086266048078
+- 0.13689795343721387
+- 0.41581297869699274
+sell_spreads:
+- 5.830215413455707
+- 11.416553468797673
+- 22.355553588141255
+- 43.77597648871594
+skip_rebalance: true
+stop_loss: 0.17246804774741503
+take_profit: 0.04277708200487069
+take_profit_order_type: 2
+time_limit: 130230
+total_amount_quote: 901.49864494684
+trading_pair: EPIC-XMR
+trailing_stop:
+  activation_price: 0.011368306752523556
+  trailing_delta: 0.0014148003082644202

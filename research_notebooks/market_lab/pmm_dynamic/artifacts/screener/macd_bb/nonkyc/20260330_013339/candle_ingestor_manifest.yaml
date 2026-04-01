@@ -1,0 +1,41 @@
+backfill_days: 180
+request_delay: 0.5
+overlap_candles: 2
+include_open_candle: false
+http:
+  timeout_seconds: 30.0
+  max_retries: 3
+  retry_backoff: 1.8
+  user_agent: pmm-lab-screener/0.1
+exchanges:
+  nonkyc:
+    enabled: true
+    base_url: https://api.nonkyc.io/api/v2
+    pairs:
+    - XMR/USDT
+    - NKYC/USDT
+    - RXD/USDT
+    - EPIC/USDT
+    - SHIB/USDT
+    - MANA/USDT
+    - DIVI/USDT
+    - XRP/USDT
+    - RVN/USDT
+    - ZSD/USDT
+    - PEP/USDT
+    - INJ/USDT
+    - BDX/USDT
+    - LINK/USDT
+    - ADA/USDT
+    - ERG/USDT
+    - ARB/USDT
+    - ZANO/USDT
+    - AVAX/USDT
+    - BCH/USDT
+    intervals:
+    - 5m
+    trades:
+      enabled: true
+      limit: 500
+      update_recent_candles: false
+      recent_window_minutes: 120

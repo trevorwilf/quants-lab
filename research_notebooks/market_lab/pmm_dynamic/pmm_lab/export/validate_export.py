@@ -34,12 +34,18 @@ REQUIRED_KEYS = [
 def validate_yaml_file(yaml_path: str) -> ValidationResult:
     """Validate a Hummingbot YAML config file.
 
-    Attempts native validation first, falls back to mirror.
+    Strategy-aware: detects controller_name and dispatches to the
+    appropriate validator.
     """
     with open(yaml_path, "r") as f:
         config_dict = yaml.safe_load(f)
 
-    # Try native first
+    # Dispatch based on controller_name
+    controller_name = config_dict.get("controller_name", "")
+    if controller_name == "macd_bb_v1":
+        return _validate_macd_bb_mirror(config_dict)
+
+    # PMM Dynamic path (default)
     try:
         return _validate_native(config_dict)
     except ImportError:
@@ -224,6 +230,116 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
         warnings.append("Missing position_rebalance_threshold_pct (v2 field)")
     if "skip_rebalance" not in config_dict:
         warnings.append("Missing skip_rebalance (v2 field)")
+
+    return ValidationResult(
+        valid=len(errors) == 0,
+        mode="mirror",
+        errors=errors,
+        warnings=warnings,
+    )
+
+
+# --- MACD-BB validation ---
+
+MACD_BB_REQUIRED_KEYS = [
+    "id", "controller_name", "controller_type", "connector_name",
+    "trading_pair", "candles_connector", "candles_trading_pair", "interval",
+    "total_amount_quote", "max_executors_per_side", "cooldown_time",
+    "stop_loss", "take_profit", "time_limit",
+    "bb_length", "bb_std", "bb_long_threshold", "bb_short_threshold",
+    "macd_fast", "macd_slow", "macd_signal",
+]
+
+
+def _validate_macd_bb_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
+    """Validate a MACD-BB v1 YAML config using local mirror schema."""
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    # 1. Required keys
+    for key in MACD_BB_REQUIRED_KEYS:
+        if key not in config_dict:
+            errors.append(f"Missing required key: {key}")
+
+    if errors:
+        return ValidationResult(valid=False, mode="mirror", errors=errors, warnings=warnings)
+
+    # 2. controller_name == "macd_bb_v1"
+    if config_dict.get("controller_name") != "macd_bb_v1":
+        errors.append(f"controller_name must be 'macd_bb_v1', got '{config_dict.get('controller_name')}'")
+
+    # 3. controller_type == "directional_trading"
+    if config_dict.get("controller_type") != "directional_trading":
+        errors.append(f"controller_type must be 'directional_trading', got '{config_dict.get('controller_type')}'")
+
+    # 4. macd_fast < macd_slow
+    mf = config_dict.get("macd_fast", 0)
+    ms = config_dict.get("macd_slow", 0)
+    if mf >= ms:
+        errors.append(f"macd_fast ({mf}) must be < macd_slow ({ms})")
+
+    # 5. bb_long_threshold < bb_short_threshold
+    blt = config_dict.get("bb_long_threshold", 0)
+    bst = config_dict.get("bb_short_threshold", 0)
+    if blt >= bst:
+        errors.append(f"bb_long_threshold ({blt}) must be < bb_short_threshold ({bst})")
+
+    # 6. Barrier params positive
+    for key in ["stop_loss", "take_profit", "time_limit"]:
+        val = config_dict.get(key)
+        if val is not None and isinstance(val, (int, float)) and val <= 0:
+            errors.append(f"{key} must be positive, got {val}")
+
+    # 7. take_profit_order_type is valid
+    tpot = config_dict.get("take_profit_order_type")
+    if tpot is not None:
+        if not isinstance(tpot, int):
+            errors.append(f"take_profit_order_type must be int, got {type(tpot).__name__}")
+        elif tpot not in (1, 2, 3):
+            errors.append(f"take_profit_order_type must be 1/2/3, got {tpot}")
+
+    # 8. trailing_stop is dict
+    ts = config_dict.get("trailing_stop")
+    if ts is not None:
+        if not isinstance(ts, dict):
+            errors.append("trailing_stop must be a dict")
+        else:
+            if "activation_price" not in ts:
+                errors.append("trailing_stop missing 'activation_price'")
+            if "trailing_delta" not in ts:
+                errors.append("trailing_stop missing 'trailing_delta'")
+
+    # 9. NaN checks
+    for key in ["stop_loss", "take_profit", "total_amount_quote", "cooldown_time"]:
+        val = config_dict.get(key)
+        if isinstance(val, float) and math.isnan(val):
+            errors.append(f"{key} is NaN")
+
+    # 10. Integer type checks
+    int_fields = ["macd_fast", "macd_slow", "macd_signal", "bb_length",
+                   "leverage", "time_limit", "cooldown_time", "max_executors_per_side"]
+    for key in int_fields:
+        val = config_dict.get(key)
+        if val is not None and not isinstance(val, int):
+            if isinstance(val, float) and val == int(val):
+                warnings.append(f"{key} is float {val}, should be int {int(val)}")
+            else:
+                errors.append(f"{key} must be int, got {type(val).__name__}: {val}")
+
+    # 11. Float type checks
+    numeric_fields = ["stop_loss", "take_profit", "total_amount_quote",
+                       "bb_std", "bb_long_threshold", "bb_short_threshold"]
+    for key in numeric_fields:
+        val = config_dict.get(key)
+        if val is not None and not isinstance(val, (int, float)):
+            errors.append(f"{key} must be numeric, got {type(val).__name__}: {val}")
+
+    # 12. String checks
+    string_fields = ["connector_name", "trading_pair", "interval", "id"]
+    for key in string_fields:
+        val = config_dict.get(key)
+        if val is not None and not isinstance(val, str):
+            errors.append(f"{key} must be str, got {type(val).__name__}: {val}")
 
     return ValidationResult(
         valid=len(errors) == 0,

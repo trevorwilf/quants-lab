@@ -104,7 +104,7 @@ def run_preflight(
     elif not storage_url:
         storage_backend = "sqlite (fallback)"
 
-    if worker_model == "processes" and storage_backend != "postgresql":
+    if worker_model == "processes" and n_workers > 1 and storage_backend != "postgresql":
         errors.append(
             f"Process-based workers require PostgreSQL. Storage is: {storage_backend}."
         )

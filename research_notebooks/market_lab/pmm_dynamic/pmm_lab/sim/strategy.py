@@ -40,6 +40,27 @@ class SignalOutput:
         """Check if signals are valid (past warmup) at this bar."""
         return bar_idx >= self.warmup_end
 
+    def slice(self, start_idx: int, end_idx: int | None = None) -> "SignalOutput":
+        """Return a view of the signal arrays for ``[start_idx:end_idx]``.
+
+        The returned ``warmup_end`` is shifted into the sliced coordinate
+        system, so ``is_valid()`` preserves the same absolute validity window
+        as the parent signals.
+        """
+        if start_idx < 0:
+            raise ValueError(f"start_idx must be >= 0, got {start_idx}")
+        if end_idx is not None and end_idx < start_idx:
+            raise ValueError(
+                f"end_idx must be >= start_idx, got start_idx={start_idx}, end_idx={end_idx}"
+            )
+
+        sliced = {
+            key: arr[start_idx:end_idx]
+            for key, arr in self.data.items()
+        }
+        new_warmup_end = max(0, self.warmup_end - start_idx)
+        return SignalOutput(warmup_end=new_warmup_end, data=sliced)
+
 
 @runtime_checkable
 class Strategy(Protocol):

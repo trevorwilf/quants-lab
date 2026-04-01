@@ -239,6 +239,7 @@ class SimEngine:
         candles: np.ndarray,
         strategy: Strategy,
         sim_start_idx: Optional[int] = None,
+        bar_index_offset: int = 0,
     ) -> SimResult:
         """Run a full backtest.
 
@@ -250,13 +251,17 @@ class SimEngine:
             Strategy implementation providing signals and orders.
         sim_start_idx : int, optional
             Bar index where simulation starts. Defaults to signals warmup_end.
+        bar_index_offset : int
+            Offset added to bar indices in trade metadata. Defaults to 0.
 
         Returns
         -------
         SimResult
         """
         signals = strategy.compute_signals(candles)
-        return self.run_with_signals(candles, strategy, signals, sim_start_idx)
+        return self.run_with_signals(
+            candles, strategy, signals, sim_start_idx, bar_index_offset=bar_index_offset
+        )
 
     def run_with_signals(
         self,
@@ -264,6 +269,7 @@ class SimEngine:
         strategy: Strategy,
         precomputed_signals: SignalOutput,
         sim_start_idx: Optional[int] = None,
+        bar_index_offset: int = 0,
     ) -> SimResult:
         """Run a backtest using pre-computed signals (skips signal computation).
 
@@ -348,6 +354,7 @@ class SimEngine:
 
         # 3. Main simulation loop
         for bar in range(loop_start, n):
+            abs_bar = bar + bar_index_offset
             ts = int(_ts_arr[bar])
             c_open = float(_open_arr[bar])
             c_high = float(_high_arr[bar])
@@ -370,7 +377,7 @@ class SimEngine:
                 if result is not None:
                     exit_price, exit_type = result
                     trade.exit_price = exit_price
-                    trade.exit_bar = bar
+                    trade.exit_bar = abs_bar
                     trade.exit_timestamp = ts
                     trade.exit_type = exit_type
 
@@ -460,7 +467,7 @@ class SimEngine:
                         touch_through=cfg.touch_through,
                         entry_spread_bps=cfg.entry_spread_bps,
                         maker_fill_probability=cfg.maker_fill_probability,
-                        fill_seed=bar * 1000 + order.level,
+                        fill_seed=abs_bar * 1000 + order.level,
                     )
                 else:
                     fill = check_sell_fill(
@@ -470,7 +477,7 @@ class SimEngine:
                         touch_through=cfg.touch_through,
                         entry_spread_bps=cfg.entry_spread_bps,
                         maker_fill_probability=cfg.maker_fill_probability,
-                        fill_seed=bar * 1000 + order.level,
+                        fill_seed=abs_bar * 1000 + order.level,
                     )
 
                 if fill.filled:
@@ -524,7 +531,7 @@ class SimEngine:
                         side=order.side,
                         entry_price=fill.fill_price,
                         quantity=actual_qty,
-                        entry_bar=bar,
+                        entry_bar=abs_bar,
                         entry_timestamp=ts,
                         fee_quote=entry_fee,
                         entry_fee_quote=entry_fee,
@@ -633,7 +640,7 @@ class SimEngine:
                     trade.pnl_quote = (trade.entry_price - exit_price) * close_qty - trade.fee_quote - exit_fee
 
                 trade.exit_price = exit_price
-                trade.exit_bar = n - 1
+                trade.exit_bar = bar_index_offset + n - 1
                 trade.exit_timestamp = final_ts
                 trade.exit_type = "final_liquidation"
                 trade.exit_fee_quote = exit_fee
