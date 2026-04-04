@@ -3,17 +3,17 @@
   "collection": "symbol_metadata",
   "scan_mode": "full",
   "scan_limit": null,
-  "documents_scanned_for_schema": 52,
-  "estimated_document_count": 52,
+  "documents_scanned_for_schema": 79,
+  "estimated_document_count": 79,
   "schema_is_exhaustive_for_collection": true,
   "fields": [
     {
       "path": "_id",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 79,
       "types": [
         "objectId"
       ],
@@ -27,9 +27,9 @@
       "path": "base_asset",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 79,
       "types": [
         "string"
       ],
@@ -43,9 +43,9 @@
       "path": "connector",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 79,
       "types": [
         "string"
       ],
@@ -58,8 +58,8 @@
       "path": "maker_fee",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
       "non_null_occurrences": 0,
       "types": [
         "null"
@@ -72,8 +72,8 @@
       "path": "min_notional",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
       "non_null_occurrences": 0,
       "types": [
         "null"
@@ -86,8 +86,8 @@
       "path": "min_order_qty",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
       "non_null_occurrences": 0,
       "types": [
         "null"
@@ -100,9 +100,9 @@
       "path": "permissions",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 31,
-      "occurrences": 31,
-      "non_null_occurrences": 31,
+      "documents_with_field": 32,
+      "occurrences": 32,
+      "non_null_occurrences": 32,
       "types": [
         "array"
       ],
@@ -114,9 +114,9 @@
       "path": "permissions[]",
       "parent_path": "permissions",
       "depth": 1,
-      "documents_with_field": 31,
-      "occurrences": 31,
-      "non_null_occurrences": 31,
+      "documents_with_field": 32,
+      "occurrences": 32,
+      "non_null_occurrences": 32,
       "types": [
         "string"
       ],
@@ -128,9 +128,9 @@
       "path": "price_decimals",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 21,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 47,
       "types": [
         "int",
         "null"
@@ -144,9 +144,9 @@
       "path": "quantity_decimals",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 21,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 47,
       "types": [
         "int",
         "null"
@@ -160,9 +160,9 @@
       "path": "quantity_step",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 21,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 47,
       "types": [
         "double",
         "null"
@@ -176,9 +176,9 @@
       "path": "quote_asset",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 79,
       "types": [
         "string"
       ],
@@ -192,9 +192,9 @@
       "path": "schema_version",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 79,
       "types": [
         "int"
       ],
@@ -206,9 +206,9 @@
       "path": "source",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 79,
       "types": [
         "string"
       ],
@@ -221,9 +221,9 @@
       "path": "status",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 79,
       "types": [
         "string"
       ],
@@ -236,8 +236,8 @@
       "path": "taker_fee",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
       "non_null_occurrences": 0,
       "types": [
         "null"
@@ -250,9 +250,9 @@
       "path": "tick_size",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 21,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 47,
       "types": [
         "double",
         "null"
@@ -266,9 +266,9 @@
       "path": "trading_pair",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 79,
       "types": [
         "string"
       ],
@@ -282,16 +282,16 @@
       "path": "updated_at",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 52,
-      "occurrences": 52,
-      "non_null_occurrences": 52,
+      "documents_with_field": 79,
+      "occurrences": 79,
+      "non_null_occurrences": 79,
       "types": [
         "int"
       ],
       "examples": [
-        "1774317042",
-        "1774317045",
-        "1774317049"
+        "1775261024",
+        "1775261030",
+        "1775261042"
       ]
     }
   ]

@@ -18,7 +18,7 @@
     "status": "ACTIVE",
     "taker_fee": null,
     "tick_size": 1e-08,
-    "updated_at": 1774317042
+    "updated_at": 1775261024
   },
   {
     "_id": {
@@ -39,7 +39,7 @@
     "status": "ACTIVE",
     "taker_fee": null,
     "tick_size": 1e-08,
-    "updated_at": 1774317045
+    "updated_at": 1775261030
   },
   {
     "_id": {
@@ -60,7 +60,7 @@
     "status": "ACTIVE",
     "taker_fee": null,
     "tick_size": 1e-08,
-    "updated_at": 1774317049
+    "updated_at": 1775261042
   },
   {
     "_id": {
@@ -81,7 +81,7 @@
     "status": "ACTIVE",
     "taker_fee": null,
     "tick_size": 1e-08,
-    "updated_at": 1774317043
+    "updated_at": 1775261026
   },
   {
     "_id": {
@@ -102,6 +102,6 @@
     "status": "ACTIVE",
     "taker_fee": null,
     "tick_size": 1e-08,
-    "updated_at": 1774317049
+    "updated_at": 1775261040
   }
 ]

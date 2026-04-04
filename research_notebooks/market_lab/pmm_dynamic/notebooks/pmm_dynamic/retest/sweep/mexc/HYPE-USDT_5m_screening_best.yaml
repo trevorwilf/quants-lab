@@ -1,0 +1,39 @@
+buy_amounts_pct:
+- 0.12423597280513421
+- 0.32956679793689353
+buy_spreads:
+- 0.33857387698388935
+- 0.5918227773833952
+candles_connector: mexc
+candles_trading_pair: HYPE-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 326
+executor_refresh_time: 1492
+id: HYPE-USDT-PMM-DYNAMIC_574.1260541210901
+interval: 5m
+leverage: 1
+macd_fast: 6
+macd_signal: 19
+macd_slow: 20
+manual_kill_switch: false
+natr_length: 42
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.14953047556183346
+- 0.39666675369613874
+sell_spreads:
+- 0.30126662421720024
+- 0.37088023214284144
+skip_rebalance: true
+stop_loss: 0.1585213415975264
+take_profit: 0.04888983026257034
+take_profit_order_type: 2
+time_limit: 164835
+total_amount_quote: 574.1260541210901
+trading_pair: HYPE-USDT
+trailing_stop:
+  activation_price: 0.022767222839815065
+  trailing_delta: 0.0012775591790540222

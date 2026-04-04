@@ -4,7 +4,7 @@
   "scan_mode": "sample",
   "scan_limit": 5000,
   "documents_scanned_for_schema": 5000,
-  "estimated_document_count": 6634676,
+  "estimated_document_count": 22739575,
   "schema_is_exhaustive_for_collection": false,
   "fields": [
     {

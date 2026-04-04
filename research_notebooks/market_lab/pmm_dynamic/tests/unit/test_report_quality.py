@@ -244,6 +244,36 @@ class TestRecentWindow:
         report = _gen(recent_window_result=rw)
         assert "## Recent 28-Day Window" in report
 
+    def test_multi_window_renders_all_sections(self):
+        rw28 = FakeRecentWindow(passed=True, reason="ok")
+        rw14 = FakeRecentWindow(passed=False, reason="pnl negative")
+        rw7 = FakeRecentWindow(passed=True, reason="")
+        report = _gen(
+            recent_window_result=rw28,
+            recent_window_results={28: rw28, 14: rw14, 7: rw7},
+            recent_blocking_window_days=28,
+        )
+        assert "## Recent 28-Day Window" in report
+        assert "## Recent 14-Day Window (Informational Only)" in report
+        assert "## Recent 7-Day Window (Informational Only)" in report
+
+    def test_informational_window_has_disclaimer(self):
+        rw28 = FakeRecentWindow(passed=True, reason="ok")
+        rw14 = FakeRecentWindow(passed=False, reason="pnl negative")
+        report = _gen(
+            recent_window_result=rw28,
+            recent_window_results={28: rw28, 14: rw14},
+            recent_blocking_window_days=28,
+        )
+        assert "Informational only" in report
+        assert "does not affect stop-ship gating" in report
+
+    def test_backward_compat_single_result_still_renders(self):
+        rw = FakeRecentWindow(passed=True, reason="ok")
+        report = _gen(recent_window_result=rw)
+        assert "## Recent 28-Day Window" in report
+        assert "(Informational Only)" not in report
+
 
 class TestSensitivity:
     def test_sensitivity_uses_correct_fields(self):

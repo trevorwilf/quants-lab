@@ -3,17 +3,17 @@
   "collection": "startup_log",
   "scan_mode": "full",
   "scan_limit": null,
-  "documents_scanned_for_schema": 4,
-  "estimated_document_count": 4,
+  "documents_scanned_for_schema": 5,
+  "estimated_document_count": 5,
   "schema_is_exhaustive_for_collection": true,
   "fields": [
     {
       "path": "_id",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -27,9 +27,9 @@
       "path": "buildinfo",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "object"
       ],
@@ -41,9 +41,9 @@
       "path": "buildinfo.allocator",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -55,9 +55,9 @@
       "path": "buildinfo.bits",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "int"
       ],
@@ -69,9 +69,9 @@
       "path": "buildinfo.buildEnvironment",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "object"
       ],
@@ -83,9 +83,9 @@
       "path": "buildinfo.buildEnvironment.cc",
       "parent_path": "buildinfo.buildEnvironment",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -97,9 +97,9 @@
       "path": "buildinfo.buildEnvironment.ccflags",
       "parent_path": "buildinfo.buildEnvironment",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -111,9 +111,9 @@
       "path": "buildinfo.buildEnvironment.cppdefines",
       "parent_path": "buildinfo.buildEnvironment",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -125,9 +125,9 @@
       "path": "buildinfo.buildEnvironment.cxx",
       "parent_path": "buildinfo.buildEnvironment",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -139,9 +139,9 @@
       "path": "buildinfo.buildEnvironment.cxxflags",
       "parent_path": "buildinfo.buildEnvironment",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -153,9 +153,9 @@
       "path": "buildinfo.buildEnvironment.distarch",
       "parent_path": "buildinfo.buildEnvironment",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -167,9 +167,9 @@
       "path": "buildinfo.buildEnvironment.distmod",
       "parent_path": "buildinfo.buildEnvironment",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -181,9 +181,9 @@
       "path": "buildinfo.buildEnvironment.linkflags",
       "parent_path": "buildinfo.buildEnvironment",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -195,9 +195,9 @@
       "path": "buildinfo.buildEnvironment.target_arch",
       "parent_path": "buildinfo.buildEnvironment",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -209,9 +209,9 @@
       "path": "buildinfo.buildEnvironment.target_os",
       "parent_path": "buildinfo.buildEnvironment",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -223,9 +223,9 @@
       "path": "buildinfo.debug",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "bool"
       ],
@@ -237,9 +237,9 @@
       "path": "buildinfo.gitVersion",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -251,9 +251,9 @@
       "path": "buildinfo.javascriptEngine",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -265,9 +265,9 @@
       "path": "buildinfo.maxBsonObjectSize",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "int"
       ],
@@ -279,9 +279,9 @@
       "path": "buildinfo.modules",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "array"
       ],
@@ -293,9 +293,9 @@
       "path": "buildinfo.openssl",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "object"
       ],
@@ -307,9 +307,9 @@
       "path": "buildinfo.openssl.compiled",
       "parent_path": "buildinfo.openssl",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -321,9 +321,9 @@
       "path": "buildinfo.openssl.running",
       "parent_path": "buildinfo.openssl",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -335,9 +335,9 @@
       "path": "buildinfo.storageEngines",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "array"
       ],
@@ -349,9 +349,9 @@
       "path": "buildinfo.storageEngines[]",
       "parent_path": "buildinfo.storageEngines",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 8,
-      "non_null_occurrences": 8,
+      "documents_with_field": 5,
+      "occurrences": 10,
+      "non_null_occurrences": 10,
       "types": [
         "string"
       ],
@@ -364,9 +364,9 @@
       "path": "buildinfo.sysInfo",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -378,9 +378,9 @@
       "path": "buildinfo.version",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -392,9 +392,9 @@
       "path": "buildinfo.versionArray",
       "parent_path": "buildinfo",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "array"
       ],
@@ -406,9 +406,9 @@
       "path": "buildinfo.versionArray[]",
       "parent_path": "buildinfo.versionArray",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 16,
-      "non_null_occurrences": 16,
+      "documents_with_field": 5,
+      "occurrences": 20,
+      "non_null_occurrences": 20,
       "types": [
         "int"
       ],
@@ -422,9 +422,9 @@
       "path": "cmdLine",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "object"
       ],
@@ -437,9 +437,9 @@
       "path": "cmdLine.net",
       "parent_path": "cmdLine",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "object"
       ],
@@ -452,9 +452,9 @@
       "path": "cmdLine.net.bindIp",
       "parent_path": "cmdLine.net",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -551,9 +551,9 @@
       "path": "cmdLine.security",
       "parent_path": "cmdLine",
       "depth": 1,
-      "documents_with_field": 3,
-      "occurrences": 3,
-      "non_null_occurrences": 3,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
       "types": [
         "object"
       ],
@@ -565,9 +565,9 @@
       "path": "cmdLine.security.authorization",
       "parent_path": "cmdLine.security",
       "depth": 2,
-      "documents_with_field": 3,
-      "occurrences": 3,
-      "non_null_occurrences": 3,
+      "documents_with_field": 4,
+      "occurrences": 4,
+      "non_null_occurrences": 4,
       "types": [
         "string"
       ],
@@ -579,9 +579,9 @@
       "path": "cmdLine.storage",
       "parent_path": "cmdLine",
       "depth": 1,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "object"
       ],
@@ -593,9 +593,9 @@
       "path": "cmdLine.storage.wiredTiger",
       "parent_path": "cmdLine.storage",
       "depth": 2,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "object"
       ],
@@ -607,9 +607,9 @@
       "path": "cmdLine.storage.wiredTiger.engineConfig",
       "parent_path": "cmdLine.storage.wiredTiger",
       "depth": 3,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "object"
       ],
@@ -621,9 +621,9 @@
       "path": "cmdLine.storage.wiredTiger.engineConfig.cacheSizeGB",
       "parent_path": "cmdLine.storage.wiredTiger.engineConfig",
       "depth": 4,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "double"
       ],
@@ -691,9 +691,9 @@
       "path": "hostname",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],
@@ -707,9 +707,9 @@
       "path": "pid",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "int"
       ],
@@ -722,9 +722,9 @@
       "path": "startTime",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "date"
       ],
@@ -738,9 +738,9 @@
       "path": "startTimeLocal",
       "parent_path": null,
       "depth": 0,
-      "documents_with_field": 4,
-      "occurrences": 4,
-      "non_null_occurrences": 4,
+      "documents_with_field": 5,
+      "occurrences": 5,
+      "non_null_occurrences": 5,
       "types": [
         "string"
       ],

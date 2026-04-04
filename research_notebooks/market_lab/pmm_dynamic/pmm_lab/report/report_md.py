@@ -36,6 +36,54 @@ def _safe_serialize(obj):
         return str(obj)
 
 
+def _normalize_recent_window_results(
+    *,
+    recent_window_result=None,
+    recent_window_results=None,
+    recent_blocking_window_days=28,
+):
+    """Merge legacy single-result and new multi-window mapping into one dict.
+
+    Returns {days: result, ...} sorted descending by days.
+    """
+    results = {}
+    if recent_window_result is not None:
+        results[int(recent_blocking_window_days)] = recent_window_result
+    if recent_window_results:
+        for k, v in recent_window_results.items():
+            try:
+                k = int(k)
+            except Exception:
+                pass
+            results[k] = v
+    return dict(sorted(results.items(), key=lambda kv: int(kv[0]), reverse=True))
+
+
+def _append_recent_window_section(lines, *, days, result, informational_only=False):
+    """Render one recent-window section in the markdown report."""
+    title = f"## Recent {days}-Day Window"
+    if informational_only:
+        title += " (Informational Only)"
+    lines.append(title)
+    lines.append("")
+    if informational_only:
+        lines.append(
+            "> **Informational only** — this section does not affect "
+            "stop-ship gating, export eligibility, or validated YAML promotion."
+        )
+        lines.append("")
+    lines.append(f"- **Passed**: {getattr(result, 'passed', 'N/A')}")
+    lines.append(f"- **Reason**: {getattr(result, 'reason', 'N/A')}")
+    _obj = getattr(result, 'objective', None)
+    if _obj is not None:
+        lines.append(f"- **Objective score**: {getattr(_obj, 'raw_score', 'N/A')}")
+    _met = getattr(result, 'metrics', None)
+    if _met is not None:
+        lines.append(f"- **PnL %**: {getattr(_met, 'pnl_pct', 'N/A')}")
+        lines.append(f"- **Trade count**: {getattr(_met, 'trade_count', 'N/A')}")
+    lines.append("")
+
+
 @dataclass
 class ValidationCoverageItem:
     """One row in the validation coverage table."""
@@ -51,6 +99,8 @@ def build_validation_coverage(
     holdout_report=None,
     sensitivity_report=None,
     recent_window_result=None,
+    recent_window_results=None,
+    recent_blocking_window_days=28,
     parity_result=None,
     long_parity_result=None,
     cluster_report=None,
@@ -127,6 +177,26 @@ def build_validation_coverage(
         _status = "PASS" if getattr(recent_window_result, 'passed', False) else "FAIL"
         items.append(ValidationCoverageItem("recent_28d", _status, _detail))
 
+    # recent informational windows (14d, 7d, etc.)
+    if recent_window_results:
+        for _rw_days, _rw_res in sorted(recent_window_results.items(), key=lambda kv: int(kv[0]), reverse=True):
+            _rw_days_int = int(_rw_days)
+            if _rw_days_int == recent_blocking_window_days:
+                continue  # already covered by recent_28d above
+            _name = f"recent_{_rw_days_int}d_info"
+            if _rw_res is None:
+                items.append(ValidationCoverageItem(_name, "SKIPPED", "informational only"))
+                continue
+            _rw_obj = getattr(_rw_res, 'objective', None)
+            _rw_met = getattr(_rw_res, 'metrics', None)
+            _rw_score = f"{getattr(_rw_obj, 'raw_score', 'N/A')}" if _rw_obj else "N/A"
+            _rw_pnl = f"{getattr(_rw_met, 'pnl_pct', 'N/A')}" if _rw_met else "N/A"
+            _rw_trades = f"{getattr(_rw_met, 'trade_count', 'N/A')}" if _rw_met else "N/A"
+            _rw_reason = getattr(_rw_res, 'reason', '')
+            _detail = f"informational only; score={_rw_score}, pnl={_rw_pnl}, trades={_rw_trades}, reason={_rw_reason}"
+            _status = "PASS" if getattr(_rw_res, 'passed', False) else "FAIL"
+            items.append(ValidationCoverageItem(_name, _status, _detail))
+
     # frozen_parity
     if parity_result is None:
         items.append(ValidationCoverageItem("frozen_parity", "SKIPPED"))
@@ -171,6 +241,8 @@ def generate_report(
     dataset_audit: Optional[Any] = None,
     sensitivity_report: Optional[Any] = None,
     recent_window_result: Optional[Any] = None,
+    recent_window_results: Optional[Dict[int, Any]] = None,
+    recent_blocking_window_days: int = 28,
     cluster_report: Optional[Any] = None,
     yaml_validation_result: Optional[Any] = None,
     dataset_slices: Optional[Any] = None,
@@ -413,20 +485,15 @@ def generate_report(
             lines.append(f"- **Failure reasons**: {', '.join(str(r) for r in failure_reasons)}")
         lines.append("")
 
-    # 8c. Recent 28-Day Window
-    if recent_window_result is not None:
-        lines.append("## Recent 28-Day Window")
-        lines.append("")
-        lines.append(f"- **Passed**: {getattr(recent_window_result, 'passed', 'N/A')}")
-        lines.append(f"- **Reason**: {getattr(recent_window_result, 'reason', 'N/A')}")
-        _rw_objective = getattr(recent_window_result, 'objective', None)
-        if _rw_objective is not None:
-            lines.append(f"- **Objective score**: {getattr(_rw_objective, 'raw_score', 'N/A')}")
-        _rw_metrics = getattr(recent_window_result, 'metrics', None)
-        if _rw_metrics is not None:
-            lines.append(f"- **PnL %**: {getattr(_rw_metrics, 'pnl_pct', 'N/A')}")
-            lines.append(f"- **Trade count**: {getattr(_rw_metrics, 'trade_count', 'N/A')}")
-        lines.append("")
+    # 8c. Recent Window Sections (28d blocker + informational windows)
+    _all_rw = _normalize_recent_window_results(
+        recent_window_result=recent_window_result,
+        recent_window_results=recent_window_results,
+        recent_blocking_window_days=recent_blocking_window_days,
+    )
+    for _rw_days, _rw_res in _all_rw.items():
+        _is_info = (_rw_days != recent_blocking_window_days)
+        _append_recent_window_section(lines, days=_rw_days, result=_rw_res, informational_only=_is_info)
 
     # 8d. Sensitivity Analysis
     if sensitivity_report is not None:
@@ -560,6 +627,8 @@ def generate_report(
             holdout_report=holdout_report,
             sensitivity_report=sensitivity_report,
             recent_window_result=recent_window_result,
+            recent_window_results=recent_window_results,
+            recent_blocking_window_days=recent_blocking_window_days,
             parity_result=parity_result,
             long_parity_result=long_parity_result,
             cluster_report=cluster_report,
@@ -597,6 +666,14 @@ def generate_report(
     lines.append(_manifest_row("yaml_validation", yaml_validation_result, "—"))
     lines.append(_manifest_row("holdout", holdout_report, "pre_release_holdout"))
     lines.append(_manifest_row("recent_28d", recent_window_result, "recent_28d"))
+    # Informational recent window manifest rows
+    if recent_window_results:
+        for _rw_days, _rw_res in sorted(recent_window_results.items(), key=lambda kv: int(kv[0]), reverse=True):
+            _rw_days_int = int(_rw_days)
+            if _rw_days_int == recent_blocking_window_days:
+                continue
+            _name = f"recent_{_rw_days_int}d_info"
+            lines.append(_manifest_row(_name, _rw_res, _name))
     lines.append(_manifest_row("sensitivity", sensitivity_report, "full"))
     lines.append(_manifest_row("clustering", cluster_report, "—"))
     lines.append(_manifest_row("frozen_parity", parity_result, "fixture"))
@@ -609,13 +686,16 @@ def generate_report(
     if dataset_slices is not None:
         lines.append("## Dataset Slice Lineage")
         lines.append("")
-        lines.append(f"- **Full bars**: {getattr(dataset_slices, 'full_bars', 'N/A')}")
-        lines.append(f"- **Pre-release bars**: {getattr(dataset_slices, 'pre_release_bars', 'N/A')}")
+        _full = getattr(dataset_slices, 'full_candles', None)
+        lines.append(f"- **Full bars**: {len(_full) if _full is not None else 'N/A'}")
+        _pre = getattr(dataset_slices, 'pre_release_candles', None)
+        lines.append(f"- **Pre-release bars**: {len(_pre) if _pre is not None else 'N/A'}")
         lines.append(f"- **Dev bars**: {len(getattr(dataset_slices, 'dev_candles', []))}")
         lines.append(f"- **Holdout bars**: {len(getattr(dataset_slices, 'holdout_candles', []))}")
         lines.append(f"- **Recent 28d bars**: {len(getattr(dataset_slices, 'recent_release_candles', []))}")
-        _recent_start = getattr(dataset_slices, 'recent_start_ts', None)
-        _recent_end = getattr(dataset_slices, 'recent_end_ts', None)
+        _recent_start = getattr(dataset_slices, 'recent_start_timestamp', None)
+        _recent_end = getattr(dataset_slices, 'recent_end_timestamp',
+                      getattr(dataset_slices, 'recent_end_ts', None))
         if _recent_start is not None:
             lines.append(f"- **Recent window start**: {_recent_start}")
         if _recent_end is not None:
@@ -659,6 +739,10 @@ def generate_report(
                 "yaml_validation": _safe_serialize(yaml_validation_result),
                 "holdout_report": _safe_serialize(holdout_report),
                 "recent_window_result": _safe_serialize(recent_window_result),
+                "recent_window_results": {
+                    str(k): _safe_serialize(v)
+                    for k, v in (recent_window_results or {}).items()
+                } if recent_window_results else None,
                 "sensitivity_report": _safe_serialize(sensitivity_report),
                 "cluster_report": _safe_serialize(cluster_report),
                 "parity_result": _safe_serialize(parity_result),

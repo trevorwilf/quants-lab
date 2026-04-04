@@ -1,0 +1,83 @@
+connectors:
+  mexc:
+    pairs:
+      SOL-USDT:
+        price_tick: 0.01
+        amount_step: 0.01
+        min_notional_quote: 1.0
+        min_order_size_base: 0.01
+      LTC-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      ADA-USDT:
+        price_tick: 0.0001
+        amount_step: 0.1
+        min_notional_quote: 1.0
+        min_order_size_base: 0.1
+      XRP-USDT:
+        price_tick: 0.0001
+        amount_step: 0.1
+        min_notional_quote: 1.0
+        min_order_size_base: 0.1
+      WXT-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0
+      SHIB-USDT:
+        price_tick: 1.0e-09
+        amount_step: 10000.0
+        min_notional_quote: 1.0
+        min_order_size_base: 10000.0
+      BNB-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      PENGU-USDT:
+        price_tick: 1.0e-06
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0
+      UNI-USDT:
+        price_tick: 0.001
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      WLD-USDT:
+        price_tick: 0.0001
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0
+      XLM-USDT:
+        price_tick: 0.0001
+        amount_step: 0.1
+        min_notional_quote: 1.0
+        min_order_size_base: 0.1
+      TRUMP-USDT:
+        price_tick: 0.001
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0
+      DOT-USDT:
+        price_tick: 0.001
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      BTC-USDT:
+        price_tick: 0.01
+        amount_step: 1.0e-06
+        min_notional_quote: 1.0
+        min_order_size_base: 1.0e-06
+      TON-USDT:
+        price_tick: 0.001
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      ETH-USDC:
+        price_tick: 0.01
+        amount_step: 1.0e-06
+        min_notional_quote: 1.0
+        min_order_size_base: 1.0e-06

@@ -106,3 +106,43 @@ def test_stop_ship_checks_all_kwargs_accepted():
         if name in ("walkforward_robust", "walkforward_positive_majority", "stress_not_collapsed"):
             continue  # These require actual WF/stress data
         assert passed, f"Check '{name}' should PASS with valid mock inputs"
+
+
+def test_stop_ship_unchanged_with_14d_7d_failures():
+    """14d and 7d failures must NOT affect stop-ship results."""
+    rw28 = _make_mock_recent_window()
+    rw28.passed = True
+    rw14 = MagicMock(passed=False, reason="pnl neg")
+    rw7 = MagicMock(passed=False, reason="trades < 5")
+    checks = run_stop_ship_checks(
+        best_metrics=_make_mock_metrics(),
+        best_objective=_make_mock_objective(),
+        dataset_audit=MagicMock(passed_strict=True),
+        validation_result=MagicMock(valid=True),
+        holdout_report=MagicMock(exported_holdout_passed=True, exported_holdout_collapse=False),
+        sensitivity_penalty=0.1,
+        recent_window_result=rw28,
+        parity_result=MagicMock(passed=True),
+        cluster_report=MagicMock(is_clustered=True),
+        long_parity_result=MagicMock(passed=True),
+    )
+    assert "recent_28d_passed" in checks
+    assert checks["recent_28d_passed"] is True
+    assert "recent_14d_passed" not in checks
+    assert "recent_7d_passed" not in checks
+
+
+def test_generate_report_accepts_multi_window_kwargs():
+    rw28 = _make_mock_recent_window()
+    report = generate_report(
+        study_name="test",
+        dataset_summary={"connector": "t", "trading_pair": "B", "interval": "5m", "n_candles": 1000, "dataset_hash": "abc"},
+        best_params={},
+        best_metrics=_make_mock_metrics(),
+        best_objective=_make_mock_objective(),
+        recent_window_result=rw28,
+        recent_window_results={28: rw28, 14: MagicMock(passed=False, reason="neg", objective=MagicMock(raw_score=-0.1), metrics=MagicMock(pnl_pct=-0.5, trade_count=8))},
+        recent_blocking_window_days=28,
+    )
+    assert "Recent 28-Day Window" in report
+    assert "Recent 14-Day Window (Informational Only)" in report

@@ -1,6 +1,6 @@
 # MongoDB Estate Schema Inventory Report
 
-Generated UTC: 2026-03-24T01:59:35.959094+00:00
+Generated UTC: 2026-04-04T04:26:31.661130+00:00
 
 ## Summary
 
@@ -8,7 +8,7 @@ Generated UTC: 2026-03-24T01:59:35.959094+00:00
 - **collections_and_views**: 8
 - **indexes**: 20
 - **observed_field_paths**: 186
-- **generated_utc**: 2026-03-24T01:59:35.959094+00:00
+- **generated_utc**: 2026-04-04T04:26:31.661130+00:00
 
 ## Notes
 
@@ -21,9 +21,9 @@ Generated UTC: 2026-03-24T01:59:35.959094+00:00
 | database | sizeOnDisk | empty | db_collections | db_views | db_objects | db_dataSize | db_storageSize | db_indexes | db_indexSize | dbStats_error |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | admin | 102400 | False | 2 | 0 | 3 | 628.0 | 40960.0 | 3 | 61440.0 |  |
-| config | 110592 | False | 1 | 0 | 11 | 1452.0 | 36864.0 | 2 | 73728.0 |  |
-| local | 73728 | False | 1 | 0 | 4 | 9497.0 | 36864.0 | 1 | 36864.0 |  |
-| quants_lab | 2011631616 | False | 4 | 0 | 12096087 | 4275249607.0 | 1208684544.0 | 14 | 802947072.0 |  |
+| config | 110592 | False | 1 | 0 | 5 | 660.0 | 36864.0 | 2 | 73728.0 |  |
+| local | 73728 | False | 1 | 0 | 5 | 11830.0 | 36864.0 | 1 | 36864.0 |  |
+| quants_lab | 4925128704 | False | 4 | 0 | 33682680 | 11734271583.0 | 2722537472.0 | 14 | 2202591232.0 |  |
 
 ## Collections / Views
 
@@ -31,12 +31,12 @@ Generated UTC: 2026-03-24T01:59:35.959094+00:00
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | admin | system.users | collection | 1 | full | 1 | True | 19.0 | 2 | 20480 | null | null |  | mongo_schema_inventory_output/samples/admin/system.users.json | mongo_schema_inventory_output/schemas/admin/system.users.json |  |  |
 | admin | system.version | collection | 2 | full | 2 | True | 3.0 | 1 | 20480 | null | null |  | mongo_schema_inventory_output/samples/admin/system.version.json | mongo_schema_inventory_output/schemas/admin/system.version.json |  |  |
-| config | system.sessions | collection | 11 | full | 0 | False |  | 2 | 36864 | null | null |  |  | mongo_schema_inventory_output/schemas/config/system.sessions.json | OperationFailure: not authorized on config to execute command { find: "system.sessions", filter: {}, lsid: { id: UUID("03db2a00-5607-49c2-8b8d-885fa16748ff") }, $db: "config" }, full error: {'ok': 0.0, 'errmsg': 'not authorized on config to execute command { find: "system.sessions", filter: {}, lsid: { id: UUID("03db2a00-5607-49c2-8b8d-885fa16748ff") }, $db: "config" }', 'code': 13, 'codeName': 'Unauthorized'} |  |
-| local | startup_log | collection | 4 | full | 4 | True | 52.0 | 1 | 36864 | null | null |  | mongo_schema_inventory_output/samples/local/startup_log.json | mongo_schema_inventory_output/schemas/local/startup_log.json |  |  |
-| quants_lab | candle_features | collection | 277926 | sample | 5000 | False | 47.0 | 3 | 54812672 | null | null |  | mongo_schema_inventory_output/samples/quants_lab/candle_features.json | mongo_schema_inventory_output/schemas/quants_lab/candle_features.json |  |  |
-| quants_lab | candles | collection | 5183473 | sample | 5000 | False | 23.0 | 5 | 683122688 | null | null |  | mongo_schema_inventory_output/samples/quants_lab/candles.json | mongo_schema_inventory_output/schemas/quants_lab/candles.json |  |  |
-| quants_lab | market_trades | collection | 6634676 | sample | 5000 | False | 23.0 | 4 | 470712320 | null | null |  | mongo_schema_inventory_output/samples/quants_lab/market_trades.json | mongo_schema_inventory_output/schemas/quants_lab/market_trades.json |  |  |
-| quants_lab | symbol_metadata | collection | 52 | full | 52 | True | 19.0 | 2 | 36864 | null | null |  | mongo_schema_inventory_output/samples/quants_lab/symbol_metadata.json | mongo_schema_inventory_output/schemas/quants_lab/symbol_metadata.json |  |  |
+| config | system.sessions | collection | 5 | full | 0 | False |  | 2 | 36864 | null | null |  |  | mongo_schema_inventory_output/schemas/config/system.sessions.json | OperationFailure: not authorized on config to execute command { find: "system.sessions", filter: {}, lsid: { id: UUID("856e0826-aa40-4a56-9418-b955c41fc83f") }, $db: "config" }, full error: {'ok': 0.0, 'errmsg': 'not authorized on config to execute command { find: "system.sessions", filter: {}, lsid: { id: UUID("856e0826-aa40-4a56-9418-b955c41fc83f") }, $db: "config" }', 'code': 13, 'codeName': 'Unauthorized'} |  |
+| local | startup_log | collection | 5 | full | 5 | True | 52.0 | 1 | 36864 | null | null |  | mongo_schema_inventory_output/samples/local/startup_log.json | mongo_schema_inventory_output/schemas/local/startup_log.json |  |  |
+| quants_lab | candle_features | collection | 1313227 | sample | 5000 | False | 47.0 | 3 | 251068416 | null | null |  | mongo_schema_inventory_output/samples/quants_lab/candle_features.json | mongo_schema_inventory_output/schemas/quants_lab/candle_features.json |  |  |
+| quants_lab | candles | collection | 9629815 | sample | 5000 | False | 23.0 | 5 | 856567808 | null | null |  | mongo_schema_inventory_output/samples/quants_lab/candles.json | mongo_schema_inventory_output/schemas/quants_lab/candles.json |  |  |
+| quants_lab | market_trades | collection | 22739575 | sample | 5000 | False | 23.0 | 4 | 1614864384 | null | null |  | mongo_schema_inventory_output/samples/quants_lab/market_trades.json | mongo_schema_inventory_output/schemas/quants_lab/market_trades.json |  |  |
+| quants_lab | symbol_metadata | collection | 79 | full | 79 | True | 19.0 | 2 | 36864 | null | null |  | mongo_schema_inventory_output/samples/quants_lab/symbol_metadata.json | mongo_schema_inventory_output/schemas/quants_lab/symbol_metadata.json |  |  |
 
 ## Indexes
 
@@ -89,58 +89,58 @@ Generated UTC: 2026-03-24T01:59:35.959094+00:00
 | admin | system.version | _id |  | 0 | 2 | 2 | 1.0 | True | string | "featureCompatibilityVersion" \|\| "authSchema" | full |
 | admin | system.version | currentVersion |  | 0 | 2 | 1 | 0.5 | False | int | 5 | full |
 | admin | system.version | version |  | 0 | 2 | 1 | 0.5 | False | string | "7.0" | full |
-| local | startup_log | _id |  | 0 | 4 | 4 | 1.0 | True | string | "02f45e4d741e-1772486063935" \|\| "02f45e4d741e-1772486066930" \|\| "b12b5d1b86ac-1773113207713" | full |
-| local | startup_log | buildinfo |  | 0 | 4 | 4 | 1.0 | True | object | {"version": "7.0.30", "gitVersion": "67480f41dfa5802ce14af5c95bd0e9826d3b2131", "modules": [], "allocator": "tcmalloc", "javascriptEngine": "mozjs", "sysInfo": "deprecated", "versionArray": [7, 0, 30, 0], "openssl": {"running": "OpenSSL ... | full |
-| local | startup_log | buildinfo.allocator | buildinfo | 1 | 4 | 4 | 1.0 | True | string | "tcmalloc" | full |
-| local | startup_log | buildinfo.bits | buildinfo | 1 | 4 | 4 | 1.0 | True | int | 64 | full |
-| local | startup_log | buildinfo.buildEnvironment | buildinfo | 1 | 4 | 4 | 1.0 | True | object | {"distmod": "ubuntu2204", "distarch": "x86_64", "cc": "/opt/mongodbtoolchain/v4/bin/gcc: gcc (GCC) 11.3.0", "ccflags": "-Werror -include mongo/platform/basic.h -ffp-contract=off -fasynchronous-unwind-tables -g2 -Wall -Wsign-compare -Wno-... | full |
-| local | startup_log | buildinfo.buildEnvironment.cc | buildinfo.buildEnvironment | 2 | 4 | 4 | 1.0 | True | string | "/opt/mongodbtoolchain/v4/bin/gcc: gcc (GCC) 11.3.0" | full |
-| local | startup_log | buildinfo.buildEnvironment.ccflags | buildinfo.buildEnvironment | 2 | 4 | 4 | 1.0 | True | string | "-Werror -include mongo/platform/basic.h -ffp-contract=off -fasynchronous-unwind-tables -g2 -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch -gdwarf-5 -fno-omit-frame-pointer -fno-strict-aliasing -O2 -march=sandybridge -mtune=gene... | full |
-| local | startup_log | buildinfo.buildEnvironment.cppdefines | buildinfo.buildEnvironment | 2 | 4 | 4 | 1.0 | True | string | "SAFEINT_USE_INTRINSICS 0 PCRE2_STATIC NDEBUG _XOPEN_SOURCE 700 _GNU_SOURCE _FORTIFY_SOURCE 2 ABSL_FORCE_ALIGNED_ACCESS BOOST_ENABLE_ASSERT_DEBUG_HANDLER BOOST_FILESYSTEM_NO_CXX20_ATOMIC_REF BOOST_LOG_NO_SHORTHAND_NAMES BOOST_LOG_USE_NAT... | full |
-| local | startup_log | buildinfo.buildEnvironment.cxx | buildinfo.buildEnvironment | 2 | 4 | 4 | 1.0 | True | string | "/opt/mongodbtoolchain/v4/bin/g++: g++ (GCC) 11.3.0" | full |
-| local | startup_log | buildinfo.buildEnvironment.cxxflags | buildinfo.buildEnvironment | 2 | 4 | 4 | 1.0 | True | string | "-Woverloaded-virtual -Wpessimizing-move -Wno-maybe-uninitialized -fsized-deallocation -Wno-deprecated -std=c++20" | full |
-| local | startup_log | buildinfo.buildEnvironment.distarch | buildinfo.buildEnvironment | 2 | 4 | 4 | 1.0 | True | string | "x86_64" | full |
-| local | startup_log | buildinfo.buildEnvironment.distmod | buildinfo.buildEnvironment | 2 | 4 | 4 | 1.0 | True | string | "ubuntu2204" | full |
-| local | startup_log | buildinfo.buildEnvironment.linkflags | buildinfo.buildEnvironment | 2 | 4 | 4 | 1.0 | True | string | "-Wl,--fatal-warnings -B/opt/mongodbtoolchain/v4/bin -gdwarf-5 -pthread -Wl,-z,now -fuse-ld=lld -fstack-protector-strong -gdwarf64 -Wl,--build-id -Wl,--hash-style=gnu -Wl,-z,noexecstack -Wl,--warn-execstack -Wl,-z,relro -Wl,--compress-de... | full |
-| local | startup_log | buildinfo.buildEnvironment.target_arch | buildinfo.buildEnvironment | 2 | 4 | 4 | 1.0 | True | string | "x86_64" | full |
-| local | startup_log | buildinfo.buildEnvironment.target_os | buildinfo.buildEnvironment | 2 | 4 | 4 | 1.0 | True | string | "linux" | full |
-| local | startup_log | buildinfo.debug | buildinfo | 1 | 4 | 4 | 1.0 | True | bool | false | full |
-| local | startup_log | buildinfo.gitVersion | buildinfo | 1 | 4 | 4 | 1.0 | True | string | "67480f41dfa5802ce14af5c95bd0e9826d3b2131" | full |
-| local | startup_log | buildinfo.javascriptEngine | buildinfo | 1 | 4 | 4 | 1.0 | True | string | "mozjs" | full |
-| local | startup_log | buildinfo.maxBsonObjectSize | buildinfo | 1 | 4 | 4 | 1.0 | True | int | 16777216 | full |
-| local | startup_log | buildinfo.modules | buildinfo | 1 | 4 | 4 | 1.0 | True | array | [] | full |
-| local | startup_log | buildinfo.openssl | buildinfo | 1 | 4 | 4 | 1.0 | True | object | {"running": "OpenSSL 3.0.2 15 Mar 2022", "compiled": "OpenSSL 3.0.2 15 Mar 2022"} | full |
-| local | startup_log | buildinfo.openssl.compiled | buildinfo.openssl | 2 | 4 | 4 | 1.0 | True | string | "OpenSSL 3.0.2 15 Mar 2022" | full |
-| local | startup_log | buildinfo.openssl.running | buildinfo.openssl | 2 | 4 | 4 | 1.0 | True | string | "OpenSSL 3.0.2 15 Mar 2022" | full |
-| local | startup_log | buildinfo.storageEngines | buildinfo | 1 | 4 | 4 | 1.0 | True | array | ["devnull", "wiredTiger"] | full |
-| local | startup_log | buildinfo.storageEngines[] | buildinfo.storageEngines | 2 | 4 | 4 | 1.0 | True | string | "devnull" \|\| "wiredTiger" | full |
-| local | startup_log | buildinfo.sysInfo | buildinfo | 1 | 4 | 4 | 1.0 | True | string | "deprecated" | full |
-| local | startup_log | buildinfo.version | buildinfo | 1 | 4 | 4 | 1.0 | True | string | "7.0.30" | full |
-| local | startup_log | buildinfo.versionArray | buildinfo | 1 | 4 | 4 | 1.0 | True | array | [7, 0, 30, 0] | full |
-| local | startup_log | buildinfo.versionArray[] | buildinfo.versionArray | 2 | 4 | 4 | 1.0 | True | int | 7 \|\| 0 \|\| 30 | full |
-| local | startup_log | cmdLine |  | 0 | 4 | 4 | 1.0 | True | object | {"net": {"bindIp": "127.0.0.1", "port": 27017, "tls": {"mode": "disabled"}}, "processManagement": {"fork": true, "pidFilePath": "/tmp/docker-entrypoint-temp-mongod.pid"}, "storage": {"wiredTiger": {"engineConfig": {"cacheSizeGB": 2.0}}},... \|\| {"net": {"bindIp": "*"}, "security": {"authorization": "enabled"}, "storage": {"wiredTiger": {"engineConfig": {"cacheSizeGB": 2.0}}}} | full |
-| local | startup_log | cmdLine.net | cmdLine | 1 | 4 | 4 | 1.0 | True | object | {"bindIp": "127.0.0.1", "port": 27017, "tls": {"mode": "disabled"}} \|\| {"bindIp": "*"} | full |
-| local | startup_log | cmdLine.net.bindIp | cmdLine.net | 2 | 4 | 4 | 1.0 | True | string | "127.0.0.1" \|\| "*" | full |
-| local | startup_log | cmdLine.net.port | cmdLine.net | 2 | 4 | 1 | 0.25 | False | int | 27017 | full |
-| local | startup_log | cmdLine.net.tls | cmdLine.net | 2 | 4 | 1 | 0.25 | False | object | {"mode": "disabled"} | full |
-| local | startup_log | cmdLine.net.tls.mode | cmdLine.net.tls | 3 | 4 | 1 | 0.25 | False | string | "disabled" | full |
-| local | startup_log | cmdLine.processManagement | cmdLine | 1 | 4 | 1 | 0.25 | False | object | {"fork": true, "pidFilePath": "/tmp/docker-entrypoint-temp-mongod.pid"} | full |
-| local | startup_log | cmdLine.processManagement.fork | cmdLine.processManagement | 2 | 4 | 1 | 0.25 | False | bool | true | full |
-| local | startup_log | cmdLine.processManagement.pidFilePath | cmdLine.processManagement | 2 | 4 | 1 | 0.25 | False | string | "/tmp/docker-entrypoint-temp-mongod.pid" | full |
-| local | startup_log | cmdLine.security | cmdLine | 1 | 4 | 3 | 0.75 | False | object | {"authorization": "enabled"} | full |
-| local | startup_log | cmdLine.security.authorization | cmdLine.security | 2 | 4 | 3 | 0.75 | False | string | "enabled" | full |
-| local | startup_log | cmdLine.storage | cmdLine | 1 | 4 | 4 | 1.0 | True | object | {"wiredTiger": {"engineConfig": {"cacheSizeGB": 2.0}}} | full |
-| local | startup_log | cmdLine.storage.wiredTiger | cmdLine.storage | 2 | 4 | 4 | 1.0 | True | object | {"engineConfig": {"cacheSizeGB": 2.0}} | full |
-| local | startup_log | cmdLine.storage.wiredTiger.engineConfig | cmdLine.storage.wiredTiger | 3 | 4 | 4 | 1.0 | True | object | {"cacheSizeGB": 2.0} | full |
-| local | startup_log | cmdLine.storage.wiredTiger.engineConfig.cacheSizeGB | cmdLine.storage.wiredTiger.engineConfig | 4 | 4 | 4 | 1.0 | True | double | 2.0 | full |
-| local | startup_log | cmdLine.systemLog | cmdLine | 1 | 4 | 1 | 0.25 | False | object | {"destination": "file", "logAppend": true, "path": "/proc/1/fd/1"} | full |
-| local | startup_log | cmdLine.systemLog.destination | cmdLine.systemLog | 2 | 4 | 1 | 0.25 | False | string | "file" | full |
-| local | startup_log | cmdLine.systemLog.logAppend | cmdLine.systemLog | 2 | 4 | 1 | 0.25 | False | bool | true | full |
-| local | startup_log | cmdLine.systemLog.path | cmdLine.systemLog | 2 | 4 | 1 | 0.25 | False | string | "/proc/1/fd/1" | full |
-| local | startup_log | hostname |  | 0 | 4 | 4 | 1.0 | True | string | "02f45e4d741e" \|\| "b12b5d1b86ac" \|\| "aa8895121acf" | full |
-| local | startup_log | pid |  | 0 | 4 | 4 | 1.0 | True | int | 28 \|\| 1 | full |
-| local | startup_log | startTime |  | 0 | 4 | 4 | 1.0 | True | date | {"$date": "2026-03-02T21:14:23Z"} \|\| {"$date": "2026-03-02T21:14:26Z"} \|\| {"$date": "2026-03-10T03:26:47Z"} | full |
-| local | startup_log | startTimeLocal |  | 0 | 4 | 4 | 1.0 | True | string | "Mon Mar 2 22:14:23.935" \|\| "Mon Mar 2 22:14:26.930" \|\| "Tue Mar 10 04:26:47.713" | full |
+| local | startup_log | _id |  | 0 | 5 | 5 | 1.0 | True | string | "02f45e4d741e-1772486063935" \|\| "02f45e4d741e-1772486066930" \|\| "b12b5d1b86ac-1773113207713" | full |
+| local | startup_log | buildinfo |  | 0 | 5 | 5 | 1.0 | True | object | {"version": "7.0.30", "gitVersion": "67480f41dfa5802ce14af5c95bd0e9826d3b2131", "modules": [], "allocator": "tcmalloc", "javascriptEngine": "mozjs", "sysInfo": "deprecated", "versionArray": [7, 0, 30, 0], "openssl": {"running": "OpenSSL ... | full |
+| local | startup_log | buildinfo.allocator | buildinfo | 1 | 5 | 5 | 1.0 | True | string | "tcmalloc" | full |
+| local | startup_log | buildinfo.bits | buildinfo | 1 | 5 | 5 | 1.0 | True | int | 64 | full |
+| local | startup_log | buildinfo.buildEnvironment | buildinfo | 1 | 5 | 5 | 1.0 | True | object | {"distmod": "ubuntu2204", "distarch": "x86_64", "cc": "/opt/mongodbtoolchain/v4/bin/gcc: gcc (GCC) 11.3.0", "ccflags": "-Werror -include mongo/platform/basic.h -ffp-contract=off -fasynchronous-unwind-tables -g2 -Wall -Wsign-compare -Wno-... | full |
+| local | startup_log | buildinfo.buildEnvironment.cc | buildinfo.buildEnvironment | 2 | 5 | 5 | 1.0 | True | string | "/opt/mongodbtoolchain/v4/bin/gcc: gcc (GCC) 11.3.0" | full |
+| local | startup_log | buildinfo.buildEnvironment.ccflags | buildinfo.buildEnvironment | 2 | 5 | 5 | 1.0 | True | string | "-Werror -include mongo/platform/basic.h -ffp-contract=off -fasynchronous-unwind-tables -g2 -Wall -Wsign-compare -Wno-unknown-pragmas -Winvalid-pch -gdwarf-5 -fno-omit-frame-pointer -fno-strict-aliasing -O2 -march=sandybridge -mtune=gene... | full |
+| local | startup_log | buildinfo.buildEnvironment.cppdefines | buildinfo.buildEnvironment | 2 | 5 | 5 | 1.0 | True | string | "SAFEINT_USE_INTRINSICS 0 PCRE2_STATIC NDEBUG _XOPEN_SOURCE 700 _GNU_SOURCE _FORTIFY_SOURCE 2 ABSL_FORCE_ALIGNED_ACCESS BOOST_ENABLE_ASSERT_DEBUG_HANDLER BOOST_FILESYSTEM_NO_CXX20_ATOMIC_REF BOOST_LOG_NO_SHORTHAND_NAMES BOOST_LOG_USE_NAT... | full |
+| local | startup_log | buildinfo.buildEnvironment.cxx | buildinfo.buildEnvironment | 2 | 5 | 5 | 1.0 | True | string | "/opt/mongodbtoolchain/v4/bin/g++: g++ (GCC) 11.3.0" | full |
+| local | startup_log | buildinfo.buildEnvironment.cxxflags | buildinfo.buildEnvironment | 2 | 5 | 5 | 1.0 | True | string | "-Woverloaded-virtual -Wpessimizing-move -Wno-maybe-uninitialized -fsized-deallocation -Wno-deprecated -std=c++20" | full |
+| local | startup_log | buildinfo.buildEnvironment.distarch | buildinfo.buildEnvironment | 2 | 5 | 5 | 1.0 | True | string | "x86_64" | full |
+| local | startup_log | buildinfo.buildEnvironment.distmod | buildinfo.buildEnvironment | 2 | 5 | 5 | 1.0 | True | string | "ubuntu2204" | full |
+| local | startup_log | buildinfo.buildEnvironment.linkflags | buildinfo.buildEnvironment | 2 | 5 | 5 | 1.0 | True | string | "-Wl,--fatal-warnings -B/opt/mongodbtoolchain/v4/bin -gdwarf-5 -pthread -Wl,-z,now -fuse-ld=lld -fstack-protector-strong -gdwarf64 -Wl,--build-id -Wl,--hash-style=gnu -Wl,-z,noexecstack -Wl,--warn-execstack -Wl,-z,relro -Wl,--compress-de... | full |
+| local | startup_log | buildinfo.buildEnvironment.target_arch | buildinfo.buildEnvironment | 2 | 5 | 5 | 1.0 | True | string | "x86_64" | full |
+| local | startup_log | buildinfo.buildEnvironment.target_os | buildinfo.buildEnvironment | 2 | 5 | 5 | 1.0 | True | string | "linux" | full |
+| local | startup_log | buildinfo.debug | buildinfo | 1 | 5 | 5 | 1.0 | True | bool | false | full |
+| local | startup_log | buildinfo.gitVersion | buildinfo | 1 | 5 | 5 | 1.0 | True | string | "67480f41dfa5802ce14af5c95bd0e9826d3b2131" | full |
+| local | startup_log | buildinfo.javascriptEngine | buildinfo | 1 | 5 | 5 | 1.0 | True | string | "mozjs" | full |
+| local | startup_log | buildinfo.maxBsonObjectSize | buildinfo | 1 | 5 | 5 | 1.0 | True | int | 16777216 | full |
+| local | startup_log | buildinfo.modules | buildinfo | 1 | 5 | 5 | 1.0 | True | array | [] | full |
+| local | startup_log | buildinfo.openssl | buildinfo | 1 | 5 | 5 | 1.0 | True | object | {"running": "OpenSSL 3.0.2 15 Mar 2022", "compiled": "OpenSSL 3.0.2 15 Mar 2022"} | full |
+| local | startup_log | buildinfo.openssl.compiled | buildinfo.openssl | 2 | 5 | 5 | 1.0 | True | string | "OpenSSL 3.0.2 15 Mar 2022" | full |
+| local | startup_log | buildinfo.openssl.running | buildinfo.openssl | 2 | 5 | 5 | 1.0 | True | string | "OpenSSL 3.0.2 15 Mar 2022" | full |
+| local | startup_log | buildinfo.storageEngines | buildinfo | 1 | 5 | 5 | 1.0 | True | array | ["devnull", "wiredTiger"] | full |
+| local | startup_log | buildinfo.storageEngines[] | buildinfo.storageEngines | 2 | 5 | 5 | 1.0 | True | string | "devnull" \|\| "wiredTiger" | full |
+| local | startup_log | buildinfo.sysInfo | buildinfo | 1 | 5 | 5 | 1.0 | True | string | "deprecated" | full |
+| local | startup_log | buildinfo.version | buildinfo | 1 | 5 | 5 | 1.0 | True | string | "7.0.30" | full |
+| local | startup_log | buildinfo.versionArray | buildinfo | 1 | 5 | 5 | 1.0 | True | array | [7, 0, 30, 0] | full |
+| local | startup_log | buildinfo.versionArray[] | buildinfo.versionArray | 2 | 5 | 5 | 1.0 | True | int | 7 \|\| 0 \|\| 30 | full |
+| local | startup_log | cmdLine |  | 0 | 5 | 5 | 1.0 | True | object | {"net": {"bindIp": "127.0.0.1", "port": 27017, "tls": {"mode": "disabled"}}, "processManagement": {"fork": true, "pidFilePath": "/tmp/docker-entrypoint-temp-mongod.pid"}, "storage": {"wiredTiger": {"engineConfig": {"cacheSizeGB": 2.0}}},... \|\| {"net": {"bindIp": "*"}, "security": {"authorization": "enabled"}, "storage": {"wiredTiger": {"engineConfig": {"cacheSizeGB": 2.0}}}} | full |
+| local | startup_log | cmdLine.net | cmdLine | 1 | 5 | 5 | 1.0 | True | object | {"bindIp": "127.0.0.1", "port": 27017, "tls": {"mode": "disabled"}} \|\| {"bindIp": "*"} | full |
+| local | startup_log | cmdLine.net.bindIp | cmdLine.net | 2 | 5 | 5 | 1.0 | True | string | "127.0.0.1" \|\| "*" | full |
+| local | startup_log | cmdLine.net.port | cmdLine.net | 2 | 5 | 1 | 0.2 | False | int | 27017 | full |
+| local | startup_log | cmdLine.net.tls | cmdLine.net | 2 | 5 | 1 | 0.2 | False | object | {"mode": "disabled"} | full |
+| local | startup_log | cmdLine.net.tls.mode | cmdLine.net.tls | 3 | 5 | 1 | 0.2 | False | string | "disabled" | full |
+| local | startup_log | cmdLine.processManagement | cmdLine | 1 | 5 | 1 | 0.2 | False | object | {"fork": true, "pidFilePath": "/tmp/docker-entrypoint-temp-mongod.pid"} | full |
+| local | startup_log | cmdLine.processManagement.fork | cmdLine.processManagement | 2 | 5 | 1 | 0.2 | False | bool | true | full |
+| local | startup_log | cmdLine.processManagement.pidFilePath | cmdLine.processManagement | 2 | 5 | 1 | 0.2 | False | string | "/tmp/docker-entrypoint-temp-mongod.pid" | full |
+| local | startup_log | cmdLine.security | cmdLine | 1 | 5 | 4 | 0.8 | False | object | {"authorization": "enabled"} | full |
+| local | startup_log | cmdLine.security.authorization | cmdLine.security | 2 | 5 | 4 | 0.8 | False | string | "enabled" | full |
+| local | startup_log | cmdLine.storage | cmdLine | 1 | 5 | 5 | 1.0 | True | object | {"wiredTiger": {"engineConfig": {"cacheSizeGB": 2.0}}} | full |
+| local | startup_log | cmdLine.storage.wiredTiger | cmdLine.storage | 2 | 5 | 5 | 1.0 | True | object | {"engineConfig": {"cacheSizeGB": 2.0}} | full |
+| local | startup_log | cmdLine.storage.wiredTiger.engineConfig | cmdLine.storage.wiredTiger | 3 | 5 | 5 | 1.0 | True | object | {"cacheSizeGB": 2.0} | full |
+| local | startup_log | cmdLine.storage.wiredTiger.engineConfig.cacheSizeGB | cmdLine.storage.wiredTiger.engineConfig | 4 | 5 | 5 | 1.0 | True | double | 2.0 | full |
+| local | startup_log | cmdLine.systemLog | cmdLine | 1 | 5 | 1 | 0.2 | False | object | {"destination": "file", "logAppend": true, "path": "/proc/1/fd/1"} | full |
+| local | startup_log | cmdLine.systemLog.destination | cmdLine.systemLog | 2 | 5 | 1 | 0.2 | False | string | "file" | full |
+| local | startup_log | cmdLine.systemLog.logAppend | cmdLine.systemLog | 2 | 5 | 1 | 0.2 | False | bool | true | full |
+| local | startup_log | cmdLine.systemLog.path | cmdLine.systemLog | 2 | 5 | 1 | 0.2 | False | string | "/proc/1/fd/1" | full |
+| local | startup_log | hostname |  | 0 | 5 | 5 | 1.0 | True | string | "02f45e4d741e" \|\| "b12b5d1b86ac" \|\| "aa8895121acf" | full |
+| local | startup_log | pid |  | 0 | 5 | 5 | 1.0 | True | int | 28 \|\| 1 | full |
+| local | startup_log | startTime |  | 0 | 5 | 5 | 1.0 | True | date | {"$date": "2026-03-02T21:14:23Z"} \|\| {"$date": "2026-03-02T21:14:26Z"} \|\| {"$date": "2026-03-10T03:26:47Z"} | full |
+| local | startup_log | startTimeLocal |  | 0 | 5 | 5 | 1.0 | True | string | "Mon Mar 2 22:14:23.935" \|\| "Mon Mar 2 22:14:26.930" \|\| "Tue Mar 10 04:26:47.713" | full |
 | quants_lab | candle_features | _id |  | 0 | 5000 | 5000 | 1.0 | True | objectId | {"$oid": "69b8c36cf7f2f0931fa02495"} \|\| {"$oid": "69b8c36cf7f2f0931fa02496"} \|\| {"$oid": "69b8c36cf7f2f0931fa02497"} | sample |
 | quants_lab | candle_features | ask_top_qty |  | 0 | 5000 | 5000 | 1.0 | True | null | null | sample |
 | quants_lab | candle_features | base_asset |  | 0 | 5000 | 5000 | 1.0 | True | string | "ETH" \|\| "XNV" \|\| "GHOST" | sample |
@@ -234,22 +234,22 @@ Generated UTC: 2026-03-24T01:59:35.959094+00:00
 | quants_lab | market_trades | timestampms |  | 0 | 5000 | 5000 | 1.0 | True | int | 1773716285432 \|\| 1773716269402 \|\| 1773716255363 | sample |
 | quants_lab | market_trades | trade_id |  | 0 | 5000 | 5000 | 1.0 | True | string | "ws_69b8c33d4d4d4223aac536a9" \|\| "ws_69b8c32d4d4d4223aac52701" \|\| "ws_69b8c31f4d4d4223aac51b65" | sample |
 | quants_lab | market_trades | trading_pair |  | 0 | 5000 | 5000 | 1.0 | True | string | "ETH-USDT" \|\| "XNV-XMR" \|\| "GHOST-XMR" | sample |
-| quants_lab | symbol_metadata | _id |  | 0 | 52 | 52 | 1.0 | True | objectId | {"$oid": "69b8c34cf7f2f0931fa01a84"} \|\| {"$oid": "69b8c34cf7f2f0931fa01a85"} \|\| {"$oid": "69b8c34cf7f2f0931fa01a86"} | full |
-| quants_lab | symbol_metadata | base_asset |  | 0 | 52 | 52 | 1.0 | True | string | "BTC" \|\| "ETH" \|\| "SOL" | full |
-| quants_lab | symbol_metadata | connector |  | 0 | 52 | 52 | 1.0 | True | string | "nonkyc" \|\| "mexc" | full |
-| quants_lab | symbol_metadata | maker_fee |  | 0 | 52 | 52 | 1.0 | True | null | null | full |
-| quants_lab | symbol_metadata | min_notional |  | 0 | 52 | 52 | 1.0 | True | null | null | full |
-| quants_lab | symbol_metadata | min_order_qty |  | 0 | 52 | 52 | 1.0 | True | null | null | full |
-| quants_lab | symbol_metadata | permissions |  | 0 | 52 | 31 | 0.596154 | False | array | ["SPOT"] | full |
-| quants_lab | symbol_metadata | permissions[] | permissions | 1 | 52 | 31 | 0.596154 | False | string | "SPOT" | full |
-| quants_lab | symbol_metadata | price_decimals |  | 0 | 52 | 52 | 1.0 | True | int\|null | 8 \|\| null | full |
-| quants_lab | symbol_metadata | quantity_decimals |  | 0 | 52 | 52 | 1.0 | True | int\|null | 8 \|\| null | full |
-| quants_lab | symbol_metadata | quantity_step |  | 0 | 52 | 52 | 1.0 | True | double\|null | 1e-08 \|\| null | full |
-| quants_lab | symbol_metadata | quote_asset |  | 0 | 52 | 52 | 1.0 | True | string | "USDT" \|\| "XMR" \|\| "BTC" | full |
-| quants_lab | symbol_metadata | schema_version |  | 0 | 52 | 52 | 1.0 | True | int | 1 | full |
-| quants_lab | symbol_metadata | source |  | 0 | 52 | 52 | 1.0 | True | string | "market_info" \|\| "exchangeInfo" | full |
-| quants_lab | symbol_metadata | status |  | 0 | 52 | 52 | 1.0 | True | string | "ACTIVE" \|\| "1" | full |
-| quants_lab | symbol_metadata | taker_fee |  | 0 | 52 | 52 | 1.0 | True | null | null | full |
-| quants_lab | symbol_metadata | tick_size |  | 0 | 52 | 52 | 1.0 | True | double\|null | 1e-08 \|\| null | full |
-| quants_lab | symbol_metadata | trading_pair |  | 0 | 52 | 52 | 1.0 | True | string | "BTC-USDT" \|\| "ETH-USDT" \|\| "SOL-USDT" | full |
-| quants_lab | symbol_metadata | updated_at |  | 0 | 52 | 52 | 1.0 | True | int | 1774317042 \|\| 1774317045 \|\| 1774317049 | full |
+| quants_lab | symbol_metadata | _id |  | 0 | 79 | 79 | 1.0 | True | objectId | {"$oid": "69b8c34cf7f2f0931fa01a84"} \|\| {"$oid": "69b8c34cf7f2f0931fa01a85"} \|\| {"$oid": "69b8c34cf7f2f0931fa01a86"} | full |
+| quants_lab | symbol_metadata | base_asset |  | 0 | 79 | 79 | 1.0 | True | string | "BTC" \|\| "ETH" \|\| "SOL" | full |
+| quants_lab | symbol_metadata | connector |  | 0 | 79 | 79 | 1.0 | True | string | "nonkyc" \|\| "mexc" | full |
+| quants_lab | symbol_metadata | maker_fee |  | 0 | 79 | 79 | 1.0 | True | null | null | full |
+| quants_lab | symbol_metadata | min_notional |  | 0 | 79 | 79 | 1.0 | True | null | null | full |
+| quants_lab | symbol_metadata | min_order_qty |  | 0 | 79 | 79 | 1.0 | True | null | null | full |
+| quants_lab | symbol_metadata | permissions |  | 0 | 79 | 32 | 0.405063 | False | array | ["SPOT"] | full |
+| quants_lab | symbol_metadata | permissions[] | permissions | 1 | 79 | 32 | 0.405063 | False | string | "SPOT" | full |
+| quants_lab | symbol_metadata | price_decimals |  | 0 | 79 | 79 | 1.0 | True | int\|null | 8 \|\| null | full |
+| quants_lab | symbol_metadata | quantity_decimals |  | 0 | 79 | 79 | 1.0 | True | int\|null | 8 \|\| null | full |
+| quants_lab | symbol_metadata | quantity_step |  | 0 | 79 | 79 | 1.0 | True | double\|null | 1e-08 \|\| null | full |
+| quants_lab | symbol_metadata | quote_asset |  | 0 | 79 | 79 | 1.0 | True | string | "USDT" \|\| "XMR" \|\| "BTC" | full |
+| quants_lab | symbol_metadata | schema_version |  | 0 | 79 | 79 | 1.0 | True | int | 1 | full |
+| quants_lab | symbol_metadata | source |  | 0 | 79 | 79 | 1.0 | True | string | "market_info" \|\| "exchangeInfo" | full |
+| quants_lab | symbol_metadata | status |  | 0 | 79 | 79 | 1.0 | True | string | "ACTIVE" \|\| "1" | full |
+| quants_lab | symbol_metadata | taker_fee |  | 0 | 79 | 79 | 1.0 | True | null | null | full |
+| quants_lab | symbol_metadata | tick_size |  | 0 | 79 | 79 | 1.0 | True | double\|null | 1e-08 \|\| null | full |
+| quants_lab | symbol_metadata | trading_pair |  | 0 | 79 | 79 | 1.0 | True | string | "BTC-USDT" \|\| "ETH-USDT" \|\| "SOL-USDT" | full |
+| quants_lab | symbol_metadata | updated_at |  | 0 | 79 | 79 | 1.0 | True | int | 1775261024 \|\| 1775261030 \|\| 1775261042 | full |

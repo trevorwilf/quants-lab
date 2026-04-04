@@ -1,0 +1,18 @@
+connectors:
+  mexc:
+    pairs:
+      FET-USDT:
+        price_tick: 0.0001
+        amount_step: 0.001
+        min_notional_quote: 1.0
+        min_order_size_base: 0.001
+      OP-USDT:
+        price_tick: 0.0001
+        amount_step: 0.01
+        min_notional_quote: 1.0
+        min_order_size_base: 0.01
+      SIGN-USDT:
+        price_tick: 1.0e-05
+        amount_step: 0.0
+        min_notional_quote: 1.0
+        min_order_size_base: 0.0

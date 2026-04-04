@@ -52,3 +52,38 @@ class TestValidationCoverage:
         assert item.name == "test"
         assert item.status == "PASS"
         assert item.detail == "some detail"
+
+    def test_multi_window_coverage_rows(self):
+        rw28 = MagicMock(passed=True, reason="ok", objective=MagicMock(raw_score=0.5), metrics=MagicMock(pnl_pct=1.0, trade_count=20))
+        rw14 = MagicMock(passed=False, reason="pnl neg", objective=MagicMock(raw_score=-0.1), metrics=MagicMock(pnl_pct=-0.5, trade_count=10))
+        rw7 = MagicMock(passed=True, reason="", objective=MagicMock(raw_score=0.2), metrics=MagicMock(pnl_pct=0.3, trade_count=5))
+        items = build_validation_coverage(
+            recent_window_result=rw28,
+            recent_window_results={28: rw28, 14: rw14, 7: rw7},
+            recent_blocking_window_days=28,
+        )
+        names = [i.name for i in items]
+        assert "recent_28d" in names
+        assert "recent_14d_info" in names
+        assert "recent_7d_info" in names
+
+    def test_info_coverage_detail_says_informational(self):
+        rw14 = MagicMock(passed=False, reason="pnl neg", objective=MagicMock(raw_score=-0.1), metrics=MagicMock(pnl_pct=-0.5, trade_count=10))
+        items = build_validation_coverage(
+            recent_window_results={14: rw14},
+            recent_blocking_window_days=28,
+        )
+        info_items = [i for i in items if i.name == "recent_14d_info"]
+        assert len(info_items) == 1
+        assert "informational only" in info_items[0].detail
+
+    def test_no_duplicate_28d_in_info_rows(self):
+        rw28 = MagicMock(passed=True, reason="ok")
+        items = build_validation_coverage(
+            recent_window_result=rw28,
+            recent_window_results={28: rw28},
+            recent_blocking_window_days=28,
+        )
+        names = [i.name for i in items]
+        assert names.count("recent_28d") == 1
+        assert "recent_28d_info" not in names

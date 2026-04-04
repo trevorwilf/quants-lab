@@ -1,0 +1,24 @@
+backfill_days: 180
+request_delay: 0.5
+overlap_candles: 2
+include_open_candle: false
+http:
+  timeout_seconds: 30.0
+  max_retries: 3
+  retry_backoff: 1.8
+  user_agent: pmm-lab-screener/0.1
+exchanges:
+  mexc:
+    enabled: true
+    base_url: https://api.mexc.com
+    pairs:
+    - FET/USDT
+    - TON/USDT
+    - DOT/USDT
+    intervals:
+    - 1m
+    trades:
+      enabled: true
+      limit: 500
+      update_recent_candles: false
+      recent_window_minutes: 120
