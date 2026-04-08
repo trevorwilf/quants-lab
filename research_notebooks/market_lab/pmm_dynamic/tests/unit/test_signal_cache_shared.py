@@ -78,3 +78,29 @@ class TestSignalCacheKey:
         result2 = runner.run_with_signals(sample_candles_500, signals)
 
         np.testing.assert_array_equal(result1.equity_curve, result2.equity_curve)
+
+
+class TestSharedSignalCache:
+    """Tests for SharedSignalCache cross-step reuse."""
+
+    def test_shared_cache_avoids_recomputation(self, base_config, sample_candles_500, default_pair_rules):
+        """Second get_or_compute with same key+dataset must return cached result."""
+        from pmm_lab.objective.signal_cache import SharedSignalCache
+        cache = SharedSignalCache()
+
+        sig1 = cache.get_or_compute(base_config, "dev", sample_candles_500, default_pair_rules)
+        assert len(cache) == 1
+
+        sig2 = cache.get_or_compute(base_config, "dev", sample_candles_500, default_pair_rules)
+        assert len(cache) == 1  # no new entry
+        assert sig1 is sig2  # same object (cache hit, not recomputation)
+
+    def test_shared_cache_different_dataset_keys(self, base_config, sample_candles_500, default_pair_rules):
+        """Different dataset_key should produce separate cache entries."""
+        from pmm_lab.objective.signal_cache import SharedSignalCache
+        cache = SharedSignalCache()
+
+        sig_dev = cache.get_or_compute(base_config, "dev", sample_candles_500, default_pair_rules)
+        sig_full = cache.get_or_compute(base_config, "full", sample_candles_500, default_pair_rules)
+        assert len(cache) == 2
+        assert sig_dev is not sig_full

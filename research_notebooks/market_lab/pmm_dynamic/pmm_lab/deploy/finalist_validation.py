@@ -290,6 +290,7 @@ def validate_finalist(
             "fixed_quote": fixed_quote,
             "seed": seed,
         },
+        tp_min_notional_failures=dev_metrics.tp_min_notional_failures,
     )
 
     # JSON sidecar

@@ -53,6 +53,9 @@ class Metrics:
     # Unclosed trades
     open_trade_count: int = 0
 
+    # Min-notional TP failures (from simulator)
+    tp_min_notional_failures: int = 0  # TP exits blocked by min-notional check
+
 
 def compute_metrics(
     result: SimResult,
@@ -210,4 +213,5 @@ def compute_metrics(
         median_trade_pnl_quote=median_trade_pnl,
         inventory_exposure_p95=inv_p95,
         open_trade_count=len(open_trades),
+        tp_min_notional_failures=result.tp_min_notional_failures,
     )

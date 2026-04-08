@@ -559,6 +559,7 @@ def run_full_pipeline(
         best_objective=obj_decomp, walkforward_result=wf_result,
         stress_report=stress_report, stop_ship_checks=stop_ship,
         holdout_report=holdout_report, output_path=report_path,
+        tp_min_notional_failures=metrics.tp_min_notional_failures,
     )
 
     elapsed = time.time() - t0
