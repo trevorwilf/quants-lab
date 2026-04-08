@@ -38,6 +38,8 @@ def create_objective(
     strategy_name: str = "pmm_dynamic",    # strategy dispatch
     strategy_search_space=None,            # override search space callable
     strategy_canonicalizer=None,           # override canonicalizer callable
+    refresh_close_mode: str = "keep",      # refresh lifecycle mode
+    initial_base_balance: float = 0.0,     # pre-existing base token balance
 ):
     """Create an Optuna-compatible objective function (closure).
 
@@ -84,6 +86,8 @@ def create_objective(
             controller_compat=controller_compat,
             strategy_search_space=strategy_search_space,
             strategy_canonicalizer=strategy_canonicalizer,
+            refresh_close_mode=refresh_close_mode,
+            initial_base_balance=initial_base_balance,
         )
 
     # --- PMM Dynamic path (UNCHANGED) ---
@@ -103,7 +107,12 @@ def create_objective(
 
         # Override controller_compat from the sweep-level setting
         from dataclasses import replace
-        config = replace(config, controller_compat=controller_compat)
+        config = replace(
+            config,
+            controller_compat=controller_compat,
+            refresh_close_mode=refresh_close_mode,
+            initial_base_balance=initial_base_balance,
+        )
 
         trial.set_user_attr("reject_reason", None)
         trial.set_user_attr("buy_n_levels", len(config.buy_spreads))
@@ -258,6 +267,7 @@ def _create_macd_bb_objective(
     train_days, test_days, step_days, embargo_bars,
     obj_fn, _obj_weights, objective_version, run_stress, lambda_mad,
     fixed_quote, controller_compat, strategy_search_space, strategy_canonicalizer,
+    refresh_close_mode="keep", initial_base_balance=0.0,
 ):
     """Create an Optuna objective for MACD-BB strategy."""
     from pmm_lab.optuna.search_space_macd_bb import suggest_macd_bb_params
@@ -290,7 +300,11 @@ def _create_macd_bb_objective(
         # Override controller_compat from sweep-level setting
         from dataclasses import replace
         strategy_config = replace(bundle.strategy_config, controller_compat=controller_compat)
-        engine_config = bundle.engine_config
+        engine_config = replace(
+            bundle.engine_config,
+            refresh_close_mode=refresh_close_mode,
+            initial_base_balance=initial_base_balance,
+        )
 
         trial.set_user_attr("reject_reason", None)
         trial.set_user_attr("strategy_name", "macd_bb")
