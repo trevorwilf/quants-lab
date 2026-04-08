@@ -20,6 +20,7 @@ class PairRules:
     min_order_size_base: float = 0.0
     max_order_size_base: Optional[float] = None
     fees: FeeConfig = field(default_factory=lambda: FeeConfig(0.001, 0.002))
+    supports_post_only: bool = True
 
 
 @dataclass(frozen=True)

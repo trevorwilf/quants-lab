@@ -37,6 +37,7 @@ def _sim_config_to_engine_config(sc: SimConfig) -> EngineConfig:
         touch_through=getattr(sc, 'touch_through', False),
         entry_spread_bps=getattr(sc, 'entry_spread_bps', 0.0),
         maker_fill_probability=getattr(sc, 'maker_fill_probability', 1.0),
+        taker_probability=getattr(sc, 'taker_probability', 0.0),
         split_volume_by_side=getattr(sc, 'split_volume_by_side', False),
         buy_volume_fraction=getattr(sc, 'buy_volume_fraction', 0.5),
         volume_is_base=getattr(sc, 'volume_is_base', True),

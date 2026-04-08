@@ -1,7 +1,10 @@
-dataset_hash: bfd1fa8108c4ea57639ef9e71f0db60bdb73d4a8e30680137e93d28824b6e6d7
-phase1_score: -0.007321857192097986
-robust_score: -0.08362072110737334
-sweep_date: '2026-03-29T05:11:52.641292+00:00'
-trial: 1761
-worst_scenario: spread_widen_25bps
-worst_score: -0.1209771658227681
+dataset_hash: 6a3c75ecede833f2291b0791df4ba54ebaa413ae21e77d483f3212af46486ff7
+exported_at: '2026-04-08T18:55:33.289311+00:00'
+phase1_score: -0.007805671995992775
+robust_score: -0.12165615209455141
+simulator_version: 0.2.0
+sweep_date: '2026-04-08T18:55:33.266694+00:00'
+trial: 6707
+worst_scenario: severe_adverse
+worst_score: -0.17109510551963455
+yaml_sha256: fa9cc3cada0be3060d5347ad3f2a7af5a3ab598b43c35f41fb9092ef646ea046

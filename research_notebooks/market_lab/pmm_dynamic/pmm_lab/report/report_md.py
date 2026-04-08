@@ -579,7 +579,24 @@ def generate_report(
             lines.append(f"  - {w}")
         lines.append("")
 
-    # 8g. Execution Realism Assumptions
+    # 8g. Execution Realism Assumptions — auto-populate if not provided
+    if execution_realism is None and best_params is not None:
+        execution_realism = {}
+        tp = best_params.get("taker_probability", 0.0)
+        execution_realism["taker_probability"] = tp
+        execution_realism["fill_participation_rate"] = best_params.get("fill_participation_rate", 0.1)
+        execution_realism["latency_bars"] = best_params.get("latency_bars", 1)
+        execution_realism["slippage_bps"] = best_params.get("slippage_bps", 5.0)
+        execution_realism["touch_through"] = best_params.get("touch_through", False)
+        execution_realism["maker_fill_probability"] = best_params.get("maker_fill_probability", 1.0)
+        execution_realism["refresh_close_mode"] = best_params.get("refresh_close_mode", "keep")
+        connector = dataset_summary.get("connector", "unknown") if dataset_summary else "unknown"
+        execution_realism["connector"] = connector
+        if tp == 0.0 and connector in ("nonkyc",):
+            execution_realism["WARNING"] = (
+                f"taker_probability=0.0 but {connector} does not support post-only orders. "
+                "Costs may be underestimated."
+            )
     if execution_realism is not None:
         lines.append("## Execution Realism Assumptions")
         lines.append("")
@@ -591,10 +608,16 @@ def generate_report(
     if stop_ship_checks is not None:
         lines.append("## Stop-Ship Checks")
         lines.append("")
+        # Advisory checks (not blocking): taker_realism
+        _advisory_checks = {"taker_realism"}
         all_pass = True
         for check, passed in stop_ship_checks.items():
-            status = "PASS" if passed else "**FAIL**"
-            if not passed:
+            is_advisory = check in _advisory_checks
+            if is_advisory:
+                status = "PASS" if passed else "**ADVISORY**"
+            else:
+                status = "PASS" if passed else "**FAIL**"
+            if not passed and not is_advisory:
                 all_pass = False
             lines.append(f"- {check}: {status}")
         lines.append("")
@@ -776,6 +799,7 @@ def run_stop_ship_checks(
     parity_result: Optional[Any] = None,
     cluster_report: Optional[Any] = None,
     long_parity_result: Optional[Any] = None,
+    execution_realism: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, bool]:
     """Run all stop-ship condition checks.
 
@@ -873,5 +897,16 @@ def run_stop_ship_checks(
         checks["top_k_clustered"] = bool(getattr(cluster_report, 'is_clustered', False))
     else:
         checks["top_k_clustered"] = False  # not tested = fail
+
+    # 12. taker_realism (advisory) — warn if non-post-only connector uses taker_probability=0.0
+    if execution_realism is not None:
+        connector = execution_realism.get("connector", "")
+        tp = execution_realism.get("taker_probability", 0.0)
+        spo = execution_realism.get("supports_post_only", True)
+        if not spo and tp == 0.0:
+            checks["taker_realism"] = False  # unrealistic assumption
+        else:
+            checks["taker_realism"] = True
+    # Don't add if execution_realism is not provided (backward compat)
 
     return checks

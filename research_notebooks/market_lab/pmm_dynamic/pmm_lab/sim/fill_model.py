@@ -46,6 +46,7 @@ def check_buy_fill(
     entry_spread_bps: float = 0.0,
     maker_fill_probability: float = 1.0,
     fill_seed: int = 0,
+    taker_probability: float = 0.0,
 ) -> FillResult:
     """Check if a buy limit order fills on this candle.
 
@@ -108,12 +109,22 @@ def check_buy_fill(
     # Entry spread: buy fills at slightly worse (higher) price
     adjusted_price = order_price * (1.0 + entry_spread_bps / 20000.0)
 
+    # Taker probability check (deterministic, after fill eligibility)
+    fill_type = "maker"
+    if taker_probability > 0.0:
+        if taker_probability >= 1.0:
+            fill_type = "taker"
+        else:
+            seed_bytes = f"taker_check:buy:{fill_seed}:{order_price:.8f}".encode()
+            if _deterministic_random(seed_bytes) < taker_probability:
+                fill_type = "taker"
+
     return FillResult(
         filled=True,
         fill_price=adjusted_price,
         fill_quantity=fill_qty,
         remaining_quantity=order_quantity - fill_qty,
-        fill_type="maker",
+        fill_type=fill_type,
     )
 
 
@@ -128,6 +139,7 @@ def check_sell_fill(
     entry_spread_bps: float = 0.0,
     maker_fill_probability: float = 1.0,
     fill_seed: int = 0,
+    taker_probability: float = 0.0,
 ) -> FillResult:
     """Check if a sell limit order fills on this candle.
 
@@ -190,10 +202,20 @@ def check_sell_fill(
     # Entry spread: sell fills at slightly worse (lower) price
     adjusted_price = order_price * (1.0 - entry_spread_bps / 20000.0)
 
+    # Taker probability check (deterministic, after fill eligibility)
+    fill_type = "maker"
+    if taker_probability > 0.0:
+        if taker_probability >= 1.0:
+            fill_type = "taker"
+        else:
+            seed_bytes = f"taker_check:sell:{fill_seed}:{order_price:.8f}".encode()
+            if _deterministic_random(seed_bytes) < taker_probability:
+                fill_type = "taker"
+
     return FillResult(
         filled=True,
         fill_price=adjusted_price,
         fill_quantity=fill_qty,
         remaining_quantity=order_quantity - fill_qty,
-        fill_type="maker",
+        fill_type=fill_type,
     )

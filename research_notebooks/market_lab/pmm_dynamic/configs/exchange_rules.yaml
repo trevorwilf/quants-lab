@@ -6,6 +6,7 @@ connectors:
       min_notional_quote: 5.0
       min_order_size_base: 0.0
       max_order_size_base: null
+      supports_post_only: true
       fees:
         mode: tiered
         tier_basis: rolling_30d_volume_usd
@@ -47,6 +48,7 @@ connectors:
       min_notional_quote: 5.0
       min_order_size_base: 0.0
       max_order_size_base: null
+      supports_post_only: false
       fees:
         mode: static
         maker_fee: 0.0010

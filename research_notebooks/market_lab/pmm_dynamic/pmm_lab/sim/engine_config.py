@@ -46,6 +46,7 @@ class EngineConfig:
     touch_through: bool = False             # False = v1 touch (<=/>= ), True = strict through (</>)
     entry_spread_bps: float = 0.0           # half-spread adverse cost on maker entries (0 = v1 behavior)
     maker_fill_probability: float = 1.0     # probability a price-eligible fill actually executes (1.0 = v1 behavior)
+    taker_probability: float = 0.0          # probability a filled limit order executes as taker (0.0 = v1 behavior)
 
     # Per-side volume splitting (v2)
     split_volume_by_side: bool = False      # False = v1 shared capacity; True = separate buy/sell pools

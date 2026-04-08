@@ -40,6 +40,7 @@ def create_objective(
     strategy_canonicalizer=None,           # override canonicalizer callable
     refresh_close_mode: str = "keep",      # refresh lifecycle mode
     initial_base_balance: float = 0.0,     # pre-existing base token balance
+    taker_probability: float = 0.0,        # probability limit entries execute as taker
 ):
     """Create an Optuna-compatible objective function (closure).
 
@@ -88,6 +89,7 @@ def create_objective(
             strategy_canonicalizer=strategy_canonicalizer,
             refresh_close_mode=refresh_close_mode,
             initial_base_balance=initial_base_balance,
+            taker_probability=taker_probability,
         )
 
     # --- PMM Dynamic path (UNCHANGED) ---
@@ -112,6 +114,7 @@ def create_objective(
             controller_compat=controller_compat,
             refresh_close_mode=refresh_close_mode,
             initial_base_balance=initial_base_balance,
+            taker_probability=taker_probability,
         )
 
         trial.set_user_attr("reject_reason", None)
@@ -267,7 +270,7 @@ def _create_macd_bb_objective(
     train_days, test_days, step_days, embargo_bars,
     obj_fn, _obj_weights, objective_version, run_stress, lambda_mad,
     fixed_quote, controller_compat, strategy_search_space, strategy_canonicalizer,
-    refresh_close_mode="keep", initial_base_balance=0.0,
+    refresh_close_mode="keep", initial_base_balance=0.0, taker_probability=0.0,
 ):
     """Create an Optuna objective for MACD-BB strategy."""
     from pmm_lab.optuna.search_space_macd_bb import suggest_macd_bb_params
@@ -304,6 +307,7 @@ def _create_macd_bb_objective(
             bundle.engine_config,
             refresh_close_mode=refresh_close_mode,
             initial_base_balance=initial_base_balance,
+            taker_probability=taker_probability,
         )
 
         trial.set_user_attr("reject_reason", None)

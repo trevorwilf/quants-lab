@@ -488,6 +488,7 @@ class SimEngine:
                         entry_spread_bps=cfg.entry_spread_bps,
                         maker_fill_probability=cfg.maker_fill_probability,
                         fill_seed=abs_bar * 1000 + order.level,
+                        taker_probability=cfg.taker_probability,
                     )
                 else:
                     fill = check_sell_fill(
@@ -498,26 +499,29 @@ class SimEngine:
                         entry_spread_bps=cfg.entry_spread_bps,
                         maker_fill_probability=cfg.maker_fill_probability,
                         fill_seed=abs_bar * 1000 + order.level,
+                        taker_probability=cfg.taker_probability,
                     )
 
                 if fill.filled:
                     actual_qty = fill.fill_quantity
 
+                    entry_fee_type = fill.fill_type  # "maker" or "taker"
                     if order.side == "buy":
                         # Check if we can afford this buy (spot constraint)
-                        entry_fee = compute_fee(fill.fill_price, actual_qty, rules.fees, "maker")
+                        entry_fee = compute_fee(fill.fill_price, actual_qty, rules.fees, entry_fee_type)
                         cost = actual_qty * fill.fill_price + entry_fee
                         available_quote = inventory.available_quote_for_buy()
                         if available_quote < cost:
                             # Reduce quantity to what we can afford
+                            fee_rate = rules.fees.maker_fee if entry_fee_type == "maker" else rules.fees.taker_fee
                             max_affordable = inventory.max_buy_quantity(
-                                fill.fill_price, rules.fees.maker_fee
+                                fill.fill_price, fee_rate
                             )
                             actual_qty = round_amount(max_affordable, rules)
                             if actual_qty <= 0:
                                 remaining_orders.append(order)
                                 continue
-                            entry_fee = compute_fee(fill.fill_price, actual_qty, rules.fees, "maker")
+                            entry_fee = compute_fee(fill.fill_price, actual_qty, rules.fees, entry_fee_type)
                         executed = inventory.buy(actual_qty, fill.fill_price, entry_fee)
                         if not executed:
                             remaining_orders.append(order)
@@ -529,7 +533,7 @@ class SimEngine:
                         if actual_qty <= 0:
                             remaining_orders.append(order)
                             continue
-                        entry_fee = compute_fee(fill.fill_price, actual_qty, rules.fees, "maker")
+                        entry_fee = compute_fee(fill.fill_price, actual_qty, rules.fees, entry_fee_type)
                         executed = inventory.sell(actual_qty, fill.fill_price, entry_fee)
                         if not executed:
                             remaining_orders.append(order)

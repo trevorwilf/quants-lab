@@ -93,6 +93,7 @@ class SimConfig:
     touch_through: bool = False
     entry_spread_bps: float = 0.0
     maker_fill_probability: float = 1.0
+    taker_probability: float = 0.0  # probability that a filled limit order executes as taker
 
     # Volume splitting (v2) — defaults preserve v1 behavior
     split_volume_by_side: bool = False

@@ -167,6 +167,12 @@ def export_yaml(
         metadata["yaml_sha256"] = yaml_sha256
         metadata["exported_at"] = datetime.now(timezone.utc).isoformat()
         metadata["simulator_version"] = pmm_lab_version
+        # Execution realism settings for research lineage
+        metadata["taker_probability"] = config.taker_probability
+        metadata["touch_through"] = config.touch_through
+        metadata["maker_fill_probability"] = config.maker_fill_probability
+        metadata["refresh_close_mode"] = config.refresh_close_mode
+        metadata["initial_base_balance"] = config.initial_base_balance
         meta_path = out.with_suffix(".meta.yml")
         with open(meta_path, "w") as f:
             yaml.dump(_sanitize_for_yaml(metadata), f, default_flow_style=False, sort_keys=True)

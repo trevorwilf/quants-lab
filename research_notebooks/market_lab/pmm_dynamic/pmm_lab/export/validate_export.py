@@ -31,11 +31,15 @@ REQUIRED_KEYS = [
 ]
 
 
-def validate_yaml_file(yaml_path: str) -> ValidationResult:
+def validate_yaml_file(yaml_path: str, **kwargs) -> ValidationResult:
     """Validate a Hummingbot YAML config file.
 
     Strategy-aware: detects controller_name and dispatches to the
     appropriate validator.
+
+    Optional kwargs passed through to mirror validation:
+        supports_post_only (bool): Whether the target connector supports post-only orders.
+        taker_probability (float): The taker_probability used in the backtest.
     """
     with open(yaml_path, "r") as f:
         config_dict = yaml.safe_load(f)
@@ -51,7 +55,7 @@ def validate_yaml_file(yaml_path: str) -> ValidationResult:
     except ImportError:
         pass
 
-    return _validate_mirror(config_dict)
+    return _validate_mirror(config_dict, **kwargs)
 
 
 def _validate_native(config_dict: Dict[str, Any]) -> ValidationResult:
@@ -64,7 +68,7 @@ def _validate_native(config_dict: Dict[str, Any]) -> ValidationResult:
         return ValidationResult(valid=False, mode="native", errors=[str(e)], warnings=[])
 
 
-def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
+def _validate_mirror(config_dict: Dict[str, Any], **kwargs) -> ValidationResult:
     """Validate using a local mirror schema."""
     errors: List[str] = []
     warnings: List[str] = []
@@ -238,6 +242,18 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
         warnings.append("Missing position_rebalance_threshold_pct (v2 field)")
     if "skip_rebalance" not in config_dict:
         warnings.append("Missing skip_rebalance (v2 field)")
+
+    # 21. NonKYC post-only warning
+    connector_name = config_dict.get("connector_name", "")
+    supports_post_only = kwargs.get("supports_post_only", True)
+    taker_probability = kwargs.get("taker_probability", 0.0)
+    if not supports_post_only and taker_probability == 0.0:
+        warnings.append(
+            f"Target connector '{connector_name}' does not support post-only orders. "
+            f"Backtested with taker_probability=0.0 (pure maker assumption). "
+            f"Live execution may incur taker fees on some entries. "
+            f"Consider re-running with taker_probability > 0 for more realistic cost estimates."
+        )
 
     return ValidationResult(
         valid=len(errors) == 0,

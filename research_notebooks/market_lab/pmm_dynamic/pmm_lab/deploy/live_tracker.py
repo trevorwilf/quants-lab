@@ -9,17 +9,33 @@ The Hummingbot database schema uses these key tables:
 - TradeFill: completed trade fills with price, amount, fees
 - Order: order lifecycle tracking
 
+Hummingbot TradeFill schema (verified against Hummingbot source):
+- timestamp: BigInteger — Unix MILLISECONDS
+- exchange_trade_id: exchange-side trade ID (not "trade_id")
+- trade_fee: TEXT/JSON — {"percent": str, "percent_token": str,
+    "flat_fees": [{"token": str, "amount": str}]}
+- trade_fee_in_quote: Float — pre-computed fee in quote currency
+
 Usage:
     tracker = LivePerformanceTracker(db_url)
     live_metrics = tracker.get_performance("nonkyc", "XMR-USDT", hours=24)
 """
 
+import json as _json
 import logging
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+SCHEMA_VERSION = 2  # Bumped from implicit v1 (wrong column names) to v2 (correct schema)
+
+# Columns we expect on the TradeFill table.
+_EXPECTED_COLUMNS = frozenset({
+    "exchange_trade_id", "symbol", "trade_type", "price", "amount",
+    "trade_fee", "trade_fee_in_quote", "timestamp", "order_type", "market",
+})
 
 
 class TrackerHealth:
@@ -88,6 +104,7 @@ class LivePerformanceTracker:
         self._engine = None
         self._last_health: str = TrackerHealth.OK
         self._last_error: Optional[str] = None
+        self._schema_checked: bool = False
 
     @staticmethod
     def _build_db_url() -> str:
@@ -145,6 +162,70 @@ class LivePerformanceTracker:
         except Exception:
             return False
 
+    def _check_schema(self, conn) -> bool:
+        """Verify expected columns exist on the TradeFill table.
+
+        Sets health to SCHEMA_ERROR and returns False if columns are missing.
+        """
+        from sqlalchemy import text
+        try:
+            # Use information_schema to check columns (works on PostgreSQL and SQLite with pragma)
+            result = conn.execute(text(
+                """SELECT column_name FROM information_schema.columns
+                   WHERE table_name = 'TradeFill'"""
+            ))
+            actual_columns = {row[0] for row in result}
+        except Exception:
+            # Fallback for SQLite (used in tests)
+            try:
+                result = conn.execute(text('PRAGMA table_info("TradeFill")'))
+                actual_columns = {row[1] for row in result}
+            except Exception as e:
+                logger.warning("Cannot inspect TradeFill schema: %s", e)
+                self._last_health = TrackerHealth.SCHEMA_ERROR
+                self._last_error = f"Schema check failed: {e}"
+                return False
+
+        missing = _EXPECTED_COLUMNS - actual_columns
+        if missing:
+            msg = f"TradeFill table missing columns: {sorted(missing)}"
+            logger.warning(msg)
+            self._last_health = TrackerHealth.SCHEMA_ERROR
+            self._last_error = msg
+            return False
+        return True
+
+    @staticmethod
+    def _parse_trade_fee(trade_fee_raw, trade_fee_in_quote) -> tuple:
+        """Parse fee from TradeFill row.
+
+        Returns (fee_amount, fee_currency).  Prefers trade_fee_in_quote
+        when available; falls back to parsing the trade_fee JSON.
+        """
+        # Prefer the pre-computed quote fee
+        if trade_fee_in_quote is not None and float(trade_fee_in_quote) > 0:
+            return float(trade_fee_in_quote), ""
+
+        # Fall back to JSON parsing
+        if trade_fee_raw:
+            try:
+                fee_data = _json.loads(str(trade_fee_raw))
+                flat_fees = fee_data.get("flat_fees", [])
+                if flat_fees:
+                    total = sum(float(f.get("amount", 0)) for f in flat_fees)
+                    # Use the token from the first flat fee entry
+                    currency = flat_fees[0].get("token", "") if flat_fees else ""
+                    return total, currency
+                # Percentage-only fee — cannot compute absolute amount without context
+                pct = float(fee_data.get("percent", 0))
+                if pct > 0:
+                    currency = fee_data.get("percent_token", "")
+                    return 0.0, currency  # caller needs trade notional to convert
+            except (ValueError, TypeError, KeyError) as e:
+                logger.debug("Could not parse trade_fee JSON: %s", e)
+
+        return 0.0, ""
+
     def get_trades(
         self,
         connector: str,
@@ -174,36 +255,48 @@ class LivePerformanceTracker:
         if since is None:
             since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
+        # Convert datetime to Unix milliseconds for the BigInteger timestamp column
+        since_ms = int(since.timestamp() * 1000)
+
         engine = self._get_engine()
         query = text("""
             SELECT
-                trade_id, symbol, trade_type, price, amount,
-                trade_fee_amount, trade_fee_currency, timestamp, order_type
+                exchange_trade_id, symbol, trade_type, price, amount,
+                trade_fee, trade_fee_in_quote, timestamp, order_type
             FROM "TradeFill"
             WHERE market = :connector
               AND symbol = :pair
-              AND timestamp >= :since
+              AND timestamp >= :since_ms
             ORDER BY timestamp ASC
         """)
 
         trades = []
         try:
             with engine.connect() as conn:
+                if not self._schema_checked:
+                    if not self._check_schema(conn):
+                        return trades
+                    self._schema_checked = True
+
                 result = conn.execute(query, {
                     "connector": connector,
                     "pair": trading_pair,
-                    "since": since.isoformat(),
+                    "since_ms": since_ms,
                 })
                 for row in result:
+                    fee_amount, fee_currency = self._parse_trade_fee(row[5], row[6])
+                    # timestamp is Unix milliseconds — convert to datetime
+                    ts_ms = int(row[7])
+                    ts_dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
                     trades.append(LiveTrade(
                         trade_id=str(row[0]),
                         trading_pair=str(row[1]),
                         side=str(row[2]).lower(),
                         price=float(row[3]),
                         amount=float(row[4]),
-                        fee_amount=float(row[5]) if row[5] else 0.0,
-                        fee_currency=str(row[6]) if row[6] else "",
-                        timestamp=row[7] if isinstance(row[7], datetime) else datetime.fromisoformat(str(row[7])),
+                        fee_amount=fee_amount,
+                        fee_currency=fee_currency,
+                        timestamp=ts_dt,
                         order_type=str(row[8]) if row[8] else "LIMIT",
                     ))
             self._last_health = TrackerHealth.OK if trades else TrackerHealth.NO_DATA

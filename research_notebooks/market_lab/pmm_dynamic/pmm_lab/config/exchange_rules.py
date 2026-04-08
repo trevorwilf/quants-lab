@@ -140,6 +140,7 @@ def resolve_pair_rules(
             else None
         ),
         fees=fees,
+        supports_post_only=bool(merged.get("supports_post_only", True)),
     )
 
 

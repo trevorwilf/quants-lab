@@ -13,7 +13,7 @@ Usage:
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,14 @@ class DriftCheck:
 
 
 @dataclass
+class Diagnostic:
+    """Non-pass/fail diagnostic information."""
+    name: str
+    value: Any
+    description: str
+
+
+@dataclass
 class ComparisonReport:
     """Full comparison of live vs backtest performance."""
     trading_pair: str
@@ -39,6 +47,11 @@ class ComparisonReport:
     drift_detected: bool        # True if any critical check failed
     warnings: List[str]
     summary: str
+    diagnostics: List[Diagnostic] = None
+
+    def __post_init__(self):
+        if self.diagnostics is None:
+            self.diagnostics = []
 
 
 def compare_performance(
@@ -163,6 +176,75 @@ def compare_performance(
                 severity="warning" if not passed else "info",
             ))
 
+    # ── Diagnostics (informational, not pass/fail) ──
+    diagnostics = []
+
+    # Trade rate (trades/hour)
+    if live.period_hours > 0 and live.trade_count > 0:
+        trades_per_hour = live.trade_count / live.period_hours
+        diagnostics.append(Diagnostic(
+            name="trades_per_hour",
+            value=round(trades_per_hour, 2),
+            description=f"{trades_per_hour:.2f} trades/hour over {live.period_hours:.0f}h",
+        ))
+
+    # Volume-weighted average spread (distance from mid)
+    if live.buy_count > 0 and live.sell_count > 0:
+        buy_trades = [t for t in getattr(live, '_trades', []) if t.side == "buy"]
+        sell_trades = [t for t in getattr(live, '_trades', []) if t.side == "sell"]
+        if not buy_trades:
+            # Approximate mid from avg prices
+            mid_price = (live.avg_buy_price + live.avg_sell_price) / 2
+            if mid_price > 0:
+                buy_spread_pct = abs(live.avg_buy_price - mid_price) / mid_price * 100
+                sell_spread_pct = abs(live.avg_sell_price - mid_price) / mid_price * 100
+                diagnostics.append(Diagnostic(
+                    name="avg_spread_from_mid_pct",
+                    value=round((buy_spread_pct + sell_spread_pct) / 2, 4),
+                    description=f"Average spread from mid: buy={buy_spread_pct:.4f}%, sell={sell_spread_pct:.4f}%",
+                ))
+
+    # Fee breakdown by currency
+    if hasattr(live, 'unresolved_fee_count') and live.unresolved_fee_count > 0:
+        diagnostics.append(Diagnostic(
+            name="unresolved_fees",
+            value=live.unresolved_fee_count,
+            description=(
+                f"{live.unresolved_fee_count} trades with fees in unconvertible currencies: "
+                f"{', '.join(live.unresolved_fee_currencies)}"
+            ),
+        ))
+
+    # Trade cadence — detect long gaps
+    if hasattr(live, '_trades') and len(live._trades) > 1:
+        trade_list = live._trades
+        gaps = []
+        for i in range(1, len(trade_list)):
+            gap_s = (trade_list[i].timestamp - trade_list[i-1].timestamp).total_seconds()
+            gaps.append(gap_s)
+        if gaps:
+            max_gap_h = max(gaps) / 3600
+            median_gap_m = sorted(gaps)[len(gaps) // 2] / 60
+            diagnostics.append(Diagnostic(
+                name="max_trade_gap_hours",
+                value=round(max_gap_h, 2),
+                description=f"Longest gap between trades: {max_gap_h:.2f}h (median cadence: {median_gap_m:.1f}min)",
+            ))
+            if max_gap_h > live.period_hours * 0.25:
+                warnings.append(
+                    f"Long trading gap detected: {max_gap_h:.1f}h "
+                    f"(>{live.period_hours * 0.25:.0f}h threshold) — bot may have stopped quoting"
+                )
+
+    # Severity escalation: if 2+ warning-level checks fail, escalate to critical
+    warning_failures = [c for c in checks if not c.passed and c.severity == "warning"]
+    if len(warning_failures) >= 2:
+        for wf in warning_failures:
+            wf.severity = "critical"
+        warnings.append(
+            f"Multiple warning checks failed ({len(warning_failures)}) — escalated to critical"
+        )
+
     # Aggregate
     critical_failures = [c for c in checks if not c.passed and c.severity == "critical"]
     drift_detected = len(critical_failures) > 0
@@ -184,6 +266,7 @@ def compare_performance(
         drift_detected=drift_detected,
         warnings=warnings,
         summary=summary,
+        diagnostics=diagnostics,
     )
 
 
@@ -213,6 +296,13 @@ def generate_comparison_report_md(report: ComparisonReport) -> str:
         lines.append("")
         for w in report.warnings:
             lines.append(f"- {w}")
+        lines.append("")
+
+    if report.diagnostics:
+        lines.append("## Diagnostics")
+        lines.append("")
+        for d in report.diagnostics:
+            lines.append(f"- **{d.name}**: {d.description}")
         lines.append("")
 
     lines.append(f"**Summary:** {report.summary}")
