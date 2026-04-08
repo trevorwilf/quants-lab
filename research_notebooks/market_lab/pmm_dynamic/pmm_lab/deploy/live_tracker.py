@@ -81,6 +81,8 @@ class LivePerformanceMetrics:
     # Fee currency breakdown
     unresolved_fee_count: int = 0             # fees in neither base nor quote
     unresolved_fee_currencies: List[str] = None  # which currencies couldn't be converted
+    # Raw trade list for downstream diagnostics (optional, not serialized)
+    _trades: Optional[List['LiveTrade']] = None
 
     def __post_init__(self):
         if self.unresolved_fee_currencies is None:
@@ -418,4 +420,5 @@ class LivePerformanceTracker:
             last_trade_at=trades[-1].timestamp if trades else None,
             unresolved_fee_count=unresolved_count,
             unresolved_fee_currencies=sorted(unresolved_currencies),
+            _trades=trades,
         )

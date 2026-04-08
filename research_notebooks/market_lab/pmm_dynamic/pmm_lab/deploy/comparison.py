@@ -179,6 +179,9 @@ def compare_performance(
     # ── Diagnostics (informational, not pass/fail) ──
     diagnostics = []
 
+    # Extract raw trade list if available (populated by LivePerformanceTracker.get_performance)
+    trade_list = getattr(live, '_trades', None) or []
+
     # Trade rate (trades/hour)
     if live.period_hours > 0 and live.trade_count > 0:
         trades_per_hour = live.trade_count / live.period_hours
@@ -190,9 +193,9 @@ def compare_performance(
 
     # Volume-weighted average spread (distance from mid)
     if live.buy_count > 0 and live.sell_count > 0:
-        buy_trades = [t for t in getattr(live, '_trades', []) if t.side == "buy"]
-        sell_trades = [t for t in getattr(live, '_trades', []) if t.side == "sell"]
-        if not buy_trades:
+        buy_trades_raw = [t for t in trade_list if t.side == "buy"]
+        sell_trades_raw = [t for t in trade_list if t.side == "sell"]
+        if not buy_trades_raw:
             # Approximate mid from avg prices
             mid_price = (live.avg_buy_price + live.avg_sell_price) / 2
             if mid_price > 0:
@@ -216,8 +219,7 @@ def compare_performance(
         ))
 
     # Trade cadence — detect long gaps
-    if hasattr(live, '_trades') and len(live._trades) > 1:
-        trade_list = live._trades
+    if len(trade_list) > 1:
         gaps = []
         for i in range(1, len(trade_list)):
             gap_s = (trade_list[i].timestamp - trade_list[i-1].timestamp).total_seconds()
@@ -235,6 +237,19 @@ def compare_performance(
                     f"Long trading gap detected: {max_gap_h:.1f}h "
                     f"(>{live.period_hours * 0.25:.0f}h threshold) — bot may have stopped quoting"
                 )
+
+    # Net inventory direction
+    if live.net_base_flow != 0 and live.total_volume_base > 0:
+        inventory_imbalance_pct = abs(live.net_base_flow) / live.total_volume_base * 100
+        direction = "accumulating base" if live.net_base_flow > 0 else "accumulating quote"
+        diagnostics.append(Diagnostic(
+            name="net_inventory_direction",
+            value=round(inventory_imbalance_pct, 2),
+            description=(
+                f"Net {direction}: {abs(live.net_base_flow):.6f} base "
+                f"({inventory_imbalance_pct:.1f}% of total volume)"
+            ),
+        ))
 
     # Severity escalation: if 2+ warning-level checks fail, escalate to critical
     warning_failures = [c for c in checks if not c.passed and c.severity == "warning"]
@@ -256,6 +271,8 @@ def compare_performance(
         f"{live.trade_count} trades in {live.period_hours:.0f}h, "
         f"est PnL: {live.estimated_pnl_quote:.2f} quote"
     )
+    if diagnostics:
+        summary += f", {len(diagnostics)} diagnostics"
     if drift_detected:
         summary += " — DRIFT DETECTED"
 
