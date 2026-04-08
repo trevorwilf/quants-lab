@@ -1,0 +1,10 @@
+dataset_hash: 6826ed1619d18824eb6160e08cd9d36111d0daa6eb842fbb06a3c46d5a46b234
+exported_at: '2026-04-08T12:54:31.429858+00:00'
+phase1_score: -0.0012926864319465913
+robust_score: -0.044721864508892234
+simulator_version: 0.2.0
+sweep_date: '2026-04-08T12:54:31.417192+00:00'
+trial: 11810
+worst_scenario: severe_adverse
+worst_score: -0.10002893489102117
+yaml_sha256: 72bb5813d5ee05ff5185f4a44efe5eb10aff8cb119ff75980c44f1722cd2462b

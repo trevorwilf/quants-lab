@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.014005028564790052
+- 0.032113949965595426
+- 0.0736382491204313
+- 0.16885471078245048
+buy_spreads:
+- 3.1231350345050153
+- 7.489337749422736
+- 17.959575652423922
+- 43.06740708015196
+candles_connector: mexc
+candles_trading_pair: DOGE-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 3918
+executor_refresh_time: 13787
+id: DOGE-USDT-PMM-DYNAMIC_620.0738460873774
+interval: 5m
+leverage: 1
+macd_fast: 6
+macd_signal: 9
+macd_slow: 21
+manual_kill_switch: false
+natr_length: 27
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.08319339315320871
+- 0.19076494223703885
+- 0.4374297261764853
+sell_spreads:
+- 4.995502722335066
+- 13.83948162719091
+- 38.34073612912108
+skip_rebalance: true
+stop_loss: 0.01402205500862472
+take_profit: 0.00539947659923264
+take_profit_order_type: 2
+time_limit: 163855
+total_amount_quote: 620.0738460873774
+trading_pair: DOGE-USDT
+trailing_stop:
+  activation_price: 0.0023982470855810206
+  trailing_delta: 0.023740469531214007

@@ -1,0 +1,43 @@
+buy_amounts_pct:
+- 0.011744945737134155
+- 0.04344742852333677
+- 0.16072267063117687
+buy_spreads:
+- 3.2185630040594164
+- 9.326038592732536
+- 27.022927848061176
+candles_connector: mexc
+candles_trading_pair: ETH-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 2785
+executor_refresh_time: 2663
+id: ETH-USDT-PMM-DYNAMIC_883.4959161256265
+interval: 5m
+leverage: 1
+macd_fast: 38
+macd_signal: 10
+macd_slow: 80
+manual_kill_switch: false
+natr_length: 39
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.04265119763040235
+- 0.1577772177033303
+- 0.5836565397746195
+sell_spreads:
+- 5.698996924730115
+- 15.46359434627896
+- 41.95874348845953
+skip_rebalance: true
+stop_loss: 0.019464640109334568
+take_profit: 0.005772335986221556
+take_profit_order_type: 2
+time_limit: 50545
+total_amount_quote: 883.4959161256265
+trading_pair: ETH-USDT
+trailing_stop:
+  activation_price: 0.003794138753375701
+  trailing_delta: 0.0014335555599359784
