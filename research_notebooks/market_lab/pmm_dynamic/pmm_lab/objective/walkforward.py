@@ -199,7 +199,8 @@ def run_walk_forward(
         test_pos = sim_result.position_history[fold_def.test_start_idx:fold_def.test_end_idx]
         test_candles = candles[fold_def.test_start_idx:fold_def.test_end_idx]
 
-        # Count test trades (trades with entry_bar >= test_start_idx)
+        # All trades have entry_bar >= start because the simulation starts fresh at sim_start_idx.
+        # This filter is defensive — it cannot undercount because no pre-window trades exist.
         test_trades = [t for t in sim_result.trades if t.entry_bar >= fold_def.test_start_idx]
 
         # Build a SimResult for the test window

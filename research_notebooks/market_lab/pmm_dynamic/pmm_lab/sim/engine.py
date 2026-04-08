@@ -32,7 +32,7 @@ from pmm_lab.sim.inventory import Inventory
 from pmm_lab.sim.fill_model import check_buy_fill, check_sell_fill
 from pmm_lab.sim.fees import compute_fee, compute_slippage
 from pmm_lab.sim.latency import is_order_active
-from pmm_lab.config.exchange_rules import round_amount
+from pmm_lab.config.exchange_rules import round_amount, check_min_notional
 
 logger = logging.getLogger(__name__)
 
@@ -327,11 +327,22 @@ class SimEngine:
         n_orders_filled = 0
         n_orders_rejected = 0
         n_market_exits = 0
+        tp_min_notional_failures = 0
         trade_counter = 0
         last_refresh_ts: Optional[int] = None
         last_fill_ts: Optional[int] = None
         n_rebalance_events = 0
         total_rebalance_fees = 0.0
+
+        # Pre-existing base balance (wallet inventory modeling)
+        # This represents base tokens already in the wallet — no fees, no slippage.
+        # Distinct from initial_base_pct which simulates a market buy.
+        if cfg.initial_base_balance > 0 and n > 0:
+            first_price = float(_close_arr[min(loop_start, n - 1)])
+            base_value = cfg.initial_base_balance * first_price
+            if base_value <= inventory.quote_balance:
+                inventory.base_balance += cfg.initial_base_balance
+                inventory.quote_balance -= base_value
 
         # Initial base allocation (pre-buys base at market open)
         initial_rebal_fee = 0.0
@@ -376,6 +387,15 @@ class SimEngine:
                 )
                 if result is not None:
                     exit_price, exit_type = result
+
+                    # TP min-notional check: LIMIT TP exits can fail min-notional
+                    # (market exits like SL/TL/TS bypass this — they're market orders)
+                    if (exit_type == "take_profit"
+                            and cfg.take_profit_order_type == "LIMIT"
+                            and not check_min_notional(exit_price, trade.quantity, rules)):
+                        tp_min_notional_failures += 1
+                        continue  # trade stays open, retry next bar
+
                     trade.exit_price = exit_price
                     trade.exit_bar = abs_bar
                     trade.exit_timestamp = ts
@@ -565,6 +585,49 @@ class SimEngine:
                 in_cooldown = True
 
             if needs_refresh and not in_cooldown:
+                # Refresh close: force-close open trades at market if configured
+                if cfg.refresh_close_mode == "market_close" and open_trades:
+                    refresh_closed_ids = set()
+                    for trade in open_trades:
+                        exit_price = compute_slippage(c_close, cfg.slippage_bps, trade.side)
+                        exit_fee = compute_fee(exit_price, trade.quantity, rules.fees, "taker")
+
+                        if trade.side == "buy":
+                            available = inventory.available_base_for_sell()
+                            close_qty = min(trade.quantity, available)
+                            if close_qty <= 0:
+                                continue
+                            exit_fee = compute_fee(exit_price, close_qty, rules.fees, "taker")
+                            inventory.sell(close_qty, exit_price, exit_fee)
+                            trade.pnl_quote = (exit_price - trade.entry_price) * close_qty - trade.fee_quote - exit_fee
+                        else:
+                            close_qty = trade.quantity
+                            cost = close_qty * exit_price + exit_fee
+                            if inventory.available_quote_for_buy() < cost:
+                                max_affordable = inventory.max_buy_quantity(exit_price, rules.fees.taker_fee)
+                                close_qty = round_amount(max_affordable, rules)
+                                if close_qty <= 0:
+                                    continue
+                                if close_qty < trade.quantity:
+                                    continue
+                                exit_fee = compute_fee(exit_price, close_qty, rules.fees, "taker")
+                            executed = inventory.buy(close_qty, exit_price, exit_fee)
+                            if not executed:
+                                continue
+                            trade.pnl_quote = (trade.entry_price - exit_price) * close_qty - trade.fee_quote - exit_fee
+
+                        trade.exit_price = exit_price
+                        trade.exit_bar = abs_bar
+                        trade.exit_timestamp = ts
+                        trade.exit_type = "refresh"
+                        trade.exit_fee_quote = exit_fee
+                        trade.exit_fee_type = "taker"
+                        trade.fee_quote += exit_fee
+                        refresh_closed_ids.add(trade.trade_id)
+                        n_market_exits += 1
+
+                    open_trades = [t for t in open_trades if t.trade_id not in refresh_closed_ids]
+
                 # Cancel existing orders
                 active_orders = []
 
@@ -666,4 +729,5 @@ class SimEngine:
             total_rebalance_fees=total_rebalance_fees,
             open_trade_count=sum(1 for t in trades if t.exit_price is None),
             force_close_failures=force_close_failures,
+            tp_min_notional_failures=tp_min_notional_failures,
         )

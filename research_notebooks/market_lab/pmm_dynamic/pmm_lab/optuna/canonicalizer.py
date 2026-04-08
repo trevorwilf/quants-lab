@@ -191,6 +191,31 @@ def canonicalize_params(
         if np.isnan(val):
             return None, "NaN detected in parameters"
 
+    # Approximate TP exit feasibility check:
+    # If the tightest level's TP exit order would fail min-notional, reject.
+    take_profit = raw_params["take_profit"]
+    for side_name, side_spreads, side_capital, side_weights in [
+        ("buy", buy_spreads, buy_capital, buy_amounts),
+        ("sell", sell_spreads, sell_capital, sell_amounts),
+    ]:
+        if not side_weights:
+            continue
+        # Tightest level (index 0) has smallest order size with amount_skew >= 1
+        tightest_order_quote = side_capital * side_weights[0]
+        tightest_entry_base = tightest_order_quote / reference_price if reference_price > 0 else 0.0
+        tightest_entry_base = round_amount(tightest_entry_base, pair_rules)
+        # Approximate TP exit price
+        if side_name == "buy":
+            tp_exit_price = reference_price * (1.0 + take_profit)
+        else:
+            tp_exit_price = reference_price * (1.0 - take_profit)
+        tp_exit_notional = tp_exit_price * tightest_entry_base
+        if tp_exit_notional > 0 and tp_exit_notional < pair_rules.min_notional_quote:
+            return None, (
+                f"{side_name}-side tightest level TP exit notional {tp_exit_notional:.4f} "
+                f"< min_notional {pair_rules.min_notional_quote}"
+            )
+
     config = SimConfig(
         buy_spreads=buy_spreads,
         sell_spreads=sell_spreads,
@@ -201,7 +226,7 @@ def canonicalize_params(
         executor_refresh_time=raw_params["executor_refresh_time"],
         cooldown_time=raw_params["cooldown_time"],
         stop_loss=raw_params["stop_loss"],
-        take_profit=raw_params["take_profit"],
+        take_profit=take_profit,
         time_limit=raw_params["time_limit"],
         take_profit_order_type="LIMIT",
         trailing_stop_activation=trailing_activation,
@@ -214,6 +239,7 @@ def canonicalize_params(
         macd_signal=raw_params["macd_signal"],
         natr_length=raw_params["natr_length"],
         timestamp_mode="open",
+        refresh_close_mode=raw_params.get("refresh_close_mode", "keep"),
     )
 
     return config, None

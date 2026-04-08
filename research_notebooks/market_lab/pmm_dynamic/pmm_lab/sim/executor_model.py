@@ -99,6 +99,12 @@ class SimConfig:
     buy_volume_fraction: float = 0.5
     volume_is_base: bool = True
 
+    # Refresh close mode — "keep" (v1) or "market_close" (force-close open trades at refresh)
+    refresh_close_mode: str = "keep"
+
+    # Pre-existing base balance (wallet inventory modeling)
+    initial_base_balance: float = 0.0
+
     def to_fingerprint(self) -> tuple:
         """Produce a hashable fingerprint of ALL fields. Exact match only."""
         from dataclasses import fields
@@ -129,3 +135,4 @@ class SimResult:
     # Track trades that could not be closed
     open_trade_count: int = 0          # trades with exit_price is None
     force_close_failures: int = 0      # number of trades that force-close failed on
+    tp_min_notional_failures: int = 0  # TP exits blocked by min-notional check

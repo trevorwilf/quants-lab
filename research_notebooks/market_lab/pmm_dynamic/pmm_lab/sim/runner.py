@@ -40,6 +40,8 @@ def _sim_config_to_engine_config(sc: SimConfig) -> EngineConfig:
         split_volume_by_side=getattr(sc, 'split_volume_by_side', False),
         buy_volume_fraction=getattr(sc, 'buy_volume_fraction', 0.5),
         volume_is_base=getattr(sc, 'volume_is_base', True),
+        refresh_close_mode=getattr(sc, 'refresh_close_mode', 'keep'),
+        initial_base_balance=getattr(sc, 'initial_base_balance', 0.0),
     )
 
 

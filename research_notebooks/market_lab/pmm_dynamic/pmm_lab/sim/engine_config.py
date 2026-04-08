@@ -53,3 +53,10 @@ class EngineConfig:
 
     # Volume unit
     volume_is_base: bool = True             # True = volume is base units (default); False = convert from quote
+
+    # Refresh close mode
+    refresh_close_mode: str = "keep"        # "keep" = open trades survive refresh (v1)
+                                            # "market_close" = force-close open trades at refresh with taker fees + slippage
+
+    # Pre-existing base balance (wallet inventory modeling)
+    initial_base_balance: float = 0.0       # base tokens held before bot starts (no fees/slippage — pre-existing)

@@ -1,7 +1,0 @@
-dataset_hash: 882dbb893ba80b25856c9b0d62f39afad234a903579478103e2bd8a9375b6f77
-phase1_score: 0.863701959039326
-robust_score: -2.080585758258397
-sweep_date: '2026-04-04T06:01:44.850377+00:00'
-trial: 3426
-worst_scenario: fees_2x
-worst_score: -3.6946577110741585

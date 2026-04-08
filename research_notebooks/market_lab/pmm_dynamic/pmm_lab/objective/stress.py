@@ -266,6 +266,7 @@ def _extract_window_metrics(
     window_eq = sim_result.equity_curve[start_idx:end_idx]
     window_pos = sim_result.position_history[start_idx:end_idx]
     window_candles = candles[start_idx:end_idx]
+    # Defensive filter — no pre-window trades exist since sim starts fresh at start_idx
     window_trades = [t for t in sim_result.trades if t.entry_bar >= start_idx]
 
     window_result = SimResult(

@@ -225,6 +225,14 @@ def _validate_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
     # defaults at runtime. If the lab adds simulation support for these
     # fields in the future, add them to the exporter and validator.
 
+    # 19. use_wallet_balance warning
+    if config_dict.get("use_wallet_balance") is True:
+        warnings.append(
+            "use_wallet_balance is set to true but the simulator does not model "
+            "pre-existing base inventory. Backtest results may not reflect live "
+            "sell-side behavior at startup. Set initial_base_balance in SimConfig."
+        )
+
     # 20. Rebalance fields present (v2)
     if "position_rebalance_threshold_pct" not in config_dict:
         warnings.append("Missing position_rebalance_threshold_pct (v2 field)")

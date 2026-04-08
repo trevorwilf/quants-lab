@@ -5,13 +5,24 @@ Converts a SimConfig (from optimization) into a YAML file that Hummingbot
 can load directly as a controller config.
 """
 
+import hashlib
 import yaml
 import numpy as np
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 from pmm_lab.sim.executor_model import SimConfig
+
+
+def _sha256_file(path: Path) -> str:
+    """Compute SHA-256 hex digest of a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _sanitize_for_yaml(obj):
@@ -133,7 +144,13 @@ def export_yaml(
     export_params: ExportParams = ExportParams(),
     metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Export a SimConfig as a Hummingbot YAML file."""
+    """Export a SimConfig as a Hummingbot YAML file.
+
+    NOTE: use_wallet_balance is a runtime-only Hummingbot field and is NOT exported.
+    If you plan to enable use_wallet_balance on the live bot, also set
+    initial_base_balance in your SimConfig to model the pre-existing base
+    inventory during backtesting.
+    """
     hb_dict = sim_config_to_hb_dict(config, export_params)
 
     out = Path(output_path)
@@ -142,7 +159,14 @@ def export_yaml(
     with open(out, "w") as f:
         yaml.dump(hb_dict, f, default_flow_style=False, sort_keys=True)
 
+    # Compute SHA-256 of the written YAML for integrity verification
+    yaml_sha256 = _sha256_file(out)
+
     if metadata is not None:
+        from pmm_lab import __version__ as pmm_lab_version
+        metadata["yaml_sha256"] = yaml_sha256
+        metadata["exported_at"] = datetime.now(timezone.utc).isoformat()
+        metadata["simulator_version"] = pmm_lab_version
         meta_path = out.with_suffix(".meta.yml")
         with open(meta_path, "w") as f:
             yaml.dump(_sanitize_for_yaml(metadata), f, default_flow_style=False, sort_keys=True)

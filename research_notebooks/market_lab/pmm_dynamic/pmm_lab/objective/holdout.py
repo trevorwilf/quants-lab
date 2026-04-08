@@ -176,6 +176,7 @@ def evaluate_holdout(
             # Extract holdout-window metrics
             holdout_eq = result.equity_curve[holdout_start_idx:]
             holdout_pos = result.position_history[holdout_start_idx:]
+            # Defensive filter — no pre-window trades exist since sim starts fresh at holdout_start_idx
             holdout_trades = [t for t in result.trades if t.entry_bar >= holdout_start_idx]
             holdout_result = SimResult(
                 trades=holdout_trades,

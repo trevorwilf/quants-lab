@@ -254,6 +254,7 @@ def generate_report(
     canonical_config: Optional[Any] = None,
     parity_result: Optional[Any] = None,
     long_parity_result: Optional[Any] = None,
+    tp_min_notional_failures: int = 0,
 ) -> str:
     """Generate a markdown report."""
     lines = []
@@ -397,6 +398,10 @@ def generate_report(
     lines.append(f"- **Maker Fees**: {best_metrics.maker_fees_quote:.4f}")
     lines.append(f"- **Taker Fees**: {best_metrics.taker_fees_quote:.4f}")
     lines.append(f"- **Fee Drag %**: {best_metrics.fee_drag_pct:.4f}")
+    if tp_min_notional_failures > 0:
+        lines.append(f"- **TP Min-Notional Failures**: {tp_min_notional_failures} :warning:")
+        lines.append(f"  > {tp_min_notional_failures} take-profit exits were blocked by min-notional constraints. "
+                     f"This mirrors live behavior where TP limit orders below min-notional are deferred.")
     lines.append("")
 
     # 5. Objective Decomposition

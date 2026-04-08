@@ -149,6 +149,7 @@ def evaluate_recent_window(
     # Extract recent-window metrics
     window_eq = result.equity_curve[recent_start_idx:]
     window_pos = result.position_history[recent_start_idx:]
+    # Defensive filter — no pre-window trades exist since sim starts fresh at recent_start_idx
     window_trades = [t for t in result.trades if t.entry_bar >= recent_start_idx]
 
     window_result = SimResult(
