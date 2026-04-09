@@ -31,6 +31,12 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 2  # Bumped from implicit v1 (wrong column names) to v2 (correct schema)
 
+# Hummingbot stores price/amount/trade_fee_in_quote as BIGINT with 1e6 scaling.
+# The actual float value is column_value / BIGINT_SCALE.
+# Timestamp is also BIGINT but stores Unix milliseconds — do NOT scale it.
+# trade_fee JSON values are already human-readable strings — do NOT scale them.
+BIGINT_SCALE = 1_000_000
+
 # Columns we expect on the TradeFill table.
 _EXPECTED_COLUMNS = frozenset({
     "exchange_trade_id", "symbol", "trade_type", "price", "amount",
@@ -206,7 +212,7 @@ class LivePerformanceTracker:
         """
         # Prefer the pre-computed quote fee
         if trade_fee_in_quote is not None and float(trade_fee_in_quote) > 0:
-            return float(trade_fee_in_quote), ""
+            return float(trade_fee_in_quote) / BIGINT_SCALE, ""
 
         # Fall back to JSON parsing
         if trade_fee_raw:
@@ -294,8 +300,8 @@ class LivePerformanceTracker:
                         trade_id=str(row[0]),
                         trading_pair=str(row[1]),
                         side=str(row[2]).lower(),
-                        price=float(row[3]),
-                        amount=float(row[4]),
+                        price=float(row[3]) / BIGINT_SCALE,
+                        amount=float(row[4]) / BIGINT_SCALE,
                         fee_amount=fee_amount,
                         fee_currency=fee_currency,
                         timestamp=ts_dt,

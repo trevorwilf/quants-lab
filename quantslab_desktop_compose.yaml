@@ -116,6 +116,9 @@ services:
       PYTHONUNBUFFERED: "1"
       TZ: "America/Boise"
 
+      # instack postgres server
+      HBOT_DB_URL: "postgresql+psycopg2://hbot:${POSTGRES_PASSWORD}@${TRUENAS_LAN_IP}:5432/hummingbot_api"
+
     volumes:
       - ./:/quants-lab
 

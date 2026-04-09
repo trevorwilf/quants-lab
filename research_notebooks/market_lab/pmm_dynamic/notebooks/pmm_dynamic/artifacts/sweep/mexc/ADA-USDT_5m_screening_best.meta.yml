@@ -1,0 +1,15 @@
+dataset_hash: 95d5bf327f246a6e803127b2a837eaa18ef16d6f2ee0a7f2c45cbce9ab40670b
+exported_at: '2026-04-09T00:28:23.614659+00:00'
+initial_base_balance: 0.0
+maker_fill_probability: 1.0
+phase1_score: 0.0013629064581903347
+refresh_close_mode: keep
+robust_score: -0.02449866123959618
+simulator_version: 0.2.0
+sweep_date: '2026-04-09T00:28:23.594465+00:00'
+taker_probability: 0.0
+touch_through: false
+trial: 4831
+worst_scenario: combined_market_deterioration
+worst_score: -0.0803887930791393
+yaml_sha256: 5bf4a81966374596e78d1de130ca756991e0b53d9bd2d7e66b9aea39043d0822

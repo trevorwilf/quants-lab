@@ -1,0 +1,57 @@
+buy_amounts_pct:
+- 0.007121969801380865
+- 0.013439890242025179
+- 0.025362456561197646
+- 0.047861566667207346
+- 0.09031970378390514
+- 0.17044257970773105
+- 0.32164269545138874
+buy_spreads:
+- 1.1562422786305762
+- 2.0981529686209153
+- 3.8073732132911347
+- 6.9089770870304665
+- 12.537243321058677
+- 22.750469152154725
+- 41.28370435100062
+candles_connector: mexc
+candles_trading_pair: ADA-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 6571
+executor_refresh_time: 6021
+id: ADA-USDT-PMM-DYNAMIC_903.7017254136916
+interval: 5m
+leverage: 1
+macd_fast: 24
+macd_signal: 5
+macd_slow: 26
+manual_kill_switch: false
+natr_length: 30
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.006504500987183985
+- 0.012274663019484794
+- 0.02316355282884452
+- 0.04371200894093398
+- 0.08248906114579001
+- 0.1556653508629268
+sell_spreads:
+- 0.29793228541737365
+- 0.3924143302602368
+- 0.5168590788268107
+- 0.6807684805713856
+- 0.8966577992427305
+- 1.1810112128986994
+skip_rebalance: true
+stop_loss: 0.015517729455018024
+take_profit: 0.03347184766007595
+take_profit_order_type: 2
+time_limit: 138549
+total_amount_quote: 903.7017254136916
+trading_pair: ADA-USDT
+trailing_stop:
+  activation_price: 0.00012018942168543433
+  trailing_delta: 0.001059315541647032
