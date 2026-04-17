@@ -48,7 +48,6 @@ class SimEngine:
     def __init__(self, config: EngineConfig, pair_rules: PairRules):
         self.config = config
         self.pair_rules = pair_rules
-        self._warned_no_orders = False
 
     def _check_triple_barrier(
         self,
@@ -300,7 +299,6 @@ class SimEngine:
         cfg = self.config
         rules = self.pair_rules
         n = len(candles)
-        self._warned_no_orders = False
 
         signals = precomputed_signals
         warmup_end = signals.warmup_end
@@ -647,12 +645,6 @@ class SimEngine:
                 new_orders, placed, rejected = strategy.build_orders(
                     bar, signals, cfg, rules, inventory
                 )
-
-                if placed == 0 and not self._warned_no_orders:
-                    self._warned_no_orders = True
-                    logger.warning(
-                        "Bar %d: no orders placed (this warning will not repeat)", bar
-                    )
 
                 active_orders = new_orders
                 n_orders_placed += placed
