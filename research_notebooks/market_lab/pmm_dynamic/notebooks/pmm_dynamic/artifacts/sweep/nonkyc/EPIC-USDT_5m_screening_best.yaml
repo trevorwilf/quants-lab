@@ -1,0 +1,43 @@
+buy_amounts_pct:
+- 0.0790629679306654
+- 0.12668891968897902
+- 0.20300379295191343
+- 0.32528922066772
+buy_spreads:
+- 3.2393916835686323
+- 4.416876811918295
+- 6.0223655171485495
+- 8.211432640429011
+candles_connector: nonkyc
+candles_trading_pair: EPIC-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 2043
+executor_refresh_time: 5104
+id: EPIC-USDT-PMM-DYNAMIC_101.57890899142507
+interval: 5m
+leverage: 1
+macd_fast: 31
+macd_signal: 28
+macd_slow: 65
+manual_kill_switch: false
+natr_length: 39
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.10219687259048181
+- 0.1637582261702404
+sell_spreads:
+- 3.428099152667101
+- 6.740237977389176
+skip_rebalance: true
+stop_loss: 0.20600968977895948
+take_profit: 0.013192376163710834
+take_profit_order_type: 2
+time_limit: 134775
+total_amount_quote: 101.57890899142507
+trading_pair: EPIC-USDT
+trailing_stop:
+  activation_price: 0.01773392524994894
+  trailing_delta: 0.0015081992620705749

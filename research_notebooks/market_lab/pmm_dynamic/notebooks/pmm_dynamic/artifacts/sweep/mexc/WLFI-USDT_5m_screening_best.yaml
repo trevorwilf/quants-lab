@@ -1,0 +1,51 @@
+buy_amounts_pct:
+- 0.01340430049662886
+- 0.028096822606980227
+- 0.05889389310592183
+- 0.12344778958422344
+- 0.2587595410923578
+buy_spreads:
+- 1.1147437252498313
+- 1.8339317784653442
+- 3.0171111905665056
+- 4.963630623086264
+- 8.165966517731706
+candles_connector: mexc
+candles_trading_pair: WLFI-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 1557
+executor_refresh_time: 960
+id: WLFI-USDT-PMM-DYNAMIC_523.6617540805818
+interval: 5m
+leverage: 1
+macd_fast: 41
+macd_signal: 23
+macd_slow: 56
+manual_kill_switch: false
+natr_length: 42
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.014370741591577356
+- 0.030122584713081376
+- 0.06314010338398754
+- 0.13234829259553335
+- 0.2774159308297082
+sell_spreads:
+- 1.938103240513738
+- 2.732131266310501
+- 3.8514673007681353
+- 5.429387874513769
+- 7.65377202762127
+skip_rebalance: true
+stop_loss: 0.021276582915608584
+take_profit: 0.005005061102131345
+take_profit_order_type: 2
+time_limit: 76569
+total_amount_quote: 523.6617540805818
+trading_pair: WLFI-USDT
+trailing_stop:
+  activation_price: 0.0409847389966078
+  trailing_delta: 0.0029956237629311833

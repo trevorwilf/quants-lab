@@ -1,0 +1,15 @@
+dataset_hash: bac8fead9e50a402e22936dce95b7993cdee227ae5914c1d5c4a14a37c1b5a39
+exported_at: '2026-04-09T13:42:18.603523+00:00'
+initial_base_balance: 0.0
+maker_fill_probability: 1.0
+phase1_score: -0.001223901485352761
+refresh_close_mode: keep
+robust_score: 0.006679235908531776
+simulator_version: 0.2.0
+sweep_date: '2026-04-09T13:42:18.591275+00:00'
+taker_probability: 0.0
+touch_through: false
+trial: 12917
+worst_scenario: severe_adverse
+worst_score: -0.07004023558109512
+yaml_sha256: 53dfd4e35ddd3aa54df1a1c137b00ca1f300e7471624222dd135b8a04259fbc0

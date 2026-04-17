@@ -1,0 +1,49 @@
+buy_amounts_pct:
+- 0.006997703314531027
+- 0.01594366744131927
+- 0.03632628021704293
+- 0.08276631705119993
+- 0.18857596201126758
+- 0.42965417231839326
+buy_spreads:
+- 3.2465572310641004
+- 4.121300564730847
+- 5.231732304710892
+- 6.641355678445422
+- 8.430784046022913
+- 10.702351006641477
+candles_connector: mexc
+candles_trading_pair: ICP-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 595
+executor_refresh_time: 1969
+id: ICP-USDT-PMM-DYNAMIC_849.1438319189832
+interval: 5m
+leverage: 1
+macd_fast: 31
+macd_signal: 24
+macd_slow: 52
+manual_kill_switch: false
+natr_length: 26
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.028305503221959617
+- 0.06449166388534723
+- 0.14693873053893922
+sell_spreads:
+- 5.7697423154292204
+- 13.64653811252492
+- 32.27665851880275
+skip_rebalance: true
+stop_loss: 0.03211773960596171
+take_profit: 0.06774288317182593
+take_profit_order_type: 2
+time_limit: 91458
+total_amount_quote: 849.1438319189832
+trading_pair: ICP-USDT
+trailing_stop:
+  activation_price: 0.012738721123321858
+  trailing_delta: 0.0017254669677932999

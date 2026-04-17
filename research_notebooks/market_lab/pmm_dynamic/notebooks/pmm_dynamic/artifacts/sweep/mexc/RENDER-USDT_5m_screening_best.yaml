@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.009076406832509895
+- 0.028804951179582254
+- 0.09141560396854466
+- 0.2901172300842966
+buy_spreads:
+- 2.041519835133199
+- 4.228552015202424
+- 8.758500327823587
+- 18.14127571724186
+candles_connector: mexc
+candles_trading_pair: RENDER-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 535
+executor_refresh_time: 1292
+id: RENDER-USDT-PMM-DYNAMIC_722.6807619790027
+interval: 5m
+leverage: 1
+macd_fast: 28
+macd_signal: 20
+macd_slow: 98
+manual_kill_switch: false
+natr_length: 33
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.012564269625822
+- 0.03987405807798406
+- 0.12654460266745723
+- 0.4016028775638034
+sell_spreads:
+- 2.761973931915439
+- 5.701122215249762
+- 11.767958465369563
+- 24.29080472476703
+skip_rebalance: true
+stop_loss: 0.020501707799076157
+take_profit: 0.056108163913717014
+take_profit_order_type: 2
+time_limit: 141678
+total_amount_quote: 722.6807619790027
+trading_pair: RENDER-USDT
+trailing_stop:
+  activation_price: 0.0021125354845790583
+  trailing_delta: 0.0011791211091379836

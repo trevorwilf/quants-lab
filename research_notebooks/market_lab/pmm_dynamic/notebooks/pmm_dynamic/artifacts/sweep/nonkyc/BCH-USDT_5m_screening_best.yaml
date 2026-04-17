@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.0055388934306246146
+- 0.013061108787636878
+- 0.030799033218309766
+- 0.07262633384391046
+- 0.17125811483171616
+buy_spreads:
+- 3.7857203591484283
+- 7.0644544406301435
+- 13.182832277385927
+- 24.60021057736294
+- 45.905944012404674
+candles_connector: nonkyc
+candles_trading_pair: BCH-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 6652
+executor_refresh_time: 6321
+id: BCH-USDT-PMM-DYNAMIC_996.2141851998555
+interval: 5m
+leverage: 1
+macd_fast: 12
+macd_signal: 20
+macd_slow: 70
+manual_kill_switch: false
+natr_length: 28
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.21045306453359863
+- 0.49626345135420347
+sell_spreads:
+- 5.804645302964218
+- 14.749989606064112
+skip_rebalance: true
+stop_loss: 0.011900696648861361
+take_profit: 0.005698600517168604
+take_profit_order_type: 2
+time_limit: 145952
+total_amount_quote: 996.2141851998555
+trading_pair: BCH-USDT
+trailing_stop:
+  activation_price: 0.06285023758933957
+  trailing_delta: 0.002729480048858176

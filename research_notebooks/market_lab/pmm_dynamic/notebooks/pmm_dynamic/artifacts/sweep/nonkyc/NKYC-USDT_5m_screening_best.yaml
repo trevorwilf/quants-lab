@@ -1,0 +1,49 @@
+buy_amounts_pct:
+- 0.009627010951207899
+- 0.01375514944462561
+- 0.019653466398128993
+- 0.02808102834631896
+- 0.04012239556182509
+- 0.05732719634644667
+- 0.08190955188306197
+buy_spreads:
+- 4.255890399834412
+- 6.074667322026672
+- 8.670708032033547
+- 12.37618025668089
+- 17.665205330404238
+- 25.21452280859329
+- 35.99008041932127
+candles_connector: nonkyc
+candles_trading_pair: NKYC-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 7071
+executor_refresh_time: 7058
+id: NKYC-USDT-PMM-DYNAMIC_736.080862479191
+interval: 5m
+leverage: 1
+macd_fast: 14
+macd_signal: 26
+macd_slow: 64
+manual_kill_switch: false
+natr_length: 31
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.30859756197577276
+- 0.44092663909261204
+sell_spreads:
+- 5.418139774550164
+- 6.5700807095295275
+skip_rebalance: true
+stop_loss: 0.01473867692166903
+take_profit: 0.005010646644858754
+take_profit_order_type: 2
+time_limit: 19569
+total_amount_quote: 736.080862479191
+trading_pair: NKYC-USDT
+trailing_stop:
+  activation_price: 0.09903631711380184
+  trailing_delta: 0.006803016580718891

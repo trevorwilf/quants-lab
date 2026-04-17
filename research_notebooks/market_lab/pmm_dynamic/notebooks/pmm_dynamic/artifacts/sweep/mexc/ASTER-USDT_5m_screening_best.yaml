@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.00676404550358543
+- 0.016295619991279875
+- 0.039258640522072376
+- 0.09458006853780664
+- 0.22785784850565166
+buy_spreads:
+- 2.8170299631252584
+- 3.85330042045384
+- 5.270772524477239
+- 7.209674817286144
+- 9.861820203702564
+candles_connector: mexc
+candles_trading_pair: ASTER-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 1680
+executor_refresh_time: 6584
+id: ASTER-USDT-PMM-DYNAMIC_748.2271858974029
+interval: 5m
+leverage: 1
+macd_fast: 8
+macd_signal: 10
+macd_slow: 60
+manual_kill_switch: false
+natr_length: 36
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.1804682250895571
+- 0.4347755518500469
+sell_spreads:
+- 3.913763025729693
+- 8.598807525989427
+skip_rebalance: true
+stop_loss: 0.019691678651177165
+take_profit: 0.010184119248646878
+take_profit_order_type: 2
+time_limit: 59519
+total_amount_quote: 748.2271858974029
+trading_pair: ASTER-USDT
+trailing_stop:
+  activation_price: 0.00040322409764751907
+  trailing_delta: 0.0013792541257811814

@@ -1,0 +1,49 @@
+buy_amounts_pct:
+- 0.008784672150729571
+- 0.023934188891400802
+- 0.06520965017933862
+- 0.17766628715959976
+buy_spreads:
+- 2.573739358252088
+- 6.7998717237718775
+- 17.96539937562064
+- 47.46495049270112
+candles_connector: mexc
+candles_trading_pair: LTC-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 4883
+executor_refresh_time: 6932
+id: LTC-USDT-PMM-DYNAMIC_623.5987998361834
+interval: 5m
+leverage: 1
+macd_fast: 23
+macd_signal: 24
+macd_slow: 52
+manual_kill_switch: false
+natr_length: 8
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.008377057155857398
+- 0.022823625615407895
+- 0.06218387633514802
+- 0.1694224458998547
+- 0.4615981966126632
+sell_spreads:
+- 0.3087955759641368
+- 0.619152866794832
+- 1.2414370616008463
+- 2.4891526157252506
+- 4.990893969592145
+skip_rebalance: true
+stop_loss: 0.014212278568119248
+take_profit: 0.007026279909466579
+take_profit_order_type: 2
+time_limit: 4645
+total_amount_quote: 623.5987998361834
+trading_pair: LTC-USDT
+trailing_stop:
+  activation_price: 0.06683382487455604
+  trailing_delta: 0.0010635255293261054

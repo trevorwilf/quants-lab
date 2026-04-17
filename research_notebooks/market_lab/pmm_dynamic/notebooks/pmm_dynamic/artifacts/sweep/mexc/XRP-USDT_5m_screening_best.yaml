@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.005219798510640069
+- 0.017083812047420474
+- 0.05591339080937064
+- 0.18299822446673789
+buy_spreads:
+- 2.501251750257364
+- 6.670668719931735
+- 17.790220902992722
+- 47.445312166621584
+candles_connector: mexc
+candles_trading_pair: XRP-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 2441
+executor_refresh_time: 7943
+id: XRP-USDT-PMM-DYNAMIC_993.652959503227
+interval: 5m
+leverage: 1
+macd_fast: 19
+macd_signal: 25
+macd_slow: 42
+manual_kill_switch: false
+natr_length: 17
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.0493026784005567
+- 0.1613621080416464
+- 0.5281199877236278
+sell_spreads:
+- 4.062160436141993
+- 9.717566887470637
+- 23.2465230502198
+skip_rebalance: true
+stop_loss: 0.015183561307951765
+take_profit: 0.005101343069590253
+take_profit_order_type: 2
+time_limit: 24497
+total_amount_quote: 993.652959503227
+trading_pair: XRP-USDT
+trailing_stop:
+  activation_price: 0.03257349921817145
+  trailing_delta: 0.027308017092941794

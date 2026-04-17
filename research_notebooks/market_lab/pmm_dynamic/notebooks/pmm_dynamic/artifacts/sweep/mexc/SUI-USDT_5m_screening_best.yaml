@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.00698885596474007
+- 0.027205243865537403
+- 0.10590077940043614
+- 0.412235785609941
+buy_spreads:
+- 1.9242449090565126
+- 5.470530839369523
+- 15.552442167648275
+- 44.2148055609756
+candles_connector: mexc
+candles_trading_pair: SUI-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 3513
+executor_refresh_time: 4646
+id: SUI-USDT-PMM-DYNAMIC_859.7689390449555
+interval: 5m
+leverage: 1
+macd_fast: 49
+macd_signal: 8
+macd_slow: 82
+manual_kill_switch: false
+natr_length: 45
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.022332697100992217
+- 0.08693360885858092
+- 0.3384030291997723
+sell_spreads:
+- 4.528567247643197
+- 6.765163604081289
+- 10.106383782598105
+skip_rebalance: true
+stop_loss: 0.023555777060776575
+take_profit: 0.011133884110109418
+take_profit_order_type: 2
+time_limit: 45512
+total_amount_quote: 859.7689390449555
+trading_pair: SUI-USDT
+trailing_stop:
+  activation_price: 0.0028011216452431854
+  trailing_delta: 0.00134385512069689

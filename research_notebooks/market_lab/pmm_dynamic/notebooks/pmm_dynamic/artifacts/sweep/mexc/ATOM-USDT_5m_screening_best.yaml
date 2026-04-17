@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.006247898438240542
+- 0.02084182576207051
+- 0.06952444976343616
+- 0.23192061818812393
+buy_spreads:
+- 1.7897379542031489
+- 4.742050829552548
+- 12.564434931521578
+- 33.29045402985179
+candles_connector: mexc
+candles_trading_pair: ATOM-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 6188
+executor_refresh_time: 978
+id: ATOM-USDT-PMM-DYNAMIC_889.6055049108166
+interval: 5m
+leverage: 1
+macd_fast: 35
+macd_signal: 15
+macd_slow: 38
+manual_kill_switch: false
+natr_length: 12
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.012769565122673085
+- 0.04259689141475744
+- 0.14209529774658472
+- 0.4740034535641136
+sell_spreads:
+- 5.211131901921867
+- 6.450106452037467
+- 7.983653844430965
+- 9.881810351759924
+skip_rebalance: true
+stop_loss: 0.014676718922841184
+take_profit: 0.005025056719011172
+take_profit_order_type: 2
+time_limit: 33655
+total_amount_quote: 889.6055049108166
+trading_pair: ATOM-USDT
+trailing_stop:
+  activation_price: 0.05810751490518119
+  trailing_delta: 0.0013657862788895086

@@ -1,0 +1,49 @@
+buy_amounts_pct:
+- 0.0062144996696336845
+- 0.01891420385771909
+- 0.05756651807698033
+- 0.17520716327453895
+buy_spreads:
+- 3.022376237010973
+- 6.893055236312526
+- 15.720812620551
+- 35.854050341643045
+candles_connector: nonkyc
+candles_trading_pair: POL-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 5626
+executor_refresh_time: 13738
+id: POL-USDT-PMM-DYNAMIC_936.9801629471617
+interval: 5m
+leverage: 1
+macd_fast: 28
+macd_signal: 11
+macd_slow: 61
+manual_kill_switch: false
+natr_length: 24
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.005829148448579077
+- 0.017741364218276733
+- 0.05399691002933293
+- 0.16434284629094217
+- 0.5001873461339971
+sell_spreads:
+- 5.69793516916606
+- 9.552591005334765
+- 16.014923337318027
+- 26.849026547555553
+- 45.01240570234693
+skip_rebalance: true
+stop_loss: 0.023002515066573647
+take_profit: 0.005237888148176431
+take_profit_order_type: 2
+time_limit: 14847
+total_amount_quote: 936.9801629471617
+trading_pair: POL-USDT
+trailing_stop:
+  activation_price: 0.0664182058858205
+  trailing_delta: 0.012884536007082713

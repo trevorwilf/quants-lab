@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.00566478696281625
+- 0.0218367780262596
+- 0.08417701807643455
+- 0.3244879058494557
+buy_spreads:
+- 2.9312108841610756
+- 6.982214376104234
+- 16.631801504731875
+- 39.617348650807465
+candles_connector: nonkyc
+candles_trading_pair: AVAX-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 4591
+executor_refresh_time: 13072
+id: AVAX-USDT-PMM-DYNAMIC_951.9442594310352
+interval: 5m
+leverage: 1
+macd_fast: 42
+macd_signal: 18
+macd_slow: 51
+manual_kill_switch: false
+natr_length: 41
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.007322884274624098
+- 0.02822845756894185
+- 0.10881584179649686
+- 0.4194663274449711
+sell_spreads:
+- 5.09044021785415
+- 9.18035822510941
+- 16.556323919832103
+- 29.85851477872344
+skip_rebalance: true
+stop_loss: 0.01528496508198849
+take_profit: 0.005651201356669517
+take_profit_order_type: 2
+time_limit: 160497
+total_amount_quote: 951.9442594310352
+trading_pair: AVAX-USDT
+trailing_stop:
+  activation_price: 0.01411940958403917
+  trailing_delta: 0.028317324231706898

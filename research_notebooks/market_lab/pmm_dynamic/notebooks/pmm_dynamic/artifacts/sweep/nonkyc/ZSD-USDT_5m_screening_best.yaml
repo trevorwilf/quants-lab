@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.07998675187072467
+- 0.11993754015107777
+- 0.17984245141921232
+- 0.26966792291830327
+buy_spreads:
+- 2.36646677566646
+- 5.910579785508264
+- 14.762494770720078
+- 36.87138314076531
+candles_connector: nonkyc
+candles_trading_pair: ZSD-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 1948
+executor_refresh_time: 2774
+id: ZSD-USDT-PMM-DYNAMIC_102.01572187714552
+interval: 5m
+leverage: 1
+macd_fast: 25
+macd_signal: 17
+macd_slow: 27
+manual_kill_switch: false
+natr_length: 45
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.07383632938030103
+- 0.11071518110862656
+- 0.16601382315175442
+sell_spreads:
+- 2.2769980723874146
+- 3.6314985210977238
+- 5.791740304333095
+skip_rebalance: true
+stop_loss: 0.1543844260776129
+take_profit: 0.11311273856321795
+take_profit_order_type: 2
+time_limit: 115088
+total_amount_quote: 102.01572187714552
+trading_pair: ZSD-USDT
+trailing_stop:
+  activation_price: 0.007546796207944733
+  trailing_delta: 0.0023846875778644858

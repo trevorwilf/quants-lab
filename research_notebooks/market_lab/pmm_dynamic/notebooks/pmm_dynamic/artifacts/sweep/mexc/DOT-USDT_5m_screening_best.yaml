@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.010412989898892515
+- 0.03555833456704542
+- 0.12142479436347223
+- 0.41464204850234654
+buy_spreads:
+- 2.247288034635704
+- 5.984764264714423
+- 15.938056338207193
+- 42.44471939146424
+candles_connector: mexc
+candles_trading_pair: DOT-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 593
+executor_refresh_time: 3358
+id: DOT-USDT-PMM-DYNAMIC_603.0126658868548
+interval: 5m
+leverage: 1
+macd_fast: 28
+macd_signal: 6
+macd_slow: 74
+manual_kill_switch: false
+natr_length: 22
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.025999601257973546
+- 0.08878357984762135
+- 0.3031786515626484
+sell_spreads:
+- 4.591017234203137
+- 11.016483494602978
+- 26.43486234002884
+skip_rebalance: true
+stop_loss: 0.18073746497674245
+take_profit: 0.033164686825304164
+take_profit_order_type: 2
+time_limit: 84898
+total_amount_quote: 603.0126658868548
+trading_pair: DOT-USDT
+trailing_stop:
+  activation_price: 0.0015952545313835326
+  trailing_delta: 0.001176455477487875

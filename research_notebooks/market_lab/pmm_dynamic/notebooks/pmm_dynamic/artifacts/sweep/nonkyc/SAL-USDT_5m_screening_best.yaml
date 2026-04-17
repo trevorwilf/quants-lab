@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.006703953592118529
+- 0.02343419682841844
+- 0.08191607734854789
+- 0.2863440883980212
+buy_spreads:
+- 1.9420346202461294
+- 4.86787852391497
+- 12.201760502389694
+- 30.58477294087009
+candles_connector: nonkyc
+candles_trading_pair: SAL-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 1411
+executor_refresh_time: 11222
+id: SAL-USDT-PMM-DYNAMIC_807.9452237390358
+interval: 5m
+leverage: 1
+macd_fast: 20
+macd_signal: 5
+macd_slow: 88
+manual_kill_switch: false
+natr_length: 28
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.01012331027941498
+- 0.03538682694967677
+- 0.12369743562169422
+- 0.43239411098210795
+sell_spreads:
+- 1.7731413089833283
+- 5.130268263018685
+- 14.843516598024408
+- 42.947068983519856
+skip_rebalance: true
+stop_loss: 0.1808186733651551
+take_profit: 0.006390350457005845
+take_profit_order_type: 2
+time_limit: 111935
+total_amount_quote: 807.9452237390358
+trading_pair: SAL-USDT
+trailing_stop:
+  activation_price: 0.009465046402001187
+  trailing_delta: 0.0011236119600285862

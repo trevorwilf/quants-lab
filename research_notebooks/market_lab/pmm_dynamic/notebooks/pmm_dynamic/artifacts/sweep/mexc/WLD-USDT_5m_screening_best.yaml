@@ -1,0 +1,55 @@
+buy_amounts_pct:
+- 0.008590731141882402
+- 0.015380284825410713
+- 0.027535858986145103
+- 0.049298406285178814
+- 0.08826065180975108
+- 0.15801611542611071
+- 0.2829017486544252
+buy_spreads:
+- 1.5058347511950398
+- 2.5393055961015394
+- 4.2820587752244155
+- 7.2208825052907155
+- 12.176653075594672
+- 20.533623142981703
+- 34.62607308925099
+candles_connector: mexc
+candles_trading_pair: WLD-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 1721
+executor_refresh_time: 2515
+id: WLD-USDT-PMM-DYNAMIC_906.612788050876
+interval: 5m
+leverage: 1
+macd_fast: 32
+macd_signal: 7
+macd_slow: 34
+manual_kill_switch: false
+natr_length: 8
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.016812704783746534
+- 0.03010037026987041
+- 0.053889740052962425
+- 0.0964806763816718
+- 0.17273271138284474
+sell_spreads:
+- 4.580922289088159
+- 6.333507137789142
+- 8.756601865955389
+- 12.106732426549325
+- 16.73856734516147
+skip_rebalance: true
+stop_loss: 0.010452603111831478
+take_profit: 0.040141172840486725
+take_profit_order_type: 2
+time_limit: 56764
+total_amount_quote: 906.612788050876
+trading_pair: WLD-USDT
+trailing_stop:
+  activation_price: 0.003743043628697181
+  trailing_delta: 0.0011673423536758293

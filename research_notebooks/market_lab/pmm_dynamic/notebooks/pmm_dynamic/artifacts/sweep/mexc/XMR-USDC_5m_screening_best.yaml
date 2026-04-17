@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.00954702988296627
+- 0.035357452356148254
+- 0.13094642547917437
+- 0.48496045962404616
+buy_spreads:
+- 3.6207362561970924
+- 5.167068697638982
+- 7.373803844570136
+- 10.52298436888255
+candles_connector: mexc
+candles_trading_pair: XMR-USDC
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 167
+executor_refresh_time: 4464
+id: XMR-USDC-PMM-DYNAMIC_999.8202841725578
+interval: 5m
+leverage: 1
+macd_fast: 18
+macd_signal: 27
+macd_slow: 20
+manual_kill_switch: false
+natr_length: 19
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.018414713088276035
+- 0.06819894235719759
+- 0.2525749772121913
+sell_spreads:
+- 0.5485229401315903
+- 0.7504242574277418
+- 1.0266417772807854
+skip_rebalance: true
+stop_loss: 0.11550059129417775
+take_profit: 0.030058815054922992
+take_profit_order_type: 2
+time_limit: 164488
+total_amount_quote: 999.8202841725578
+trading_pair: XMR-USDC
+trailing_stop:
+  activation_price: 0.019185374568438746
+  trailing_delta: 0.001469587609583419

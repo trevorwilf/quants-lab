@@ -41,6 +41,7 @@ def create_objective(
     refresh_close_mode: str = "keep",      # refresh lifecycle mode
     initial_base_balance: float = 0.0,     # pre-existing base token balance
     taker_probability: float = 0.0,        # probability limit entries execute as taker
+    regime_candles: Optional[np.ndarray] = None,  # EMA regime-hold only
 ):
     """Create an Optuna-compatible objective function (closure).
 
@@ -64,6 +65,61 @@ def create_objective(
     elif objective_version == 2 and objective_weights is not None:
         assert isinstance(objective_weights, ObjectiveWeightsV2), (
             f"objective_version=2 requires ObjectiveWeightsV2, got {type(objective_weights).__name__}"
+        )
+
+    # Strategy dispatch: directional strategies use separate wrapper modules
+    if strategy_name == "mean_reversion_bb_rsi":
+        from pmm_lab.optuna.objective_wrapper_mr_bb_rsi import _create_mr_bb_rsi_objective
+        return _create_mr_bb_rsi_objective(
+            candles=candles,
+            pair_rules=pair_rules,
+            bar_interval_seconds=bar_interval_seconds,
+            dataset_hash=dataset_hash,
+            reference_price=reference_price,
+            train_days=train_days,
+            test_days=test_days,
+            step_days=step_days,
+            embargo_bars=embargo_bars,
+            obj_fn=obj_fn,
+            _obj_weights=_obj_weights,
+            objective_version=objective_version,
+            run_stress=run_stress,
+            lambda_mad=lambda_mad,
+            fixed_quote=fixed_quote,
+            controller_compat=controller_compat,
+            strategy_search_space=strategy_search_space,
+            strategy_canonicalizer=strategy_canonicalizer,
+            refresh_close_mode=refresh_close_mode,
+            initial_base_balance=initial_base_balance,
+            taker_probability=taker_probability,
+        )
+
+    if strategy_name == "ema_regime_hold":
+        from pmm_lab.optuna.objective_wrapper_ema_regime_hold import _create_ema_regime_hold_objective
+        return _create_ema_regime_hold_objective(
+            candles=candles,
+            pair_rules=pair_rules,
+            bar_interval_seconds=bar_interval_seconds,
+            dataset_hash=dataset_hash,
+            reference_price=reference_price,
+            train_days=train_days,
+            test_days=test_days,
+            step_days=step_days,
+            embargo_bars=embargo_bars,
+            obj_fn=obj_fn,
+            _obj_weights=_obj_weights,
+            objective_version=objective_version,
+            run_stress=run_stress,
+            lambda_mad=lambda_mad,
+            fixed_quote=fixed_quote,
+            controller_compat=controller_compat,
+            strategy_search_space=strategy_search_space,
+            strategy_canonicalizer=strategy_canonicalizer,
+            refresh_close_mode=refresh_close_mode,
+            initial_base_balance=initial_base_balance,
+            taker_probability=taker_probability,
+            regime_candles=regime_candles,
+            signal_interval_seconds=bar_interval_seconds,
         )
 
     # Strategy dispatch: MACD-BB uses a separate objective path

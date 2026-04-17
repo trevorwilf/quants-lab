@@ -1,0 +1,51 @@
+buy_amounts_pct:
+- 0.005714062242139304
+- 0.01300199912600162
+- 0.029585253731722574
+- 0.06731943525668987
+- 0.1531812572700824
+buy_spreads:
+- 0.8809423996141874
+- 2.179052616397605
+- 5.38998952384262
+- 13.332393558794248
+- 32.97830491511889
+candles_connector: nonkyc
+candles_trading_pair: MANA-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 6097
+executor_refresh_time: 8912
+id: MANA-USDT-PMM-DYNAMIC_945.2432954467955
+interval: 5m
+leverage: 1
+macd_fast: 31
+macd_signal: 21
+macd_slow: 57
+manual_kill_switch: false
+natr_length: 29
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.015543451020470323
+- 0.03536817206729286
+- 0.08047811221164604
+- 0.18312302181824436
+- 0.41668523525571066
+sell_spreads:
+- 5.543428473181261
+- 7.404200374670637
+- 9.889580690631961
+- 13.209232771590296
+- 17.643198015395857
+skip_rebalance: true
+stop_loss: 0.1675819918584697
+take_profit: 0.007014680179554702
+take_profit_order_type: 2
+time_limit: 116916
+total_amount_quote: 945.2432954467955
+trading_pair: MANA-USDT
+trailing_stop:
+  activation_price: 0.004349114500441708
+  trailing_delta: 0.025167094760358447

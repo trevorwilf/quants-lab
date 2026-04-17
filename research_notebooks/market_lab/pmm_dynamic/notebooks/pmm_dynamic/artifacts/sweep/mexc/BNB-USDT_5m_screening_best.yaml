@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.00703875975847018
+- 0.02148754028148812
+- 0.06559598611004797
+- 0.20024783373909807
+buy_spreads:
+- 2.9725014532071783
+- 7.2332114979580036
+- 17.601117912908652
+- 42.83012488596149
+candles_connector: mexc
+candles_trading_pair: BNB-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 4941
+executor_refresh_time: 2558
+id: BNB-USDT-PMM-DYNAMIC_994.4389685648351
+interval: 5m
+leverage: 1
+macd_fast: 42
+macd_signal: 11
+macd_slow: 57
+manual_kill_switch: false
+natr_length: 40
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.052769215535022146
+- 0.16109097104313688
+- 0.49176969353273664
+sell_spreads:
+- 5.074086825301406
+- 9.014492972787096
+- 16.014917827426206
+skip_rebalance: true
+stop_loss: 0.015539072382194678
+take_profit: 0.006175180601887436
+take_profit_order_type: 2
+time_limit: 111059
+total_amount_quote: 994.4389685648351
+trading_pair: BNB-USDT
+trailing_stop:
+  activation_price: 0.08732798675331697
+  trailing_delta: 0.004063796225995044

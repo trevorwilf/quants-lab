@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.007489879464196723
+- 0.021518366485531206
+- 0.06182210253436875
+- 0.17761442832288726
+- 0.5102848957770113
+buy_spreads:
+- 3.839622549181243
+- 7.2275360860422
+- 13.604795056269584
+- 25.609065983156217
+- 48.20537595878163
+candles_connector: nonkyc
+candles_trading_pair: BDX-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 7083
+executor_refresh_time: 3119
+id: BDX-USDT-PMM-DYNAMIC_777.3593078955984
+interval: 5m
+leverage: 1
+macd_fast: 21
+macd_signal: 7
+macd_slow: 77
+manual_kill_switch: false
+natr_length: 39
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.018245972948561246
+- 0.05242054090043191
+- 0.15060381356701158
+sell_spreads:
+- 1.603295089924476
+- 3.1638311415393843
+- 6.243284567562619
+skip_rebalance: true
+stop_loss: 0.175016232951813
+take_profit: 0.005875808737430669
+take_profit_order_type: 2
+time_limit: 76595
+total_amount_quote: 777.3593078955984
+trading_pair: BDX-USDT
+trailing_stop:
+  activation_price: 0.008308515290431761
+  trailing_delta: 0.001927431002484069

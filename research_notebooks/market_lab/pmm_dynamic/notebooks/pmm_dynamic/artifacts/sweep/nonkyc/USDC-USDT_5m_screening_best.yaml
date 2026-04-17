@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.006465470293050861
+- 0.018738034079295064
+- 0.05430601414010104
+- 0.15738807813587893
+- 0.4561374560725484
+buy_spreads:
+- 1.8722514021974512
+- 3.336984982490524
+- 5.947635429888125
+- 10.60069715400973
+- 18.894026285861933
+candles_connector: nonkyc
+candles_trading_pair: USDC-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 4483
+executor_refresh_time: 1590
+id: USDC-USDT-PMM-DYNAMIC_984.0880990718651
+interval: 5m
+leverage: 1
+macd_fast: 8
+macd_signal: 8
+macd_slow: 39
+manual_kill_switch: false
+natr_length: 27
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.02496144845010496
+- 0.07234252893085782
+- 0.2096609698981629
+sell_spreads:
+- 5.9500777844067
+- 15.621369495127611
+- 41.01243609668813
+skip_rebalance: true
+stop_loss: 0.02128476539205161
+take_profit: 0.014132470878551717
+take_profit_order_type: 2
+time_limit: 38041
+total_amount_quote: 984.0880990718651
+trading_pair: USDC-USDT
+trailing_stop:
+  activation_price: 0.0036756142073950337
+  trailing_delta: 0.0010857231844299004

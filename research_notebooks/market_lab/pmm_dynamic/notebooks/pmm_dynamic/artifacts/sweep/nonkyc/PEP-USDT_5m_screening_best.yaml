@@ -1,0 +1,51 @@
+buy_amounts_pct:
+- 0.0052676237627664576
+- 0.008297446216549847
+- 0.013069956552929649
+- 0.020587510884342762
+- 0.032428998726696315
+- 0.05108145245552075
+- 0.08046239129848863
+buy_spreads:
+- 0.21723962195159877
+- 0.29641066953977285
+- 0.4044349010908866
+- 0.5518276028132229
+- 0.7529362634263757
+- 1.0273371862740177
+- 1.401741084296464
+candles_connector: nonkyc
+candles_trading_pair: PEP-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 1538
+executor_refresh_time: 1085
+id: PEP-USDT-PMM-DYNAMIC_961.8438440241821
+interval: 5m
+leverage: 1
+macd_fast: 20
+macd_signal: 11
+macd_slow: 22
+manual_kill_switch: false
+natr_length: 30
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.1560023210790699
+- 0.24573145826396636
+- 0.3870708407596692
+sell_spreads:
+- 0.2009200182144958
+- 0.27456402332757257
+- 0.3752010555033136
+skip_rebalance: true
+stop_loss: 0.201649764420756
+take_profit: 0.019202522911256435
+take_profit_order_type: 2
+time_limit: 167117
+total_amount_quote: 961.8438440241821
+trading_pair: PEP-USDT
+trailing_stop:
+  activation_price: 0.01584709208831658
+  trailing_delta: 0.0022661004690730153

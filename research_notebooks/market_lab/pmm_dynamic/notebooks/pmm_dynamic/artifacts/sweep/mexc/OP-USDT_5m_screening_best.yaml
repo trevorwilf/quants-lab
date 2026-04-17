@@ -1,0 +1,51 @@
+buy_amounts_pct:
+- 0.015248179531562447
+- 0.03060613203378795
+- 0.061432600274065365
+- 0.12330745918062395
+- 0.24750261948459532
+buy_spreads:
+- 1.0695933927914516
+- 2.0497484338449814
+- 3.928098911573169
+- 7.527734040102822
+- 14.426006333895552
+candles_connector: mexc
+candles_trading_pair: OP-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 5592
+executor_refresh_time: 12094
+id: OP-USDT-PMM-DYNAMIC_590.017116521971
+interval: 5m
+leverage: 1
+macd_fast: 12
+macd_signal: 18
+macd_slow: 63
+manual_kill_switch: false
+natr_length: 50
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.016645306171972053
+- 0.033410443350807006
+- 0.06706141138918058
+- 0.13460560371163977
+- 0.2701802448717655
+sell_spreads:
+- 0.4344967117406578
+- 0.8349781571552484
+- 1.6045887208981047
+- 3.0835596610160163
+- 5.925717948287269
+skip_rebalance: true
+stop_loss: 0.010541759069125165
+take_profit: 0.042128420245953375
+take_profit_order_type: 2
+time_limit: 39156
+total_amount_quote: 590.017116521971
+trading_pair: OP-USDT
+trailing_stop:
+  activation_price: 0.0016071183212538474
+  trailing_delta: 0.0010411189788706722

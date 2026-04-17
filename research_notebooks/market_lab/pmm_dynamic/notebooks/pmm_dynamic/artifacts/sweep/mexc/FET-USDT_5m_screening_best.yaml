@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.005387138183389877
+- 0.018845968368179006
+- 0.06592935091761677
+- 0.23064239669199094
+buy_spreads:
+- 0.7355627815144067
+- 1.202648940464265
+- 1.9663372187238526
+- 3.2149714913863874
+candles_connector: mexc
+candles_trading_pair: FET-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 6935
+executor_refresh_time: 5353
+id: FET-USDT-PMM-DYNAMIC_948.1792084287199
+interval: 5m
+leverage: 1
+macd_fast: 43
+macd_signal: 15
+macd_slow: 74
+manual_kill_switch: false
+natr_length: 31
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.011405432482275012
+- 0.03989992691278998
+- 0.1395829724230176
+- 0.4883068140207409
+sell_spreads:
+- 2.0824360844413925
+- 2.579817536353891
+- 3.195996540111994
+- 3.959347411384779
+skip_rebalance: true
+stop_loss: 0.018835801217970988
+take_profit: 0.06661087369119309
+take_profit_order_type: 2
+time_limit: 86651
+total_amount_quote: 948.1792084287199
+trading_pair: FET-USDT
+trailing_stop:
+  activation_price: 0.0036540080562502777
+  trailing_delta: 0.0011062600668601463

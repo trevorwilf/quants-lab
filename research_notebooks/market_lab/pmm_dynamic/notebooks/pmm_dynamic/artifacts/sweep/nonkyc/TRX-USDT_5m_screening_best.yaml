@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.006526699011391616
+- 0.025814283108081627
+- 0.10210019049769295
+- 0.4038248459590819
+buy_spreads:
+- 4.391146776048398
+- 6.761087668392995
+- 10.410106696736843
+- 16.028533684611016
+candles_connector: nonkyc
+candles_trading_pair: TRX-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 5588
+executor_refresh_time: 3538
+id: TRX-USDT-PMM-DYNAMIC_825.7570817515802
+interval: 5m
+leverage: 1
+macd_fast: 10
+macd_signal: 13
+macd_slow: 50
+manual_kill_switch: false
+natr_length: 22
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.022415742598927046
+- 0.08865834390656384
+- 0.350659894918261
+sell_spreads:
+- 2.4610450056833644
+- 4.360606010294115
+- 7.726345813709833
+skip_rebalance: true
+stop_loss: 0.02108818804222771
+take_profit: 0.010853498810562799
+take_profit_order_type: 2
+time_limit: 5331
+total_amount_quote: 825.7570817515802
+trading_pair: TRX-USDT
+trailing_stop:
+  activation_price: 0.061526335145753376
+  trailing_delta: 0.016445687447911573

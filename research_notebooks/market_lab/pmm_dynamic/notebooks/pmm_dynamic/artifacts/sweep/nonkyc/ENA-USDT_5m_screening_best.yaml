@@ -1,0 +1,53 @@
+buy_amounts_pct:
+- 0.00708072957240126
+- 0.013945601330085034
+- 0.027466067510288534
+- 0.054094825072353296
+- 0.10654055585177442
+buy_spreads:
+- 3.538476099714045
+- 6.497343771026307
+- 11.930411535718978
+- 21.906601286256645
+- 40.22486386812644
+candles_connector: nonkyc
+candles_trading_pair: ENA-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 3980
+executor_refresh_time: 9588
+id: ENA-USDT-PMM-DYNAMIC_955.3677691960808
+interval: 5m
+leverage: 1
+macd_fast: 39
+macd_signal: 5
+macd_slow: 44
+manual_kill_switch: false
+natr_length: 28
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.01336628623718584
+- 0.02632509789021398
+- 0.05184766857688184
+- 0.10211474798950233
+- 0.20111650230708766
+- 0.39610191766222586
+sell_spreads:
+- 3.8044302848669833
+- 5.899177983848045
+- 9.147309394403642
+- 14.183886193303985
+- 21.99363975462377
+- 34.103501893897366
+skip_rebalance: true
+stop_loss: 0.01351746189214886
+take_profit: 0.005453306496675398
+take_profit_order_type: 2
+time_limit: 156702
+total_amount_quote: 955.3677691960808
+trading_pair: ENA-USDT
+trailing_stop:
+  activation_price: 0.02473481967033292
+  trailing_delta: 0.015686216721710857

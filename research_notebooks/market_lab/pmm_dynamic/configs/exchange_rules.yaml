@@ -40,6 +40,10 @@ connectors:
         price_tick: 0.00001
         amount_step: 1.0
         min_notional_quote: 5.0
+      XMR-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+        min_notional_quote: 1.0
 
   nonkyc:
     default:
@@ -69,3 +73,7 @@ connectors:
       SAL-USDT:
         price_tick: 0.00001
         amount_step: 0.01
+      XMR-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+        min_notional_quote: 1.0

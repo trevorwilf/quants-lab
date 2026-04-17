@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.005428086649796518
+- 0.021518594173797877
+- 0.08530628287482593
+- 0.338180172884196
+buy_spreads:
+- 0.6582628251597031
+- 0.99524575993159
+- 1.5047395733178408
+- 2.275057352331141
+candles_connector: mexc
+candles_trading_pair: TRX-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 2289
+executor_refresh_time: 1047
+id: TRX-USDT-PMM-DYNAMIC_929.0998470032486
+interval: 5m
+leverage: 1
+macd_fast: 38
+macd_signal: 23
+macd_slow: 94
+manual_kill_switch: false
+natr_length: 31
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.0066227289073775815
+- 0.026254521137071444
+- 0.10408094454373114
+- 0.41260866882920355
+sell_spreads:
+- 1.1445450705552949
+- 3.013516603908686
+- 7.9344034198910185
+- 20.89079500936638
+skip_rebalance: true
+stop_loss: 0.022622983854290287
+take_profit: 0.005736050647430558
+take_profit_order_type: 2
+time_limit: 161305
+total_amount_quote: 929.0998470032486
+trading_pair: TRX-USDT
+trailing_stop:
+  activation_price: 0.00017621407276935397
+  trailing_delta: 0.011339773558633092

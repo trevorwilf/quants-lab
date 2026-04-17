@@ -1,0 +1,57 @@
+buy_amounts_pct:
+- 0.013215026541884292
+- 0.01799963711017354
+- 0.024516555836727072
+- 0.03339297933710182
+- 0.04548318599212231
+- 0.061950752794780004
+- 0.08438053949221291
+- 0.11493121752019846
+- 0.15654302331041847
+- 0.2132207304152111
+buy_spreads:
+- 0.4811801572836414
+- 0.5850419704896531
+- 0.7113221566878862
+- 0.864859678651131
+- 1.0515379799771047
+- 1.2785104342693756
+- 1.5544744570911813
+- 1.8900047844582561
+- 2.297958688854524
+- 2.793968660346867
+candles_connector: mexc
+candles_trading_pair: WXT-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 4650
+executor_refresh_time: 1473
+id: WXT-USDT-PMM-DYNAMIC_544.6167126440893
+interval: 5m
+leverage: 1
+macd_fast: 23
+macd_signal: 18
+macd_slow: 25
+manual_kill_switch: false
+natr_length: 16
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.05557311657591896
+- 0.07569382689300917
+- 0.10309940818024195
+sell_spreads:
+- 4.428518665984581
+- 10.891189585147625
+- 26.78503118677859
+skip_rebalance: true
+stop_loss: 0.017628204524247796
+take_profit: 0.05942575626676328
+take_profit_order_type: 2
+time_limit: 47370
+total_amount_quote: 544.6167126440893
+trading_pair: WXT-USDT
+trailing_stop:
+  activation_price: 0.02223153502986184
+  trailing_delta: 0.006070478730483843

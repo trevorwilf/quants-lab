@@ -1,0 +1,47 @@
+buy_amounts_pct:
+- 0.006953730917698281
+- 0.020981862947208635
+- 0.06330969345031368
+- 0.1910277125943156
+buy_spreads:
+- 0.6540359624034991
+- 0.8966544447675605
+- 1.2292736784180245
+- 1.6852799707507238
+candles_connector: nonkyc
+candles_trading_pair: ZEC-XMR
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 252
+executor_refresh_time: 5436
+id: ZEC-XMR-PMM-DYNAMIC_736.7684441595574
+interval: 5m
+leverage: 1
+macd_fast: 18
+macd_signal: 15
+macd_slow: 71
+manual_kill_switch: false
+natr_length: 12
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.01768104081012137
+- 0.053349946874959885
+- 0.16097563837597995
+- 0.48572037402940266
+sell_spreads:
+- 3.5657500872446564
+- 4.401122722450944
+- 5.4322038124218635
+- 6.7048433139936225
+skip_rebalance: true
+stop_loss: 0.23937525090437597
+take_profit: 0.01814375078263392
+take_profit_order_type: 2
+time_limit: 93445
+total_amount_quote: 736.7684441595574
+trading_pair: ZEC-XMR
+trailing_stop:
+  activation_price: 0.005211177111754795
+  trailing_delta: 0.0018017400972094142

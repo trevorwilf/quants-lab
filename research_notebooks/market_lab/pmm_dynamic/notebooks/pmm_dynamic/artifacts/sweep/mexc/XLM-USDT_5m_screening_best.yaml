@@ -1,0 +1,51 @@
+buy_amounts_pct:
+- 0.008210434905493403
+- 0.015500370283633583
+- 0.029262941816760264
+- 0.055245116607005255
+- 0.1042965170088802
+- 0.19690000000478414
+- 0.3717248774336635
+buy_spreads:
+- 1.0238373014636928
+- 1.6104146507504595
+- 2.5330541714431694
+- 3.984292761169051
+- 6.2669756476861265
+- 9.857454289369807
+- 15.504991646631309
+candles_connector: mexc
+candles_trading_pair: XLM-USDT
+connector_name: mexc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 975
+executor_refresh_time: 1414
+id: XLM-USDT-PMM-DYNAMIC_734.592077061246
+interval: 5m
+leverage: 1
+macd_fast: 26
+macd_signal: 27
+macd_slow: 28
+manual_kill_switch: false
+natr_length: 29
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.033921211282825485
+- 0.06403940125039784
+- 0.12089912940655631
+sell_spreads:
+- 2.545769044222338
+- 7.406477676307816
+- 21.5478743816696
+skip_rebalance: true
+stop_loss: 0.2438756020213273
+take_profit: 0.01928926424610302
+take_profit_order_type: 2
+time_limit: 31226
+total_amount_quote: 734.592077061246
+trading_pair: XLM-USDT
+trailing_stop:
+  activation_price: 0.0017538281237189758
+  trailing_delta: 0.0010839072045955031

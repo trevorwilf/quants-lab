@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.006885595293599501
+- 0.026816553115573852
+- 0.10443941160306912
+- 0.4067484232215007
+buy_spreads:
+- 1.841720830084332
+- 5.254321828494827
+- 14.990272915647626
+- 42.76637203054034
+candles_connector: nonkyc
+candles_trading_pair: INJ-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 6967
+executor_refresh_time: 3580
+id: INJ-USDT-PMM-DYNAMIC_974.1177151987167
+interval: 5m
+leverage: 1
+macd_fast: 36
+macd_signal: 19
+macd_slow: 67
+manual_kill_switch: false
+natr_length: 34
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.022684725648371214
+- 0.08834764814412435
+- 0.3440776429737613
+sell_spreads:
+- 5.385378447676932
+- 12.88970281992691
+- 30.851023823163395
+skip_rebalance: true
+stop_loss: 0.05559804417000102
+take_profit: 0.00569685930438815
+take_profit_order_type: 2
+time_limit: 32904
+total_amount_quote: 974.1177151987167
+trading_pair: INJ-USDT
+trailing_stop:
+  activation_price: 0.08616395607332421
+  trailing_delta: 0.014175745355268875

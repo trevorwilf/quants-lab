@@ -57,10 +57,14 @@ def _register_builtins():
     from pmm_lab.strategies.pmm_dynamic import PMMDynamicStrategy
     from pmm_lab.strategies.bollinger import BollingerStrategy
     from pmm_lab.strategies.macd_bb import MACDBBStrategy
+    from pmm_lab.strategies.mean_reversion_bb_rsi import MeanReversionBBRSIStrategy
+    from pmm_lab.strategies.ema_regime_hold import EMARegimeHoldStrategy
 
     register_strategy("pmm_dynamic", PMMDynamicStrategy)
     register_strategy("bollinger", BollingerStrategy)
     register_strategy("macd_bb", MACDBBStrategy)
+    register_strategy("mean_reversion_bb_rsi", MeanReversionBBRSIStrategy)
+    register_strategy("ema_regime_hold", EMARegimeHoldStrategy)
 
 
 _register_builtins()

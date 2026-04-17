@@ -1,0 +1,53 @@
+buy_amounts_pct:
+- 0.0053710299642092995
+- 0.011616177793215336
+- 0.02512285118920459
+- 0.054334365667471005
+- 0.11751147472286255
+buy_spreads:
+- 4.154332314441614
+- 7.149625663311727
+- 12.304539756674792
+- 21.17617141838736
+- 36.44429168491797
+candles_connector: nonkyc
+candles_trading_pair: ETH-USDT
+connector_name: nonkyc
+controller_name: pmm_dynamic
+controller_type: market_making
+cooldown_time: 4520
+executor_refresh_time: 10024
+id: ETH-USDT-PMM-DYNAMIC_989.1382768625779
+interval: 5m
+leverage: 1
+macd_fast: 28
+macd_signal: 20
+macd_slow: 42
+manual_kill_switch: false
+natr_length: 30
+position_mode: HEDGE
+position_rebalance_threshold_pct: 0.0
+sell_amounts_pct:
+- 0.00901908818438093
+- 0.019506003984448073
+- 0.04218654742729079
+- 0.09123881986561647
+- 0.1973264644331908
+- 0.4267671767681101
+sell_spreads:
+- 3.004372619323075
+- 5.221191683123873
+- 9.07372221960408
+- 15.768897201122636
+- 27.40420225806991
+- 47.624782622575445
+skip_rebalance: true
+stop_loss: 0.11183801325021386
+take_profit: 0.005352884373011188
+take_profit_order_type: 2
+time_limit: 133995
+total_amount_quote: 989.1382768625779
+trading_pair: ETH-USDT
+trailing_stop:
+  activation_price: 0.05838468499335697
+  trailing_delta: 0.0010642481918677125
