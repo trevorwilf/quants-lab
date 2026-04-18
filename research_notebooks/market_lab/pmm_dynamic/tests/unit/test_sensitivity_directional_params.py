@@ -19,7 +19,7 @@ def test_ema_perturbable_params_includes_regime_hyperparams():
 def test_mr_notebook_calls_compute_sensitivity_with_directional_perturb():
     """_build_cell8.py MR block must pass MR_PERTURBABLE_PARAMS explicitly."""
     from pathlib import Path
-    src = Path("notebooks/direction-custom/_build_cell8.py").read_text()
+    src = Path("notebooks/direction-custom/_legacy/_build_cell8.py").read_text()
     assert "MR_PERTURBABLE_PARAMS" in src, (
         "_build_cell8.py must import/use MR_PERTURBABLE_PARAMS for MR sensitivity"
     )

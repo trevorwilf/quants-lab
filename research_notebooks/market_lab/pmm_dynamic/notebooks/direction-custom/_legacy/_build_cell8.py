@@ -50,6 +50,11 @@ if _missing:
     if "MIN_PHASE1_BEST_FOR_STRESS" not in globals():
         MIN_PHASE1_BEST_FOR_STRESS = 0.0
 
+# Enable the Numba-compiled controller-compat feature kernels.
+# Stage 1 benchmarks: ~247x MR, ~3549x EMA warm-call speedup.
+# Set to False to use the pandas replay path (no numerical change).
+USE_NUMBA_KERNEL = True
+
 if "REFRESH_CLOSE_MODE" not in globals():
     REFRESH_CLOSE_MODE = "keep"
 if "INITIAL_BASE_BALANCE" not in globals():
@@ -342,7 +347,7 @@ def _mr_body():
                 raw, pair_rules, ref_price, bar_interval_seconds=bar_interval_seconds,
             )
             if bundle is not None:
-                sc = _replace(bundle.strategy_config, controller_compat=PHASE2_CONTROLLER_COMPAT)
+                sc = _replace(bundle.strategy_config, controller_compat=PHASE2_CONTROLLER_COMPAT, use_numba_kernel=USE_NUMBA_KERNEL)
                 ec = _replace(bundle.engine_config, taker_probability=taker_prob)
                 top_candidates.append({
                     "trial_number": trial.number,
@@ -427,7 +432,7 @@ def _mr_body():
         continue
 
     # ── Finalist validation ──
-    val_config = _replace(best_config, controller_compat=VALIDATION_CONTROLLER_COMPAT)
+    val_config = _replace(best_config, controller_compat=VALIDATION_CONTROLLER_COMPAT, use_numba_kernel=USE_NUMBA_KERNEL)
     val_engine = _replace(
         best_engine_config,
         refresh_close_mode=REFRESH_CLOSE_MODE,
@@ -487,7 +492,7 @@ def _mr_body():
                 pair_rules, ref_price, bar_interval_seconds=bar_interval_seconds,
             )
             if tc_bundle is not None:
-                tc_cfg = _replace(tc_bundle.strategy_config, controller_compat=VALIDATION_CONTROLLER_COMPAT)
+                tc_cfg = _replace(tc_bundle.strategy_config, controller_compat=VALIDATION_CONTROLLER_COMPAT, use_numba_kernel=USE_NUMBA_KERNEL)
                 tc_engine = _replace(
                     tc_bundle.engine_config,
                     refresh_close_mode=REFRESH_CLOSE_MODE,
@@ -532,6 +537,7 @@ def _mr_body():
             shared_signal_cache=_shared_cache_full,
             canonicalize_fn=_mr_canon_adapter,
             perturb_params=MR_PERTURBABLE_PARAMS,
+            use_numba_kernel=USE_NUMBA_KERNEL,
         )
         sensitivity_penalty = sensitivity_report.sensitivity_penalty
         print(f"  Sensitivity: penalty={sensitivity_penalty:.4f}")
@@ -1015,7 +1021,7 @@ def _ema_body():
                 regime_candles=regime_candles,
             )
             if bundle is not None:
-                sc = _replace(bundle.strategy_config, controller_compat=PHASE2_CONTROLLER_COMPAT)
+                sc = _replace(bundle.strategy_config, controller_compat=PHASE2_CONTROLLER_COMPAT, use_numba_kernel=USE_NUMBA_KERNEL)
                 ec = _replace(bundle.engine_config, taker_probability=taker_prob)
                 top_candidates.append({
                     "trial_number": trial.number,
@@ -1104,7 +1110,7 @@ def _ema_body():
 
     # ── Finalist validation ──
     val_config = _replace(best_config, controller_compat=VALIDATION_CONTROLLER_COMPAT,
-                          _regime_candles=regime_candles)
+                          _regime_candles=regime_candles, use_numba_kernel=USE_NUMBA_KERNEL)
     val_engine = _replace(
         best_engine_config,
         refresh_close_mode=REFRESH_CLOSE_MODE,
@@ -1171,6 +1177,7 @@ def _ema_body():
                     tc_bundle.strategy_config,
                     controller_compat=VALIDATION_CONTROLLER_COMPAT,
                     _regime_candles=regime_candles,
+                    use_numba_kernel=USE_NUMBA_KERNEL,
                 )
                 tc_engine = _replace(
                     tc_bundle.engine_config,
@@ -1218,6 +1225,7 @@ def _ema_body():
             canonicalize_fn=_ema_canon_adapter,
             regime_candles=regime_candles,
             perturb_params=EMA_PERTURBABLE_PARAMS,
+            use_numba_kernel=USE_NUMBA_KERNEL,
         )
         sensitivity_penalty = sensitivity_report.sensitivity_penalty
         print(f"  Sensitivity: penalty={sensitivity_penalty:.4f}")

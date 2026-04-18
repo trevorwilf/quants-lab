@@ -53,7 +53,7 @@ def test_exception_is_validation_error():
 def test_build_cell8_defines_mandatory_gates():
     """_build_cell8.py must contain the MANDATORY_GATES set definition with the
     full canonical gate list."""
-    src = Path("notebooks/direction-custom/_build_cell8.py").read_text(encoding="utf-8")
+    src = Path("notebooks/direction-custom/_legacy/_build_cell8.py").read_text(encoding="utf-8")
     assert "MANDATORY_GATES = {" in src
     for g in ("dataset_audit", "walkforward_robust", "holdout_passed",
               "recent_28d_passed", "top_k_clustered", "sensitivity_stable"):
@@ -63,7 +63,7 @@ def test_build_cell8_defines_mandatory_gates():
 def test_build_cell8_emits_validation_status_in_result_entry():
     """The generator body must write validation_status (not just 'complete') on
     every result_entry after gates run."""
-    src = Path("notebooks/direction-custom/_build_cell8.py").read_text(encoding="utf-8")
+    src = Path("notebooks/direction-custom/_legacy/_build_cell8.py").read_text(encoding="utf-8")
     assert '"validation_status"' in src, (
         "_build_cell8.py must emit 'validation_status' on result_entry"
     )
@@ -74,13 +74,13 @@ def test_build_cell8_emits_validation_status_in_result_entry():
 
 def test_build_cell8_yaml_goes_to_pending_first():
     """YAML must be written to .pending/ before gates decide final placement."""
-    src = Path("notebooks/direction-custom/_build_cell8.py").read_text(encoding="utf-8")
+    src = Path("notebooks/direction-custom/_legacy/_build_cell8.py").read_text(encoding="utf-8")
     assert ".pending" in src, "YAML export must go through .pending/ first (fail-closed)"
 
 
 def test_build_cell8_moves_to_rejected_on_failure():
     """On validated_fail, YAML must be moved to rejected/ with a REJECTED.json marker."""
-    src = Path("notebooks/direction-custom/_build_cell8.py").read_text(encoding="utf-8")
+    src = Path("notebooks/direction-custom/_legacy/_build_cell8.py").read_text(encoding="utf-8")
     assert "/ \"rejected\"" in src or '"rejected"' in src, (
         "Fail branch must place YAML under rejected/ subdirectory"
     )
@@ -116,7 +116,7 @@ def test_yaml_placement_rejected_subdirectory_on_failure(tmp_path):
 
 
 def test_optimized_only_is_a_recognized_status():
-    src = Path("notebooks/direction-custom/_build_cell8.py").read_text(encoding="utf-8")
+    src = Path("notebooks/direction-custom/_legacy/_build_cell8.py").read_text(encoding="utf-8")
     assert '"optimized_only"' in src, (
         "_build_cell8.py must initialize validation_status to 'optimized_only'"
     )

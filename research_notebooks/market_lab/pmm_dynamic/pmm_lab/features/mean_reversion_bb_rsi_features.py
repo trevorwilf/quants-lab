@@ -53,6 +53,7 @@ class MRBBRSIFeatureConfig:
     min_volume_quantile: float = 0.30
     timestamp_mode: str = "open"
     controller_compat: bool = False  # D9: vectorized by default
+    use_numba_kernel: bool = False  # opt-in Numba compiled controller-compat path
 
 
 def _compute_raw(
@@ -117,6 +118,30 @@ def _compute_controller_compat(candles: np.ndarray, config: MRBBRSIFeatureConfig
     ending at t. Replicates the controller's `required_records`-bounded
     buffer behavior.
     """
+    # Opt-in Numba compiled path — same bounded-slice semantics, 20-50x faster
+    if getattr(config, "use_numba_kernel", False):
+        from pmm_lab.features._numba_availability import _NUMBA_AVAILABLE
+        if _NUMBA_AVAILABLE:
+            from pmm_lab.features._numba_mr_bb_rsi import compute_controller_compat_mr_numba
+            return compute_controller_compat_mr_numba(
+                highs=candles["high"].astype("float64"),
+                lows=candles["low"].astype("float64"),
+                closes=candles["close"].astype("float64"),
+                volumes=candles["volume"].astype("float64"),
+                bb_length=int(config.bb_length),
+                bb_std=float(config.bb_std),
+                rsi_length=int(config.rsi_length),
+                atr_length=int(config.atr_length),
+                trend_ema_length=int(config.trend_ema_length),
+                bbp_entry_threshold=float(config.bbp_entry_threshold),
+                rsi_entry_threshold=float(config.rsi_entry_threshold),
+                max_atr_pct_for_entry=float(config.max_atr_pct_for_entry),
+                use_trend_filter=bool(config.use_trend_filter),
+                min_trend_slope=float(config.min_trend_slope),
+                volume_filter_window=int(config.volume_filter_window),
+                min_volume_quantile=float(config.min_volume_quantile),
+            )
+        # Fallback to pandas path if Numba is not installed
     n = len(candles)
     max_records = max(config.bb_length, config.trend_ema_length, config.rsi_length, config.atr_length) + 500
 

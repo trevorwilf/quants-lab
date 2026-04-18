@@ -244,6 +244,7 @@ class SharedSignalCache:
                     min_volume_quantile=config.min_volume_quantile,
                     timestamp_mode=config.timestamp_mode,
                     controller_compat=config.controller_compat,
+                    use_numba_kernel=getattr(config, "use_numba_kernel", False),
                 )
                 signals = compute_mr_bb_rsi_features(candles, feature_cfg)
                 self.put(sig_key, effective_key, signals)
@@ -276,6 +277,7 @@ class SharedSignalCache:
                     hold_mode=config.hold_mode,
                     timestamp_mode=config.timestamp_mode,
                     controller_compat=config.controller_compat,
+                    use_numba_kernel=getattr(config, "use_numba_kernel", False),
                 )
                 signals = compute_ema_regime_hold_features(
                     candles, regime_candles, feature_cfg,

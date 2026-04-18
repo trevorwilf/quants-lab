@@ -16,7 +16,7 @@ def test_reject_fraction_is_emitted():
 
 def test_result_entry_stores_reject_fraction():
     """_build_cell8.py MR block must populate total_reject_fraction in result_entry."""
-    src = Path("notebooks/direction-custom/_build_cell8.py").read_text(encoding="utf-8")
+    src = Path("notebooks/direction-custom/_legacy/_build_cell8.py").read_text(encoding="utf-8")
     assert '"total_reject_fraction"' in src, (
         "MR result_entry must include total_reject_fraction field"
     )

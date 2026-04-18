@@ -36,6 +36,7 @@ class EMARegimeHoldFeatureConfig:
     hold_mode: str = "reentry"  # D4 — 'hold' rejected at canonicalize time
     timestamp_mode: str = "open"
     controller_compat: bool = False
+    use_numba_kernel: bool = False  # opt-in Numba compiled controller-compat path
 
 
 def _compute_regime_trend(regime_candles: np.ndarray, config: EMARegimeHoldFeatureConfig):
@@ -111,6 +112,26 @@ def _compute_controller_compat(signal_candles, regime_candles, config):
       - recompute vol_ok
       - project via merge_asof backward
     """
+    # Opt-in Numba compiled path — same bounded-slice semantics, much faster
+    if getattr(config, "use_numba_kernel", False):
+        from pmm_lab.features._numba_availability import _NUMBA_AVAILABLE
+        if _NUMBA_AVAILABLE:
+            from pmm_lab.features._numba_ema_regime_hold import compute_controller_compat_ema_numba
+            return compute_controller_compat_ema_numba(
+                fast_timestamps=signal_candles["timestamp"].astype("int64"),
+                fast_volumes=signal_candles["volume"].astype("float64"),
+                regime_timestamps=regime_candles["timestamp"].astype("int64"),
+                regime_highs=regime_candles["high"].astype("float64"),
+                regime_lows=regime_candles["low"].astype("float64"),
+                regime_closes=regime_candles["close"].astype("float64"),
+                regime_ema_fast=int(config.regime_ema_fast),
+                regime_ema_slow=int(config.regime_ema_slow),
+                regime_adx_length=int(config.regime_adx_length),
+                regime_adx_threshold=float(config.regime_adx_threshold),
+                volume_filter_window=int(config.volume_filter_window),
+                min_volume_quantile=float(config.min_volume_quantile),
+            )
+        # Fallback to pandas path if Numba is not installed
     SLOW_MAX_RECORDS = 3000
     FAST_MAX_RECORDS = 6000
 

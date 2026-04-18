@@ -153,6 +153,7 @@ def compute_sensitivity(
     dataset_key: str = "dev",
     canonicalize_fn: Optional[Callable] = None,
     regime_candles: Optional[np.ndarray] = None,
+    use_numba_kernel: Optional[bool] = None,
 ) -> SensitivityReport:
     """Compute sensitivity of objective to parameter perturbations.
 
@@ -268,9 +269,15 @@ def compute_sensitivity(
             sensitivity_penalty=1.0,
             n_perturbations=0, n_rejected=0,
         )
-    if controller_compat is not None:
+    if controller_compat is not None or use_numba_kernel is not None:
         from dataclasses import replace
-        baseline_config = replace(baseline_config, controller_compat=controller_compat)
+        _kw = {}
+        if controller_compat is not None:
+            _kw["controller_compat"] = controller_compat
+        if use_numba_kernel is not None and hasattr(baseline_config, "use_numba_kernel"):
+            _kw["use_numba_kernel"] = use_numba_kernel
+        if _kw:
+            baseline_config = replace(baseline_config, **_kw)
 
     baseline_signals = _get_or_compute_signals(baseline_config)
     result = run_simulation(
@@ -312,9 +319,15 @@ def compute_sensitivity(
                 scores_for_param.append(REJECT_SCORE)
                 continue
 
-            if controller_compat is not None:
+            if controller_compat is not None or use_numba_kernel is not None:
                 from dataclasses import replace
-                config = replace(config, controller_compat=controller_compat)
+                _kw = {}
+                if controller_compat is not None:
+                    _kw["controller_compat"] = controller_compat
+                if use_numba_kernel is not None and hasattr(config, "use_numba_kernel"):
+                    _kw["use_numba_kernel"] = use_numba_kernel
+                if _kw:
+                    config = replace(config, **_kw)
 
             variant_signals = _get_or_compute_signals(config)
             r = run_simulation(

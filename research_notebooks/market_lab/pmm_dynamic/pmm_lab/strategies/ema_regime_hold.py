@@ -68,6 +68,7 @@ class EMARegimeHoldStrategyConfig:
     # Mode
     timestamp_mode: str = "open"
     controller_compat: bool = False
+    use_numba_kernel: bool = False  # opt-in Numba compiled controller-compat path
 
     # Private: wired up by the canonicalizer. Using default=None keeps the
     # dataclass frozen semantics intact.
@@ -127,6 +128,7 @@ class EMARegimeHoldStrategy:
             hold_mode=self.config.hold_mode,
             timestamp_mode=self.config.timestamp_mode,
             controller_compat=self.config.controller_compat,
+            use_numba_kernel=getattr(self.config, "use_numba_kernel", False),
         )
         return compute_ema_regime_hold_features(candles, self.config._regime_candles, feat)
 

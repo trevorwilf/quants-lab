@@ -1,0 +1,16 @@
+{
+  "type": "ema",
+  "size": "small",
+  "n_bars": 500,
+  "config": {
+    "regime_ema_fast": 50,
+    "regime_ema_slow": 200,
+    "regime_adx_length": 14,
+    "regime_adx_threshold": 20.0,
+    "volume_filter_window": 288,
+    "min_volume_quantile": 0.3,
+    "hold_mode": "reentry",
+    "timestamp_mode": "open",
+    "controller_compat": true
+  }
+}

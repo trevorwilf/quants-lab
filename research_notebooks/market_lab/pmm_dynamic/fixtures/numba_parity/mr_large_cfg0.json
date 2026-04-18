@@ -1,0 +1,21 @@
+{
+  "type": "mr",
+  "size": "large",
+  "n_bars": 8000,
+  "config": {
+    "bb_length": 20,
+    "bb_std": 2.0,
+    "bbp_entry_threshold": 0.15,
+    "rsi_length": 14,
+    "rsi_entry_threshold": 35.0,
+    "use_trend_filter": false,
+    "trend_ema_length": 50,
+    "min_trend_slope": 0.0,
+    "atr_length": 14,
+    "max_atr_pct_for_entry": 0.1,
+    "volume_filter_window": 30,
+    "min_volume_quantile": 0.0,
+    "timestamp_mode": "open",
+    "controller_compat": true
+  }
+}

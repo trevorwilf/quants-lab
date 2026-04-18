@@ -77,6 +77,7 @@ class MeanReversionBBRSIStrategyConfig:
     # Mode
     timestamp_mode: str = "open"
     controller_compat: bool = False
+    use_numba_kernel: bool = False  # opt-in Numba compiled controller-compat path
 
     def to_fingerprint(self) -> tuple:
         """Produce a hashable fingerprint of ALL fields. Exact match only.
@@ -139,6 +140,7 @@ class MeanReversionBBRSIStrategy:
             min_volume_quantile=self.config.min_volume_quantile,
             timestamp_mode=self.config.timestamp_mode,
             controller_compat=self.config.controller_compat,
+            use_numba_kernel=getattr(self.config, "use_numba_kernel", False),
         )
         return compute_mr_bb_rsi_features(candles, feat)
 

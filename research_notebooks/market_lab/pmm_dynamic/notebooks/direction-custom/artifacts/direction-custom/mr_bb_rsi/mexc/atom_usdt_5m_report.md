@@ -1,13 +1,13 @@
 # PMM Dynamic Optimization Report: mexc_ATOM-USDT_5m_mr_bb_rsi_v1
 
-Generated: 2026-04-17 22:42:23 UTC
+Generated: 2026-04-18 06:19:52 UTC
 
 ## Run Provenance
 
 | Key | Value |
 |-----|-------|
 | notebook | direction-custom/mr_bb_rsi |
-| run_timestamp | 2026-04-17T22:42:23.078330+00:00 |
+| run_timestamp | 2026-04-18T06:19:52.808612+00:00 |
 | n_jobs | 8 |
 | objective_version | 2 |
 | search_controller_compat | False |
@@ -16,6 +16,7 @@ Generated: 2026-04-17 22:42:23 UTC
 | initial_base_balance | 0.0 |
 | taker_probability | 0.0 |
 | trial_number | 306 |
+| validation_status | validated_fail |
 
 ## Dataset Summary
 
@@ -90,6 +91,22 @@ Generated: 2026-04-17 22:42:23 UTC
 - **Trade Count Penalty**: -0.0000
 - **Rejected**: False
 
+## Walk-Forward Results
+
+Aggregate Score: **-0.0730**
+
+| Fold | PnL % | Sharpe | Max DD % | Trades | Objective | Regime |
+|------|-------|--------|----------|--------|-----------|--------|
+| 0 | 1.89 | 4.14 | 0.91 | 64 | 0.0080 | n/a |
+| 1 | 1.37 | 2.68 | 1.43 | 64 | -0.0005 | n/a |
+| 2 | 1.43 | 4.18 | 1.58 | 62 | -0.0140 | n/a |
+| 3 | -1.72 | -4.65 | 2.12 | 8 | -0.2024 | n/a |
+| 4 | 4.73 | 4.53 | 3.23 | 63 | -0.0460 | n/a |
+| 5 | -2.07 | -6.30 | 2.26 | 7 | -0.2110 | n/a |
+| 6 | 3.29 | 5.44 | 2.18 | 88 | 0.0102 | n/a |
+| 7 | 0.46 | 2.00 | 1.01 | 33 | -0.0733 | n/a |
+| 8 | -1.04 | -3.26 | 2.09 | 16 | -0.1636 | n/a |
+
 ## Stress Test Results
 
 Worst Scenario: **latency_plus1** (score: -1000.0000)
@@ -120,17 +137,17 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 - **Regime**: high_vol_ranging
 - **Volatility**: high_vol (NATR mean: 0.0031)
 - **Trend**: ranging (efficiency: 0.0174)
-- **Best holdout score**: -0.1598 (rank #2)
+- **Best holdout score**: -0.0934 (rank #2)
 - **Collapse detected**: No
 - **Holdout passed**: **NO**
 
 | Rank | Dev Score | Holdout Score | PnL % | Max DD % | Trades |
 |------|-----------|---------------|-------|----------|--------|
 | 0 | -500.0237 | -1000.0000 | -3.65 | 3.75 | 3 |
-| 1 | -0.0501 | -0.2159 | -3.37 | 3.79 | 12 |
-| 2 | -0.0599 | -0.1598 | -2.92 | 3.70 | 25 |
-| 3 | -0.0622 | -0.2037 | -1.73 | 1.86 | 8 |
-| 4 | -0.0649 | -0.2019 | -1.50 | 1.85 | 7 |
+| 1 | -0.0168 | -0.1979 | -3.73 | 4.53 | 19 |
+| 2 | -0.0463 | -0.0934 | 0.60 | 4.07 | 34 |
+| 3 | -0.0489 | -1000.0000 | -1.87 | 1.93 | 2 |
+| 4 | -0.0501 | -0.2130 | -1.93 | 2.70 | 7 |
 
 ## Dataset Audit
 
@@ -170,37 +187,21 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 - **PnL %**: 0.7670004632224567
 - **Trade count**: 50
 
-## Sensitivity Analysis
-
-- **Sensitivity penalty**: 0.0
-- **Baseline score**: -0.04728945317145037
-- **Sign flips**: 0
-- **Collapse count**: 0
-- **Perturbations**: 8
-- **Rejected**: 0
-
-| Parameter | Scores |
-|-----------|--------|
-| stop_loss | -0.0537, -0.0409 |
-| take_profit | -0.0473, -0.0473 |
-| cooldown_time | -0.0487, -0.0481 |
-| total_amount_quote | -0.0470, -0.0476 |
-
 ## Top-K Clustering
 
 - **K**: 10
 - **Is clustered**: True
-- **Mean CV**: 0.42919621261122887
-- **Max CV**: 0.6042278904424692
-- **Clustered params**: stop_loss, total_amount_quote
-- **Scattered params**: take_profit, cooldown_time
+- **Mean CV**: 0.33232318255166704
+- **Max CV**: 0.536080950151979
+- **Clustered params**: stop_loss, cooldown_time, total_amount_quote
+- **Scattered params**: take_profit
 
 | Parameter | CV | Min | Max | Mean |
 |-----------|-----|-----|-----|------|
-| stop_loss | 0.3288 | 0.01788592875167439 | 0.055770416489725354 | 0.03140805322369368 |
-| take_profit | 0.5846 | 0.006821439368076866 | 0.056914232828172644 | 0.029660163363084264 |
-| cooldown_time | 0.6042 | 1174.0 | 21893.0 | 12547.9 |
-| total_amount_quote | 0.1992 | 495.57114389043966 | 942.584127845953 | 712.8244450422744 |
+| stop_loss | 0.2427 | 0.02675530228483605 | 0.06054670969048219 | 0.040106089922547786 |
+| take_profit | 0.5361 | 0.009783019854616628 | 0.05391648727763326 | 0.025705457403287467 |
+| cooldown_time | 0.4006 | 6384.0 | 28680.0 | 17102.1 |
+| total_amount_quote | 0.1499 | 556.436230786458 | 990.2679068101544 | 866.9158807194551 |
 
 ## Execution Realism Assumptions
 
@@ -219,11 +220,11 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 - objective_not_degenerate: PASS
 - stress_not_collapsed: **FAIL**
 - yaml_validates: **FAIL**
-- walkforward_robust: **FAIL**
-- walkforward_positive_majority: **FAIL**
+- walkforward_robust: PASS
+- walkforward_positive_majority: PASS
 - holdout_passed: **FAIL**
 - holdout_no_collapse: PASS
-- sensitivity_stable: PASS
+- sensitivity_stable: **FAIL**
 - recent_28d_passed: **FAIL**
 - frozen_parity: **FAIL**
 - top_k_clustered: PASS
@@ -239,7 +240,6 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 | recent_pnl | >= 0 | -1.0133619458647392 | FAIL |
 | recent_trades | >= 5 | 40 | PASS |
 | worst_stress | > -10 | -1000.0 | FAIL |
-| sensitivity_penalty | < 0.50 | 0.0 | PASS |
 
 ## Validation Coverage
 
@@ -248,15 +248,15 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 | dataset_audit | PASS | strict audit passed |
 | yaml_validation | SKIPPED |  |
 | holdout | FAIL | score=-1000.0 |
-| walkforward | SKIPPED |  |
+| walkforward | PASS | 9 folds |
 | stress | PASS | worst=latency_plus1 score=-1000.0 |
-| sensitivity | PASS | penalty=0.0 |
+| sensitivity | SKIPPED |  |
 | recent_28d | FAIL | score=-0.06943397697206961, pnl=-1.0133619458647392, trades=40, reason=recent objective score -0.0694 <= 0; recent PnL -1.0134% < 0 |
 | recent_14d_info | PASS | informational only; score=0.007687910360498627, pnl=1.4492248067162519, trades=89, reason= |
 | recent_7d_info | PASS | informational only; score=0.0021078885254003765, pnl=0.7670004632224567, trades=50, reason= |
 | frozen_parity | SKIPPED |  |
 | long_parity | SKIPPED |  |
-| clustering | PASS | mean_cv=0.42919621261122887 |
+| clustering | PASS | mean_cv=0.33232318255166704 |
 
 ## Validation Execution Manifest
 
@@ -268,11 +268,11 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 | recent_28d | true | FAIL | recent_28d | — | — | recent objective score -0.0694 <= 0; recent PnL -1.0134% < 0 |
 | recent_14d_info | true | PASS | recent_14d_info | — | — |  |
 | recent_7d_info | true | PASS | recent_7d_info | — | — |  |
-| sensitivity | true | FAIL | full | — | — |  |
+| sensitivity | false | NOT_RUN | — | — | — | not executed |
 | clustering | true | PASS | — | — | — |  |
 | frozen_parity | false | NOT_RUN | — | — | — | not executed |
 | long_parity | false | NOT_RUN | — | — | — | not executed |
-| walkforward | false | NOT_RUN | — | — | — | not executed |
+| walkforward | true | FAIL | full | — | — |  |
 | stress | true | FAIL | full | — | — |  |
 
 ## Dataset Slice Lineage
@@ -287,7 +287,7 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 ## Run Provenance
 
 - **notebook**: direction-custom/mr_bb_rsi
-- **run_timestamp**: 2026-04-17T22:42:23.078330+00:00
+- **run_timestamp**: 2026-04-18T06:19:52.808612+00:00
 - **n_jobs**: 8
 - **objective_version**: 2
 - **search_controller_compat**: False
@@ -296,3 +296,4 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 - **initial_base_balance**: 0.0
 - **taker_probability**: 0.0
 - **trial_number**: 306
+- **validation_status**: validated_fail
