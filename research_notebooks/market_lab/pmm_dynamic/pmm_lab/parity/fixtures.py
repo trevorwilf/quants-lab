@@ -42,6 +42,9 @@ class FrozenFixture:
     expected_features: Dict[str, float]     # {bar_idx: {field: value}} — spot checks
     expected_yaml_fields: Dict[str, Any]    # key YAML field values to verify
     metadata: Dict[str, Any]                # extra info (dataset hash, creation date, etc.)
+    # Optional regime-timeframe candles for multi-timeframe strategies (EMA regime-hold).
+    # Populated from regime_candles.npy or regime_candles.npz when present.
+    regime_candles: Optional[np.ndarray] = None
 
 
 def generate_frozen_fixture(
@@ -150,8 +153,30 @@ def generate_frozen_fixture(
     return str(out)
 
 
+def _load_candles_any(p: Path, stem: str) -> Optional[np.ndarray]:
+    """Load a candle array from {stem}.npy or {stem}.npz (supports both)."""
+    npy = p / f"{stem}.npy"
+    if npy.exists():
+        return np.load(str(npy), allow_pickle=False)
+    npz = p / f"{stem}.npz"
+    if npz.exists():
+        arch = np.load(str(npz), allow_pickle=False)
+        # Archive may have a "candles" key (directional fixture convention) or
+        # a single unnamed array (legacy).
+        if "candles" in arch.files:
+            return arch["candles"]
+        # Fallback: first array
+        return arch[arch.files[0]]
+    return None
+
+
 def load_frozen_fixture(fixture_dir: str) -> FrozenFixture:
     """Load a frozen fixture from disk.
+
+    Supports two layouts:
+    - Legacy PMM fixture: candles.npy + fixture.json
+    - Directional (MR/EMA) fixture: candles.npz + expected_features.json +
+      config_params.json [+ regime_candles.npz for EMA]
 
     Parameters
     ----------
@@ -163,9 +188,39 @@ def load_frozen_fixture(fixture_dir: str) -> FrozenFixture:
     FrozenFixture
     """
     p = Path(fixture_dir)
-    candles = np.load(str(p / "candles.npy"), allow_pickle=False)
+    candles = _load_candles_any(p, "candles")
+    if candles is None:
+        raise FileNotFoundError(f"No candles file in {fixture_dir}")
+    regime_candles = _load_candles_any(p, "regime_candles")
 
-    with open(p / "fixture.json", "r") as f:
+    # Directional layout: separate JSON files
+    expected_path = p / "expected_features.json"
+    params_path = p / "config_params.json"
+    legacy_fixture = p / "fixture.json"
+
+    if expected_path.exists() and params_path.exists():
+        with open(expected_path, "r", encoding="utf-8") as f:
+            expected_features = json.load(f)
+        with open(params_path, "r", encoding="utf-8") as f:
+            config_params = json.load(f)
+        name = p.name
+        metadata = {
+            "name": name,
+            "n_bars": len(candles),
+            "config_params": config_params,
+        }
+        return FrozenFixture(
+            name=name,
+            candles=candles,
+            config_params=config_params,
+            expected_features=expected_features,
+            expected_yaml_fields={},
+            metadata=metadata,
+            regime_candles=regime_candles,
+        )
+
+    # Legacy layout
+    with open(legacy_fixture, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     return FrozenFixture(
@@ -175,4 +230,5 @@ def load_frozen_fixture(fixture_dir: str) -> FrozenFixture:
         expected_features=data["expected_features"],
         expected_yaml_fields=data["expected_yaml_fields"],
         metadata=data["metadata"],
+        regime_candles=regime_candles,
     )

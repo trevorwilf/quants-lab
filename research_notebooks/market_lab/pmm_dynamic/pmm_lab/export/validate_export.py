@@ -48,6 +48,10 @@ def validate_yaml_file(yaml_path: str, **kwargs) -> ValidationResult:
     controller_name = config_dict.get("controller_name", "")
     if controller_name == "macd_bb_v1":
         return _validate_macd_bb_mirror(config_dict)
+    if controller_name == "ema_regime_hold_v1":
+        return _validate_ema_regime_hold_mirror(config_dict)
+    if controller_name == "mean_reversion_bb_rsi_v1":
+        return _validate_mean_reversion_bb_rsi_mirror(config_dict)
 
     # PMM Dynamic path (default)
     try:
@@ -56,6 +60,70 @@ def validate_yaml_file(yaml_path: str, **kwargs) -> ValidationResult:
         pass
 
     return _validate_mirror(config_dict, **kwargs)
+
+
+def _validate_ema_regime_hold_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
+    """Mirror validator for EMA regime-hold YAMLs. ML-DIR-008: rejects hold_mode='hold'."""
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    ema_required = [
+        "id", "controller_name", "controller_type", "connector_name", "trading_pair",
+        "total_amount_quote", "max_executors_per_side", "cooldown_time",
+        "stop_loss", "take_profit", "time_limit", "take_profit_order_type",
+        "trailing_stop", "signal_interval", "regime_interval",
+        "regime_ema_fast", "regime_ema_slow", "regime_adx_length",
+        "regime_adx_threshold", "volume_filter_window", "min_volume_quantile",
+        "hold_mode",
+    ]
+    for key in ema_required:
+        if key not in config_dict:
+            errors.append(f"Missing required key: {key}")
+
+    hold_mode = config_dict.get("hold_mode")
+    if hold_mode == "hold":
+        errors.append(
+            "hold_mode='hold' is not validated by the research backtest. Export blocked. "
+            "Set hold_mode='reentry' or implement hold-mode simulation parity (ML-DIR-008)."
+        )
+    elif hold_mode not in ("reentry", None):
+        errors.append(f"hold_mode must be 'reentry' (got {hold_mode!r})")
+
+    # Ordering sanity
+    f, s = config_dict.get("regime_ema_fast"), config_dict.get("regime_ema_slow")
+    if isinstance(f, int) and isinstance(s, int) and f >= s:
+        errors.append(f"regime_ema_fast ({f}) must be < regime_ema_slow ({s})")
+
+    return ValidationResult(
+        valid=(len(errors) == 0),
+        mode="mirror",
+        errors=errors,
+        warnings=warnings,
+    )
+
+
+def _validate_mean_reversion_bb_rsi_mirror(config_dict: Dict[str, Any]) -> ValidationResult:
+    """Minimal mirror validator for MR BB+RSI YAMLs."""
+    errors: List[str] = []
+    warnings: List[str] = []
+    mr_required = [
+        "id", "controller_name", "controller_type", "connector_name", "trading_pair",
+        "total_amount_quote", "max_executors_per_side", "cooldown_time",
+        "stop_loss", "take_profit", "time_limit", "take_profit_order_type",
+        "bb_length", "bb_std", "bbp_entry_threshold",
+        "rsi_length", "rsi_entry_threshold",
+        "atr_length", "max_atr_pct_for_entry",
+        "volume_filter_window", "min_volume_quantile",
+    ]
+    for key in mr_required:
+        if key not in config_dict:
+            errors.append(f"Missing required key: {key}")
+    return ValidationResult(
+        valid=(len(errors) == 0),
+        mode="mirror",
+        errors=errors,
+        warnings=warnings,
+    )
 
 
 def _validate_native(config_dict: Dict[str, Any]) -> ValidationResult:

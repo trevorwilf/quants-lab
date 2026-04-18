@@ -60,3 +60,36 @@ class TrialLoggingCallback:
                 f"Complete: {n_complete}, Pruned: {n_pruned} | "
                 f"Best so far: {best_value}"
             )
+
+
+class TqdmProgressCallback:
+    """Advance a tqdm progress bar once per trial.
+
+    Usage::
+
+        from tqdm.auto import tqdm
+        bar = tqdm(total=N_TRIALS, position=1, leave=False, desc="trials")
+        study.optimize(obj, n_trials=N_TRIALS,
+                       callbacks=[TqdmProgressCallback(bar)])
+        bar.close()
+
+    The callback optionally updates the bar's postfix with the best score
+    seen so far — call with `show_best=True` to enable.
+    """
+
+    def __init__(self, bar, show_best: bool = False):
+        self.bar = bar
+        self.show_best = show_best
+
+    def __call__(self, study, trial) -> None:
+        self.bar.update(1)
+        if self.show_best:
+            try:
+                completed = [t for t in study.trials
+                             if t.state == optuna.trial.TrialState.COMPLETE
+                             and t.value is not None]
+                if completed:
+                    best = max(t.value for t in completed)
+                    self.bar.set_postfix_str(f"best={best:.4f}")
+            except Exception:
+                pass

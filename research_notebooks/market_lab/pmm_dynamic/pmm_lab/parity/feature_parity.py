@@ -237,3 +237,131 @@ def check_feature_parity_native(
         max_abs_diff=max_abs,
         max_rel_diff=max_rel,
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Directional parity (ML-DIR-009) — MR BB+RSI and EMA regime-hold variants.
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _compare_fields(
+    field_map: Dict[str, Any],
+    expected_features: Dict[str, Dict[str, float]],
+    abs_tol: float,
+    rel_tol: float,
+    *,
+    mode: str,
+) -> ParityResult:
+    """Shared comparison helper for MR and EMA parity checks.
+
+    For each expected bar/field, look up the actual value in field_map and
+    record any mismatch that exceeds both abs_tol and rel_tol.
+    """
+    mismatches = []
+    max_abs = 0.0
+    max_rel = 0.0
+    for bar_str, expected in expected_features.items():
+        bar = int(bar_str)
+        for field_name, exp_val in expected.items():
+            if field_name not in field_map or field_map[field_name] is None:
+                continue
+            arr = field_map[field_name]
+            if hasattr(arr, "__len__") and bar >= len(arr):
+                continue
+            actual = float(arr[bar]) if hasattr(arr, "__len__") else float(arr)
+            exp_f = float(exp_val) if not isinstance(exp_val, bool) else float(bool(exp_val))
+            if np.isnan(exp_f) and np.isnan(actual):
+                continue
+            diff = abs(actual - exp_f)
+            rel = diff / max(abs(exp_f), 1e-12)
+            max_abs = max(max_abs, diff)
+            max_rel = max(max_rel, rel)
+            if diff > abs_tol and rel > rel_tol:
+                mismatches.append({
+                    "bar": bar, "field": field_name,
+                    "expected": exp_f, "actual": actual, "diff": diff,
+                })
+    return ParityResult(
+        passed=(len(mismatches) == 0),
+        mode=mode,
+        mismatches=mismatches,
+        max_abs_diff=max_abs,
+        max_rel_diff=max_rel,
+    )
+
+
+def check_feature_parity_frozen_mr(
+    candles: np.ndarray,
+    expected_features: Dict[str, Dict[str, float]],
+    config_params: Dict[str, Any],
+    abs_tol: float = 1e-8,
+    rel_tol: float = 1e-6,
+) -> ParityResult:
+    """Compare local MR BB+RSI features against frozen fixture values."""
+    from pmm_lab.features.mean_reversion_bb_rsi_features import (
+        compute_mr_bb_rsi_features, MRBBRSIFeatureConfig,
+    )
+    feat_cfg = MRBBRSIFeatureConfig(
+        bb_length=int(config_params.get("bb_length", 20)),
+        bb_std=float(config_params.get("bb_std", 2.0)),
+        bbp_entry_threshold=float(config_params.get("bbp_entry_threshold", 0.15)),
+        rsi_length=int(config_params.get("rsi_length", 14)),
+        rsi_entry_threshold=float(config_params.get("rsi_entry_threshold", 35.0)),
+        use_trend_filter=bool(config_params.get("use_trend_filter", True)),
+        trend_ema_length=int(config_params.get("trend_ema_length", 100)),
+        min_trend_slope=float(config_params.get("min_trend_slope", 0.0)),
+        atr_length=int(config_params.get("atr_length", 14)),
+        max_atr_pct_for_entry=float(config_params.get("max_atr_pct_for_entry", 0.05)),
+        volume_filter_window=int(config_params.get("volume_filter_window", 288)),
+        min_volume_quantile=float(config_params.get("min_volume_quantile", 0.3)),
+        timestamp_mode=str(config_params.get("timestamp_mode", "open")),
+        controller_compat=bool(config_params.get("controller_compat", True)),
+    )
+    features = compute_mr_bb_rsi_features(candles, feat_cfg)
+
+    # SignalOutput.data keys from compute_mr_bb_rsi_features:
+    # signal, bbp, rsi, atr_pct, ema_slope, volume_ok, close_price, timestamp
+    field_map = {
+        "signal": features.data.get("signal"),
+        "bbp": features.data.get("bbp"),
+        "rsi": features.data.get("rsi"),
+        "atr_pct": features.data.get("atr_pct"),
+        "ema_slope": features.data.get("ema_slope"),
+        "volume_ok": features.data.get("volume_ok"),
+    }
+    return _compare_fields(field_map, expected_features, abs_tol, rel_tol, mode="frozen_mr")
+
+
+def check_feature_parity_frozen_ema(
+    candles: np.ndarray,
+    regime_candles: np.ndarray,
+    expected_features: Dict[str, Dict[str, float]],
+    config_params: Dict[str, Any],
+    abs_tol: float = 1e-8,
+    rel_tol: float = 1e-6,
+) -> ParityResult:
+    """Compare local EMA regime-hold features against frozen fixture values."""
+    from pmm_lab.features.ema_regime_hold_features import (
+        compute_ema_regime_hold_features, EMARegimeHoldFeatureConfig,
+    )
+    feat_cfg = EMARegimeHoldFeatureConfig(
+        regime_ema_fast=int(config_params.get("regime_ema_fast", 10)),
+        regime_ema_slow=int(config_params.get("regime_ema_slow", 30)),
+        regime_adx_length=int(config_params.get("regime_adx_length", 14)),
+        regime_adx_threshold=float(config_params.get("regime_adx_threshold", 20.0)),
+        volume_filter_window=int(config_params.get("volume_filter_window", 288)),
+        min_volume_quantile=float(config_params.get("min_volume_quantile", 0.3)),
+        hold_mode=str(config_params.get("hold_mode", "reentry")),
+        timestamp_mode=str(config_params.get("timestamp_mode", "open")),
+        controller_compat=bool(config_params.get("controller_compat", True)),
+    )
+    features = compute_ema_regime_hold_features(candles, regime_candles, feat_cfg)
+
+    # SignalOutput.data keys from compute_ema_regime_hold_features:
+    # signal, trend_on, vol_ok, close_price, timestamp
+    field_map = {
+        "signal": features.data.get("signal"),
+        "trend_on": features.data.get("trend_on"),
+        "vol_ok": features.data.get("vol_ok"),
+    }
+    return _compare_fields(field_map, expected_features, abs_tol, rel_tol, mode="frozen_ema")

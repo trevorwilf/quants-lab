@@ -78,6 +78,21 @@ class MeanReversionBBRSIStrategyConfig:
     timestamp_mode: str = "open"
     controller_compat: bool = False
 
+    def to_fingerprint(self) -> tuple:
+        """Produce a hashable fingerprint of ALL fields. Exact match only.
+
+        Mirrors `pmm_lab.sim.executor_model.SimConfig.to_fingerprint`.
+        Used by Phase-2 candidate dedup in sweep notebooks.
+        """
+        from dataclasses import fields
+        parts = []
+        for f in fields(self):
+            val = getattr(self, f.name)
+            if isinstance(val, list):
+                val = tuple(val)
+            parts.append(val)
+        return tuple(parts)
+
     def __post_init__(self):
         if self.max_executors_per_side != 1:
             raise ValueError(

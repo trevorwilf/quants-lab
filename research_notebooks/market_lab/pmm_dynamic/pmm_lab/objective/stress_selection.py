@@ -6,13 +6,14 @@ with signal caching, config deduplication, and scenario-level early pruning.
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from pmm_lab.config.params import PairRules
 from pmm_lab.sim.executor_model import SimConfig
 from pmm_lab.sim.runner import CandleSimRunner
+from pmm_lab.sim.runner_dispatch import run_simulation
 from pmm_lab.metrics.metrics import compute_metrics
 from pmm_lab.objective.objective import (
     objective_v1, objective_v2, ObjectiveWeights, ObjectiveWeightsV2,
@@ -69,6 +70,10 @@ def select_best_stressed_candidate(
     objective_version: int = 1,
     objective_weights=None,
     diagnostics: bool = True,
+    shared_signal_cache=None,
+    dataset_key: str = "dev",
+    regime_candles: Optional[np.ndarray] = None,
+    apply_scenario_fn: Optional[Callable] = None,
 ) -> Tuple[Optional[dict], dict]:
     """Select the best candidate via stress testing with early pruning.
 
@@ -139,7 +144,12 @@ def select_best_stressed_candidate(
 
     for cand_idx, candidate in enumerate(top_candidates):
         config = candidate["config"]
-        initial_equity = config.total_amount_quote
+        cand_engine_config = candidate.get("engine_config")
+        initial_equity = (
+            config.total_amount_quote if isinstance(config, SimConfig)
+            else cand_engine_config.total_amount_quote if cand_engine_config is not None
+            else 100.0
+        )
         diag["candidates_evaluated"] += 1
 
         # Get or compute signals
@@ -147,14 +157,28 @@ def select_best_stressed_candidate(
         if key in signal_cache:
             signals = signal_cache[key]
             diag["signal_cache_hits"] += 1
+        elif shared_signal_cache is not None and shared_signal_cache.get(key, dataset_key) is not None:
+            signals = shared_signal_cache.get(key, dataset_key)
+            signal_cache[key] = signals
+            diag["signal_cache_hits"] += 1
         else:
-            signals = CandleSimRunner(config, pair_rules).compute_signals(candles)
+            if isinstance(config, SimConfig):
+                signals = CandleSimRunner(config, pair_rules).compute_signals(candles)
+            else:
+                from pmm_lab.objective.signal_cache import SharedSignalCache
+                _tmp = shared_signal_cache if shared_signal_cache is not None else SharedSignalCache()
+                signals = _tmp.get_or_compute(
+                    config, dataset_key, candles, pair_rules,
+                    regime_candles=regime_candles,
+                )
             signal_cache[key] = signals
             diag["signal_cache_misses"] += 1
 
         # Run baseline
-        runner = CandleSimRunner(config, pair_rules)
-        baseline_result = runner.run_with_signals(candles, signals)
+        baseline_result = run_simulation(
+            config, pair_rules, candles, signals,
+            engine_config=cand_engine_config, regime_candles=regime_candles,
+        )
         baseline_metrics = compute_metrics(
             baseline_result, initial_equity, candles, bar_interval_seconds
         )
@@ -167,9 +191,25 @@ def select_best_stressed_candidate(
         pruned = False
 
         for sc_idx, scenario in enumerate(pruning_scenarios):
-            stressed_config, stressed_rules = apply_scenario(config, pair_rules, scenario)
-            sc_runner = CandleSimRunner(stressed_config, stressed_rules)
-            sc_result = sc_runner.run_with_signals(candles, signals)
+            if apply_scenario_fn is not None:
+                stressed_config, stressed_engine_config, stressed_rules = apply_scenario_fn(
+                    config, cand_engine_config, pair_rules, scenario,
+                )
+            elif isinstance(config, SimConfig):
+                stressed_config, stressed_rules = apply_scenario(config, pair_rules, scenario)
+                stressed_engine_config = None
+            else:
+                # Non-SimConfig without apply_scenario_fn: skip stress scenarios for this candidate
+                logger.debug(
+                    "select_best_stressed_candidate: non-SimConfig %s without "
+                    "apply_scenario_fn; skipping scenario %s.",
+                    type(config).__name__, scenario.name,
+                )
+                continue
+            sc_result = run_simulation(
+                stressed_config, stressed_rules, candles, signals,
+                engine_config=stressed_engine_config, regime_candles=regime_candles,
+            )
             sc_metrics = compute_metrics(
                 sc_result, initial_equity, candles, bar_interval_seconds
             )
@@ -194,29 +234,45 @@ def select_best_stressed_candidate(
 
         diag["candidates_fully_evaluated"] += 1
 
-        # Restore original scenario order for the report
-        scenario_results_original_order = [None] * len(scenarios)
-        for pruning_idx, sr in enumerate(scenario_results_pruning_order):
-            orig_idx = original_indices[pruning_idx]
-            scenario_results_original_order[orig_idx] = sr
+        if not scenario_results_pruning_order:
+            # No scenarios could be run (non-SimConfig + no apply_scenario_fn).
+            # Use baseline as the robust score — stress is informational elsewhere.
+            worst_score = baseline_score
+            stress_report = StressReport(
+                baseline_metrics=baseline_metrics,
+                baseline_objective=baseline_obj,
+                scenario_results=[],
+                worst_scenario="(stress skipped)",
+                worst_score=worst_score,
+            )
+            robust_score = baseline_score
+        else:
+            # Restore original scenario order for the report
+            scenario_results_original_order = [None] * len(scenarios)
+            for pruning_idx, sr in enumerate(scenario_results_pruning_order):
+                orig_idx = original_indices[pruning_idx]
+                scenario_results_original_order[orig_idx] = sr
 
-        # Find worst scenario
-        worst_idx = 0
-        worst_score = scenario_results_original_order[0].objective.raw_score
-        for i, sr in enumerate(scenario_results_original_order):
-            if sr.objective.raw_score < worst_score:
-                worst_score = sr.objective.raw_score
-                worst_idx = i
+            # Find worst scenario (only among non-None slots)
+            worst_idx = None
+            worst_score = baseline_score
+            for i, sr in enumerate(scenario_results_original_order):
+                if sr is None:
+                    continue
+                if worst_idx is None or sr.objective.raw_score < worst_score:
+                    worst_score = sr.objective.raw_score
+                    worst_idx = i
 
-        stress_report = StressReport(
-            baseline_metrics=baseline_metrics,
-            baseline_objective=baseline_obj,
-            scenario_results=scenario_results_original_order,
-            worst_scenario=scenario_results_original_order[worst_idx].scenario.name,
-            worst_score=worst_score,
-        )
+            stress_report = StressReport(
+                baseline_metrics=baseline_metrics,
+                baseline_objective=baseline_obj,
+                scenario_results=scenario_results_original_order,
+                worst_scenario=(scenario_results_original_order[worst_idx].scenario.name
+                                if worst_idx is not None else "(baseline)"),
+                worst_score=worst_score,
+            )
 
-        robust_score = 0.5 * baseline_score + 0.5 * worst_score
+            robust_score = 0.5 * baseline_score + 0.5 * worst_score
 
         # Update incumbent (strictly greater — ties go to earlier candidate)
         if robust_score > incumbent_robust:

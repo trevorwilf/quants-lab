@@ -72,6 +72,7 @@ def _make_notebook_cells(
             "import optuna\n",
             "from pathlib import Path\n",
             "from pmm_lab.data.mongo import MongoCandleLoader\n",
+            "from pmm_lab.config.params import DataQuery\n",
             "from pmm_lab.data.candles import validate_candles\n",
             "from pmm_lab.config.exchange_rules import load_exchange_rules, resolve_pair_rules\n",
             "from pmm_lab.data.hashing import hash_candles\n",
@@ -112,10 +113,16 @@ def _make_notebook_cells(
         "outputs": [],
         "source": [
             "loader = MongoCandleLoader()\n",
-            "candles = loader.load(CONNECTOR, TRADING_PAIR, SIGNAL_INTERVAL)\n",
+            "candles = loader.load_range(DataQuery(\n",
+            "    connector=CONNECTOR, trading_pair=TRADING_PAIR,\n",
+            "    interval=SIGNAL_INTERVAL, start_ts=None,\n",
+            "))\n",
             "print(f'Loaded {len(candles)} {SIGNAL_INTERVAL} bars')\n",
             (
-                "regime_candles = loader.load(CONNECTOR, TRADING_PAIR, REGIME_INTERVAL)\n"
+                "regime_candles = loader.load_range(DataQuery(\n"
+                "    connector=CONNECTOR, trading_pair=TRADING_PAIR,\n"
+                "    interval=REGIME_INTERVAL, start_ts=None,\n"
+                "))\n"
                 "print(f'Loaded {len(regime_candles)} {REGIME_INTERVAL} bars')\n"
                 if is_ema else ""
             ),

@@ -108,13 +108,13 @@ def validate_export_ema_regime_hold(yaml_path: Path | str) -> None:
 
     if data["hold_mode"] not in ("reentry", "hold"):
         raise ValueError(f"hold_mode must be 'reentry' or 'hold'; got {data['hold_mode']!r}")
-    # This export should always emit 'reentry'; 'hold' is accepted for forward
-    # compatibility but we don't produce it.
+    # ML-DIR-008: strictly prohibit hold_mode='hold' in exported YAMLs until
+    # hold-mode simulation parity is implemented. Research accepts 'reentry' only.
     if data["hold_mode"] == "hold":
-        # Only warn at validator level — the export function never writes this,
-        # but validating external YAMLs might.
-        import warnings
-        warnings.warn("hold_mode='hold' is not supported by the research pipeline (D4)")
+        raise ValueError(
+            "hold_mode='hold' is not validated by the research backtest. Export blocked. "
+            "Set hold_mode='reentry' or implement hold-mode simulation parity (ML-DIR-008)."
+        )
 
     if not (data["regime_ema_fast"] > 5):
         raise ValueError(f"regime_ema_fast must be > 5; got {data['regime_ema_fast']}")

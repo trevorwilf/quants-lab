@@ -1,0 +1,27 @@
+{
+  "30": {
+    "signal": 0.0,
+    "trend_on": 0.0,
+    "vol_ok": 0.0
+  },
+  "50": {
+    "signal": 0.0,
+    "trend_on": 0.0,
+    "vol_ok": 1.0
+  },
+  "70": {
+    "signal": 0.0,
+    "trend_on": 0.0,
+    "vol_ok": 1.0
+  },
+  "85": {
+    "signal": 0.0,
+    "trend_on": 0.0,
+    "vol_ok": 1.0
+  },
+  "95": {
+    "signal": 0.0,
+    "trend_on": 0.0,
+    "vol_ok": 1.0
+  }
+}

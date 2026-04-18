@@ -14,11 +14,12 @@ Usage:
 import logging
 import numpy as np
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 from pmm_lab.config.params import PairRules
 from pmm_lab.sim.executor_model import SimConfig, SimResult
 from pmm_lab.sim.runner import CandleSimRunner
+from pmm_lab.sim.runner_dispatch import run_simulation, run_simulation_cold
 from pmm_lab.metrics.metrics import Metrics, compute_metrics
 from pmm_lab.objective.objective import (
     objective_v1, objective_v2, ObjectiveDecomposition,
@@ -68,7 +69,7 @@ def split_holdout(
 class HoldoutCandidateResult:
     """Result of evaluating one candidate on holdout data."""
     rank: int
-    config: SimConfig
+    config: Any
     metrics: Metrics
     objective: ObjectiveDecomposition
     stress_report: Optional[StressReport] = None
@@ -97,7 +98,7 @@ class HoldoutReport:
 
 def evaluate_holdout(
     holdout_candles: np.ndarray,
-    candidate_configs: List[Tuple[SimConfig, float]],  # (config, dev_score) pairs
+    candidate_configs: List[Tuple[Any, float]],  # (config, dev_score) pairs
     pair_rules: PairRules,
     bar_interval_seconds: int,
     run_stress: bool = True,
@@ -108,6 +109,9 @@ def evaluate_holdout(
     holdout_start_idx: Optional[int] = None,        # index where holdout begins
     shared_signal_cache=None,
     dataset_key: str = "full",
+    engine_config: Optional[Any] = None,
+    regime_candles: Optional[np.ndarray] = None,
+    stress_runner_fn: Optional[Callable] = None,
 ) -> HoldoutReport:
     """Evaluate top-k candidates on holdout data.
 
@@ -153,10 +157,13 @@ def evaluate_holdout(
 
     candidates = []
     for rank, (config, dev_score) in enumerate(candidate_configs):
-        initial_equity = config.total_amount_quote
+        # total_amount_quote lives on SimConfig (PMM) or on engine_config (MR/EMA)
+        initial_equity = (
+            config.total_amount_quote if isinstance(config, SimConfig)
+            else engine_config.total_amount_quote if engine_config is not None
+            else 100.0
+        )
 
-        # Run simulation on holdout
-        runner = CandleSimRunner(config, pair_rules)
         if full_candles is not None and holdout_start_idx is not None:
             # Warm-start: compute signals on full history, sim starts at holdout boundary
             _sig_key = signal_cache_key(config)
@@ -164,14 +171,26 @@ def evaluate_holdout(
             if signals is None and _shared is not None:
                 signals = _shared.get(_sig_key, dataset_key)
             if signals is None:
-                signals = runner.compute_signals(full_candles)
-                _signal_cache[_sig_key] = signals
                 if _shared is not None:
-                    _shared.put(_sig_key, dataset_key, signals)
+                    signals = _shared.get_or_compute(
+                        config, dataset_key, full_candles, pair_rules,
+                        regime_candles=regime_candles,
+                    )
+                else:
+                    # Build a one-off cache for dispatch
+                    from pmm_lab.objective.signal_cache import SharedSignalCache
+                    _tmp = SharedSignalCache()
+                    signals = _tmp.get_or_compute(
+                        config, dataset_key, full_candles, pair_rules,
+                        regime_candles=regime_candles,
+                    )
+                _signal_cache[_sig_key] = signals
             candles_through_holdout = full_candles[:holdout_start_idx + len(holdout_candles)]
-            result = runner.run_with_signals(
-                candles_through_holdout, signals,
+            result = run_simulation(
+                config, pair_rules, candles_through_holdout, signals,
+                engine_config=engine_config,
                 sim_start_idx=holdout_start_idx,
+                regime_candles=regime_candles,
             )
             # Extract holdout-window metrics
             holdout_eq = result.equity_curve[holdout_start_idx:]
@@ -192,30 +211,54 @@ def evaluate_holdout(
             metrics = compute_metrics(holdout_result, initial_equity, holdout_candles, bar_interval_seconds)
         else:
             # Legacy cold-start path (backward compatible)
-            result = runner.run(holdout_candles)
+            result = run_simulation_cold(
+                config, pair_rules, holdout_candles,
+                engine_config=engine_config, regime_candles=regime_candles,
+            )
             metrics = compute_metrics(result, initial_equity, holdout_candles, bar_interval_seconds)
+            signals = None  # used below in stress; not available in cold-start
         obj = obj_fn(metrics)
 
         # Optional stress on holdout
         stress_report = None
         if run_stress:
-            if full_candles is not None and holdout_start_idx is not None:
-                # Holdout-local stress: run on full prefix for warmup,
-                # but score only the holdout window
-                stress_report = run_stress_tests(
-                    candles_through_holdout, config, pair_rules, bar_interval_seconds,
+            if stress_runner_fn is not None:
+                # Caller provided a custom stress runner (MR/EMA path)
+                stress_report = stress_runner_fn(
+                    config=config,
+                    pair_rules=pair_rules,
+                    candles=(candles_through_holdout if full_candles is not None and holdout_start_idx is not None else holdout_candles),
                     precomputed_signals=signals,
+                    engine_config=engine_config,
+                    regime_candles=regime_candles,
+                    bar_interval_seconds=bar_interval_seconds,
                     objective_version=objective_version,
                     objective_weights=_weights,
-                    score_start_idx=holdout_start_idx,
-                    score_end_idx=holdout_start_idx + len(holdout_candles),
-                    sim_start_idx=holdout_start_idx,
+                    score_start_idx=(holdout_start_idx if full_candles is not None and holdout_start_idx is not None else None),
+                    score_end_idx=(holdout_start_idx + len(holdout_candles) if full_candles is not None and holdout_start_idx is not None else None),
+                    sim_start_idx=(holdout_start_idx if full_candles is not None and holdout_start_idx is not None else None),
                 )
+            elif isinstance(config, SimConfig):
+                if full_candles is not None and holdout_start_idx is not None:
+                    stress_report = run_stress_tests(
+                        candles_through_holdout, config, pair_rules, bar_interval_seconds,
+                        precomputed_signals=signals,
+                        objective_version=objective_version,
+                        objective_weights=_weights,
+                        score_start_idx=holdout_start_idx,
+                        score_end_idx=holdout_start_idx + len(holdout_candles),
+                        sim_start_idx=holdout_start_idx,
+                    )
+                else:
+                    stress_report = run_stress_tests(
+                        holdout_candles, config, pair_rules, bar_interval_seconds,
+                        objective_version=objective_version,
+                        objective_weights=_weights,
+                    )
             else:
-                stress_report = run_stress_tests(
-                    holdout_candles, config, pair_rules, bar_interval_seconds,
-                    objective_version=objective_version,
-                    objective_weights=_weights,
+                logger.debug(
+                    "evaluate_holdout: run_stress=True but no stress_runner_fn for "
+                    "non-SimConfig type %s; skipping stress.", type(config).__name__,
                 )
 
         candidates.append(HoldoutCandidateResult(

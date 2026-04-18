@@ -217,12 +217,18 @@ def _create_mr_bb_rsi_objective(
         if stress_worst_scenario is not None:
             trial.set_user_attr("stress_worst_scenario", stress_worst_scenario)
         if total_place_attempts > 0:
-            trial.set_user_attr(
-                "max_trades_per_day_binding_fraction",
-                float(total_cap_rejects) / float(total_place_attempts),
-            )
+            _reject_frac = float(total_cap_rejects) / float(total_place_attempts)
         else:
-            trial.set_user_attr("max_trades_per_day_binding_fraction", 0.0)
+            _reject_frac = 0.0
+        # Renamed from "max_trades_per_day_binding_fraction" (ML-DIR-007) because
+        # the underlying counter (engine-level n_orders_rejected) does NOT distinguish
+        # cap-specific rejections from other rejections (min notional, size rounding,
+        # insufficient quote). Keep the old key for a deprecation window so existing
+        # studies don't lose data.
+        # TODO(P2.4 follow-up): separate cap_reject_fraction vs min_notional_reject_fraction
+        # by instrumenting SimResult with per-reason rejection counts.
+        trial.set_user_attr("total_reject_fraction", _reject_frac)
+        trial.set_user_attr("max_trades_per_day_binding_fraction", _reject_frac)
 
         return float(final_score)
 

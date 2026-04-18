@@ -1,0 +1,11 @@
+{
+  "regime_ema_fast": 5,
+  "regime_ema_slow": 10,
+  "regime_adx_length": 7,
+  "regime_adx_threshold": 15.0,
+  "volume_filter_window": 20,
+  "min_volume_quantile": 0.0,
+  "hold_mode": "reentry",
+  "timestamp_mode": "open",
+  "controller_compat": true
+}

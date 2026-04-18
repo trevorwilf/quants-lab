@@ -44,24 +44,24 @@ class TestSharedSignalCache:
         assert cache.get((12, 26, 9, 21, True, "open"), "dev") == "signals_b"
 
     def test_get_or_compute_caches_result(self):
-        """get_or_compute must cache the computed result."""
+        """get_or_compute must cache the computed result.
+
+        Uses a real SimConfig (signal_cache dispatch now uses isinstance).
+        """
+        from pmm_lab.sim.executor_model import SimConfig
+
         cache = SharedSignalCache()
+        config = SimConfig(
+            buy_spreads=[1.0], sell_spreads=[1.0],
+            buy_amounts_pct=[1.0], sell_amounts_pct=[1.0],
+            controller_compat=False,
+        )
 
-        # Create a mock config
-        config = MagicMock()
-        config.macd_fast = 12
-        config.macd_slow = 26
-        config.macd_signal = 9
-        config.natr_length = 14
-        config.controller_compat = True
-        config.timestamp_mode = "open"
-
-        # First call should compute
         import numpy as np
         candles = np.zeros(10, dtype=[("close", "f8"), ("timestamp", "i8")])
         pair_rules = MagicMock()
 
-        # Patch CandleSimRunner at the source module where it's imported
+        # Patch CandleSimRunner where it's looked up inside get_or_compute
         from unittest.mock import patch
         mock_runner = MagicMock()
         mock_runner.compute_signals.return_value = "computed_signals"
@@ -74,5 +74,4 @@ class TestSharedSignalCache:
             # Second call should hit cache (no new computation)
             result2 = cache.get_or_compute(config, "dev", candles, pair_rules)
             assert result2 == "computed_signals"
-            # compute_signals should only be called once
             assert mock_runner.compute_signals.call_count == 1

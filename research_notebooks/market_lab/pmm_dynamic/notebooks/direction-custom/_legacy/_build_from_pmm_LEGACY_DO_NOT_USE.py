@@ -1,5 +1,9 @@
-"""One-shot builder for the four direction-custom sweep notebooks.
+"""LEGACY — this module emits the OLD result schema
+(best_score/trading_pair/binding_frac). It is retained for git history only
+and MUST NOT be imported or executed. The canonical generator is
+`_build_cell8.py` plus `_build_cell10.py` plus `create_sweep_nb_directional.py`.
 
+Original one-shot builder for the four direction-custom sweep notebooks.
 Transforms the authoritative `notebooks/pmm_dynamic/pmm_dynamic_*_sweep*.ipynb`
 files by:
   - Keeping the same cell count and markdown/code alternation.
@@ -8,13 +12,13 @@ files by:
     section 2C of the phase-2 delta prompt.
   - For EMA, extending cells 6 (discovery) and 8 (sweep loop) to load both
     signal-interval and regime-interval candles per pair.
-
-Run once:
-    python notebooks/direction-custom/_build_from_pmm.py
-
-The generator is kept checked-in so the notebooks can be regenerated if the
-upstream PMM references evolve.
 """
+
+import sys
+raise RuntimeError(
+    "_build_from_pmm_LEGACY_DO_NOT_USE.py must not be executed. "
+    "Use _build_cell8.py / _build_cell10.py / create_sweep_nb_directional.py instead."
+)
 
 from __future__ import annotations
 

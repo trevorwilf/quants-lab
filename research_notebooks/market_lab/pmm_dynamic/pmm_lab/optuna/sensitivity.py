@@ -13,11 +13,13 @@ Usage (post-optimization, on top candidates):
 import logging
 import numpy as np
 from dataclasses import dataclass
-from typing import Dict, List, Any, Optional
+from typing import Callable, Dict, List, Any, Optional
 
 from pmm_lab.config.params import PairRules
 from pmm_lab.optuna.canonicalizer import canonicalize_params
+from pmm_lab.sim.executor_model import SimConfig
 from pmm_lab.sim.runner import CandleSimRunner
+from pmm_lab.sim.runner_dispatch import run_simulation
 from pmm_lab.metrics.metrics import compute_metrics
 from pmm_lab.objective.objective import objective_v1, objective_v2, REJECT_SCORE, ObjectiveWeights
 
@@ -33,6 +35,48 @@ PERTURBABLE_PARAMS = [
     "cooldown_time",
     "total_amount_quote",
 ]
+
+
+# Directional-specific perturbation lists (ML-DIR-006). These include the
+# strategy's actual signal-generation hyperparameters, not only execution params,
+# so the sensitivity penalty reflects directional-strategy fragility.
+MR_PERTURBABLE_PARAMS = [
+    # Signal params
+    "bb_length",
+    "bb_std",
+    "bbp_entry_threshold",
+    "rsi_length",
+    "rsi_entry_threshold",
+    "trend_ema_length",
+    "max_atr_pct_for_entry",
+    "volume_filter_window",
+    "min_volume_quantile",
+    # Execution params
+    "stop_loss",
+    "take_profit",
+    "cooldown_time",
+    "total_amount_quote",
+]
+
+
+EMA_PERTURBABLE_PARAMS = [
+    # Regime params
+    "regime_ema_fast",
+    "regime_ema_slow",
+    "regime_adx_length",
+    "regime_adx_threshold",
+    "volume_filter_window",
+    "min_volume_quantile",
+    # Execution params
+    "stop_loss",
+    "take_profit",
+    "cooldown_time",
+    "total_amount_quote",
+]
+# TODO(P2.2 follow-up): perturbations of regime_ema_fast can trivially produce
+# regime_ema_fast >= regime_ema_slow, which the canonicalizer rejects and inflates
+# the sensitivity penalty with noise. Add a monotonic-aware perturbation policy
+# that only perturbs regime_ema_fast downward when fast >= slow.
 
 
 @dataclass
@@ -107,6 +151,8 @@ def compute_sensitivity(
     controller_compat: Optional[bool] = None,
     shared_signal_cache=None,
     dataset_key: str = "dev",
+    canonicalize_fn: Optional[Callable] = None,
+    regime_candles: Optional[np.ndarray] = None,
 ) -> SensitivityReport:
     """Compute sensitivity of objective to parameter perturbations.
 
@@ -147,6 +193,8 @@ def compute_sensitivity(
     if perturb_params is None:
         perturb_params = PERTURBABLE_PARAMS
 
+    _canonicalize = canonicalize_fn if canonicalize_fn is not None else canonicalize_params
+
     # Select objective function
     if objective_version == 2:
         from pmm_lab.objective.objective import ObjectiveWeightsV2
@@ -159,23 +207,51 @@ def compute_sensitivity(
     # Signal cache — reuse signals when indicator params are unchanged
     _signal_cache = {}
 
+    def _unpack(result):
+        """Normalize canonicalize return to (strategy_config, engine_config_or_None, reject_reason)."""
+        if isinstance(result, tuple) and len(result) == 2:
+            cfg_or_bundle, reason = result
+            if cfg_or_bundle is None:
+                return None, None, reason
+            if isinstance(cfg_or_bundle, SimConfig):
+                return cfg_or_bundle, None, None
+            # Assume CandidateBundle-like with .strategy_config + .engine_config
+            sc = getattr(cfg_or_bundle, "strategy_config", None)
+            ec = getattr(cfg_or_bundle, "engine_config", None)
+            if sc is not None and ec is not None:
+                return sc, ec, None
+            # Else a raw strategy config
+            return cfg_or_bundle, None, None
+        raise TypeError(f"Unexpected canonicalize return: {result!r}")
+
     def _get_or_compute_signals(cfg):
         key = _signal_cache_key(cfg)
         if key not in _signal_cache:
-            # Check shared cross-step cache first
             if shared_signal_cache is not None:
                 cached = shared_signal_cache.get(key, dataset_key)
                 if cached is not None:
                     _signal_cache[key] = cached
                     return cached
-            computed = CandleSimRunner(cfg, pair_rules).compute_signals(candles)
+                computed = shared_signal_cache.get_or_compute(
+                    cfg, dataset_key, candles, pair_rules,
+                    regime_candles=regime_candles,
+                )
+            else:
+                from pmm_lab.objective.signal_cache import SharedSignalCache
+                _tmp = SharedSignalCache()
+                computed = _tmp.get_or_compute(
+                    cfg, dataset_key, candles, pair_rules,
+                    regime_candles=regime_candles,
+                )
             _signal_cache[key] = computed
             if shared_signal_cache is not None:
                 shared_signal_cache.put(key, dataset_key, computed)
         return _signal_cache[key]
 
     # Compute baseline
-    baseline_config, reject = canonicalize_params(params, pair_rules, reference_price)
+    baseline_config, baseline_engine, reject = _unpack(
+        _canonicalize(params, pair_rules, reference_price)
+    )
     if baseline_config is None:
         return SensitivityReport(
             baseline_score=REJECT_SCORE,
@@ -189,9 +265,16 @@ def compute_sensitivity(
         baseline_config = replace(baseline_config, controller_compat=controller_compat)
 
     baseline_signals = _get_or_compute_signals(baseline_config)
-    runner = CandleSimRunner(baseline_config, pair_rules)
-    result = runner.run_with_signals(candles, baseline_signals)
-    metrics = compute_metrics(result, baseline_config.total_amount_quote, candles, bar_interval_seconds)
+    result = run_simulation(
+        baseline_config, pair_rules, candles, baseline_signals,
+        engine_config=baseline_engine, regime_candles=regime_candles,
+    )
+    initial_equity = (
+        baseline_config.total_amount_quote if isinstance(baseline_config, SimConfig)
+        else baseline_engine.total_amount_quote if baseline_engine is not None
+        else 100.0
+    )
+    metrics = compute_metrics(result, initial_equity, candles, bar_interval_seconds)
     baseline_obj = obj_fn(metrics)
     baseline_score = baseline_obj.raw_score
 
@@ -211,7 +294,10 @@ def compute_sensitivity(
 
         for variant_params in variants:
             n_perturbations += 1
-            config, reject_reason = canonicalize_params(variant_params, pair_rules, reference_price)
+            var_strategy, var_engine, reject_reason = _unpack(
+                _canonicalize(variant_params, pair_rules, reference_price)
+            )
+            config = var_strategy
 
             if config is None:
                 n_rejected += 1
@@ -223,8 +309,16 @@ def compute_sensitivity(
                 config = replace(config, controller_compat=controller_compat)
 
             variant_signals = _get_or_compute_signals(config)
-            r = CandleSimRunner(config, pair_rules).run_with_signals(candles, variant_signals)
-            m = compute_metrics(r, config.total_amount_quote, candles, bar_interval_seconds)
+            r = run_simulation(
+                config, pair_rules, candles, variant_signals,
+                engine_config=var_engine, regime_candles=regime_candles,
+            )
+            v_equity = (
+                config.total_amount_quote if isinstance(config, SimConfig)
+                else var_engine.total_amount_quote if var_engine is not None
+                else 100.0
+            )
+            m = compute_metrics(r, v_equity, candles, bar_interval_seconds)
             obj = obj_fn(m)
             score = obj.raw_score
 

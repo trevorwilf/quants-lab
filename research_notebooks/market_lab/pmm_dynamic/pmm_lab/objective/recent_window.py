@@ -8,13 +8,14 @@ performs acceptably on the most recent market conditions.
 
 import logging
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Any, Callable, Optional, List
 
 import numpy as np
 
 from pmm_lab.config.params import PairRules
 from pmm_lab.sim.executor_model import SimConfig, SimResult
 from pmm_lab.sim.runner import CandleSimRunner
+from pmm_lab.sim.runner_dispatch import run_simulation
 from pmm_lab.metrics.metrics import Metrics, compute_metrics
 from pmm_lab.objective.objective import (
     objective_v1, objective_v2, ObjectiveDecomposition,
@@ -42,7 +43,7 @@ class RecentWindowResult:
 
 def evaluate_recent_window(
     full_candles: np.ndarray,
-    config: SimConfig,
+    config: Any,
     pair_rules: PairRules,
     bar_interval_seconds: int,
     recent_days: int = 28,
@@ -57,6 +58,9 @@ def evaluate_recent_window(
     precomputed_signals=None,
     shared_signal_cache=None,
     dataset_key: str = "full",
+    engine_config: Optional[Any] = None,
+    regime_candles: Optional[np.ndarray] = None,
+    stress_runner_fn: Optional[Callable] = None,
 ) -> RecentWindowResult:
     """Warm-started evaluation of the most recent N days.
 
@@ -133,18 +137,33 @@ def evaluate_recent_window(
         _weights = objective_weights if isinstance(objective_weights, ObjectiveWeights) else ObjectiveWeights()
         _score = lambda m: objective_v1(m, _weights)
 
-    initial_equity = config.total_amount_quote
+    initial_equity = (
+        config.total_amount_quote if isinstance(config, SimConfig)
+        else engine_config.total_amount_quote if engine_config is not None
+        else 100.0
+    )
 
     # Compute signals on full history, run warm-started at recent window
-    runner = CandleSimRunner(config, pair_rules)
     if precomputed_signals is not None:
         signals = precomputed_signals
     elif shared_signal_cache is not None:
-        from pmm_lab.objective.signal_cache import signal_cache_key
-        signals = shared_signal_cache.get_or_compute(config, dataset_key, full_candles, pair_rules)
+        signals = shared_signal_cache.get_or_compute(
+            config, dataset_key, full_candles, pair_rules,
+            regime_candles=regime_candles,
+        )
     else:
-        signals = runner.compute_signals(full_candles)
-    result = runner.run_with_signals(full_candles, signals, sim_start_idx=recent_start_idx)
+        from pmm_lab.objective.signal_cache import SharedSignalCache
+        _tmp = SharedSignalCache()
+        signals = _tmp.get_or_compute(
+            config, dataset_key, full_candles, pair_rules,
+            regime_candles=regime_candles,
+        )
+    result = run_simulation(
+        config, pair_rules, full_candles, signals,
+        engine_config=engine_config,
+        sim_start_idx=recent_start_idx,
+        regime_candles=regime_candles,
+    )
 
     # Extract recent-window metrics
     window_eq = result.equity_curve[recent_start_idx:]
@@ -170,16 +189,38 @@ def evaluate_recent_window(
     # Optional stress on recent window
     stress_report = None
     if run_stress:
-        stress_report = run_stress_tests(
-            full_candles, config, pair_rules, bar_interval_seconds,
-            scenarios=scenarios,
-            objective_version=objective_version,
-            objective_weights=_weights,
-            precomputed_signals=signals,
-            score_start_idx=recent_start_idx,
-            score_end_idx=n,
-            sim_start_idx=recent_start_idx,
-        )
+        if stress_runner_fn is not None:
+            stress_report = stress_runner_fn(
+                config=config,
+                pair_rules=pair_rules,
+                candles=full_candles,
+                precomputed_signals=signals,
+                engine_config=engine_config,
+                regime_candles=regime_candles,
+                bar_interval_seconds=bar_interval_seconds,
+                scenarios=scenarios,
+                objective_version=objective_version,
+                objective_weights=_weights,
+                score_start_idx=recent_start_idx,
+                score_end_idx=n,
+                sim_start_idx=recent_start_idx,
+            )
+        elif isinstance(config, SimConfig):
+            stress_report = run_stress_tests(
+                full_candles, config, pair_rules, bar_interval_seconds,
+                scenarios=scenarios,
+                objective_version=objective_version,
+                objective_weights=_weights,
+                precomputed_signals=signals,
+                score_start_idx=recent_start_idx,
+                score_end_idx=n,
+                sim_start_idx=recent_start_idx,
+            )
+        else:
+            logger.debug(
+                "evaluate_recent_window: run_stress=True but no stress_runner_fn for "
+                "non-SimConfig type %s; skipping stress.", type(config).__name__,
+            )
 
     # Acceptance criteria
     reasons = []
