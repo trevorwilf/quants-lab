@@ -157,6 +157,19 @@ class SharedSignalCache:
         """Store signals in the cache."""
         self._store[(sig_key, dataset_key)] = signals
 
+    def get_for_config(self, config: Any, dataset_key: str, regime_candles=None):
+        """Config-aware cache probe.
+
+        Derives the signal key and effective dataset key from the config exactly
+        the way get_or_compute(...) does, so callers do not have to duplicate
+        the EMA regime-hash logic.
+
+        Returns the cached signals, or None if not cached.
+        """
+        sig_key = signal_cache_key(config)
+        effective_key = _dataset_key_for(config, dataset_key, regime_candles)
+        return self.get(sig_key, effective_key)
+
     def get_or_compute(
         self,
         config: Any,

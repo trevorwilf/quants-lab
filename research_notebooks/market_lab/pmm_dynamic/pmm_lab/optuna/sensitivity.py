@@ -226,27 +226,35 @@ def compute_sensitivity(
 
     def _get_or_compute_signals(cfg):
         key = _signal_cache_key(cfg)
-        if key not in _signal_cache:
-            if shared_signal_cache is not None:
-                cached = shared_signal_cache.get(key, dataset_key)
-                if cached is not None:
-                    _signal_cache[key] = cached
-                    return cached
-                computed = shared_signal_cache.get_or_compute(
-                    cfg, dataset_key, candles, pair_rules,
-                    regime_candles=regime_candles,
-                )
-            else:
-                from pmm_lab.objective.signal_cache import SharedSignalCache
-                _tmp = SharedSignalCache()
-                computed = _tmp.get_or_compute(
-                    cfg, dataset_key, candles, pair_rules,
-                    regime_candles=regime_candles,
-                )
-            _signal_cache[key] = computed
-            if shared_signal_cache is not None:
-                shared_signal_cache.put(key, dataset_key, computed)
-        return _signal_cache[key]
+        if key in _signal_cache:
+            return _signal_cache[key]
+
+        if shared_signal_cache is not None:
+            # Config-aware probe honors EMA's regime-hashed dataset key (Stage 2 fix).
+            cached = shared_signal_cache.get_for_config(
+                cfg, dataset_key, regime_candles=regime_candles,
+            )
+            if cached is not None:
+                _signal_cache[key] = cached
+                return cached
+            computed = shared_signal_cache.get_or_compute(
+                cfg, dataset_key, candles, pair_rules,
+                regime_candles=regime_candles,
+            )
+        else:
+            from pmm_lab.objective.signal_cache import SharedSignalCache
+            _tmp = SharedSignalCache()
+            computed = _tmp.get_or_compute(
+                cfg, dataset_key, candles, pair_rules,
+                regime_candles=regime_candles,
+            )
+
+        _signal_cache[key] = computed
+        # NOTE: do NOT call shared_signal_cache.put(key, dataset_key, computed)
+        # here. get_or_compute already stored the entry under the *effective*
+        # dataset key (e.g. "dev#regime=<hash>"). Writing again under the bare
+        # dataset_key would create an alias that breaks regime isolation for EMA.
+        return computed
 
     # Compute baseline
     baseline_config, baseline_engine, reject = _unpack(

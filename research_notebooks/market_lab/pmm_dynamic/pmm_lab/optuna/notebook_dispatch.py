@@ -69,6 +69,31 @@ def optimize_study_for_notebook(
     if storage_url is None:
         storage_url = get_storage_url()
 
+    # Visible preflight (Stage 4): make serial fallback impossible to miss.
+    _is_pg = bool(storage_url) and "postgresql" in storage_url.lower()
+    if n_jobs > 1 and not _is_pg:
+        logger.warning(
+            "Phase 1 will run SERIAL despite n_jobs=%d because OPTUNA_STORAGE is not "
+            "PostgreSQL-backed (storage_url=%r). To enable process-parallel search, "
+            "set OPTUNA_STORAGE to a PostgreSQL URI.",
+            n_jobs, storage_url,
+        )
+        print(
+            f"[preflight] Phase 1 dispatch: serial (n_jobs={n_jobs}, "
+            f"storage not PostgreSQL)"
+        )
+    elif n_jobs > 1 and _is_pg:
+        logger.info(
+            "Phase 1 will attempt process-parallel search with %d workers (PostgreSQL storage)",
+            n_jobs,
+        )
+        print(
+            f"[preflight] Phase 1 dispatch: process-parallel with {n_jobs} workers (PostgreSQL)"
+        )
+    else:
+        logger.info("Phase 1 will run serial (n_jobs=%d)", n_jobs)
+        print(f"[preflight] Phase 1 dispatch: serial (n_jobs={n_jobs})")
+
     study = create_study(
         study_name=study_name,
         storage_url=storage_url,

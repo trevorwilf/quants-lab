@@ -65,6 +65,25 @@ def split_holdout(
     return candles[:split_idx], candles[split_idx:]
 
 
+@dataclass(frozen=True)
+class HoldoutCandidateSpec:
+    """Per-candidate holdout input.
+
+    strategy_config : Any
+        The strategy config (SimConfig for PMM, MeanReversionBBRSIStrategyConfig
+        for MR, EMARegimeHoldStrategyConfig for EMA).
+    engine_config : Optional[Any]
+        The per-candidate engine config. REQUIRED for MR/EMA. For PMM
+        (SimConfig-based), leave as None — total_amount_quote and other
+        execution fields live on the strategy config itself.
+    development_score : float
+        The score from optimization used for dev-vs-holdout collapse detection.
+    """
+    strategy_config: Any
+    engine_config: Optional[Any]
+    development_score: float
+
+
 @dataclass
 class HoldoutCandidateResult:
     """Result of evaluating one candidate on holdout data."""
@@ -155,12 +174,37 @@ def evaluate_holdout(
     _signal_cache: dict = {}
     _shared = shared_signal_cache  # cross-step cache (may be None)
 
+    # Normalize candidate_configs: accept either list of (config, score) tuples
+    # (legacy/PMM path) or list of HoldoutCandidateSpec (directional path).
+    # Per-candidate engine_config is the core fix for ML-DIR directional holdout.
+    specs: List[HoldoutCandidateSpec] = []
+    if candidate_configs:
+        first = candidate_configs[0]
+        if isinstance(first, HoldoutCandidateSpec):
+            specs = list(candidate_configs)
+        else:
+            # Legacy tuple format: (strategy_config, dev_score). No per-candidate
+            # engine_config — fall back to the function-level `engine_config` kwarg.
+            for cfg, dev_score in candidate_configs:
+                specs.append(HoldoutCandidateSpec(
+                    strategy_config=cfg,
+                    engine_config=None,
+                    development_score=dev_score,
+                ))
+
     candidates = []
-    for rank, (config, dev_score) in enumerate(candidate_configs):
-        # total_amount_quote lives on SimConfig (PMM) or on engine_config (MR/EMA)
+    for rank, spec in enumerate(specs):
+        config = spec.strategy_config
+        dev_score = spec.development_score
+        # Per-candidate engine config — if spec.engine_config is None, fall back
+        # to the function-level kwarg (legacy / PMM behavior).
+        effective_engine_config = (
+            spec.engine_config if spec.engine_config is not None else engine_config
+        )
+        # total_amount_quote lives on SimConfig (PMM) or on effective_engine_config (MR/EMA)
         initial_equity = (
             config.total_amount_quote if isinstance(config, SimConfig)
-            else engine_config.total_amount_quote if engine_config is not None
+            else effective_engine_config.total_amount_quote if effective_engine_config is not None
             else 100.0
         )
 
@@ -169,7 +213,10 @@ def evaluate_holdout(
             _sig_key = signal_cache_key(config)
             signals = _signal_cache.get(_sig_key)
             if signals is None and _shared is not None:
-                signals = _shared.get(_sig_key, dataset_key)
+                # Config-aware probe honors EMA's regime-hashed dataset key (Stage 2 fix).
+                signals = _shared.get_for_config(
+                    config, dataset_key, regime_candles=regime_candles,
+                )
             if signals is None:
                 if _shared is not None:
                     signals = _shared.get_or_compute(
@@ -188,7 +235,7 @@ def evaluate_holdout(
             candles_through_holdout = full_candles[:holdout_start_idx + len(holdout_candles)]
             result = run_simulation(
                 config, pair_rules, candles_through_holdout, signals,
-                engine_config=engine_config,
+                engine_config=effective_engine_config,
                 sim_start_idx=holdout_start_idx,
                 regime_candles=regime_candles,
             )
@@ -213,7 +260,7 @@ def evaluate_holdout(
             # Legacy cold-start path (backward compatible)
             result = run_simulation_cold(
                 config, pair_rules, holdout_candles,
-                engine_config=engine_config, regime_candles=regime_candles,
+                engine_config=effective_engine_config, regime_candles=regime_candles,
             )
             metrics = compute_metrics(result, initial_equity, holdout_candles, bar_interval_seconds)
             signals = None  # used below in stress; not available in cold-start
@@ -229,7 +276,7 @@ def evaluate_holdout(
                     pair_rules=pair_rules,
                     candles=(candles_through_holdout if full_candles is not None and holdout_start_idx is not None else holdout_candles),
                     precomputed_signals=signals,
-                    engine_config=engine_config,
+                    engine_config=effective_engine_config,
                     regime_candles=regime_candles,
                     bar_interval_seconds=bar_interval_seconds,
                     objective_version=objective_version,

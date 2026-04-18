@@ -152,27 +152,34 @@ def select_best_stressed_candidate(
         )
         diag["candidates_evaluated"] += 1
 
-        # Get or compute signals
+        # Get or compute signals — config-aware probe so EMA's regime-hashed
+        # dataset key is honored (Stage 2 fix: was using bare key and missing hits).
         key = signal_cache_key(config)
         if key in signal_cache:
             signals = signal_cache[key]
             diag["signal_cache_hits"] += 1
-        elif shared_signal_cache is not None and shared_signal_cache.get(key, dataset_key) is not None:
-            signals = shared_signal_cache.get(key, dataset_key)
-            signal_cache[key] = signals
-            diag["signal_cache_hits"] += 1
         else:
-            if isinstance(config, SimConfig):
-                signals = CandleSimRunner(config, pair_rules).compute_signals(candles)
-            else:
-                from pmm_lab.objective.signal_cache import SharedSignalCache
-                _tmp = shared_signal_cache if shared_signal_cache is not None else SharedSignalCache()
-                signals = _tmp.get_or_compute(
-                    config, dataset_key, candles, pair_rules,
-                    regime_candles=regime_candles,
+            cached = None
+            if shared_signal_cache is not None:
+                cached = shared_signal_cache.get_for_config(
+                    config, dataset_key, regime_candles=regime_candles,
                 )
-            signal_cache[key] = signals
-            diag["signal_cache_misses"] += 1
+            if cached is not None:
+                signals = cached
+                signal_cache[key] = signals
+                diag["signal_cache_hits"] += 1
+            else:
+                if isinstance(config, SimConfig):
+                    signals = CandleSimRunner(config, pair_rules).compute_signals(candles)
+                else:
+                    from pmm_lab.objective.signal_cache import SharedSignalCache
+                    _tmp = shared_signal_cache if shared_signal_cache is not None else SharedSignalCache()
+                    signals = _tmp.get_or_compute(
+                        config, dataset_key, candles, pair_rules,
+                        regime_candles=regime_candles,
+                    )
+                signal_cache[key] = signals
+                diag["signal_cache_misses"] += 1
 
         # Run baseline
         baseline_result = run_simulation(

@@ -100,7 +100,7 @@ from pmm_lab.objective.walkforward_dispatch import run_walk_forward_dispatch
 from pmm_lab.objective.objective import REJECT_SCORE, objective_v1
 from pmm_lab.report.report_md import generate_report, run_stop_ship_checks
 from pmm_lab.objective.recent_window import evaluate_recent_window
-from pmm_lab.objective.holdout import evaluate_holdout, split_holdout
+from pmm_lab.objective.holdout import evaluate_holdout, split_holdout, HoldoutCandidateSpec
 from pmm_lab.objective.dataset_split import split_for_release_gate
 from pmm_lab.objective.signal_cache import SharedSignalCache
 from pmm_lab.optuna.sensitivity import compute_sensitivity, MR_PERTURBABLE_PARAMS
@@ -144,7 +144,7 @@ from pmm_lab.objective.walkforward_dispatch import run_walk_forward_dispatch
 from pmm_lab.objective.objective import REJECT_SCORE, objective_v1
 from pmm_lab.report.report_md import generate_report, run_stop_ship_checks
 from pmm_lab.objective.recent_window import evaluate_recent_window
-from pmm_lab.objective.holdout import evaluate_holdout, split_holdout
+from pmm_lab.objective.holdout import evaluate_holdout, split_holdout, HoldoutCandidateSpec
 from pmm_lab.objective.dataset_split import split_for_release_gate
 from pmm_lab.objective.signal_cache import SharedSignalCache
 from pmm_lab.optuna.sensitivity import compute_sensitivity, EMA_PERTURBABLE_PARAMS
@@ -371,10 +371,19 @@ def _mr_body():
         print(f"  Deduped: {len(top_candidates)} -> {len(deduped_candidates)} unique configs")
         top_candidates = deduped_candidates
 
-        # Signal cache for MR: precompute via SharedSignalCache for each unique config
-        _shared_cache = SharedSignalCache()
-        for cand in top_candidates:
-            _shared_cache.get_or_compute(cand["config"], "dev", dev_candles, pair_rules)
+        # Signal cache for MR: process-parallel precompute for Phase 2 (Stage 3).
+        # Returns a SharedSignalCache containing one entry per unique signal_cache_key.
+        from pmm_lab.objective.phase2_parallel_directional import (
+            precompute_unique_directional_signals,
+        )
+        _shared_cache = precompute_unique_directional_signals(
+            top_candidates=top_candidates,
+            candles=dev_candles,
+            pair_rules=pair_rules,
+            regime_candles=None,
+            dataset_key="dev",
+            max_workers=N_JOBS,
+        )
 
         # MR apply_scenario: modify engine_config (not strategy_config)
         from pmm_lab.objective.stress_mean_reversion_bb_rsi import _apply_scenario as _mr_apply_scenario
@@ -460,7 +469,16 @@ def _mr_body():
         else:
             dev_candles_h, holdout_candles_h = split_holdout(candles, 0.20, min_holdout_bars=50)
             holdout_start_idx = len(dev_candles_h)
-        holdout_candidates = [(val_config, best.get("robust_score", 0.0))]
+        # Per-candidate engine_config (Stage 1 fix): MR execution fields live on
+        # engine_config, not strategy_config. Each candidate gets its own engine
+        # config so holdout scoring uses the candidate's real execution params.
+        holdout_candidates = [
+            HoldoutCandidateSpec(
+                strategy_config=val_config,
+                engine_config=val_engine,
+                development_score=best.get("robust_score", 0.0),
+            )
+        ]
         for t_idx in range(1, min(5, len(top_candidates))):
             tc = top_candidates[t_idx]
             tc_bundle, _ = canonicalize_params(
@@ -470,13 +488,25 @@ def _mr_body():
             )
             if tc_bundle is not None:
                 tc_cfg = _replace(tc_bundle.strategy_config, controller_compat=VALIDATION_CONTROLLER_COMPAT)
-                holdout_candidates.append((tc_cfg, tc.get("phase1_score", 0.0)))
+                tc_engine = _replace(
+                    tc_bundle.engine_config,
+                    refresh_close_mode=REFRESH_CLOSE_MODE,
+                    initial_base_balance=INITIAL_BASE_BALANCE,
+                    taker_probability=taker_prob,
+                )
+                holdout_candidates.append(
+                    HoldoutCandidateSpec(
+                        strategy_config=tc_cfg,
+                        engine_config=tc_engine,
+                        development_score=tc.get("phase1_score", 0.0),
+                    )
+                )
         holdout_report = evaluate_holdout(
             holdout_candles_h, holdout_candidates, pair_rules, bar_interval_seconds,
             run_stress=False, objective_version=OBJECTIVE_VERSION,
             full_candles=candles, holdout_start_idx=holdout_start_idx,
             shared_signal_cache=_shared_cache_full,
-            engine_config=val_engine,
+            engine_config=val_engine,  # defensive fallback for specs with engine_config=None
         )
         print(f"  Holdout: {'PASS' if holdout_report.exported_holdout_passed else 'FAIL'}")
     except Exception as e:
@@ -1014,12 +1044,20 @@ def _ema_body():
         print(f"  Deduped: {len(top_candidates)} -> {len(deduped_candidates)} unique configs")
         top_candidates = deduped_candidates
 
-        _shared_cache = SharedSignalCache()
-        for cand in top_candidates:
-            _shared_cache.get_or_compute(
-                cand["config"], "dev", dev_candles, pair_rules,
-                regime_candles=regime_candles,
-            )
+        # Signal cache for EMA: process-parallel precompute for Phase 2 (Stage 3).
+        # Returns a SharedSignalCache containing one entry per unique signal_cache_key,
+        # keyed on the regime-hashed effective dataset key.
+        from pmm_lab.objective.phase2_parallel_directional import (
+            precompute_unique_directional_signals,
+        )
+        _shared_cache = precompute_unique_directional_signals(
+            top_candidates=top_candidates,
+            candles=dev_candles,
+            pair_rules=pair_rules,
+            regime_candles=regime_candles,
+            dataset_key="dev",
+            max_workers=N_JOBS,
+        )
 
         from pmm_lab.objective.stress_ema_regime_hold import _apply_scenario as _ema_apply_scenario
         def _apply_scenario_fn(strategy_cfg, engine_cfg, pair_rules, scenario):
@@ -1110,7 +1148,16 @@ def _ema_body():
         else:
             dev_candles_h, holdout_candles_h = split_holdout(signal_candles, 0.20, min_holdout_bars=50)
             holdout_start_idx = len(dev_candles_h)
-        holdout_candidates = [(val_config, best.get("robust_score", 0.0))]
+        # Per-candidate engine_config (Stage 1 fix): EMA execution fields live on
+        # engine_config, not strategy_config. Each candidate gets its own engine
+        # config so holdout scoring uses the candidate's real execution params.
+        holdout_candidates = [
+            HoldoutCandidateSpec(
+                strategy_config=val_config,
+                engine_config=val_engine,
+                development_score=best.get("robust_score", 0.0),
+            )
+        ]
         for t_idx in range(1, min(5, len(top_candidates))):
             tc = top_candidates[t_idx]
             tc_raw = dict(tc["params"], hold_mode="reentry", max_executors_per_side=1, total_amount_quote=300.0)
@@ -1125,13 +1172,25 @@ def _ema_body():
                     controller_compat=VALIDATION_CONTROLLER_COMPAT,
                     _regime_candles=regime_candles,
                 )
-                holdout_candidates.append((tc_cfg, tc.get("phase1_score", 0.0)))
+                tc_engine = _replace(
+                    tc_bundle.engine_config,
+                    refresh_close_mode=REFRESH_CLOSE_MODE,
+                    initial_base_balance=INITIAL_BASE_BALANCE,
+                    taker_probability=taker_prob,
+                )
+                holdout_candidates.append(
+                    HoldoutCandidateSpec(
+                        strategy_config=tc_cfg,
+                        engine_config=tc_engine,
+                        development_score=tc.get("phase1_score", 0.0),
+                    )
+                )
         holdout_report = evaluate_holdout(
             holdout_candles_h, holdout_candidates, pair_rules, bar_interval_seconds,
             run_stress=False, objective_version=OBJECTIVE_VERSION,
             full_candles=signal_candles, holdout_start_idx=holdout_start_idx,
             shared_signal_cache=_shared_cache_full,
-            engine_config=val_engine,
+            engine_config=val_engine,  # defensive fallback for specs with engine_config=None
             regime_candles=regime_candles,
         )
         print(f"  Holdout: {'PASS' if holdout_report.exported_holdout_passed else 'FAIL'}")
