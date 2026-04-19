@@ -37,7 +37,6 @@
       "Bash(do test:*)"
     ],
     "deny": [
-      "Bash(git *)",
       "Bash(rm *)",
       "Bash(mv *)",
       "Bash(cp *)",

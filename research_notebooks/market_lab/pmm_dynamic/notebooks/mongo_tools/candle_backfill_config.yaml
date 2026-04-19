@@ -18,7 +18,7 @@ mongo:
 
 http:
   timeout_seconds: 30
-  max_retries: 3
+  max_retries: 5
   retry_backoff: 1.8
 
 # Target backfill depth per interval, in days. This is what v3 will ATTEMPT
@@ -47,6 +47,14 @@ interval_targets_days:
 
 # Absolute ceiling regardless of any per-interval target. 10 years in days.
 absolute_max_days: 3650
+
+# Skip the most-recent N days when backfilling pairs that already
+# exist in the database. Intended for coordination with a separate
+# "live" backfill process that handles the recent window. Set to 0
+# to disable (backfill all the way to now, which is the legacy behavior).
+# New pairs (via Cell 9's NEW_PAIRS list) always backfill fully to now
+# regardless of this value.
+recent_days_owned_by_other_process: 7
 
 # Exchange definitions. To add a new exchange (e.g., kraken):
 #   1. Add an entry under `exchanges:` with base_url, request delay, max_per_request.
@@ -84,47 +92,47 @@ exchanges:
       "1d": "1d"
       #"3m": "3m"
 
-#  mexc:
-#    base_url: "https://api.mexc.com"
-#    request_delay_seconds: 0.2
-#    max_per_request: 500
-#    interval_map:
-#      "1m": "1m"
-#      "5m": "5m"
-#      "15m": "15m"
-#      "30m": "30m"
-#      "1h": "60m"
-#      "4h": "4h"
-#      "8h": "8h"
-#      "1d": "1d"
-#      # 3m and 12h not offered on MEXC spot
+  mexc:
+    base_url: "https://api.mexc.com"
+    request_delay_seconds: 0.2
+    max_per_request: 500
+    interval_map:
+      "1m": "1m"
+      "5m": "5m"
+      "15m": "15m"
+      "30m": "30m"
+      "1h": "60m"
+      "4h": "4h"
+      "8h": "8h"
+      "1d": "1d"
+      # 3m and 12h not offered on MEXC spot
 
-#  coinbase:
-#    base_url: "https://api.exchange.coinbase.com"
-#    request_delay_seconds: 0.35
-#    max_per_request: 300
-#    interval_map:
-#      "1m": 60
-#      "5m": 300
-#      "15m": 900
-#      "1h": 3600
-#      "1d": 86400
-#      # 3m, 30m, 4h not supported on Coinbase Advanced
+  coinbase:
+    base_url: "https://api.exchange.coinbase.com"
+    request_delay_seconds: 0.35
+    max_per_request: 300
+    interval_map:
+      "1m": 60
+      "5m": 300
+      "15m": 900
+      "1h": 3600
+      "1d": 86400
+      # 3m, 30m, 4h not supported on Coinbase Advanced
 
-  # Example: uncomment and fill in when you're ready to add Kraken.
-  # You'll also need to add fetch_kraken_candles / ingest_kraken_range in
-  # the notebook. Kraken OHLC endpoint: /0/public/OHLC?pair=XBTUSD&interval=5
-  # kraken:
-  #   base_url: "https://api.kraken.com"
-  #   request_delay_seconds: 1.0    # Kraken rate limit is stricter than most
-  #   max_per_request: 720           # Kraken caps at 720 OHLC per request
-  #   interval_map:
-  #     "1m": 1
-  #     "5m": 5
-  #     "15m": 15
-  #     "30m": 30
-  #     "1h": 60
-  #     "4h": 240
-  #     "8h": 480
-  #     "12h": 720
-  #     "1d": 1440
+  # Kraken — uncomment when ready to enable.
+  # Constraints: 1 req/s per IP (strict), 720 bars per response cap,
+  # cannot page older than ~720 bars of history via OHLC endpoint.
+  # For deep history, use Trades-aggregation mode (not yet implemented).
+  kraken:
+    base_url: "https://api.kraken.com"
+    request_delay_seconds: 0.0    # ignored — token bucket handles pacing
+    max_per_request: 720           # Kraken OHLC hard cap
+    interval_map:
+      "1m": 1
+      "5m": 5
+      "15m": 15
+      "30m": 30
+      "1h": 60
+      "4h": 240
+      "1d": 1440
+      # Kraken does not support 3m, 8h, or 12h spot OHLC.
