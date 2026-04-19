@@ -187,7 +187,7 @@ _pair_bar = tqdm(
 
 
 def _mr_body():
-    return r'''for pair_idx, pair_info in enumerate(candidates):
+    return r'''def _run_one_pair(pair_idx, pair_info):
     connector = pair_info["connector"]
     pair = pair_info["trading_pair"]
     interval = pair_info["interval"]
@@ -210,15 +210,13 @@ def _mr_body():
             print(f"  SKIP: audit failed — {audit.failure_reasons}")
             sweep_results.append({"connector": connector, "pair": pair, "interval": interval,
                                   "status": "audit_fail", "robust_score": None})
-            _pair_bar.update(1)
-            continue
+            return
         dataset_hash = hash_candles(candles)
     except Exception as e:
         print(f"  SKIP: load failed — {e}")
         sweep_results.append({"connector": connector, "pair": pair, "interval": interval,
                               "status": "load_fail", "robust_score": None})
-        _pair_bar.update(1)
-        continue
+        return
 
     # ── Dataset split for release gate (informational) ──
     try:
@@ -245,8 +243,7 @@ def _mr_body():
             print(f"  SKIP: no exchange rules for {connector}/{pair}")
             sweep_results.append({"connector": connector, "pair": pair, "interval": interval,
                                   "status": "no_rules", "robust_score": None})
-            _pair_bar.update(1)
-            continue
+            return
 
     taker_prob = TAKER_PROBABILITY_BY_CONNECTOR.get(connector, DEFAULT_TAKER_PROBABILITY)
     ref_price = float(np.median(candles["close"]))
@@ -263,8 +260,7 @@ def _mr_body():
         print(f"  SKIP: only {dataset_days:.1f} days of data")
         sweep_results.append({"connector": connector, "pair": pair, "interval": interval,
                               "status": "insufficient_data", "robust_score": None})
-        _pair_bar.update(1)
-        continue
+        return
 
     print(f"  Candles: {len(candles):,}  Days: {dataset_days:.1f}  "
           f"WF: {train_days}/{test_days}/{step_days}d  Ref: {ref_price:,.4f}")
@@ -272,8 +268,12 @@ def _mr_body():
     # ── Phase 1: Optimization with inner tqdm bar + DegeneracyCheck ──
     study_name = f"{connector}_{pair}_{interval}_mr_bb_rsi_v1"
 
-    _trial_bar = tqdm(total=N_TRIALS, position=1, leave=False, desc="trials")
-    _trial_cb = TqdmProgressCallback(_trial_bar, show_best=True)
+    if PAIR_JOBS > 1:
+        _trial_bar = None
+        _trial_cb = None
+    else:
+        _trial_bar = tqdm(total=N_TRIALS, position=1, leave=False, desc="trials")
+        _trial_cb = TqdmProgressCallback(_trial_bar, show_best=True)
 
     try:
         study = optimize_study_for_notebook(
@@ -299,7 +299,7 @@ def _mr_body():
                 initial_base_balance=INITIAL_BASE_BALANCE,
                 taker_probability=taker_prob,
             ),
-            callbacks=[DegeneracyCheckCallback(), _trial_cb],
+            callbacks=([DegeneracyCheckCallback(), _trial_cb] if _trial_cb is not None else [DegeneracyCheckCallback()]),
             n_startup_trials=int(N_TRIALS * PERC_TRIALS_TEST) if "PERC_TRIALS_TEST" in globals() else 15,
         )
 
@@ -315,8 +315,7 @@ def _mr_body():
             sweep_results.append({"connector": connector, "pair": pair, "interval": interval,
                                   "status": "no_completed_trials", "robust_score": None})
             _trial_bar.close()
-            _pair_bar.update(1)
-            continue
+            return
 
         best_val = ranked[0].value
         print(f"  Phase 1: {len(completed)} complete, {len(pruned)} pruned, best={best_val:.4f}")
@@ -325,11 +324,11 @@ def _mr_body():
         sweep_results.append({"connector": connector, "pair": pair, "interval": interval,
                               "status": "optim_fail", "robust_score": None})
         _trial_bar.close()
-        _pair_bar.update(1)
-        continue
+        return
     finally:
         try:
-            _trial_bar.close()
+            if _trial_bar is not None:
+                _trial_bar.close()
         except Exception:
             pass
 
@@ -370,8 +369,7 @@ def _mr_body():
             print(f"  SKIP: no valid configs to stress test")
             sweep_results.append({"connector": connector, "pair": pair, "interval": interval,
                                   "status": "no_valid_configs", "robust_score": None})
-            _pair_bar.update(1)
-            continue
+            return
 
         # Dedup by full config fingerprint
         seen_configs = {}
@@ -418,8 +416,7 @@ def _mr_body():
             print(f"  SKIP: no candidates survived stress testing")
             sweep_results.append({"connector": connector, "pair": pair, "interval": interval,
                                   "status": "stress_fail", "robust_score": None})
-            _pair_bar.update(1)
-            continue
+            return
 
         best_config = best["config"]
         best_engine_config = best["engine_config"]
@@ -437,8 +434,7 @@ def _mr_body():
         print(f"  SKIP: stress testing failed — {e}")
         sweep_results.append({"connector": connector, "pair": pair, "interval": interval,
                               "status": "stress_fail", "robust_score": None, "error": str(e)})
-        _pair_bar.update(1)
-        continue
+        return
 
     # ── Finalist validation ──
     val_config = _replace(best_config, controller_compat=VALIDATION_CONTROLLER_COMPAT, use_numba_kernel=USE_NUMBA_KERNEL)
@@ -821,7 +817,33 @@ def _mr_body():
     except Exception as e:
         print(f"  Report error: {e}")
 
-    _pair_bar.update(1)
+    return
+if PAIR_JOBS <= 1:
+    for pair_idx, pair_info in enumerate(candidates):
+        try:
+            _run_one_pair(pair_idx, pair_info)
+        except Exception as _e:
+            import traceback as _tb
+            print(f"  [pair {pair_idx+1}] raised: {_e}")
+            _tb.print_exc()
+        _pair_bar.update(1)
+else:
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _as_completed
+    print(f"[pair-level] Running with PAIR_JOBS={PAIR_JOBS} threads x N_JOBS={N_JOBS} Optuna subprocesses per pair.")
+    with _TPE(max_workers=PAIR_JOBS) as _pool:
+        _futs = {
+            _pool.submit(_run_one_pair, _pidx, _pinfo): (_pidx, _pinfo)
+            for _pidx, _pinfo in enumerate(candidates)
+        }
+        for _fut in _as_completed(_futs):
+            _pidx, _pinfo = _futs[_fut]
+            try:
+                _fut.result()
+            except Exception as _e:
+                import traceback as _tb
+                print(f"  [parallel] pair {_pidx+1} raised: {_e}")
+                _tb.print_exc()
+            _pair_bar.update(1)
 
 _pair_bar.close()
 
@@ -833,7 +855,7 @@ print(f"{'='*60}")
 
 
 def _ema_body():
-    return r'''for pair_idx, pair_info in enumerate(candidates):
+    return r'''def _run_one_pair(pair_idx, pair_info):
     connector = pair_info["connector"]
     pair = pair_info["trading_pair"]
     signal_interval = pair_info["signal_interval"]
@@ -863,8 +885,7 @@ def _ema_body():
         sweep_results.append({"connector": connector, "pair": pair,
                               "signal_interval": signal_interval, "regime_interval": regime_interval,
                               "status": "load_error", "error": str(e), "robust_score": None})
-        _pair_bar.update(1)
-        continue
+        return
 
     # ── Audit both streams (hard stop on either) ──
     audit = validate_candles(signal_candles, interval=signal_interval, strict=True)
@@ -873,16 +894,14 @@ def _ema_body():
         sweep_results.append({"connector": connector, "pair": pair,
                               "signal_interval": signal_interval, "regime_interval": regime_interval,
                               "status": "audit_fail_signal", "robust_score": None})
-        _pair_bar.update(1)
-        continue
+        return
     regime_audit = validate_candles(regime_candles, interval=regime_interval, strict=True)
     if not regime_audit.passed_strict:
         print(f"  SKIP: regime audit failed — {regime_audit.failure_reasons}")
         sweep_results.append({"connector": connector, "pair": pair,
                               "signal_interval": signal_interval, "regime_interval": regime_interval,
                               "status": "audit_fail_regime", "robust_score": None})
-        _pair_bar.update(1)
-        continue
+        return
     # Composite EMA dataset identity (ML-DIR-002) — covers BOTH streams
     _identity = compute_ema_dataset_identity(
         signal_candles=signal_candles, regime_candles=regime_candles,
@@ -918,8 +937,7 @@ def _ema_body():
             sweep_results.append({"connector": connector, "pair": pair,
                                   "signal_interval": signal_interval, "regime_interval": regime_interval,
                                   "status": "no_rules", "robust_score": None})
-            _pair_bar.update(1)
-            continue
+            return
 
     taker_prob = TAKER_PROBABILITY_BY_CONNECTOR.get(connector, DEFAULT_TAKER_PROBABILITY)
     ref_price = float(np.median(signal_candles["close"]))
@@ -936,16 +954,19 @@ def _ema_body():
         sweep_results.append({"connector": connector, "pair": pair,
                               "signal_interval": signal_interval, "regime_interval": regime_interval,
                               "status": "insufficient_data", "robust_score": None})
-        _pair_bar.update(1)
-        continue
+        return
 
     print(f"  Candles: {len(signal_candles):,} signal / {len(regime_candles):,} regime  "
           f"Days: {dataset_days:.1f}  WF: {train_days}/{test_days}/{step_days}d  Ref: {ref_price:,.4f}")
 
     # ── Phase 1: Optimization with inner tqdm bar + regime_candles in factory_kwargs ──
     study_name = f"{connector}_{pair}_{signal_interval}_{regime_interval}_ema_regime_hold_v1"
-    _trial_bar = tqdm(total=N_TRIALS, position=1, leave=False, desc="trials")
-    _trial_cb = TqdmProgressCallback(_trial_bar, show_best=True)
+    if PAIR_JOBS > 1:
+        _trial_bar = None
+        _trial_cb = None
+    else:
+        _trial_bar = tqdm(total=N_TRIALS, position=1, leave=False, desc="trials")
+        _trial_cb = TqdmProgressCallback(_trial_bar, show_best=True)
 
     try:
         study = optimize_study_for_notebook(
@@ -972,7 +993,7 @@ def _ema_body():
                 taker_probability=taker_prob,
                 regime_candles=regime_candles,
             ),
-            callbacks=[DegeneracyCheckCallback(), _trial_cb],
+            callbacks=([DegeneracyCheckCallback(), _trial_cb] if _trial_cb is not None else [DegeneracyCheckCallback()]),
             n_startup_trials=int(N_TRIALS * PERC_TRIALS_TEST) if "PERC_TRIALS_TEST" in globals() else 15,
         )
 
@@ -989,8 +1010,7 @@ def _ema_body():
                                   "signal_interval": signal_interval, "regime_interval": regime_interval,
                                   "status": "no_completed_trials", "robust_score": None})
             _trial_bar.close()
-            _pair_bar.update(1)
-            continue
+            return
 
         best_val = ranked[0].value
         print(f"  Phase 1: {len(completed)} complete, {len(pruned)} pruned, best={best_val:.4f}")
@@ -1000,11 +1020,11 @@ def _ema_body():
                               "signal_interval": signal_interval, "regime_interval": regime_interval,
                               "status": "optim_fail", "robust_score": None, "error": str(e)})
         _trial_bar.close()
-        _pair_bar.update(1)
-        continue
+        return
     finally:
         try:
-            _trial_bar.close()
+            if _trial_bar is not None:
+                _trial_bar.close()
         except Exception:
             pass
 
@@ -1045,8 +1065,7 @@ def _ema_body():
             sweep_results.append({"connector": connector, "pair": pair,
                                   "signal_interval": signal_interval, "regime_interval": regime_interval,
                                   "status": "no_valid_configs", "robust_score": None})
-            _pair_bar.update(1)
-            continue
+            return
 
         seen_configs = {}
         deduped_candidates = []
@@ -1094,8 +1113,7 @@ def _ema_body():
             sweep_results.append({"connector": connector, "pair": pair,
                                   "signal_interval": signal_interval, "regime_interval": regime_interval,
                                   "status": "stress_fail", "robust_score": None})
-            _pair_bar.update(1)
-            continue
+            return
 
         best_config = best["config"]
         best_engine_config = best["engine_config"]
@@ -1114,8 +1132,7 @@ def _ema_body():
         sweep_results.append({"connector": connector, "pair": pair,
                               "signal_interval": signal_interval, "regime_interval": regime_interval,
                               "status": "stress_fail", "robust_score": None, "error": str(e)})
-        _pair_bar.update(1)
-        continue
+        return
 
     # ── Finalist validation ──
     val_config = _replace(best_config, controller_compat=VALIDATION_CONTROLLER_COMPAT,
@@ -1501,7 +1518,33 @@ def _ema_body():
     except Exception as e:
         print(f"  Report error: {e}")
 
-    _pair_bar.update(1)
+    return
+if PAIR_JOBS <= 1:
+    for pair_idx, pair_info in enumerate(candidates):
+        try:
+            _run_one_pair(pair_idx, pair_info)
+        except Exception as _e:
+            import traceback as _tb
+            print(f"  [pair {pair_idx+1}] raised: {_e}")
+            _tb.print_exc()
+        _pair_bar.update(1)
+else:
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _as_completed
+    print(f"[pair-level] Running with PAIR_JOBS={PAIR_JOBS} threads x N_JOBS={N_JOBS} Optuna subprocesses per pair.")
+    with _TPE(max_workers=PAIR_JOBS) as _pool:
+        _futs = {
+            _pool.submit(_run_one_pair, _pidx, _pinfo): (_pidx, _pinfo)
+            for _pidx, _pinfo in enumerate(candidates)
+        }
+        for _fut in _as_completed(_futs):
+            _pidx, _pinfo = _futs[_fut]
+            try:
+                _fut.result()
+            except Exception as _e:
+                import traceback as _tb
+                print(f"  [parallel] pair {_pidx+1} raised: {_e}")
+                _tb.print_exc()
+            _pair_bar.update(1)
 
 _pair_bar.close()
 

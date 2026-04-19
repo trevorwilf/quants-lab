@@ -57,8 +57,8 @@ absolute_max_days: 3650
 exchanges:
   nonkyc:
     base_url: "https://api.nonkyc.io/api/v2"
-    request_delay_seconds: 0.5
-    max_per_request: 500
+    request_delay_seconds: 0.0    # ignored — token bucket handles pacing
+    max_per_request: 5000          # validated by empirical diagnostic
     interval_map:
       "5m": 5
       "15m": 15
