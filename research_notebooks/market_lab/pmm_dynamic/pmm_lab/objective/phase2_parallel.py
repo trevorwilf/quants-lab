@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 def _pin_blas_threads():
     """Force single-threaded BLAS inside each worker."""
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-                "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+                "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+                "BLIS_NUM_THREADS"):
         os.environ[var] = "1"
 
 

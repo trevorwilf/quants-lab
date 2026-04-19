@@ -30,8 +30,16 @@ class WorkerResult:
 
 
 def _pin_blas_threads():
-    """Force single-threaded BLAS inside each worker (must be called before numpy import)."""
-    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    """Force single-threaded BLAS inside each worker (must be called before numpy import).
+
+    Prevents oversubscription when pair-level parallelism stacks on top of
+    Optuna's per-pair subprocess pool (pair_jobs × n_jobs × blas_threads CPUs).
+    """
+    for var in (
+        "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+        "BLIS_NUM_THREADS",
+    ):
         os.environ[var] = "1"
 
 

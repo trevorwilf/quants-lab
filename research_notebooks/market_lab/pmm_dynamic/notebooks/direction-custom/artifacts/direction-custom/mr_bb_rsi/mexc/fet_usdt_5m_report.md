@@ -1,13 +1,13 @@
 # PMM Dynamic Optimization Report: mexc_FET-USDT_5m_mr_bb_rsi_v1
 
-Generated: 2026-04-18 02:03:50 UTC
+Generated: 2026-04-18 08:57:34 UTC
 
 ## Run Provenance
 
 | Key | Value |
 |-----|-------|
 | notebook | direction-custom/mr_bb_rsi |
-| run_timestamp | 2026-04-18T02:03:50.136155+00:00 |
+| run_timestamp | 2026-04-18T08:57:34.312430+00:00 |
 | n_jobs | 8 |
 | objective_version | 2 |
 | search_controller_compat | False |
@@ -15,7 +15,8 @@ Generated: 2026-04-18 02:03:50 UTC
 | refresh_close_mode | market_close |
 | initial_base_balance | 0.0 |
 | taker_probability | 0.0 |
-| trial_number | 419 |
+| trial_number | 6681 |
+| validation_status | validated_fail |
 
 ## Dataset Summary
 
@@ -24,36 +25,36 @@ Generated: 2026-04-18 02:03:50 UTC
 - **interval**: 5m
 - **n_candles**: 51841
 - **dataset_hash**: e5d033834887b2151ae930eee1b45f767bfe8b3bc2b64b4b86eb7e0fc955d92d
-- **n_trials_phase1**: 500
-- **n_candidates_stressed**: 15
+- **n_trials_phase1**: 9000
+- **n_candidates_stressed**: 100
 - **total_amount_quote_search_min**: 50.0
 - **total_amount_quote_search_max**: 500.0
-- **total_amount_quote_ideal**: 911.1219661791193
+- **total_amount_quote_ideal**: 795.8213493634328
 - **search_controller_compat**: False
 
 ## Best Parameters
 
 | Parameter | Value |
 |-----------|-------|
-| atr_length | 13 |
-| bb_length | 148 |
-| bb_std | 2.855171828425735 |
-| bbp_entry_threshold | 0.1135845708257207 |
-| cooldown_time | 11879 |
-| max_atr_pct_for_entry | 0.09360163585533685 |
-| min_volume_quantile | 0.568787820214471 |
-| rsi_entry_threshold | 45.519543938532415 |
-| rsi_length | 11 |
-| stop_loss | 0.030280672804982377 |
-| take_profit | 0.008882516896376647 |
+| atr_length | 29 |
+| bb_length | 24 |
+| bb_std | 1.3277994448521913 |
+| bbp_entry_threshold | 0.383201870660772 |
+| cooldown_time | 48961 |
+| max_atr_pct_for_entry | 0.006200772273219486 |
+| min_volume_quantile | 0.33803618369334076 |
+| rsi_entry_threshold | 49.84492372802803 |
+| rsi_length | 12 |
+| stop_loss | 0.040450949664041114 |
+| take_profit | 0.04010976304613275 |
 | take_profit_order_type | MARKET |
-| time_limit | 295954 |
-| total_amount_quote | 911.1219661791193 |
-| trailing_stop_activation | 0.002390674939838581 |
-| trailing_stop_delta | 0.009673134614560968 |
-| trend_ema_length | 144 |
+| time_limit | 110959 |
+| total_amount_quote | 795.8213493634328 |
+| trailing_stop_activation | 0.007089760815089453 |
+| trailing_stop_delta | 0.01078133361569049 |
+| trend_ema_length | 280 |
 | use_trend_filter | False |
-| volume_filter_window | 319 |
+| volume_filter_window | 461 |
 
 ## Capital/Budget Analysis
 
@@ -61,34 +62,50 @@ Generated: 2026-04-18 02:03:50 UTC
 |--------|-------|
 | Search Min | 50.0 |
 | Search Max | 500.0 |
-| Ideal | 911.1219661791193 |
-| Selected | 911.1219661791193 |
+| Ideal | 795.8213493634328 |
+| Selected | 795.8213493634328 |
 
 > **WARNING**: Selected quote is within 5% of search maximum.
 
 ## Selected Candidate Single-Run Diagnostics
 
-- **PnL %**: 7.7537
-- **Net PnL (quote)**: 70.6459
-- **Sharpe Ratio**: 1.9228
-- **Max Drawdown %**: 4.2918
-- **Profit Factor**: 2.001890163399836
-- **Trade Count**: 57
-- **Total Fees (quote)**: 10.7092
-- **Maker Fees**: 5.3465
-- **Taker Fees**: 5.3627
-- **Fee Drag %**: 1.1754
+- **PnL %**: 15.7413
+- **Net PnL (quote)**: 125.2723
+- **Sharpe Ratio**: 2.8334
+- **Max Drawdown %**: 3.3882
+- **Profit Factor**: inf
+- **Trade Count**: 66
+- **Total Fees (quote)**: 7.4248
+- **Maker Fees**: 3.6991
+- **Taker Fees**: 3.7257
+- **Fee Drag %**: 0.9330
 
 ## Selected Candidate Single-Run Objective
 
-- **Raw Score**: 0.0364
-- **PnL Component**: 0.0747
+- **Raw Score**: 0.1156
+- **PnL Component**: 0.1462
 - **Sharpe Component**: 0.0000
-- **Drawdown Component**: -0.0322
-- **Fee Drag Component**: -0.0059
+- **Drawdown Component**: -0.0254
+- **Fee Drag Component**: -0.0047
 - **Inventory Component**: -0.0000
 - **Trade Count Penalty**: -0.0000
 - **Rejected**: False
+
+## Walk-Forward Results
+
+Aggregate Score: **-0.2568**
+
+| Fold | PnL % | Sharpe | Max DD % | Trades | Objective | Regime |
+|------|-------|--------|----------|--------|-----------|--------|
+| 0 | 3.72 | 4.01 | 2.31 | 17 | -0.1583 | n/a |
+| 1 | 0.62 | 3.63 | 0.91 | 3 | -1000.0000 | n/a |
+| 2 | 2.99 | 3.93 | 2.81 | 11 | -0.1491 | n/a |
+| 3 | 0.24 | 0.47 | 2.64 | 4 | -0.2359 | n/a |
+| 4 | 2.79 | 3.50 | 2.27 | 17 | -0.1230 | n/a |
+| 5 | -4.13 | -8.03 | 4.13 | 3 | -1000.0000 | n/a |
+| 6 | -2.69 | -4.59 | 3.81 | 9 | -0.2209 | n/a |
+| 7 | -4.13 | -7.82 | 4.33 | 6 | -0.4108 | n/a |
+| 8 | -4.13 | -6.61 | 4.17 | 4 | -0.5257 | n/a |
 
 ## Stress Test Results
 
@@ -96,22 +113,22 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 
 | Scenario | PnL % | Sharpe | Max DD % | Objective |
 |----------|-------|--------|----------|-----------|
-| fees_1.5x | 7.17 | 1.79 | 4.32 | 0.0278 |
-| fees_2x | 6.58 | 1.65 | 4.36 | 0.0191 |
+| fees_1.5x | 15.27 | 2.75 | 3.40 | 0.1092 |
+| fees_2x | 14.81 | 2.67 | 3.41 | 0.1027 |
 | latency_plus1 | 0.00 | 0.00 | 0.00 | -1000.0000 |
 | latency_plus2 | 0.00 | 0.00 | 0.00 | -1000.0000 |
 | latency_plus3 | 0.00 | 0.00 | 0.00 | -1000.0000 |
-| low_liquidity | -1.04 | -0.33 | 4.31 | -0.1847 |
-| very_low_liquidity | -1.62 | -1.86 | 1.88 | -0.4960 |
-| high_slippage | 6.18 | 1.59 | 4.35 | 0.0215 |
-| extreme_slippage | -1.73 | -0.61 | 4.47 | -0.2088 |
+| low_liquidity | 14.85 | 2.69 | 3.41 | 0.1079 |
+| very_low_liquidity | 14.65 | 2.69 | 3.42 | 0.1062 |
+| high_slippage | 14.57 | 2.64 | 3.42 | 0.1052 |
+| extreme_slippage | 12.23 | 2.24 | 3.48 | 0.0841 |
 | combined_adverse | 0.00 | 0.00 | 0.00 | -1000.0000 |
-| spread_widen_10bps | 6.55 | 1.70 | 4.35 | 0.0250 |
-| spread_widen_25bps | -1.26 | -0.44 | 4.44 | -0.2038 |
-| thin_book | -3.12 | -2.18 | 3.12 | -1000.0000 |
-| very_thin_book | -2.88 | -2.10 | 3.11 | -1000.0000 |
-| entry_spread_stress | 5.91 | 1.54 | 4.47 | 0.0180 |
-| combined_market_deterioration | -3.18 | -2.23 | 3.18 | -1000.0000 |
+| spread_widen_10bps | 14.90 | 2.67 | 3.41 | 0.1082 |
+| spread_widen_25bps | 15.14 | 2.62 | 3.39 | 0.1098 |
+| thin_book | 0.25 | 0.12 | 4.11 | -0.1582 |
+| very_thin_book | -3.61 | -2.58 | 4.01 | -0.2513 |
+| entry_spread_stress | 15.43 | 2.70 | 3.39 | 0.1124 |
+| combined_market_deterioration | 1.01 | 0.30 | 4.09 | -0.1277 |
 | severe_adverse | 0.00 | 0.00 | 0.00 | -1000.0000 |
 
 ## Holdout Validation
@@ -120,17 +137,17 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 - **Regime**: high_vol_ranging
 - **Volatility**: high_vol (NATR mean: 0.0043)
 - **Trend**: ranging (efficiency: 0.0140)
-- **Best holdout score**: -0.0715 (rank #1)
+- **Best holdout score**: -0.1345 (rank #3)
 - **Collapse detected**: No
 - **Holdout passed**: **NO**
 
 | Rank | Dev Score | Holdout Score | PnL % | Max DD % | Trades |
 |------|-----------|---------------|-------|----------|--------|
-| 0 | -499.9818 | -0.1510 | 0.37 | 0.30 | 12 |
-| 1 | -0.1566 | -0.0715 | -1.51 | 3.07 | 42 |
-| 2 | -0.1566 | -0.0905 | 1.53 | 0.11 | 24 |
-| 3 | -0.1570 | -0.1939 | -2.15 | 3.09 | 13 |
-| 4 | -0.1612 | -0.1453 | 0.42 | 0.66 | 14 |
+| 0 | -499.9422 | -0.2205 | -2.69 | 3.81 | 9 |
+| 1 | -0.1029 | -0.1724 | 1.48 | 0.85 | 5 |
+| 2 | -0.1043 | -0.2296 | -2.73 | 3.82 | 7 |
+| 3 | -0.1046 | -0.1345 | 3.61 | 1.16 | 10 |
+| 4 | -0.1054 | -1000.0000 | -3.28 | 3.56 | 2 |
 
 ## Dataset Audit
 
@@ -145,62 +162,71 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 ## Recent 28-Day Window
 
 - **Passed**: False
-- **Reason**: recent objective score -0.1934 <= 0; recent trades 4 < 5
-- **Objective score**: -0.193448587493262
-- **PnL %**: 0.13440882088974743
-- **Trade count**: 4
+- **Reason**: recent objective score -0.2048 <= 0; recent PnL -3.2232% < 0
+- **Objective score**: -0.2048213017642262
+- **PnL %**: -3.223158935034536
+- **Trade count**: 15
 
 ## Recent 14-Day Window (Informational Only)
 
 > **Informational only** — this section does not affect stop-ship gating, export eligibility, or validated YAML promotion.
 
 - **Passed**: False
-- **Reason**: recent objective score -1000.0000 <= 0; recent trades 3 < 5
-- **Objective score**: -1000.0
-- **PnL %**: 0.04008631440360965
-- **Trade count**: 3
+- **Reason**: recent objective score -0.1489 <= 0
+- **Objective score**: -0.1489288828239065
+- **PnL %**: 0.7567136838865656
+- **Trade count**: 14
 
 ## Recent 7-Day Window (Informational Only)
 
 > **Informational only** — this section does not affect stop-ship gating, export eligibility, or validated YAML promotion.
 
 - **Passed**: False
-- **Reason**: recent objective score -1000.0000 <= 0; recent trades 0 < 5
-- **Objective score**: -1000.0
-- **PnL %**: 0.0
-- **Trade count**: 0
+- **Reason**: recent objective score -0.1494 <= 0
+- **Objective score**: -0.1493980075713684
+- **PnL %**: 0.7567136838865656
+- **Trade count**: 14
 
 ## Sensitivity Analysis
 
-- **Sensitivity penalty**: 0.0
-- **Baseline score**: 0.04028752376043927
+- **Sensitivity penalty**: 0.2692307692307692
+- **Baseline score**: -0.050655402223006914
 - **Sign flips**: 0
-- **Collapse count**: 0
-- **Perturbations**: 8
+- **Collapse count**: 7
+- **Perturbations**: 26
 - **Rejected**: 0
 
 | Parameter | Scores |
 |-----------|--------|
-| stop_loss | 0.0299, 0.0494 |
-| take_profit | 0.0403, 0.0403 |
-| cooldown_time | 0.0391, 0.0271 |
-| total_amount_quote | 0.0389, 0.0422 |
+| bb_length | -0.0124, -0.0217 |
+| bb_std | -0.0532, -0.0553 |
+| bbp_entry_threshold | -0.1280, -0.0295 |
+| rsi_length | -0.0152, -0.0559 |
+| rsi_entry_threshold | -0.1178, -1000.0000 |
+| trend_ema_length | -0.0675, -0.0467 |
+| max_atr_pct_for_entry | -1000.0000, -0.1341 |
+| volume_filter_window | -0.0069, -0.0686 |
+| min_volume_quantile | -0.0145, -0.0580 |
+| stop_loss | -0.0867, -0.0369 |
+| take_profit | -0.0507, -0.0507 |
+| cooldown_time | -0.1011, -0.0271 |
+| total_amount_quote | -0.0454, -0.0496 |
 
 ## Top-K Clustering
 
 - **K**: 10
 - **Is clustered**: True
-- **Mean CV**: 0.3801426811825912
-- **Max CV**: 0.7573932744179176
-- **Clustered params**: stop_loss, take_profit, total_amount_quote
-- **Scattered params**: cooldown_time
+- **Mean CV**: 0.43059400050066926
+- **Max CV**: 0.9131761820572605
+- **Clustered params**: stop_loss, cooldown_time, total_amount_quote
+- **Scattered params**: take_profit
 
 | Parameter | CV | Min | Max | Mean |
 |-----------|-----|-----|-----|------|
-| stop_loss | 0.1819 | 0.026551116168477846 | 0.047774583642554394 | 0.03476894023672899 |
-| take_profit | 0.3980 | 0.005720292836646595 | 0.01717979978617249 | 0.008631856653071823 |
-| cooldown_time | 0.7574 | 11879.0 | 85225.0 | 32750.9 |
-| total_amount_quote | 0.1833 | 503.49160986428075 | 973.6975036774652 | 786.6574613639642 |
+| stop_loss | 0.3989 | 0.02153809174217338 | 0.06811987948210152 | 0.036570469862706886 |
+| take_profit | 0.9132 | 0.005835665470600478 | 0.05771490213456771 | 0.018596358387811176 |
+| cooldown_time | 0.2997 | 22466.0 | 65514.0 | 43492.5 |
+| total_amount_quote | 0.1106 | 692.5830795391616 | 982.5078206609227 | 847.8875460621708 |
 
 ## Execution Realism Assumptions
 
@@ -219,8 +245,8 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 - objective_not_degenerate: PASS
 - stress_not_collapsed: **FAIL**
 - yaml_validates: **FAIL**
-- walkforward_robust: **FAIL**
-- walkforward_positive_majority: **FAIL**
+- walkforward_robust: PASS
+- walkforward_positive_majority: PASS
 - holdout_passed: **FAIL**
 - holdout_no_collapse: PASS
 - sensitivity_stable: PASS
@@ -235,11 +261,11 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 
 | Gate | Threshold | Actual | Status |
 |---|---|---|---|
-| recent_objective | > 0 | -0.193448587493262 | FAIL |
-| recent_pnl | >= 0 | 0.13440882088974743 | PASS |
-| recent_trades | >= 5 | 4 | FAIL |
+| recent_objective | > 0 | -0.2048213017642262 | FAIL |
+| recent_pnl | >= 0 | -3.223158935034536 | FAIL |
+| recent_trades | >= 5 | 15 | PASS |
 | worst_stress | > -10 | -1000.0 | FAIL |
-| sensitivity_penalty | < 0.50 | 0.0 | PASS |
+| sensitivity_penalty | < 0.50 | 0.2692307692307692 | PASS |
 
 ## Validation Coverage
 
@@ -247,16 +273,16 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 |---|---|---|
 | dataset_audit | PASS | strict audit passed |
 | yaml_validation | SKIPPED |  |
-| holdout | FAIL | score=-0.1510396971260414 |
-| walkforward | SKIPPED |  |
+| holdout | FAIL | score=-0.22045897176184237 |
+| walkforward | PASS | 9 folds |
 | stress | PASS | worst=latency_plus1 score=-1000.0 |
-| sensitivity | PASS | penalty=0.0 |
-| recent_28d | FAIL | score=-0.193448587493262, pnl=0.13440882088974743, trades=4, reason=recent objective score -0.1934 <= 0; recent trades 4 < 5 |
-| recent_14d_info | FAIL | informational only; score=-1000.0, pnl=0.04008631440360965, trades=3, reason=recent objective score -1000.0000 <= 0; recent trades 3 < 5 |
-| recent_7d_info | FAIL | informational only; score=-1000.0, pnl=0.0, trades=0, reason=recent objective score -1000.0000 <= 0; recent trades 0 < 5 |
+| sensitivity | PASS | penalty=0.2692307692307692 |
+| recent_28d | FAIL | score=-0.2048213017642262, pnl=-3.223158935034536, trades=15, reason=recent objective score -0.2048 <= 0; recent PnL -3.2232% < 0 |
+| recent_14d_info | FAIL | informational only; score=-0.1489288828239065, pnl=0.7567136838865656, trades=14, reason=recent objective score -0.1489 <= 0 |
+| recent_7d_info | FAIL | informational only; score=-0.1493980075713684, pnl=0.7567136838865656, trades=14, reason=recent objective score -0.1494 <= 0 |
 | frozen_parity | SKIPPED |  |
 | long_parity | SKIPPED |  |
-| clustering | PASS | mean_cv=0.3801426811825912 |
+| clustering | PASS | mean_cv=0.43059400050066926 |
 
 ## Validation Execution Manifest
 
@@ -265,14 +291,14 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 | dataset_audit | true | PASS | full | — | 51841 |  |
 | yaml_validation | false | NOT_RUN | — | — | — | not executed |
 | holdout | true | FAIL | pre_release_holdout | — | — |  |
-| recent_28d | true | FAIL | recent_28d | — | — | recent objective score -0.1934 <= 0; recent trades 4 < 5 |
-| recent_14d_info | true | FAIL | recent_14d_info | — | — | recent objective score -1000.0000 <= 0; recent trades 3 < 5 |
-| recent_7d_info | true | FAIL | recent_7d_info | — | — | recent objective score -1000.0000 <= 0; recent trades 0 < 5 |
+| recent_28d | true | FAIL | recent_28d | — | — | recent objective score -0.2048 <= 0; recent PnL -3.2232% < 0 |
+| recent_14d_info | true | FAIL | recent_14d_info | — | — | recent objective score -0.1489 <= 0 |
+| recent_7d_info | true | FAIL | recent_7d_info | — | — | recent objective score -0.1494 <= 0 |
 | sensitivity | true | FAIL | full | — | — |  |
 | clustering | true | PASS | — | — | — |  |
 | frozen_parity | false | NOT_RUN | — | — | — | not executed |
 | long_parity | false | NOT_RUN | — | — | — | not executed |
-| walkforward | false | NOT_RUN | — | — | — | not executed |
+| walkforward | true | FAIL | full | — | — |  |
 | stress | true | FAIL | full | — | — |  |
 
 ## Dataset Slice Lineage
@@ -287,7 +313,7 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 ## Run Provenance
 
 - **notebook**: direction-custom/mr_bb_rsi
-- **run_timestamp**: 2026-04-18T02:03:50.136155+00:00
+- **run_timestamp**: 2026-04-18T08:57:34.312430+00:00
 - **n_jobs**: 8
 - **objective_version**: 2
 - **search_controller_compat**: False
@@ -295,4 +321,5 @@ Worst Scenario: **latency_plus1** (score: -1000.0000)
 - **refresh_close_mode**: market_close
 - **initial_base_balance**: 0.0
 - **taker_probability**: 0.0
-- **trial_number**: 419
+- **trial_number**: 6681
+- **validation_status**: validated_fail

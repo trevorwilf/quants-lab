@@ -55,6 +55,15 @@ if _missing:
 # Set to False to use the pandas replay path (no numerical change).
 USE_NUMBA_KERNEL = True
 
+# Pair-level parallelism: run multiple pairs concurrently via ThreadPoolExecutor.
+# 1 = serial (original behavior). On a 32-CPU host with N_JOBS=8, PAIR_JOBS=4
+# saturates CPUs (4 pairs × 8 Optuna workers). Going higher than PAIR_JOBS=4
+# without halving N_JOBS oversubscribes subprocesses on most hardware.
+# The outer layer MUST be threads, not processes — nested ProcessPoolExecutor
+# raises "daemonic processes are not allowed to have children".
+if "PAIR_JOBS" not in globals():
+    PAIR_JOBS = 1
+
 if "REFRESH_CLOSE_MODE" not in globals():
     REFRESH_CLOSE_MODE = "keep"
 if "INITIAL_BASE_BALANCE" not in globals():

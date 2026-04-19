@@ -1,0 +1,31 @@
+{
+  "validation_status": "validated_fail",
+  "mandatory_gates_failed": [
+    "yaml_validates",
+    "stress_not_collapsed",
+    "recent_28d_passed",
+    "walkforward_positive_majority",
+    "holdout_passed",
+    "top_k_clustered"
+  ],
+  "validation_errors": [],
+  "timestamp": "2026-04-18T17:26:17.491036+00:00",
+  "dataset_hash": "8e1a9206cf3e4d1d0f93ac4f79d1786782947fac4286fa03448b26039a919d4c",
+  "mandatory_gates_policy": {
+    "frozen_parity_policy": "advisory",
+    "mandatory_gates": [
+      "dataset_audit",
+      "holdout_no_collapse",
+      "holdout_passed",
+      "objective_not_degenerate",
+      "recent_28d_passed",
+      "runtime_sanity",
+      "sensitivity_stable",
+      "stress_not_collapsed",
+      "top_k_clustered",
+      "walkforward_positive_majority",
+      "walkforward_robust",
+      "yaml_validates"
+    ]
+  }
+}

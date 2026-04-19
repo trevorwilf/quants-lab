@@ -1,0 +1,798 @@
+{
+  "analysis_status": null,
+  "score_summary": null,
+  "dataset_summary": {
+    "connector": "mexc",
+    "trading_pair": "XRP-USDT",
+    "interval": "5m+4h",
+    "n_candles": 103848,
+    "dataset_hash": "6451c85bba65650d2a105904060b125672be8c788fa0423621683406ea50449b",
+    "n_trials_phase1": 500,
+    "n_candidates_stressed": 100,
+    "total_amount_quote_search_min": 50.0,
+    "total_amount_quote_search_max": 500.0,
+    "total_amount_quote_ideal": 239.27820083780836,
+    "search_controller_compat": false
+  },
+  "validation_coverage": [
+    {
+      "name": "dataset_audit",
+      "status": "PASS",
+      "detail": "strict audit passed"
+    },
+    {
+      "name": "yaml_validation",
+      "status": "SKIPPED",
+      "detail": ""
+    },
+    {
+      "name": "holdout",
+      "status": "FAIL",
+      "detail": "score=-1000.0"
+    },
+    {
+      "name": "walkforward",
+      "status": "PASS",
+      "detail": "22 folds"
+    },
+    {
+      "name": "stress",
+      "status": "PASS",
+      "detail": "worst=latency_plus1 score=-1000.0"
+    },
+    {
+      "name": "sensitivity",
+      "status": "PASS",
+      "detail": "penalty=0.05"
+    },
+    {
+      "name": "recent_28d",
+      "status": "FAIL",
+      "detail": "score=-1000.0, pnl=0.0, trades=0, reason=recent objective score -1000.0000 <= 0; recent trades 0 < 5"
+    },
+    {
+      "name": "recent_14d_info",
+      "status": "FAIL",
+      "detail": "informational only; score=-1000.0, pnl=0.0, trades=0, reason=recent objective score -1000.0000 <= 0; recent trades 0 < 5"
+    },
+    {
+      "name": "recent_7d_info",
+      "status": "FAIL",
+      "detail": "informational only; score=-1000.0, pnl=0.0, trades=0, reason=recent objective score -1000.0000 <= 0; recent trades 0 < 5"
+    },
+    {
+      "name": "frozen_parity",
+      "status": "SKIPPED",
+      "detail": ""
+    },
+    {
+      "name": "long_parity",
+      "status": "SKIPPED",
+      "detail": ""
+    },
+    {
+      "name": "clustering",
+      "status": "FAIL",
+      "detail": "mean_cv=0.5755714253901677"
+    }
+  ],
+  "stop_ship_checks": {
+    "dataset_audit": true,
+    "runtime_sanity": true,
+    "objective_not_degenerate": true,
+    "stress_not_collapsed": false,
+    "yaml_validates": false,
+    "walkforward_robust": false,
+    "walkforward_positive_majority": true,
+    "holdout_passed": false,
+    "holdout_no_collapse": true,
+    "sensitivity_stable": true,
+    "recent_28d_passed": false,
+    "frozen_parity": false,
+    "top_k_clustered": false,
+    "taker_realism": true
+  },
+  "timestamp": "2026-04-18T17:19:36.434739+00:00",
+  "raw_validations": {
+    "dataset_audit": {
+      "total_rows": 103848,
+      "first_timestamp": 1745292300,
+      "last_timestamp": 1776530100,
+      "expected_rows": 104127,
+      "missing_rows": 279,
+      "duplicate_count": 0,
+      "null_counts": {},
+      "ohlc_violations": 0,
+      "ohlc_violation_details": {},
+      "volume_zero_count": 903,
+      "volume_zero_fraction": 0.00869540097064941,
+      "forward_fill_count": 903,
+      "forward_fill_fraction": 0.00869540097064941,
+      "dataset_hash": "ca1358299d50f347dfb520b911771b0d13976a130135b09bbfebffc5a4f07105",
+      "interval_seconds": 300,
+      "gap_histogram": {
+        "300": 103799,
+        "600": 15,
+        "1200": 3,
+        "1500": 4,
+        "4800": 1,
+        "2700": 4,
+        "900": 3,
+        "1800": 2,
+        "2100": 5,
+        "3000": 4,
+        "3600": 1,
+        "2400": 2,
+        "7800": 1,
+        "6900": 2,
+        "5100": 1
+      },
+      "longest_gap_seconds": 7800,
+      "passed_strict": true,
+      "failure_reasons": [],
+      "source_synthetic_count": 0,
+      "source_synthetic_fraction": 0.0,
+      "heuristic_forward_fill_count": 903,
+      "unexpected_forward_fill_count": 903,
+      "unexpected_forward_fill_fraction": 0.00869540097064941
+    },
+    "yaml_validation": null,
+    "holdout_report": {
+      "holdout_bars": 19212,
+      "holdout_start_timestamp": 1768347300,
+      "holdout_end_timestamp": 1774110600,
+      "regime": {
+        "volatility": "high_vol",
+        "trend": "ranging",
+        "label": "high_vol_ranging",
+        "natr_mean": 0.0030767416548231467,
+        "natr_median": 0.0025967322258156323,
+        "efficiency_ratio": 0.01561805682620174,
+        "total_return_pct": -33.2992754969348
+      },
+      "candidates": [
+        {
+          "rank": 0,
+          "config": {
+            "regime_ema_fast": 98,
+            "regime_ema_slow": 234,
+            "regime_adx_length": 9,
+            "regime_adx_threshold": 16.717071044461782,
+            "volume_filter_window": 193,
+            "min_volume_quantile": 0.2946861930937352,
+            "hold_mode": "reentry",
+            "max_executors_per_side": 1,
+            "timestamp_mode": "open",
+            "controller_compat": true,
+            "use_numba_kernel": true
+          },
+          "metrics": {
+            "pnl_pct": -1.5304490202991299,
+            "net_pnl_quote": -3.6620308805116224,
+            "max_drawdown_pct": 3.54569128637626,
+            "sharpe": -1.5367216817497025,
+            "trade_count": 3,
+            "fill_count": 6,
+            "n_winning": 2,
+            "n_losing": 1,
+            "gross_win_quote": 1.3908596585299866,
+            "gross_loss_quote": 5.052890539041617,
+            "profit_factor": 0.27526019963887666,
+            "total_fees_quote": 0.19072829180225814,
+            "maker_fees_quote": 0.09571127616,
+            "taker_fees_quote": 0.09501701564225815,
+            "fee_drag_pct": 0.07970984867591045,
+            "inventory_exposure_mean": 0.011284567180322036,
+            "inventory_exposure_max": 0.9999999651158532,
+            "expected_shortfall_5pct": -0.00014499110962911549,
+            "volume_zero_bar_count": 148,
+            "volume_zero_bar_fraction": 0.007703518634186966,
+            "median_trade_pnl_quote": 0.00012127569038672421,
+            "inventory_exposure_p95": 0.0,
+            "open_trade_count": 0,
+            "tp_min_notional_failures": 0
+          },
+          "objective": {
+            "raw_score": -1000.0,
+            "pnl_component": 0.0,
+            "sharpe_component": 0.0,
+            "drawdown_component": 0.0,
+            "fee_drag_component": 0.0,
+            "inventory_component": 0.0,
+            "trade_count_penalty": 0.0,
+            "es_component": 0.0,
+            "is_rejected": true,
+            "reject_reason": "trade_count (3) <= min_trades_hard (3)"
+          },
+          "stress_report": null,
+          "regime": {
+            "volatility": "high_vol",
+            "trend": "ranging",
+            "label": "high_vol_ranging",
+            "natr_mean": 0.0030767416548231467,
+            "natr_median": 0.0025967322258156323,
+            "efficiency_ratio": 0.01561805682620174,
+            "total_return_pct": -33.2992754969348
+          },
+          "development_score": -500.0806298284194
+        },
+        {
+          "rank": 1,
+          "config": {
+            "regime_ema_fast": 94,
+            "regime_ema_slow": 277,
+            "regime_adx_length": 12,
+            "regime_adx_threshold": 27.678601037719215,
+            "volume_filter_window": 149,
+            "min_volume_quantile": 0.5143150600273246,
+            "hold_mode": "reentry",
+            "max_executors_per_side": 1,
+            "timestamp_mode": "open",
+            "controller_compat": true,
+            "use_numba_kernel": true
+          },
+          "metrics": {
+            "pnl_pct": 0.0,
+            "net_pnl_quote": 0.0,
+            "max_drawdown_pct": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "fill_count": 0,
+            "n_winning": 0,
+            "n_losing": 0,
+            "gross_win_quote": 0.0,
+            "gross_loss_quote": 0.0,
+            "profit_factor": 0.0,
+            "total_fees_quote": 0.0,
+            "maker_fees_quote": 0.0,
+            "taker_fees_quote": 0.0,
+            "fee_drag_pct": 0.0,
+            "inventory_exposure_mean": 0.0,
+            "inventory_exposure_max": 0.0,
+            "expected_shortfall_5pct": 0.0,
+            "volume_zero_bar_count": 148,
+            "volume_zero_bar_fraction": 0.007703518634186966,
+            "median_trade_pnl_quote": 0.0,
+            "inventory_exposure_p95": 0.0,
+            "open_trade_count": 0,
+            "tp_min_notional_failures": 0
+          },
+          "objective": {
+            "raw_score": -1000.0,
+            "pnl_component": 0.0,
+            "sharpe_component": 0.0,
+            "drawdown_component": 0.0,
+            "fee_drag_component": 0.0,
+            "inventory_component": 0.0,
+            "trade_count_penalty": 0.0,
+            "es_component": 0.0,
+            "is_rejected": true,
+            "reject_reason": "trade_count (0) <= min_trades_hard (3)"
+          },
+          "stress_report": null,
+          "regime": {
+            "volatility": "high_vol",
+            "trend": "ranging",
+            "label": "high_vol_ranging",
+            "natr_mean": 0.0030767416548231467,
+            "natr_median": 0.0025967322258156323,
+            "efficiency_ratio": 0.01561805682620174,
+            "total_return_pct": -33.2992754969348
+          },
+          "development_score": -1000.0
+        },
+        {
+          "rank": 2,
+          "config": {
+            "regime_ema_fast": 73,
+            "regime_ema_slow": 303,
+            "regime_adx_length": 12,
+            "regime_adx_threshold": 23.36179425062224,
+            "volume_filter_window": 382,
+            "min_volume_quantile": 0.3574950344527927,
+            "hold_mode": "reentry",
+            "max_executors_per_side": 1,
+            "timestamp_mode": "open",
+            "controller_compat": true,
+            "use_numba_kernel": true
+          },
+          "metrics": {
+            "pnl_pct": -1.7195266013894563,
+            "net_pnl_quote": -5.158579804168369,
+            "max_drawdown_pct": 2.6759451568598003,
+            "sharpe": -1.3358056558019875,
+            "trade_count": 3,
+            "fill_count": 6,
+            "n_winning": 0,
+            "n_losing": 3,
+            "gross_win_quote": 0.0,
+            "gross_loss_quote": 5.158579804168375,
+            "profit_factor": 0.0,
+            "total_fees_quote": 0.35842116127142065,
+            "maker_fees_quote": 0.1796905965,
+            "taker_fees_quote": 0.17873056477142063,
+            "fee_drag_pct": 0.1194737204238069,
+            "inventory_exposure_mean": 0.010618363219309201,
+            "inventory_exposure_max": 0.9999999834768435,
+            "expected_shortfall_5pct": -0.00017285974673077021,
+            "volume_zero_bar_count": 148,
+            "volume_zero_bar_fraction": 0.007703518634186966,
+            "median_trade_pnl_quote": -1.3293428440083117,
+            "inventory_exposure_p95": 0.0,
+            "open_trade_count": 0,
+            "tp_min_notional_failures": 0
+          },
+          "objective": {
+            "raw_score": -1000.0,
+            "pnl_component": 0.0,
+            "sharpe_component": 0.0,
+            "drawdown_component": 0.0,
+            "fee_drag_component": 0.0,
+            "inventory_component": 0.0,
+            "trade_count_penalty": 0.0,
+            "es_component": 0.0,
+            "is_rejected": true,
+            "reject_reason": "trade_count (3) <= min_trades_hard (3)"
+          },
+          "stress_report": null,
+          "regime": {
+            "volatility": "high_vol",
+            "trend": "ranging",
+            "label": "high_vol_ranging",
+            "natr_mean": 0.0030767416548231467,
+            "natr_median": 0.0025967322258156323,
+            "efficiency_ratio": 0.01561805682620174,
+            "total_return_pct": -33.2992754969348
+          },
+          "development_score": -1000.0
+        },
+        {
+          "rank": 3,
+          "config": {
+            "regime_ema_fast": 43,
+            "regime_ema_slow": 321,
+            "regime_adx_length": 12,
+            "regime_adx_threshold": 22.1686082139825,
+            "volume_filter_window": 270,
+            "min_volume_quantile": 0.34299194314118125,
+            "hold_mode": "reentry",
+            "max_executors_per_side": 1,
+            "timestamp_mode": "open",
+            "controller_compat": true,
+            "use_numba_kernel": true
+          },
+          "metrics": {
+            "pnl_pct": -1.0019947275262477,
+            "net_pnl_quote": -3.005984182578743,
+            "max_drawdown_pct": 1.2445217245866615,
+            "sharpe": -3.114686499176656,
+            "trade_count": 1,
+            "fill_count": 2,
+            "n_winning": 0,
+            "n_losing": 1,
+            "gross_win_quote": 0.0,
+            "gross_loss_quote": 3.0059841825787568,
+            "profit_factor": 0.0,
+            "total_fees_quote": 0.11939868642076842,
+            "maker_fees_quote": 0.05998800176000001,
+            "taker_fees_quote": 0.05941068466076842,
+            "fee_drag_pct": 0.039799562140256144,
+            "inventory_exposure_mean": 0.0008848636174004316,
+            "inventory_exposure_max": 0.9999999893194305,
+            "expected_shortfall_5pct": -1.88892233674589e-05,
+            "volume_zero_bar_count": 148,
+            "volume_zero_bar_fraction": 0.007703518634186966,
+            "median_trade_pnl_quote": -3.0059841825787568,
+            "inventory_exposure_p95": 0.0,
+            "open_trade_count": 0,
+            "tp_min_notional_failures": 0
+          },
+          "objective": {
+            "raw_score": -1000.0,
+            "pnl_component": 0.0,
+            "sharpe_component": 0.0,
+            "drawdown_component": 0.0,
+            "fee_drag_component": 0.0,
+            "inventory_component": 0.0,
+            "trade_count_penalty": 0.0,
+            "es_component": 0.0,
+            "is_rejected": true,
+            "reject_reason": "trade_count (1) <= min_trades_hard (3)"
+          },
+          "stress_report": null,
+          "regime": {
+            "volatility": "high_vol",
+            "trend": "ranging",
+            "label": "high_vol_ranging",
+            "natr_mean": 0.0030767416548231467,
+            "natr_median": 0.0025967322258156323,
+            "efficiency_ratio": 0.01561805682620174,
+            "total_return_pct": -33.2992754969348
+          },
+          "development_score": -1000.0
+        },
+        {
+          "rank": 4,
+          "config": {
+            "regime_ema_fast": 87,
+            "regime_ema_slow": 456,
+            "regime_adx_length": 16,
+            "regime_adx_threshold": 12.6875280813537,
+            "volume_filter_window": 414,
+            "min_volume_quantile": 0.3109403404002983,
+            "hold_mode": "reentry",
+            "max_executors_per_side": 1,
+            "timestamp_mode": "open",
+            "controller_compat": true,
+            "use_numba_kernel": true
+          },
+          "metrics": {
+            "pnl_pct": 0.0,
+            "net_pnl_quote": 0.0,
+            "max_drawdown_pct": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "fill_count": 0,
+            "n_winning": 0,
+            "n_losing": 0,
+            "gross_win_quote": 0.0,
+            "gross_loss_quote": 0.0,
+            "profit_factor": 0.0,
+            "total_fees_quote": 0.0,
+            "maker_fees_quote": 0.0,
+            "taker_fees_quote": 0.0,
+            "fee_drag_pct": 0.0,
+            "inventory_exposure_mean": 0.0,
+            "inventory_exposure_max": 0.0,
+            "expected_shortfall_5pct": 0.0,
+            "volume_zero_bar_count": 148,
+            "volume_zero_bar_fraction": 0.007703518634186966,
+            "median_trade_pnl_quote": 0.0,
+            "inventory_exposure_p95": 0.0,
+            "open_trade_count": 0,
+            "tp_min_notional_failures": 0
+          },
+          "objective": {
+            "raw_score": -1000.0,
+            "pnl_component": 0.0,
+            "sharpe_component": 0.0,
+            "drawdown_component": 0.0,
+            "fee_drag_component": 0.0,
+            "inventory_component": 0.0,
+            "trade_count_penalty": 0.0,
+            "es_component": 0.0,
+            "is_rejected": true,
+            "reject_reason": "trade_count (0) <= min_trades_hard (3)"
+          },
+          "stress_report": null,
+          "regime": {
+            "volatility": "high_vol",
+            "trend": "ranging",
+            "label": "high_vol_ranging",
+            "natr_mean": 0.0030767416548231467,
+            "natr_median": 0.0025967322258156323,
+            "efficiency_ratio": 0.01561805682620174,
+            "total_return_pct": -33.2992754969348
+          },
+          "development_score": -1000.0
+        }
+      ],
+      "best_holdout_rank": -1,
+      "best_holdout_score": -1000.0,
+      "dev_vs_holdout_collapse": false,
+      "passed": false,
+      "exported_holdout_score": -1000.0,
+      "exported_holdout_passed": false,
+      "exported_holdout_collapse": false
+    },
+    "recent_window_result": {
+      "recent_bars": 7786,
+      "recent_start_timestamp": 1774110900,
+      "recent_end_timestamp": 1776530100,
+      "metrics": {
+        "pnl_pct": 0.0,
+        "net_pnl_quote": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe": 0.0,
+        "trade_count": 0,
+        "fill_count": 0,
+        "n_winning": 0,
+        "n_losing": 0,
+        "gross_win_quote": 0.0,
+        "gross_loss_quote": 0.0,
+        "profit_factor": 0.0,
+        "total_fees_quote": 0.0,
+        "maker_fees_quote": 0.0,
+        "taker_fees_quote": 0.0,
+        "fee_drag_pct": 0.0,
+        "inventory_exposure_mean": 0.0,
+        "inventory_exposure_max": 0.0,
+        "expected_shortfall_5pct": 0.0,
+        "volume_zero_bar_count": 754,
+        "volume_zero_bar_fraction": 0.09684048291805805,
+        "median_trade_pnl_quote": 0.0,
+        "inventory_exposure_p95": 0.0,
+        "open_trade_count": 0,
+        "tp_min_notional_failures": 0
+      },
+      "objective": {
+        "raw_score": -1000.0,
+        "pnl_component": 0.0,
+        "sharpe_component": 0.0,
+        "drawdown_component": 0.0,
+        "fee_drag_component": 0.0,
+        "inventory_component": 0.0,
+        "trade_count_penalty": 0.0,
+        "es_component": 0.0,
+        "is_rejected": true,
+        "reject_reason": "trade_count (0) <= min_trades_hard (3)"
+      },
+      "stress_report": null,
+      "passed": false,
+      "reason": "recent objective score -1000.0000 <= 0; recent trades 0 < 5"
+    },
+    "recent_window_results": {
+      "28": {
+        "recent_bars": 7786,
+        "recent_start_timestamp": 1774110900,
+        "recent_end_timestamp": 1776530100,
+        "metrics": {
+          "pnl_pct": 0.0,
+          "net_pnl_quote": 0.0,
+          "max_drawdown_pct": 0.0,
+          "sharpe": 0.0,
+          "trade_count": 0,
+          "fill_count": 0,
+          "n_winning": 0,
+          "n_losing": 0,
+          "gross_win_quote": 0.0,
+          "gross_loss_quote": 0.0,
+          "profit_factor": 0.0,
+          "total_fees_quote": 0.0,
+          "maker_fees_quote": 0.0,
+          "taker_fees_quote": 0.0,
+          "fee_drag_pct": 0.0,
+          "inventory_exposure_mean": 0.0,
+          "inventory_exposure_max": 0.0,
+          "expected_shortfall_5pct": 0.0,
+          "volume_zero_bar_count": 754,
+          "volume_zero_bar_fraction": 0.09684048291805805,
+          "median_trade_pnl_quote": 0.0,
+          "inventory_exposure_p95": 0.0,
+          "open_trade_count": 0,
+          "tp_min_notional_failures": 0
+        },
+        "objective": {
+          "raw_score": -1000.0,
+          "pnl_component": 0.0,
+          "sharpe_component": 0.0,
+          "drawdown_component": 0.0,
+          "fee_drag_component": 0.0,
+          "inventory_component": 0.0,
+          "trade_count_penalty": 0.0,
+          "es_component": 0.0,
+          "is_rejected": true,
+          "reject_reason": "trade_count (0) <= min_trades_hard (3)"
+        },
+        "stress_report": null,
+        "passed": false,
+        "reason": "recent objective score -1000.0000 <= 0; recent trades 0 < 5"
+      },
+      "14": {
+        "recent_bars": 3754,
+        "recent_start_timestamp": 1775320500,
+        "recent_end_timestamp": 1776530100,
+        "metrics": {
+          "pnl_pct": 0.0,
+          "net_pnl_quote": 0.0,
+          "max_drawdown_pct": 0.0,
+          "sharpe": 0.0,
+          "trade_count": 0,
+          "fill_count": 0,
+          "n_winning": 0,
+          "n_losing": 0,
+          "gross_win_quote": 0.0,
+          "gross_loss_quote": 0.0,
+          "profit_factor": 0.0,
+          "total_fees_quote": 0.0,
+          "maker_fees_quote": 0.0,
+          "taker_fees_quote": 0.0,
+          "fee_drag_pct": 0.0,
+          "inventory_exposure_mean": 0.0,
+          "inventory_exposure_max": 0.0,
+          "expected_shortfall_5pct": 0.0,
+          "volume_zero_bar_count": 349,
+          "volume_zero_bar_fraction": 0.09296750133191263,
+          "median_trade_pnl_quote": 0.0,
+          "inventory_exposure_p95": 0.0,
+          "open_trade_count": 0,
+          "tp_min_notional_failures": 0
+        },
+        "objective": {
+          "raw_score": -1000.0,
+          "pnl_component": 0.0,
+          "sharpe_component": 0.0,
+          "drawdown_component": 0.0,
+          "fee_drag_component": 0.0,
+          "inventory_component": 0.0,
+          "trade_count_penalty": 0.0,
+          "es_component": 0.0,
+          "is_rejected": true,
+          "reject_reason": "trade_count (0) <= min_trades_hard (3)"
+        },
+        "stress_report": null,
+        "passed": false,
+        "reason": "recent objective score -1000.0000 <= 0; recent trades 0 < 5"
+      },
+      "7": {
+        "recent_bars": 1738,
+        "recent_start_timestamp": 1775925300,
+        "recent_end_timestamp": 1776530100,
+        "metrics": {
+          "pnl_pct": 0.0,
+          "net_pnl_quote": 0.0,
+          "max_drawdown_pct": 0.0,
+          "sharpe": 0.0,
+          "trade_count": 0,
+          "fill_count": 0,
+          "n_winning": 0,
+          "n_losing": 0,
+          "gross_win_quote": 0.0,
+          "gross_loss_quote": 0.0,
+          "profit_factor": 0.0,
+          "total_fees_quote": 0.0,
+          "maker_fees_quote": 0.0,
+          "taker_fees_quote": 0.0,
+          "fee_drag_pct": 0.0,
+          "inventory_exposure_mean": 0.0,
+          "inventory_exposure_max": 0.0,
+          "expected_shortfall_5pct": 0.0,
+          "volume_zero_bar_count": 174,
+          "volume_zero_bar_fraction": 0.1001150747986191,
+          "median_trade_pnl_quote": 0.0,
+          "inventory_exposure_p95": 0.0,
+          "open_trade_count": 0,
+          "tp_min_notional_failures": 0
+        },
+        "objective": {
+          "raw_score": -1000.0,
+          "pnl_component": 0.0,
+          "sharpe_component": 0.0,
+          "drawdown_component": 0.0,
+          "fee_drag_component": 0.0,
+          "inventory_component": 0.0,
+          "trade_count_penalty": 0.0,
+          "es_component": 0.0,
+          "is_rejected": true,
+          "reject_reason": "trade_count (0) <= min_trades_hard (3)"
+        },
+        "stress_report": null,
+        "passed": false,
+        "reason": "recent objective score -1000.0000 <= 0; recent trades 0 < 5"
+      }
+    },
+    "sensitivity_report": {
+      "baseline_score": -0.2596772726951128,
+      "perturbed_scores": {
+        "regime_ema_fast": [
+          -0.27269071864329053,
+          -1000.0
+        ],
+        "regime_ema_slow": [
+          -0.28026226677380944,
+          -0.2523182114083542
+        ],
+        "regime_adx_length": [
+          -0.2693753319899758,
+          -0.25589482127963425
+        ],
+        "regime_adx_threshold": [
+          -0.27545037600647376,
+          -0.23341420934973683
+        ],
+        "volume_filter_window": [
+          -0.2596772726951128,
+          -0.2596772726951128
+        ],
+        "min_volume_quantile": [
+          -0.2596772725767573,
+          -0.2596772726951128
+        ],
+        "stop_loss": [
+          -0.27284334740036603,
+          -0.24657126146961456
+        ],
+        "take_profit": [
+          -0.2596772726951128,
+          -0.2596772726951128
+        ],
+        "cooldown_time": [
+          -0.25414941233838134,
+          -0.26547375452459787
+        ],
+        "total_amount_quote": [
+          -0.2596772766486035,
+          -0.25967726790891693
+        ]
+      },
+      "sign_flips": 0,
+      "collapse_count": 1,
+      "sensitivity_penalty": 0.05,
+      "n_perturbations": 20,
+      "n_rejected": 0
+    },
+    "cluster_report": {
+      "k": 10,
+      "param_cv": {
+        "stop_loss": 0.4707961512075222,
+        "take_profit": 0.61874277441051,
+        "cooldown_time": 0.7234175758948191,
+        "total_amount_quote": 0.4893292000478196
+      },
+      "mean_cv": 0.5755714253901677,
+      "max_cv": 0.7234175758948191,
+      "clustered_params": [
+        "stop_loss",
+        "total_amount_quote"
+      ],
+      "scattered_params": [
+        "take_profit",
+        "cooldown_time"
+      ],
+      "is_clustered": false,
+      "param_ranges": {
+        "stop_loss": {
+          "min": 0.022961564713937427,
+          "max": 0.0825158425491216,
+          "mean": 0.0441483479104786,
+          "std": 0.02078487227842398
+        },
+        "take_profit": {
+          "min": 0.01645477416780652,
+          "max": 0.07948998901397729,
+          "mean": 0.037266436929498895,
+          "std": 0.023058338578152433
+        },
+        "cooldown_time": {
+          "min": 4806.0,
+          "max": 83356.0,
+          "mean": 36402.3,
+          "std": 26334.06362299598
+        },
+        "total_amount_quote": {
+          "min": 142.22499629651378,
+          "max": 670.0304205910417,
+          "mean": 380.94402331641834,
+          "std": 186.40703419242092
+        }
+      }
+    },
+    "parity_result": null,
+    "long_parity_result": null,
+    "dataset_slices": {
+      "full_candles": "[(1745292300, 2.084 , 2.084 , 2.0812, 2.0819,  85271.52, False)\n (1745292600, 2.0819, 2.083 , 2.0792, 2.0809, 120778.38, False)\n (1745292900, 2.0809, 2.0825, 2.0795, 2.0806, 129406.86, False) ...\n (1776522900, 1.4371, 1.4376, 1.4358, 1.4369,  89918.43, False)\n (1776525000, 1.4334, 1.4365, 1.431 , 1.4362, 289869.89, False)\n (1776530100, 1.4347, 1.4356, 1.4341, 1.4343,  84102.73, False)]",
+      "pre_release_candles": "[(1745292300, 2.084 , 2.084 , 2.0812, 2.0819,  85271.52, False)\n (1745292600, 2.0819, 2.083 , 2.0792, 2.0809, 120778.38, False)\n (1745292900, 2.0809, 2.0825, 2.0795, 2.0806, 129406.86, False) ...\n (1774110000, 1.4362, 1.437 , 1.4362, 1.4366,  45875.98, False)\n (1774110300, 1.4366, 1.4374, 1.4348, 1.4363,  94414.93, False)\n (1774110600, 1.4363, 1.437 , 1.4357, 1.4362,  26159.82, False)]",
+      "recent_release_candles": "[(1774110900, 1.4362, 1.4368, 1.4352, 1.4352, 103746.49, False)\n (1774111200, 1.4352, 1.4366, 1.4342, 1.4365,  61184.52, False)\n (1774111500, 1.4365, 1.437 , 1.436 , 1.437 ,  86910.35, False) ...\n (1776522900, 1.4371, 1.4376, 1.4358, 1.4369,  89918.43, False)\n (1776525000, 1.4334, 1.4365, 1.431 , 1.4362, 289869.89, False)\n (1776530100, 1.4347, 1.4356, 1.4341, 1.4343,  84102.73, False)]",
+      "dev_candles": "[(1745292300, 2.084 , 2.084 , 2.0812, 2.0819,  85271.52, False)\n (1745292600, 2.0819, 2.083 , 2.0792, 2.0809, 120778.38, False)\n (1745292900, 2.0809, 2.0825, 2.0795, 2.0806, 129406.86, False) ...\n (1768346400, 2.1809, 2.182 , 2.1726, 2.1738, 385624.09, False)\n (1768346700, 2.1738, 2.174 , 2.162 , 2.1651, 565350.24, False)\n (1768347000, 2.1651, 2.1692, 2.1591, 2.1596, 249497.39, False)]",
+      "holdout_candles": "[(1768347300, 2.1596, 2.1609, 2.1501, 2.1532, 430049.21, False)\n (1768347600, 2.1532, 2.159 , 2.1529, 2.1582, 259885.57, False)\n (1768347900, 2.1582, 2.1595, 2.1516, 2.1537, 186780.83, False) ...\n (1774110000, 1.4362, 1.437 , 1.4362, 1.4366,  45875.98, False)\n (1774110300, 1.4366, 1.4374, 1.4348, 1.4363,  94414.93, False)\n (1774110600, 1.4363, 1.437 , 1.4357, 1.4362,  26159.82, False)]",
+      "recent_start_idx": 96062,
+      "recent_start_timestamp": 1774110900,
+      "holdout_start_idx_in_pre_release": 76850
+    }
+  },
+  "run_provenance": {
+    "notebook": "direction-custom/ema_regime_hold",
+    "run_timestamp": "2026-04-18T17:19:36.430719+00:00",
+    "n_jobs": 8,
+    "objective_version": 2,
+    "search_controller_compat": false,
+    "validation_controller_compat": true,
+    "refresh_close_mode": "market_close",
+    "initial_base_balance": 0.0,
+    "taker_probability": 0.0,
+    "trial_number": 51,
+    "signal_interval": "5m",
+    "regime_interval": "4h",
+    "validation_status": "validated_fail"
+  }
+}

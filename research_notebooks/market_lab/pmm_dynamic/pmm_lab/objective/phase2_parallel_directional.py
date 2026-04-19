@@ -33,6 +33,7 @@ def _pin_blas_threads() -> None:
         "OPENBLAS_NUM_THREADS",
         "MKL_NUM_THREADS",
         "NUMEXPR_NUM_THREADS",
+        "BLIS_NUM_THREADS",
     ):
         os.environ[var] = "1"
 
