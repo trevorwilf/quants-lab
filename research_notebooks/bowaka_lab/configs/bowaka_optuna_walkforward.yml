@@ -1,0 +1,31 @@
+project:
+  name: bowaka_lab
+  mode: research
+  run_label: bowaka_optuna_v1
+
+storage:
+  mongo_uri: ${MONGO_URI}
+  mongo_database: ${MONGO_DATABASE:-quants_lab}
+  write_mongo: true
+
+data:
+  vendor: alpaca
+  feed: iex
+  adjustment: raw
+  start_date: "2025-01-01"
+  end_date: "2026-04-30"
+
+calendar:
+  exchange: XNYS
+
+universe:
+  mode: alpaca_current_assets
+
+prefilter:
+  lookback_days: 20
+  atr_days: 14
+  ema_days: 10
+  ema_slope_lookback: 3
+  price_min: 1.0
+  price_max: 20.0
+  avg_dollar_volume_min: 200000
