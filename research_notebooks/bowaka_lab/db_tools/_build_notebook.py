@@ -105,6 +105,10 @@ MONGO_DATABASE     = None             # None -> use $MONGO_DATABASE env (default
 # --- Behavior -------------------------------------------
 RESUME             = True             # skip files that already exist
 
+# --- Incremental update behavior ------------------------
+ASSET_SNAPSHOT_MAX_AGE_DAYS = 7        # refresh Stage 1 snapshot if older than this; 7 = weekly refresh
+AUDIT_HISTORY_MODE = "latest"          # "latest" (overwrite) or "append" (keep all per-run audit rows)
+
 # --- Stage control --------------------------------------
 RUN_SMOKE          = True
 RUN_ESTIMATE       = True
@@ -137,6 +141,8 @@ cfg = lib.BackfillConfig(
     exclude_name_pattern=lib.DEFAULT_EXCLUDE_NAME_PATTERN,
     batch_size_symbols=SYMBOL_BATCH_SIZE,
     resume=RESUME,
+    asset_snapshot_max_age_days=ASSET_SNAPSHOT_MAX_AGE_DAYS,
+    audit_history_mode=AUDIT_HISTORY_MODE,
 )
 print(f".env loaded from: {loaded}")
 print(f"out_dir:          {cfg.out_dir}")
@@ -246,6 +252,12 @@ STAGE_DAILY = '''if RUN_DAILY:
     if cfg.write_to_mongo:
         lib.write_ingestion_run_to_mongo(db, record)
     print(json.dumps(stats, indent=2))
+    print(
+        f"Stage 2 summary: {stats['symbols_written']} new, "
+        f"{stats.get('symbols_extended', 0)} extended, "
+        f"{stats.get('symbols_up_to_date', 0)} up-to-date, "
+        f"{stats['symbols_failed']} failed"
+    )
     print(f"dataset_hash: {dataset_hash}")
 else:
     print("RUN_DAILY is False; skipping.")

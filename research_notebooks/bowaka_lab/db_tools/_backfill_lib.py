@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field, fields
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Literal, Optional, Sequence
 
 import pandas as pd
 import pyarrow as pa
@@ -85,6 +85,13 @@ class BackfillConfig:
     batch_size_symbols: int = SYMBOL_BATCH_SIZE_DEFAULT
     resume: bool = True
     adjustment: str = ADJUSTMENT_DEFAULT
+    #: Reuse an existing Stage-1 asset snapshot if its embedded timestamp is
+    #: within this many days. Defaults to 7 = weekly refresh.
+    asset_snapshot_max_age_days: int = 7
+    #: ``"latest"`` upserts the daily-bar audit row by ``(symbol, feed,
+    #: timeframe)`` so each weekly run overwrites the previous audit;
+    #: ``"append"`` inserts one row per ``audit_run_id`` so history accumulates.
+    audit_history_mode: Literal["latest", "append"] = "latest"
 
     @property
     def daily_fetch_start(self) -> date:
@@ -100,6 +107,90 @@ class BackfillConfig:
         from alpaca.data.enums import DataFeed
 
         return DataFeed[self.feed.upper()]
+
+
+# ---------------------------------------------------------------------------
+# Incremental tail planning
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class IncrementalPlan:
+    """Per-symbol decision returned by :func:`incremental_window`.
+
+    ``action`` ∈ {``"fetch_full"``, ``"up_to_date"``, ``"fetch_tail"``}.
+    ``start`` / ``end`` are populated only for ``"fetch_tail"``.
+    """
+
+    action: Literal["fetch_full", "up_to_date", "fetch_tail"]
+    start: Optional[date] = None
+    end: Optional[date] = None
+    existing_max_session: Optional[date] = None
+
+
+_XNYS_CALENDAR_CACHE: Any = None
+
+
+def _get_xnys_calendar():
+    global _XNYS_CALENDAR_CACHE
+    if _XNYS_CALENDAR_CACHE is None:
+        import exchange_calendars as xcals
+
+        _XNYS_CALENDAR_CACHE = xcals.get_calendar("XNYS")
+    return _XNYS_CALENDAR_CACHE
+
+
+def incremental_window(
+    symbol_file: Path,
+    target_end_date: date,
+    calendar: Any = None,
+) -> IncrementalPlan:
+    """Decide how to update a per-symbol daily-bar Parquet file.
+
+    Reads ``symbol_file`` if present, derives the latest session_date covered
+    (interpreting timestamps in America/New_York), and returns one of:
+
+    - ``IncrementalPlan(action="fetch_full")`` — file missing, unreadable,
+      empty, or has no ``timestamp`` column.
+    - ``IncrementalPlan(action="up_to_date", existing_max_session=D)`` — file's
+      max session_date is ≥ ``target_end_date``.
+    - ``IncrementalPlan(action="fetch_tail", start=next_xnys_session_after_D,
+      end=target_end_date, existing_max_session=D)`` — file's max session_date
+      is < ``target_end_date``. ``start`` is the next XNYS trading session
+      after the existing max, never a calendar day. ADV warmup padding is the
+      caller's responsibility; this helper does not consult ``adv_window_days``.
+    """
+    path = Path(symbol_file)
+    if not path.exists():
+        return IncrementalPlan(action="fetch_full")
+    try:
+        df = pd.read_parquet(path)
+    except Exception:
+        return IncrementalPlan(action="fetch_full")
+    if df.empty or "timestamp" not in df.columns:
+        return IncrementalPlan(action="fetch_full")
+    try:
+        ts = pd.to_datetime(df["timestamp"])
+        if getattr(ts.dt, "tz", None) is not None:
+            ts = ts.dt.tz_convert("America/New_York")
+        else:
+            ts = ts.dt.tz_localize("America/New_York")
+        existing_max = ts.dt.date.max()
+    except Exception:
+        return IncrementalPlan(action="fetch_full")
+
+    if existing_max >= target_end_date:
+        return IncrementalPlan(action="up_to_date", existing_max_session=existing_max)
+
+    cal = calendar if calendar is not None else _get_xnys_calendar()
+    next_session_ts = cal.next_session(pd.Timestamp(existing_max))
+    next_session_date = pd.Timestamp(next_session_ts).date()
+    return IncrementalPlan(
+        action="fetch_tail",
+        start=next_session_date,
+        end=target_end_date,
+        existing_max_session=existing_max,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -349,19 +440,47 @@ def run_smoke_test(cfg: BackfillConfig, log: logging.Logger) -> dict:
 
 
 def fetch_assets(cfg: BackfillConfig, log: logging.Logger) -> tuple[str, pd.DataFrame]:
-    """Fetch active/tradable Alpaca US equities; filter; write parquet."""
+    """Fetch active/tradable Alpaca US equities; filter; write parquet.
+
+    Reuse policy: when ``cfg.resume`` is True and at least one prior snapshot
+    exists, the most recent snapshot is reused if its embedded UTC timestamp
+    is at most ``cfg.asset_snapshot_max_age_days`` days old. Otherwise the
+    Alpaca asset endpoint is hit and a new snapshot is written.
+    """
     from alpaca.trading.client import TradingClient
     from alpaca.trading.enums import AssetClass, AssetStatus
     from alpaca.trading.requests import GetAssetsRequest
 
+    if cfg.resume:
+        existing = sorted(assets_dir(cfg).glob("snapshot_id=*/assets.parquet"))
+        if existing:
+            latest = existing[-1]
+            snap_str = latest.parent.name.replace("snapshot_id=", "")
+            try:
+                ts_str = snap_str.split("_", 1)[0]
+                snap_ts = datetime.strptime(ts_str, "%Y-%m-%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+                age_days = (datetime.now(timezone.utc) - snap_ts).days
+            except Exception:
+                age_days = 10**9
+            if age_days <= cfg.asset_snapshot_max_age_days:
+                df = pd.read_parquet(latest)
+                log.info(
+                    "Stage 1: reusing snapshot %s (age %dd <= max_age %dd), %d symbols",
+                    snap_str,
+                    age_days,
+                    cfg.asset_snapshot_max_age_days,
+                    len(df),
+                )
+                return snap_str, df
+            log.info(
+                "Stage 1: snapshot %s is %dd old (> %dd max_age); refreshing",
+                snap_str,
+                age_days,
+                cfg.asset_snapshot_max_age_days,
+            )
+
     snapshot_id = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ_alpaca_assets")
     out_path = assets_file(cfg, snapshot_id)
-    if cfg.resume and out_path.exists():
-        log.info("fetch_assets resume: reading existing %s", out_path)
-        existing = pd.read_parquet(out_path)
-        existing_snapshot = out_path.parent.name.split("=", 1)[1]
-        return existing_snapshot, existing
-
     trading = TradingClient(api_key=cfg.api_key, secret_key=cfg.api_secret, paper=cfg.paper)
     req = GetAssetsRequest(asset_class=AssetClass.US_EQUITY, status=AssetStatus.ACTIVE)
     raw_assets = trading.get_all_assets(req)
@@ -439,22 +558,47 @@ def _coerce_bar_row(symbol: str, row: Any) -> dict[str, Any]:
     }
 
 
+def _chunks(seq: list, n: int) -> Iterable[list]:
+    for i in range(0, len(seq), max(1, n)):
+        yield seq[i : i + n]
+
+
 def fetch_daily_bars(
     cfg: BackfillConfig,
     assets_df: pd.DataFrame,
     log: logging.Logger,
     limiter: RateLimiter,
 ) -> dict:
-    """Fetch daily bars per-symbol with multi-symbol batching."""
+    """Fetch daily bars per-symbol with multi-symbol batching.
+
+    Per-symbol planning via :func:`incremental_window` (see ``[Report §10]`` for
+    calendar awareness and ``[Report §11.4]`` for the no-lookahead invariant).
+    Three outcomes per symbol:
+
+    - ``fetch_full`` — no existing file; fetch the full window from
+      ``cfg.daily_fetch_start`` (ADV warmup-padded) through ``cfg.end_date``.
+    - ``fetch_tail`` — partial file on disk; fetch only sessions strictly
+      after the existing max session, then concatenate, deduplicate by
+      ``timestamp``, sort, and rewrite.
+    - ``up_to_date`` — existing file already covers through ``cfg.end_date``.
+      No API call.
+
+    Returns a stats dict with ``symbols_requested``, ``symbols_written``
+    (new files), ``symbols_extended`` (existing files extended in place),
+    ``symbols_up_to_date``, ``symbols_empty``, ``symbols_failed``, and
+    ``api_call_count_est``.
+    """
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockBarsRequest
     from alpaca.data.timeframe import TimeFrame
 
     data_client = StockHistoricalDataClient(api_key=cfg.api_key, secret_key=cfg.api_secret)
-    symbols = assets_df["symbol"].astype(str).tolist()
+    symbols = sorted(assets_df["symbol"].astype(str).tolist())
     stats = {
         "symbols_requested": len(symbols),
         "symbols_written": 0,
+        "symbols_extended": 0,
+        "symbols_up_to_date": 0,
         "symbols_empty": 0,
         "symbols_failed": 0,
         "api_call_count_est": 0,
@@ -462,69 +606,122 @@ def fetch_daily_bars(
     root = daily_root(cfg)
     root.mkdir(parents=True, exist_ok=True)
 
-    pending_symbols = []
+    log.info(
+        "Stage 2: planning daily-bar fetch for %d symbols, target end_date=%s, feed=%s",
+        len(symbols),
+        cfg.end_date,
+        cfg.feed,
+    )
+    plans: dict[str, IncrementalPlan] = {}
     for sym in symbols:
-        target = daily_file(cfg, sym)
-        if cfg.resume and target.exists():
-            stats["symbols_written"] += 1
+        plans[sym] = incremental_window(daily_file(cfg, sym), cfg.end_date)
+    n_full = sum(1 for p in plans.values() if p.action == "fetch_full")
+    n_tail = sum(1 for p in plans.values() if p.action == "fetch_tail")
+    n_uptodate = sum(1 for p in plans.values() if p.action == "up_to_date")
+    log.info("  Plan: %d full-fetch, %d tail-extend, %d up-to-date", n_full, n_tail, n_uptodate)
+    stats["symbols_up_to_date"] = n_uptodate
+
+    # Bucket by (kind, fetch_start, fetch_end). Each bucket maps to one
+    # multi-symbol API window so symbols sharing the same gap can be combined.
+    buckets: dict[tuple, list[str]] = {}
+    for sym, plan in plans.items():
+        if plan.action == "up_to_date":
             continue
-        pending_symbols.append(sym)
+        if plan.action == "fetch_full":
+            key = ("full", cfg.daily_fetch_start, cfg.end_date)
+        else:
+            key = ("tail", plan.start, plan.end)
+        buckets.setdefault(key, []).append(sym)
 
-    start_dt = datetime.combine(cfg.daily_fetch_start, datetime.min.time()).replace(tzinfo=timezone.utc)
-    end_dt = datetime.combine(cfg.end_date, datetime.min.time()).replace(tzinfo=timezone.utc) + timedelta(days=1)
+    batches_done = 0
+    failed: list[str] = []
+    for (kind, fstart, fend), bucket_syms in buckets.items():
+        log.info("  Bucket: kind=%s window=%s->%s symbols=%d", kind, fstart, fend, len(bucket_syms))
+        start_dt = datetime.combine(fstart, datetime.min.time()).replace(tzinfo=timezone.utc)
+        end_dt = datetime.combine(fend, datetime.min.time()).replace(tzinfo=timezone.utc) + timedelta(days=1)
 
-    for batch_start in range(0, len(pending_symbols), cfg.batch_size_symbols):
-        batch = pending_symbols[batch_start : batch_start + cfg.batch_size_symbols]
-        limiter.acquire()
-        stats["api_call_count_est"] += 1
-        try:
-            req = StockBarsRequest(
-                symbol_or_symbols=batch,
-                timeframe=TimeFrame.Day,
-                start=start_dt,
-                end=end_dt,
-                feed=cfg.feed_enum,
-            )
-            resp = with_retries(data_client.get_stock_bars, req, log=log)
-        except Exception as exc:  # noqa: BLE001
-            log.exception("daily batch failed (%d symbols starting %s): %s", len(batch), batch[0], exc)
-            stats["symbols_failed"] += len(batch)
-            continue
-
-        page_token = getattr(resp, "next_page_token", None)
-        bars_by_symbol = resp.data if hasattr(resp, "data") and isinstance(resp.data, dict) else {}
-        rows_acc: dict[str, list[dict]] = {sym: [] for sym in batch}
-        for sym, bar_list in bars_by_symbol.items():
-            for bar in bar_list:
-                rows_acc.setdefault(sym, []).append(_coerce_bar_row(sym, bar))
-        while page_token:
+        for batch in _chunks(bucket_syms, cfg.batch_size_symbols):
             limiter.acquire()
             stats["api_call_count_est"] += 1
-            req = StockBarsRequest(
-                symbol_or_symbols=batch,
-                timeframe=TimeFrame.Day,
-                start=start_dt,
-                end=end_dt,
-                feed=cfg.feed_enum,
-                page_token=page_token,
-            )
-            resp = with_retries(data_client.get_stock_bars, req, log=log)
+            try:
+                req = StockBarsRequest(
+                    symbol_or_symbols=batch,
+                    timeframe=TimeFrame.Day,
+                    start=start_dt,
+                    end=end_dt,
+                    feed=cfg.feed_enum,
+                )
+                resp = with_retries(data_client.get_stock_bars, req, log=log)
+            except Exception as exc:  # noqa: BLE001
+                log.exception(
+                    "daily batch failed (%d symbols starting %s): %s", len(batch), batch[0], exc
+                )
+                stats["symbols_failed"] += len(batch)
+                failed.extend(batch)
+                batches_done += 1
+                continue
+
             page_token = getattr(resp, "next_page_token", None)
             bars_by_symbol = resp.data if hasattr(resp, "data") and isinstance(resp.data, dict) else {}
+            rows_acc: dict[str, list[dict]] = {sym: [] for sym in batch}
             for sym, bar_list in bars_by_symbol.items():
                 for bar in bar_list:
                     rows_acc.setdefault(sym, []).append(_coerce_bar_row(sym, bar))
+            while page_token:
+                limiter.acquire()
+                stats["api_call_count_est"] += 1
+                req = StockBarsRequest(
+                    symbol_or_symbols=batch,
+                    timeframe=TimeFrame.Day,
+                    start=start_dt,
+                    end=end_dt,
+                    feed=cfg.feed_enum,
+                    page_token=page_token,
+                )
+                resp = with_retries(data_client.get_stock_bars, req, log=log)
+                page_token = getattr(resp, "next_page_token", None)
+                bars_by_symbol = resp.data if hasattr(resp, "data") and isinstance(resp.data, dict) else {}
+                for sym, bar_list in bars_by_symbol.items():
+                    for bar in bar_list:
+                        rows_acc.setdefault(sym, []).append(_coerce_bar_row(sym, bar))
 
-        for sym, sym_rows in rows_acc.items():
-            if not sym_rows:
-                stats["symbols_empty"] += 1
-                continue
-            df = pd.DataFrame(sym_rows).sort_values("timestamp").reset_index(drop=True)
-            df["session_date"] = df["timestamp"].dt.tz_convert("America/New_York").dt.date
-            target = daily_file(cfg, sym)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            pq.write_table(pa.Table.from_pandas(df, preserve_index=False), target)
-            stats["symbols_written"] += 1
+            for sym, sym_rows in rows_acc.items():
+                if not sym_rows:
+                    stats["symbols_empty"] += 1
+                    continue
+                new_df = pd.DataFrame(sym_rows).sort_values("timestamp").reset_index(drop=True)
+                new_df["session_date"] = new_df["timestamp"].dt.tz_convert("America/New_York").dt.date
+                target = daily_file(cfg, sym)
+                if kind == "tail" and target.exists():
+                    try:
+                        existing_df = pd.read_parquet(target)
+                    except Exception:
+                        existing_df = None
+                    if existing_df is not None and not existing_df.empty:
+                        combined = pd.concat([existing_df, new_df], ignore_index=True)
+                        combined = combined.drop_duplicates(subset=["timestamp"], keep="last")
+                        combined = combined.sort_values("timestamp").reset_index(drop=True)
+                    else:
+                        combined = new_df
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    pq.write_table(pa.Table.from_pandas(combined, preserve_index=False), target)
+                    stats["symbols_extended"] += 1
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    pq.write_table(pa.Table.from_pandas(new_df, preserve_index=False), target)
+                    stats["symbols_written"] += 1
+
+            batches_done += 1
+            if batches_done % 5 == 0:
+                log.info("  Stage 2 progress: %d batches done", batches_done)
+
+    log.info(
+        "Stage 2 done: %d new files, %d extended, %d up-to-date, %d failed",
+        stats["symbols_written"],
+        stats["symbols_extended"],
+        stats["symbols_up_to_date"],
+        stats["symbols_failed"],
+    )
     return stats
 
 
@@ -685,10 +882,17 @@ def fetch_minute_bars(
 
 
 def audit_daily_bars(cfg: BackfillConfig, log: logging.Logger) -> pd.DataFrame:
-    """Per-symbol daily-bar audit per ``[Report §16.1]``."""
+    """Per-symbol daily-bar audit per ``[Report §16.1]``.
+
+    Every row in the returned DataFrame carries an identical ``audit_run_id``
+    derived from the current UTC timestamp + feed. The ID propagates through
+    :func:`write_daily_audits_to_mongo` so a row's history is recoverable
+    when ``cfg.audit_history_mode == "append"``.
+    """
     import exchange_calendars as xcals
 
     cal = xcals.get_calendar("XNYS")
+    audit_run_id = f"audit_{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%M%SZ')}_{cfg.feed}"
     root = daily_root(cfg)
     if not root.exists():
         return pd.DataFrame()
@@ -749,6 +953,7 @@ def audit_daily_bars(cfg: BackfillConfig, log: logging.Logger) -> pd.DataFrame:
                 "large_gap_flags": large_gap_flags,
                 "passed_research_audit": bool(passed),
                 "warnings": warnings,
+                "audit_run_id": audit_run_id,
             }
         )
     return pd.DataFrame(rows)
@@ -770,13 +975,28 @@ SECTION_8_6_INDEXES: dict[str, list[dict]] = {
     "bowaka_assets": [{"keys": [("snapshot_id", 1), ("symbol", 1)], "unique": True}],
     "bowaka_data_ingestion_runs": [{"keys": [("ingestion_run_id", 1)], "unique": True}],
     "bowaka_daily_bar_audits": [
-        {"keys": [("symbol", 1), ("feed", 1), ("timeframe", 1)], "unique": True},
+        # Lookup index used by audit_history_mode == "latest". Not unique —
+        # the latest-mode writer enforces single-row-per-symbol semantics via
+        # ``update_one(..., upsert=True)``. Making this index unique would
+        # forbid the append-mode coexistence below.
+        {"keys": [("symbol", 1), ("feed", 1), ("timeframe", 1)], "unique": False},
+        # Used by audit_history_mode == "append" — one row per (symbol, feed,
+        # timeframe, audit_run_id) so historical audits accumulate.
+        {
+            "keys": [("symbol", 1), ("feed", 1), ("timeframe", 1), ("audit_run_id", 1)],
+            "unique": True,
+        },
     ],
 }
 
 
 def apply_indexes(db) -> None:
-    """Apply §8.6 indexes; idempotent (create_index is a no-op if present)."""
+    """Apply ``[Report §8.6]`` indexes idempotently.
+
+    Both audit-history index variants are created so writers in either
+    ``audit_history_mode`` can rely on the appropriate uniqueness constraint
+    without re-running ``apply_indexes`` after a mode switch.
+    """
     from pymongo import ASCENDING
 
     for coll_name, idx_specs in SECTION_8_6_INDEXES.items():
@@ -836,17 +1056,46 @@ def write_ingestion_run_to_mongo(db, run_record: dict) -> None:
 
 
 def write_daily_audits_to_mongo(db, audits_df: pd.DataFrame, cfg: BackfillConfig) -> None:
+    """Persist daily-bar audit rows to Mongo.
+
+    Branches on ``cfg.audit_history_mode``:
+
+    - ``"latest"`` (default; backward compatible): upsert by
+      ``(symbol, feed, timeframe)`` so each weekly run overwrites the prior
+      audit row. ``audit_run_id`` is stored as a regular field so callers can
+      tell when the row was last refreshed.
+    - ``"append"``: upsert by ``(symbol, feed, timeframe, audit_run_id)`` so
+      history accumulates — one row per audit run per symbol.
+
+    ``apply_indexes`` creates both unique-index variants; this writer just
+    picks the matching one.
+    """
     if audits_df.empty:
         return
     coll = db["bowaka_daily_bar_audits"]
+    mode = getattr(cfg, "audit_history_mode", "latest")
     for _, row in audits_df.iterrows():
         doc = row.to_dict()
         doc["feed"] = cfg.feed
-        coll.update_one(
-            {"symbol": doc["symbol"], "feed": doc["feed"], "timeframe": doc["timeframe"]},
-            {"$set": doc},
-            upsert=True,
-        )
+        if mode == "append":
+            audit_run_id = doc.get("audit_run_id") or f"audit_unknown_{cfg.feed}"
+            doc["audit_run_id"] = audit_run_id
+            coll.update_one(
+                {
+                    "symbol": doc["symbol"],
+                    "feed": doc["feed"],
+                    "timeframe": doc["timeframe"],
+                    "audit_run_id": audit_run_id,
+                },
+                {"$set": doc},
+                upsert=True,
+            )
+        else:
+            coll.update_one(
+                {"symbol": doc["symbol"], "feed": doc["feed"], "timeframe": doc["timeframe"]},
+                {"$set": doc},
+                upsert=True,
+            )
 
 
 # ---------------------------------------------------------------------------
