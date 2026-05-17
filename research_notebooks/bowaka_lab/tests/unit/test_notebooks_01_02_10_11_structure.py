@@ -107,11 +107,12 @@ def nb_10(bowaka_root):
 
 def test_notebook_10_defaults_to_small_n_trials(nb_10):
     src = _param_cell_src(nb_10)
-    # Pull the right-hand side of N_TRIALS = ...
-    m = re.search(r"\bN_TRIALS\b\s*=\s*(\d+)", src)
-    assert m, "10 parameters missing N_TRIALS"
+    # Notebook 10 split N_TRIALS into SMOKE_N_TRIALS + PROD_N_TRIALS so the
+    # default smoke pass stays cheap while production runs can be sized up.
+    m = re.search(r"\bSMOKE_N_TRIALS\b\s*=\s*(\d+)", src)
+    assert m, "10 parameters missing SMOKE_N_TRIALS"
     n = int(m.group(1))
-    assert n <= 50, f"10 default N_TRIALS={n} too large for smoke; production runs go through run-task"
+    assert n <= 50, f"10 default SMOKE_N_TRIALS={n} too large for smoke"
 
 
 def test_notebook_10_warns_about_smoke_vs_production_use(nb_10):

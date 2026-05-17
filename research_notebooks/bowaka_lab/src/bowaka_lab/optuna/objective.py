@@ -15,7 +15,7 @@ The total uses median, not sum/mean, of raw PnL to avoid single-trade dominance.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 
@@ -129,3 +129,19 @@ def smoke_objective_from_candidates(candidates_df) -> Any:
         return median_strength * min(n / 5_000.0, 1.0)
 
     return objective
+
+
+def smoke_objective_factory_from_candidates_path(candidates_path: str) -> Callable:
+    """Picklable factory that loads candidates from a path inside the worker.
+
+    Each worker process calls this factory with the same ``candidates_path``;
+    the DataFrame is loaded once per worker (not shared between them), which
+    keeps the objective entirely self-contained -- no shared-memory tricks
+    needed. The factory itself is a top-level function so it pickles cleanly
+    for ``multiprocessing.Process`` workers spawned by
+    :func:`bowaka_lab.optuna.parallel.run_parallel_optimization`.
+    """
+    import pandas as _pd
+
+    candidates_df = _pd.read_parquet(candidates_path)
+    return smoke_objective_from_candidates(candidates_df)

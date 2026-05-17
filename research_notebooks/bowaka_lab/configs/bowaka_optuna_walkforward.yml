@@ -32,7 +32,15 @@ prefilter:
 
 optuna:
   storage_url: ${OPTUNA_STORAGE}          # PostgreSQL URI from docker stack
-  study_name_template: "bowaka_walkforward_{feed}_{start_date}_{end_date}"
+  study_name_template: "bowaka_prod_{run_id}_v1"
+  n_trials: 500
+  n_jobs: 4
+  strict_parallel: true
   n_startup_trials: 15
   sampler_seed: 12345
   pruner: median
+  callbacks:
+    - trial_logging
+    - degeneracy_check
+  # Note: scripts/run_optuna_walkforward.py reads CLI args, not this YAML.
+  # Wiring this YAML into the runner is a future QuantLab task-runner integration.
