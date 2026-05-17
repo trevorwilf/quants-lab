@@ -3,9 +3,25 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
+
+
+def _bowaka_root_from_here() -> Path:
+    here = Path(__file__).resolve()
+    for ancestor in [here, *here.parents]:
+        if ancestor.name == "bowaka_lab" and (ancestor / "src").is_dir():
+            return ancestor
+    return here.parents[1]
+
+
+# Ensure the bowaka_lab project root is importable so `db_tools` (a sibling of
+# `src/`, not part of the installed package) can be `import`-ed by tests.
+_BOWAKA_ROOT = _bowaka_root_from_here()
+if str(_BOWAKA_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BOWAKA_ROOT))
 
 
 def _detect_repo_root() -> Path:
