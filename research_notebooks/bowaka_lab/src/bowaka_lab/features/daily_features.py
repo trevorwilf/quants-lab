@@ -108,6 +108,69 @@ def compute_daily_features(
     return latest
 
 
+def compute_daily_features_history(
+    bars: pd.DataFrame,
+    cfg: PrefilterConfig,
+) -> pd.DataFrame:
+    """Compute daily features for *every* (symbol, session_date) in ``bars``.
+
+    Same math as :func:`compute_daily_features` but emits one feature row per
+    bar instead of only the latest. Callers can then slice by session_date to
+    answer "what would the prefilter pick if signal_date == D?" — without
+    re-running rolling computations for every D.
+
+    The no-lookahead invariant is preserved by ``shift(1)`` on the rolling
+    aggregates: features at row D only see bars at sessions < D for
+    avg_volume / avg_dollar_volume, exactly like the per-D function.
+    """
+    if bars.empty:
+        return pd.DataFrame()
+
+    for col in _EXPECTED_COLUMNS:
+        if col not in bars.columns:
+            raise ValueError(f"bars is missing required column {col!r}")
+
+    df = bars.copy()
+    df["session_date"] = _resolve_session_date(df)
+    df = df.sort_values(["symbol", "session_date"]).reset_index(drop=True)
+    g = df.groupby("symbol", sort=False)
+
+    lookback = cfg.lookback_days
+    atr_n = cfg.atr_days
+    ema_n = cfg.ema_days
+    slope_lb = cfg.ema_slope_lookback
+
+    df["dollar_volume"] = df["close"] * df["volume"]
+    df["avg_dollar_volume"] = g["dollar_volume"].transform(lambda s: s.shift(1).rolling(lookback).mean())
+    df["avg_volume"] = g["volume"].transform(lambda s: s.shift(1).rolling(lookback).mean())
+    df["rvol"] = df["volume"] / df["avg_volume"]
+
+    df["prev_close"] = g["close"].shift(1)
+    tr = pd.concat(
+        [
+            df["high"] - df["low"],
+            (df["high"] - df["prev_close"]).abs(),
+            (df["low"] - df["prev_close"]).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    df["atr"] = tr.groupby(df["symbol"]).transform(lambda s: s.rolling(atr_n).mean())
+    df["atr_pct"] = df["atr"] / df["close"]
+
+    df["gap_pct"] = df["open"] / df["prev_close"] - 1.0
+    df["range_expansion"] = (df["high"] - df["low"]) / df["atr"]
+
+    rng = (df["high"] - df["low"]).replace(0, np.nan)
+    df["close_location"] = ((df["close"] - df["low"]) / rng).fillna(0.5)
+
+    df["ema"] = g["close"].transform(lambda s: s.ewm(span=ema_n, adjust=False).mean())
+    df["ema_distance"] = df["close"] / df["ema"] - 1.0
+    df["ema_lagged"] = df.groupby("symbol")["ema"].shift(slope_lb)
+    df["ema_slope"] = df["ema"] / df["ema_lagged"] - 1.0
+    df["latest_bar_date"] = df["session_date"]
+    return df
+
+
 def compute_signal_strength(features: pd.DataFrame, cfg: PrefilterConfig) -> pd.Series:
     """Bowaka's signal-strength score (unbounded by default, bounded optional).
 

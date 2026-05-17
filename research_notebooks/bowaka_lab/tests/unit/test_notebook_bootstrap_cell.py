@@ -19,19 +19,31 @@ REQUIRED_PHRASES = (
 
 @pytest.fixture(scope="module")
 def notebook_paths(bowaka_root: Path) -> list[Path]:
+    """All notebooks under notebooks/. Includes the canonical 12 numbered
+    notebooks (00_..11_) plus any additional turnkey notebooks shipped
+    alongside (e.g. run_backtest.ipynb)."""
     return sorted((bowaka_root / "notebooks").glob("*.ipynb"))
 
 
-def test_twelve_notebooks_present(notebook_paths):
-    assert len(notebook_paths) == 12
+@pytest.fixture(scope="module")
+def numbered_notebook_paths(bowaka_root: Path) -> list[Path]:
+    """The 12 Phase-10 numbered notebooks only."""
+    return sorted((bowaka_root / "notebooks").glob("[0-9][0-9]_*.ipynb"))
+
+
+def test_twelve_numbered_notebooks_present(numbered_notebook_paths):
+    """Phase 10 [Report §18] requires twelve numbered notebooks 00 → 11."""
+    assert len(numbered_notebook_paths) == 12
 
 
 def test_first_cell_contains_bootstrap_phrases(notebook_paths):
+    """Bootstrap rule applies to every notebook under notebooks/."""
     for p in notebook_paths:
         nb = nbformat.read(p, as_version=4)
-        assert nb.cells, f"{p.name} is empty"
-        first = nb.cells[0]
-        assert first.cell_type == "code", f"{p.name} first cell must be code"
-        src = first.source
+        # The first cell of a notebook may be markdown (title). The bootstrap
+        # cell is required to be the first *code* cell.
+        first_code = next((c for c in nb.cells if c.cell_type == "code"), None)
+        assert first_code is not None, f"{p.name} has no code cells"
+        src = first_code.source
         for phrase in REQUIRED_PHRASES:
             assert phrase in src, f"{p.name} bootstrap missing {phrase!r}"
