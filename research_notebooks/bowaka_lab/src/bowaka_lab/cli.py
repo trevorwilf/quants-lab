@@ -142,6 +142,31 @@ def backtest_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+@_register("report")
+def report_cmd(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    import pandas as pd
+
+    from bowaka_lab.reports.markdown import ReportInputs
+    from bowaka_lab.reports.weekly_report import generate_weekly_report
+
+    trades = pd.read_parquet(args.trades) if args.trades else pd.DataFrame()
+    counterfactuals = pd.read_parquet(args.counterfactuals) if args.counterfactuals else pd.DataFrame()
+    reconciliation = pd.read_csv(args.reconciliation) if args.reconciliation else None
+
+    inputs = ReportInputs(
+        run_id=args.run_id,
+        config_hash="sha256:unknown",
+        trades=trades,
+        counterfactuals=counterfactuals,
+        reconciliation=reconciliation,
+    )
+    res = generate_weekly_report(output_dir=Path(args.output_dir), inputs=inputs)
+    print(json.dumps({"status": "ok", "markdown_path": str(res.markdown_path), "summary_path": str(res.summary_path)}, indent=2))
+    return 0
+
+
 @_register("reconcile-paper")
 def reconcile_paper_cmd(args: argparse.Namespace) -> int:
     from pathlib import Path
@@ -254,6 +279,13 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--paper-root", required=True, help="Directory containing paper-trading data")
     rec.add_argument("--backtest-trades", required=True, help="Parquet file with backtest trades")
     rec.add_argument("--output", help="Optional CSV path for the reconciliation table")
+
+    rep = sub.add_parser("report", help="Generate a weekly research report")
+    rep.add_argument("--run-id", required=True, help="Backtest run identifier")
+    rep.add_argument("--trades", help="Parquet file with backtest trades")
+    rep.add_argument("--counterfactuals", help="Parquet file with counterfactual outcomes")
+    rep.add_argument("--reconciliation", help="CSV file with paper-vs-backtest reconciliation")
+    rep.add_argument("--output-dir", required=True, help="Directory to write the report and JSON summary")
 
     return parser
 
