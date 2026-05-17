@@ -430,7 +430,14 @@ def main() -> None:
         nbformat.v4.new_markdown_cell("## Summary & verification"),
         _code(SUMMARY, tag="summary"),
     ]
-    nb.metadata["kernelspec"] = {"display_name": "Python 3", "language": "python", "name": "python3"}
+    # Default kernel name "python3" works in both the JupyterLab Docker image
+    # (where the only kernel is python3 -> /opt/conda/envs/quants-lab/bin/python)
+    # and a Windows install (where python3 is patched to C:\Python312\python.exe).
+    nb.metadata["kernelspec"] = {
+        "display_name": "Python 3",
+        "language": "python",
+        "name": "python3",
+    }
     nb.metadata["language_info"] = {"name": "python", "version": "3.12"}
     nbformat.write(nb, NB_PATH)
     print(f"wrote {NB_PATH}")
