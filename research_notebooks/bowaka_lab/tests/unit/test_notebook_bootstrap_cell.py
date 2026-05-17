@@ -47,3 +47,45 @@ def test_first_cell_contains_bootstrap_phrases(notebook_paths):
         src = first_code.source
         for phrase in REQUIRED_PHRASES:
             assert phrase in src, f"{p.name} bootstrap missing {phrase!r}"
+
+
+def _bootstrap_source(nb) -> str:
+    first_code = next((c for c in nb.cells if c.cell_type == "code"), None)
+    assert first_code is not None
+    return first_code.source
+
+
+def test_notebook_bootstrap_imports_load_project_dotenv(notebook_paths):
+    """Every notebook's bootstrap must import the canonical loader."""
+    expected = "from bowaka_lab.utils.env import load_project_dotenv"
+    for p in notebook_paths:
+        src = _bootstrap_source(nbformat.read(p, as_version=4))
+        assert expected in src, f"{p.name} bootstrap missing {expected!r}"
+
+
+def test_notebook_bootstrap_calls_load_project_dotenv(notebook_paths):
+    """Every notebook's bootstrap must call ``load_project_dotenv(`` at least once."""
+    for p in notebook_paths:
+        src = _bootstrap_source(nbformat.read(p, as_version=4))
+        assert "load_project_dotenv(" in src, f"{p.name} bootstrap does not call load_project_dotenv"
+
+
+def test_notebook_has_no_duplicate_dotenv_loader_cells(notebook_paths):
+    """Outside the bootstrap cell, no notebook may import dotenv or call
+    load_dotenv. The bootstrap is the single source of .env discovery."""
+    forbidden_patterns = ("from dotenv import load_dotenv", "import dotenv", "load_dotenv(")
+    for p in notebook_paths:
+        nb = nbformat.read(p, as_version=4)
+        # Identify the bootstrap (first code cell) and scan the rest.
+        first_code_idx = next(
+            (i for i, c in enumerate(nb.cells) if c.cell_type == "code"), None
+        )
+        for idx, cell in enumerate(nb.cells):
+            if cell.cell_type != "code" or idx == first_code_idx:
+                continue
+            src = cell.source or ""
+            for pat in forbidden_patterns:
+                assert pat not in src, (
+                    f"{p.name} cell[{idx}] contains forbidden dotenv reference {pat!r}; "
+                    "the bootstrap cell is the only place .env should be touched"
+                )
