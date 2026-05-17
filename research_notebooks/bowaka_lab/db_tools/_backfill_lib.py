@@ -996,14 +996,33 @@ def apply_indexes(db) -> None:
     Both audit-history index variants are created so writers in either
     ``audit_history_mode`` can rely on the appropriate uniqueness constraint
     without re-running ``apply_indexes`` after a mode switch.
+
+    Self-healing for upgrades: if the collection already has an index with
+    the same key but a *different* options spec (e.g. ``unique`` flipped, as
+    happens when a prior schema gets upgraded), the conflicting index is
+    dropped by its server-assigned name and recreated with the current
+    options. This surfaces as ``OperationFailure(code=86, IndexKeySpecsConflict)``
+    from Mongo.
     """
     from pymongo import ASCENDING
+    from pymongo.errors import OperationFailure
 
     for coll_name, idx_specs in SECTION_8_6_INDEXES.items():
         coll = db[coll_name]
         for idx in idx_specs:
             keys = [(field, ASCENDING if v > 0 else -1) for field, v in idx["keys"]]
-            coll.create_index(keys, unique=idx.get("unique", False))
+            unique = idx.get("unique", False)
+            try:
+                coll.create_index(keys, unique=unique)
+            except OperationFailure as exc:
+                if getattr(exc, "code", None) != 86:
+                    raise
+                # IndexKeySpecsConflict: same key, different options. Drop
+                # the existing index by name and recreate. Index names are
+                # auto-generated as "<field>_<dir>_<field>_<dir>...".
+                index_name = "_".join(f"{field}_{direction}" for field, direction in keys)
+                coll.drop_index(index_name)
+                coll.create_index(keys, unique=unique)
 
 
 def write_asset_snapshot_to_mongo(db, snapshot_id: str, kept_df: pd.DataFrame, cfg: BackfillConfig) -> None:

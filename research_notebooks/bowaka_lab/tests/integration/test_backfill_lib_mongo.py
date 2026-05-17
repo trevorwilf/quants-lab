@@ -179,6 +179,28 @@ def test_audit_history_mode_append_creates_new_records(live_db, tmp_path):
     assert {d["audit_run_id"] for d in docs} == {"audit_run_1", "audit_run_2"}
 
 
+def test_apply_indexes_self_heals_unique_flip(live_db):
+    """Pre-existing unique index with the same key set must be replaced.
+
+    Reproduces the upgrade path: a prior phase created
+    ``(symbol, feed, timeframe)`` as ``unique=True``; today's phase wants the
+    same index as ``unique=False`` so the append-mode unique index can layer
+    on top. Without self-healing this raises Mongo ``IndexKeySpecsConflict``
+    (code 86); with self-healing, ``apply_indexes`` drops and rebuilds.
+    """
+    coll = live_db["bowaka_daily_bar_audits"]
+    coll.create_index([("symbol", 1), ("feed", 1), ("timeframe", 1)], unique=True)
+    info_before = coll.index_information()
+    assert info_before["symbol_1_feed_1_timeframe_1"].get("unique") is True
+
+    lib.apply_indexes(live_db)  # must not raise
+
+    info_after = coll.index_information()
+    # After self-heal, the index name still exists but is no longer unique.
+    assert "symbol_1_feed_1_timeframe_1" in info_after
+    assert not info_after["symbol_1_feed_1_timeframe_1"].get("unique")
+
+
 def test_apply_indexes_creates_both_audit_index_variants(live_db):
     lib.apply_indexes(live_db)
     info = live_db["bowaka_daily_bar_audits"].index_information()
