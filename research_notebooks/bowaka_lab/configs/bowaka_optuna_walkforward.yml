@@ -29,3 +29,10 @@ prefilter:
   price_min: 1.0
   price_max: 20.0
   avg_dollar_volume_min: 200000
+
+optuna:
+  storage_url: ${OPTUNA_STORAGE}          # PostgreSQL URI from docker stack
+  study_name_template: "bowaka_walkforward_{feed}_{start_date}_{end_date}"
+  n_startup_trials: 15
+  sampler_seed: 12345
+  pruner: median
