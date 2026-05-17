@@ -1,0 +1,2 @@
+{"record_type": "bracket_attached", "ts": "2026-05-11T13:45:00+00:00", "ticker": "CCC", "link_id": "BOWAKA-CCC-1003", "target_order_id": "T-3", "stop_order_id": "S-3", "target_price": 4.60, "stop_price": 3.68, "fill_price": 4.00, "target_pct": 0.15, "stop_pct": 0.08}
+{"record_type": "signal_fade_order_rejected", "ts": "2026-05-11T19:45:00+00:00", "ticker": "CCC", "link_id": "BOWAKA-CCC-1003", "reason": "after_close_opg_invalid", "fill_price": 3.94, "filled_qty": 1250}

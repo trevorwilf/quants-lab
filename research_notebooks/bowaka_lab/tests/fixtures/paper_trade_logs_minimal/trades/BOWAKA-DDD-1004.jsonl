@@ -1,0 +1,2 @@
+{"record_type": "bracket_attached", "ts": "2026-05-11T13:45:00+00:00", "ticker": "DDD", "link_id": "BOWAKA-DDD-1004", "target_order_id": "T-4", "stop_order_id": "S-4", "target_price": 9.20, "stop_price": 7.36, "fill_price": 8.00, "target_pct": 0.15, "stop_pct": 0.08}
+{"record_type": "time_stop", "ts": "2026-05-13T19:55:00+00:00", "ticker": "DDD", "link_id": "BOWAKA-DDD-1004", "fill_price": 8.04, "filled_qty": 625}

@@ -1,0 +1,2 @@
+{"record_type": "bracket_attached", "ts": "2026-05-11T13:45:00+00:00", "ticker": "BBB", "link_id": "BOWAKA-BBB-1002", "target_order_id": "T-2", "stop_order_id": "S-2", "target_price": 11.52, "stop_price": 9.22, "fill_price": 10.02, "target_pct": 0.15, "stop_pct": 0.08}
+{"record_type": "stop_filled", "ts": "2026-05-12T15:30:00+00:00", "ticker": "BBB", "link_id": "BOWAKA-BBB-1002", "fill_price": 9.22, "filled_qty": 500}
