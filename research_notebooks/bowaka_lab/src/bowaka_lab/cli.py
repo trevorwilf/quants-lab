@@ -111,6 +111,37 @@ def fetch_daily_bars_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+@_register("backtest")
+def backtest_cmd(args: argparse.Namespace) -> int:
+    import pandas as pd
+
+    from bowaka_lab.config.loader import load_config_file
+    from bowaka_lab.sim.portfolio_engine import BowakaPortfolioBacktester
+
+    cfg = load_config_file(args.config)
+    candidates_all = pd.read_parquet(args.candidates)
+    minute_bars_all = pd.read_parquet(args.minute_bars)
+
+    def candidate_source(signal_date):
+        return candidates_all[candidates_all["signal_date"] == signal_date].copy()
+
+    def minute_bars_for(trade_date, symbols):
+        df = minute_bars_all[
+            (minute_bars_all["session_date"] == trade_date) & (minute_bars_all["symbol"].isin(symbols))
+        ]
+        return df.copy()
+
+    runner = BowakaPortfolioBacktester(
+        cfg, candidate_source=candidate_source, minute_bars_for=minute_bars_for
+    )
+    result = runner.run()
+    trades_df = result.trades_df()
+    print(json.dumps({"status": "ok", "trade_count": int(trades_df.shape[0])}, indent=2))
+    if args.output:
+        trades_df.to_parquet(args.output, index=False)
+    return 0
+
+
 @_register("replay-prefilter")
 def replay_prefilter_cmd(args: argparse.Namespace) -> int:
     from datetime import date as _date
@@ -184,6 +215,12 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--bars", required=True, help="Path to daily bars parquet file")
     rp.add_argument("--signal-date", required=True, help="ISO date for signal_date")
     rp.add_argument("--output", help="Optional output JSON for candidate set")
+
+    bt = sub.add_parser("backtest", help="Run a fixture-based backtest (smoke)")
+    bt.add_argument("--config", required=True, help="Path to YAML config")
+    bt.add_argument("--candidates", required=True, help="Parquet file with candidates")
+    bt.add_argument("--minute-bars", required=True, help="Parquet file with minute bars")
+    bt.add_argument("--output", help="Optional Parquet path for trades")
 
     return parser
 
