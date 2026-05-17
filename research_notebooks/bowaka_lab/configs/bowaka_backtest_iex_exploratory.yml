@@ -1,0 +1,134 @@
+project:
+  name: bowaka_lab
+  mode: research
+  run_label: bowaka_iex_exploratory_v1
+
+storage:
+  data_root: ${BOWAKA_DATA_ROOT:-app/data/bowaka_lab}
+  output_root: ${BOWAKA_OUTPUT_ROOT:-app/outputs/bowaka_lab}
+  mongo_uri: ${MONGO_URI}
+  mongo_database: ${MONGO_DATABASE:-quants_lab}
+  write_mongo: true
+  write_parquet: true
+
+data:
+  vendor: alpaca
+  feed: ${BOWAKA_ALPACA_FEED:-iex}
+  adjustment: raw
+  allow_feed_fallback: false
+  rate_limit_requests_per_minute: 180
+  start_date: "2025-01-01"
+  end_date: "2026-05-15"
+
+calendar:
+  exchange: XNYS
+  timezone: America/New_York
+  session: regular
+
+universe:
+  mode: alpaca_current_assets
+  allowed_exchanges: [NASDAQ, NYSE, ARCA, AMEX, BATS]
+  exclude_otc: true
+  exclude_leveraged_etp: true
+  exclude_inverse_etp: true
+  exclude_etn: true
+  ticker_blocklist: [TSLL, CONL, SMCX]
+
+prefilter:
+  lookback_days: 20
+  atr_days: 14
+  ema_days: 10
+  ema_slope_lookback: 3
+
+  price_min: 1.0
+  price_max: 20.0
+  avg_dollar_volume_min: 200000
+  avg_dollar_volume_max: null
+
+  rvol_min: 1.5
+  atr_pct_min: 0.06
+  range_expansion_min: 1.25
+  close_location_min: 0.60
+  ema_distance_min: 0.0
+  ema_slope_min: 0.0
+
+  rvol_max: null
+  range_expansion_max: null
+  gap_pct_max: null
+
+  score:
+    bounded: false
+    rvol_score_cap: 5.0
+    range_score_cap: 2.5
+    ema_distance_score_cap: 0.40
+    ema_slope_score_cap: 0.25
+    gap_penalty_above: 0.25
+
+entry:
+  default_rule: fixed_time_0945
+  fixed_times: ["09:35", "09:40", "09:45", "10:00"]
+  fill_model: next_minute_open_plus_slippage
+  slippage_bps: 25
+  use_quotes_if_available: true
+  price_band:
+    max_pct_above_close: 0.15
+    min_pct_below_close: -0.02
+
+exits:
+  stop_pct: 0.08
+  target_pct: 0.15
+  max_hold_days: 3
+  ambiguous_bar_policy: stop_first
+  stop_gap_policy: next_available_open
+  target_fill_policy: limit_touch
+
+signal_fade:
+  enabled: true
+  rth_eval_time: "15:45"
+  after_close_eval_time: "16:05"
+  after_close_action: log_only
+  execute_threshold: 8
+  shadow_thresholds: [4, 5, 6, 7, 8, 9]
+
+stop_manager_shadow:
+  enabled: true
+  rules:
+    - {mfe_min: 0.05, stop_at: 0.00}
+    - {mfe_min: 0.08, stop_at: 0.03}
+    - {mfe_min: 0.12, stop_at: 0.06}
+
+portfolio:
+  mode: paper_data_collection
+  sizing_mode: equal_slice
+  per_trade_notional: 5000
+  max_concurrent_positions: 18
+  max_total_entries_per_day: 25
+  max_gross_exposure_pct: 2.0
+  daily_loss_pct: null
+  max_stopouts_per_day: null
+  stop_trading_after_consecutive_stopouts: null
+
+realism:
+  max_position_as_adv_frac_enabled: true
+  max_position_as_adv_frac: 0.03
+  adv_tier_caps:
+    - {max_adv_dollars: 250000, reject_if_below: true}
+    - {max_adv_dollars: 500000, max_position_as_adv_frac: 0.003}
+    - {max_adv_dollars: 1000000, max_position_as_adv_frac: 0.005}
+    - {max_adv_dollars: 5000000, max_position_as_adv_frac: 0.010}
+    - {max_adv_dollars: null, max_position_as_adv_frac: 0.015}
+
+counterfactuals:
+  include_rejected_candidates: true
+  entry_rules: [fixed_time_0935, fixed_time_0940, fixed_time_0945, fixed_time_1000]
+  stop_pct: [0.05, 0.06, 0.08, 0.10]
+  target_pct: [0.08, 0.10, 0.12, 0.15, 0.20]
+  max_hold_days: [1, 2, 3]
+  signal_fade_thresholds: [null, 6, 7, 8, 9]
+
+outputs:
+  write_candidates: true
+  write_trades: true
+  write_counterfactuals: true
+  write_daily_summary: true
+  write_report_markdown: true

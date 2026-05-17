@@ -1,0 +1,32 @@
+bowaka_assets:
+  - keys: [["snapshot_id", 1], ["symbol", 1]]
+    unique: true
+
+bowaka_prefilter_runs:
+  - keys: [["signal_date", 1], ["feed", 1], ["config_hash", 1]]
+    unique: true
+
+bowaka_candidates:
+  - keys: [["prefilter_run_id", 1], ["symbol", 1]]
+    unique: true
+  - keys: [["signal_date", 1], ["passed_prefilter", 1], ["rank", 1]]
+
+bowaka_backtest_runs:
+  - keys: [["backtest_run_id", 1]]
+    unique: true
+  - keys: [["created_at", -1]]
+
+bowaka_backtest_trades:
+  - keys: [["backtest_run_id", 1], ["trade_id", 1]]
+    unique: true
+  - keys: [["symbol", 1], ["trade_date", 1]]
+  - keys: [["exit_reason", 1]]
+
+bowaka_counterfactuals:
+  - keys: [["backtest_run_id", 1], ["counterfactual_id", 1]]
+    unique: true
+  - keys: [["symbol", 1], ["trade_date", 1]]
+  - keys: [["variant.entry_rule", 1], ["variant.stop_pct", 1], ["variant.target_pct", 1]]
+
+bowaka_paper_reconciliation:
+  - keys: [["session_date", 1], ["symbol", 1], ["paper_trade_id", 1]]
