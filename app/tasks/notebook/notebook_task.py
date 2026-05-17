@@ -83,7 +83,8 @@ class NotebookTask(BaseTask):
         self.timeout_per_notebook = self._parse_timeout(timeout_str)
         
         # Smart defaults
-        self.kernel_name = task_config.get("kernel", "python3")
+        # Accept both `kernel` (Bowaka convention) and `kernel_name` (legacy template).
+        self.kernel_name = task_config.get("kernel", task_config.get("kernel_name", "python3"))
         self.output_dir = Path(task_config.get("output_dir", "outputs/notebooks"))
         self.save_outputs = task_config.get("save_outputs", True)
         self.extract_results = task_config.get("extract_results", True)

@@ -42,3 +42,6 @@ dependencies:
       - nbformat
       - nbclient
       - kaleido
+      - alpaca-py
+      - exchange-calendars
+      - tenacity

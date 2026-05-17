@@ -1,0 +1,55 @@
+tasks:
+  bowaka_lab_research_pipeline:
+    enabled: true
+    task_class: notebook
+
+    schedule:
+      type: cron
+      cron: "30 22 * * 1-5"
+      timezone: UTC
+
+    max_retries: 2
+    retry_delay_seconds: 300
+    timeout_seconds: 7200
+    dependencies: []
+
+    config:
+      notebooks:
+        - path: "bowaka_lab/notebooks/00_environment_check.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+
+        - path: "bowaka_lab/notebooks/01_alpaca_asset_universe.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+
+        - path: "bowaka_lab/notebooks/02_daily_bar_backfill.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+            DAYS: 120
+
+        - path: "bowaka_lab/notebooks/03_prefilter_replay.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+
+        - path: "bowaka_lab/notebooks/04_single_config_backtest.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+
+        - path: "bowaka_lab/notebooks/11_weekly_research_report.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+
+      output_dir: "app/outputs/bowaka_lab/notebooks"
+      save_outputs: true
+      extract_results: true
+      kernel: "python3"
+      timeout: "2h"
+      execution: "sequential"
+      continue_on_error: false
+
+    tags:
+      - bowaka
+      - equities
+      - backtest
+      - research
