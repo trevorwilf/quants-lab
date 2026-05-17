@@ -73,6 +73,7 @@ from bowaka_lab.metrics.diagnostics import exit_reason_distribution
 from bowaka_lab.reports.markdown import ReportInputs
 from bowaka_lab.reports.weekly_report import generate_weekly_report
 from bowaka_lab.sim.portfolio_engine import BowakaPortfolioBacktester
+from bowaka_lab.utils.io import to_parquet_safe
 '''
 
 
@@ -255,7 +256,9 @@ else:
 
 PERSIST_AND_REPORT = '''trades_path = artifacts_dir / f"{RUN_ID}_trades.parquet"
 if not trades_df.empty:
-    trades_df.to_parquet(trades_path, index=False)
+    # to_parquet_safe JSON-encodes dict/list columns (e.g. trades_df has an
+    # all-empty `diagnostics` struct that vanilla pyarrow refuses to write).
+    to_parquet_safe(trades_df, trades_path)
     print(f"wrote {trades_path}")
 
 if not trades_df.empty:

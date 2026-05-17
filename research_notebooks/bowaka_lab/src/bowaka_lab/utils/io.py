@@ -97,3 +97,42 @@ class PathResolver:
         res.data_root.mkdir(parents=True, exist_ok=True)
         res.output_root.mkdir(parents=True, exist_ok=True)
         return res
+
+
+# ---------------------------------------------------------------------------
+# Parquet-safe DataFrame writer
+# ---------------------------------------------------------------------------
+
+
+def to_parquet_safe(df, path):
+    """Write ``df`` to ``path`` with dict/list columns JSON-encoded.
+
+    Pyarrow raises ``ArrowNotImplementedError: Cannot write struct type with
+    no child field`` when an object column contains only ``{}`` dicts (the
+    inferred Arrow schema is an empty struct). The BowakaPortfolioBacktester's
+    ``diagnostics`` field and counterfactual ``variant`` field both hit this
+    when never populated. This helper inspects each object column, and if any
+    row in it is a ``dict`` or ``list``, converts the whole column to JSON
+    strings before writing. Non-offending columns pass through untouched.
+
+    Returns the resolved Path.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    target = _Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    out = df.copy()
+    for col in out.columns:
+        if out[col].dtype != object:
+            continue
+        # Skip purely-None columns — they're fine.
+        sample = out[col].dropna()
+        if sample.empty:
+            continue
+        if sample.map(lambda v: isinstance(v, (dict, list))).any():
+            out[col] = out[col].map(
+                lambda v: _json.dumps(v, default=str) if isinstance(v, (dict, list)) else v
+            )
+    out.to_parquet(target, index=False)
+    return target
