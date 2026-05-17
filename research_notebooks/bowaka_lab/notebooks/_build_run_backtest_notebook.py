@@ -75,7 +75,10 @@ from bowaka_lab.data.parquet_io import (
     candidates_dict_to_source,
     load_daily_bars_from_root,
 )
-from bowaka_lab.features.prefilter import replay_prefilter_over_window
+from bowaka_lab.features.prefilter import (
+    aggregate_prefilter_funnel,
+    replay_prefilter_over_window,
+)
 from bowaka_lab.metrics.trade_metrics import per_trade_metrics, summary_stats
 from bowaka_lab.metrics.diagnostics import exit_reason_distribution
 from bowaka_lab.reports.markdown import ReportInputs
@@ -274,6 +277,9 @@ if not trades_df.empty:
 else:
     trades_for_report = trades_df
 
+funnel = aggregate_prefilter_funnel(candidates_by_signal)
+print("funnel totals:", {k: v for k, v in funnel.items() if k != "per_session"})
+
 res = generate_weekly_report(
     output_dir=artifacts_dir,
     inputs=ReportInputs(
@@ -282,6 +288,7 @@ res = generate_weekly_report(
         data_feed=cfg.data.feed,
         universe_mode=cfg.universe.mode,
         trades=trades_for_report,
+        prefilter_funnel=funnel,
         known_limitations=["IEX-only feed (exploratory)", "current-universe survivorship-biased"],
         next_actions=[
             "Iterate on the prefilter gates and re-run.",

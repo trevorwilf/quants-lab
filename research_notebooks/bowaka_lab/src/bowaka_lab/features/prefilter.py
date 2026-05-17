@@ -182,6 +182,46 @@ def apply_prefilter(
     )
 
 
+_FUNNEL_KEY_MAP = {
+    "n_universe_with_features": "universe_with_features",
+    "n_passed_universe_gates": "passed_universe_gates",
+    "n_candidates": "candidates",
+    "n_rejected_by_signal_gates": "rejected_by_signal_gates",
+    "n_excluded_by_instrument_class": "excluded_by_instrument_class",
+}
+
+#: Order is significant — Section 5 in the report renders the funnel as a
+#: stage table in this exact sequence.
+FUNNEL_TOTAL_KEYS: tuple[str, ...] = tuple(_FUNNEL_KEY_MAP.values())
+
+
+def aggregate_prefilter_funnel(candidates_by_signal: dict) -> dict:
+    """Aggregate per-session CandidateSet stats into one funnel dict.
+
+    Returns a dict whose top-level keys match Section 5 of the report
+    (``[Report §20.1]``):
+
+    - ``universe_with_features``
+    - ``passed_universe_gates``
+    - ``candidates``
+    - ``rejected_by_signal_gates``
+    - ``excluded_by_instrument_class``
+    - ``per_session``: ``{"<YYYY-MM-DD>": {<same 5 counts>}, ...}``
+
+    Each top-level int is the sum across sessions. ``per_session`` preserves
+    the breakdown so 11_weekly_research_report can render trends.
+    """
+    totals = {k: 0 for k in FUNNEL_TOTAL_KEYS}
+    per_session: dict[str, dict[str, int]] = {}
+    for sd, cset in candidates_by_signal.items():
+        meta = getattr(cset, "metadata", None) or {}
+        session_counts = {k_out: int(meta.get(k_in, 0) or 0) for k_in, k_out in _FUNNEL_KEY_MAP.items()}
+        for k, v in session_counts.items():
+            totals[k] += v
+        per_session[str(sd)] = session_counts
+    return {**totals, "per_session": per_session}
+
+
 def replay_prefilter_over_window(
     bars: pd.DataFrame,
     cfg: PrefilterConfig,
