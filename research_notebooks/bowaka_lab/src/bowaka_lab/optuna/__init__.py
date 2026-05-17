@@ -5,6 +5,9 @@ from bowaka_lab.optuna.callbacks import (
     TqdmProgressCallback,
     TrialLoggingCallback,
 )
+from bowaka_lab.optuna.dispatcher import run_optimization_dispatch
+from bowaka_lab.optuna.notebook_dispatch import optimize_study_for_notebook
+from bowaka_lab.optuna.parallel import WorkerResult, run_parallel_optimization
 from bowaka_lab.optuna.preflight import (
     PreflightReport,
     print_environment,
@@ -42,4 +45,8 @@ __all__ = [
     "DegeneracyCheckCallback",
     "TrialLoggingCallback",
     "TqdmProgressCallback",
+    "WorkerResult",
+    "run_parallel_optimization",
+    "run_optimization_dispatch",
+    "optimize_study_for_notebook",
 ]
