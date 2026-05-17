@@ -48,7 +48,15 @@ if src_path.exists() and str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 import bowaka_lab
-print("bowaka_lab", bowaka_lab.__version__)
+from bowaka_lab.utils.env import load_project_dotenv
+
+_loaded_env = load_project_dotenv()
+print(f"bowaka_lab {bowaka_lab.__version__}")
+print(
+    f"bowaka_lab bootstrap: .env loaded from {_loaded_env}"
+    if _loaded_env
+    else "bowaka_lab bootstrap: no .env found (env vars must be set in shell)"
+)
 '''
 
 
