@@ -78,7 +78,12 @@ def compute_signal_fade_score(
     if intraday.prior_close is not None:
         add("price_below_prior_close", 2, current_price < intraday.prior_close)
     if intraday.vwap_now is not None:
-        add("price_below_vwap", 2, current_price < intraday.vwap_now)
+        # parity-note: Report §13.2 specifies "below VWAP alone -> soft fade".
+        # Soft bucket requires score >= 3, so this single trigger must contribute
+        # at least 3 by itself. All other "below X level" triggers stay at +2
+        # because the spec treats VWAP as a stronger fair-price reference than
+        # the other levels (entry, prior close, session open, opening range).
+        add("price_below_vwap", 3, current_price < intraday.vwap_now)
     if intraday.session_open is not None:
         add("price_below_session_open", 1, current_price < intraday.session_open)
     if intraday.opening_range_low is not None:

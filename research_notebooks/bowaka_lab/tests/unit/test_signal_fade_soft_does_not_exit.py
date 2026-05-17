@@ -31,7 +31,10 @@ def _ctx(**overrides) -> IntradayContext:
 
 def test_soft_fade_below_execute_threshold():
     # Construct a soft fade: below prior close and VWAP, but above entry, above
-    # opening range low, and not in bottom 40% of intraday range. Score 4 → soft.
+    # opening range low, and not in bottom 40% of intraday range. Score 5 -> soft.
+    # parity-note: running_high/running_low widened from the original (10.02/9.98)
+    # so current_price=9.99 is no longer in the bottom 40% of the intraday range,
+    # matching the comment's stated intent.
     res = compute_signal_fade_score(
         entry_price=9.95,
         mfe_pct=0.0,
@@ -43,8 +46,8 @@ def test_soft_fade_below_execute_threshold():
             prior_close=10.0,
             session_open=9.99,
             opening_range_low=9.5,
-            running_high=10.02,
-            running_low=9.98,
+            running_high=10.05,
+            running_low=9.95,
             made_higher_high_since_entry=True,
         ),
     )
