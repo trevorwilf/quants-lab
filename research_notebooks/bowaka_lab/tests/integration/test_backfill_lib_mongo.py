@@ -129,3 +129,75 @@ def test_write_daily_audits_upserts_by_symbol_and_feed(live_db, tmp_path):
     lib.write_daily_audits_to_mongo(live_db, df, cfg)  # idempotent
     assert live_db["bowaka_daily_bar_audits"].count_documents({"symbol": "AAA"}) == 1
     assert live_db["bowaka_daily_bar_audits"].count_documents({"symbol": "BBB"}) == 1
+
+
+def _cfg_with_history_mode(tmp_path, mode: str) -> lib.BackfillConfig:
+    return lib.BackfillConfig(
+        api_key="k",
+        api_secret="s",
+        paper=True,
+        feed="iex",
+        start_date=date(2025, 1, 2),
+        end_date=date(2026, 5, 15),
+        out_dir=tmp_path,
+        mongo_uri=None,
+        write_to_mongo=False,
+        audit_history_mode=mode,
+    )
+
+
+def test_audit_history_mode_latest_upserts_by_symbol(live_db, tmp_path):
+    cfg = _cfg_with_history_mode(tmp_path, "latest")
+    lib.apply_indexes(live_db)
+    df1 = pd.DataFrame(
+        [{"symbol": "AAA", "timeframe": "1d", "passed_research_audit": True, "audit_run_id": "audit_run_1"}]
+    )
+    df2 = pd.DataFrame(
+        [{"symbol": "AAA", "timeframe": "1d", "passed_research_audit": False, "audit_run_id": "audit_run_2"}]
+    )
+    lib.write_daily_audits_to_mongo(live_db, df1, cfg)
+    lib.write_daily_audits_to_mongo(live_db, df2, cfg)
+    docs = list(live_db["bowaka_daily_bar_audits"].find({"symbol": "AAA"}))
+    assert len(docs) == 1
+    assert docs[0]["audit_run_id"] == "audit_run_2"
+    assert docs[0]["passed_research_audit"] is False
+
+
+def test_audit_history_mode_append_creates_new_records(live_db, tmp_path):
+    cfg = _cfg_with_history_mode(tmp_path, "append")
+    lib.apply_indexes(live_db)
+    df1 = pd.DataFrame(
+        [{"symbol": "AAA", "timeframe": "1d", "passed_research_audit": True, "audit_run_id": "audit_run_1"}]
+    )
+    df2 = pd.DataFrame(
+        [{"symbol": "AAA", "timeframe": "1d", "passed_research_audit": False, "audit_run_id": "audit_run_2"}]
+    )
+    lib.write_daily_audits_to_mongo(live_db, df1, cfg)
+    lib.write_daily_audits_to_mongo(live_db, df2, cfg)
+    docs = sorted(live_db["bowaka_daily_bar_audits"].find({"symbol": "AAA"}), key=lambda d: d["audit_run_id"])
+    assert len(docs) == 2
+    assert {d["audit_run_id"] for d in docs} == {"audit_run_1", "audit_run_2"}
+
+
+def test_apply_indexes_creates_both_audit_index_variants(live_db):
+    lib.apply_indexes(live_db)
+    info = live_db["bowaka_daily_bar_audits"].index_information()
+    key_sets = {tuple(field for field, _ in meta["key"]) for meta in info.values()}
+    # Both index variants must exist so latest-mode and append-mode writers
+    # have their lookup keys covered. The latest-mode index is non-unique —
+    # uniqueness is enforced by the writer's upsert, not the index, so the
+    # append-mode index can layer on top of it.
+    assert ("symbol", "feed", "timeframe") in key_sets
+    assert ("symbol", "feed", "timeframe", "audit_run_id") in key_sets
+    # The append-mode index must be unique so two appends in the same
+    # audit_run_id can't duplicate.
+    unique_key_sets = {
+        tuple(field for field, _ in meta["key"])
+        for meta in info.values()
+        if meta.get("unique")
+    }
+    assert ("symbol", "feed", "timeframe", "audit_run_id") in unique_key_sets
+    # Idempotency.
+    lib.apply_indexes(live_db)
+    info2 = live_db["bowaka_daily_bar_audits"].index_information()
+    assert set(info.keys()) == set(info2.keys())

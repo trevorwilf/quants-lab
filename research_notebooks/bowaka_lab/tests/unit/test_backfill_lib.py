@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -416,3 +417,189 @@ def test_backfill_config_daily_fetch_start_padding(tmp_path):
     # days (the implementation uses 1.5x + 7 day pad to cover weekends/holidays).
     delta = (cfg.start_date - cfg.daily_fetch_start).days
     assert delta >= cfg.adv_window_days
+
+
+# ---------------------------------------------------------------------------
+# incremental_window
+# ---------------------------------------------------------------------------
+
+
+def _write_daily_file_with_sessions(path: Path, sessions: list[date]) -> None:
+    rows = []
+    for s in sessions:
+        ts = pd.Timestamp(s).tz_localize("America/New_York") + pd.Timedelta(hours=16)
+        ts = ts.tz_convert("UTC")
+        rows.append(
+            {
+                "symbol": "X",
+                "timestamp": ts,
+                "open": 5.0,
+                "high": 5.1,
+                "low": 4.9,
+                "close": 5.0,
+                "volume": 1_000_000,
+            }
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.Table.from_pandas(pd.DataFrame(rows), preserve_index=False), path)
+
+
+def test_incremental_window_file_missing_returns_fetch_full(tmp_path):
+    target = tmp_path / "missing.parquet"
+    plan = lib.incremental_window(target, date(2026, 5, 15))
+    assert plan.action == "fetch_full"
+    assert plan.start is None and plan.end is None
+
+
+def test_incremental_window_empty_file_returns_fetch_full(tmp_path):
+    target = tmp_path / "empty.parquet"
+    pq.write_table(pa.Table.from_pandas(pd.DataFrame(columns=["timestamp"]), preserve_index=False), target)
+    plan = lib.incremental_window(target, date(2026, 5, 15))
+    assert plan.action == "fetch_full"
+
+
+def test_incremental_window_corrupted_file_returns_fetch_full(tmp_path):
+    target = tmp_path / "corrupt.parquet"
+    target.write_bytes(b"not a parquet file at all")
+    plan = lib.incremental_window(target, date(2026, 5, 15))
+    assert plan.action == "fetch_full"
+
+
+def test_incremental_window_up_to_date(tmp_path):
+    target = tmp_path / "uptodate.parquet"
+    # Build sessions through Friday 2026-05-15 inclusive.
+    sessions = _trading_dates(date(2026, 5, 1), date(2026, 5, 15))
+    _write_daily_file_with_sessions(target, sessions)
+    plan = lib.incremental_window(target, date(2026, 5, 15))
+    assert plan.action == "up_to_date"
+    assert plan.existing_max_session == date(2026, 5, 15)
+
+
+def test_incremental_window_one_day_behind(tmp_path):
+    target = tmp_path / "behind.parquet"
+    sessions = _trading_dates(date(2026, 5, 1), date(2026, 5, 14))  # last is Thursday
+    _write_daily_file_with_sessions(target, sessions)
+    plan = lib.incremental_window(target, date(2026, 5, 15))
+    assert plan.action == "fetch_tail"
+    # Next XNYS session after Thursday is Friday.
+    assert plan.start == date(2026, 5, 15)
+    assert plan.end == date(2026, 5, 15)
+    assert plan.existing_max_session == date(2026, 5, 14)
+
+
+def test_incremental_window_weekend_gap(tmp_path):
+    # Existing data ends on a Friday; target is the next Monday.
+    target = tmp_path / "weekend.parquet"
+    _write_daily_file_with_sessions(target, [date(2026, 5, 15)])  # Friday
+    plan = lib.incremental_window(target, date(2026, 5, 18))  # Monday
+    assert plan.action == "fetch_tail"
+    assert plan.start == date(2026, 5, 18)  # skipped Sat + Sun
+    assert plan.end == date(2026, 5, 18)
+
+
+def test_incremental_window_holiday_gap(tmp_path):
+    # 2025 Thanksgiving: Thursday 2025-11-27 closed, Friday 2025-11-28 early close.
+    # If existing data ends Wed 2025-11-26 and target is Fri 2025-11-28, next
+    # session after Wed is Friday (XNYS skips closed Thursday).
+    target = tmp_path / "holiday.parquet"
+    _write_daily_file_with_sessions(target, [date(2025, 11, 26)])  # Wednesday
+    plan = lib.incremental_window(target, date(2025, 11, 28))
+    assert plan.action == "fetch_tail"
+    assert plan.start == date(2025, 11, 28)
+    assert plan.end == date(2025, 11, 28)
+
+
+# ---------------------------------------------------------------------------
+# fetch_assets — freshness-aware reuse
+# ---------------------------------------------------------------------------
+
+
+from datetime import timedelta as _td  # noqa: E402  (kept after main imports for clarity)
+from unittest.mock import patch  # noqa: E402
+
+
+def _write_existing_snapshot(cfg: lib.BackfillConfig, *, age_days: int, symbol_count: int = 3) -> str:
+    """Write a fake snapshot parquet with a snapshot_id timestamped age_days ago."""
+    snap_ts = datetime.now(timezone.utc) - _td(days=age_days)
+    snap_id = snap_ts.strftime("%Y-%m-%dT%H%M%SZ_alpaca_assets")
+    target = lib.assets_file(cfg, snap_id)
+    df = pd.DataFrame(
+        [{"snapshot_id": snap_id, "symbol": f"S{i}", "exchange": "NASDAQ"} for i in range(symbol_count)]
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.Table.from_pandas(df, preserve_index=False), target)
+    return snap_id
+
+
+class _StubAsset:
+    def __init__(self, symbol: str, name: str = "Stub Corp", exchange: str = "NASDAQ"):
+        self.symbol = symbol
+        self.name = name
+        self.exchange = exchange
+        self.asset_class = "us_equity"
+        self.tradable = True
+        self.marginable = True
+        self.shortable = True
+        self.fractionable = False
+        self.status = "active"
+
+
+def test_fetch_assets_reuses_within_max_age(tmp_path):
+    cfg = _cfg(tmp_path, asset_snapshot_max_age_days=7)
+    existing_id = _write_existing_snapshot(cfg, age_days=2)
+    with patch("alpaca.trading.client.TradingClient") as mock_client_cls:
+        snap_id, df = lib.fetch_assets(cfg, logging.getLogger("test"))
+    assert snap_id == existing_id
+    assert df.shape[0] == 3
+    mock_client_cls.assert_not_called()
+
+
+def test_fetch_assets_refreshes_after_max_age(tmp_path):
+    cfg = _cfg(tmp_path, asset_snapshot_max_age_days=7)
+    _write_existing_snapshot(cfg, age_days=30)
+    fake_assets = [_StubAsset("AAA"), _StubAsset("BBB"), _StubAsset("CCC")]
+
+    class _MockTrading:
+        def __init__(self, *a, **k):
+            pass
+
+        def get_all_assets(self, req):
+            return fake_assets
+
+    with patch("alpaca.trading.client.TradingClient", _MockTrading):
+        snap_id, df = lib.fetch_assets(cfg, logging.getLogger("test"))
+    assert snap_id != ""
+    assert df.shape[0] == 3
+    # A fresh snapshot file must have been written.
+    written = sorted(lib.assets_dir(cfg).glob("snapshot_id=*/assets.parquet"))
+    assert len(written) >= 2  # stale + fresh
+
+
+def test_fetch_assets_no_existing_snapshot_always_fetches(tmp_path):
+    cfg = _cfg(tmp_path, asset_snapshot_max_age_days=365)  # irrelevant since none exists
+    fake_assets = [_StubAsset("AAA"), _StubAsset("BBB")]
+
+    class _MockTrading:
+        def __init__(self, *a, **k):
+            pass
+
+        def get_all_assets(self, req):
+            return fake_assets
+
+    with patch("alpaca.trading.client.TradingClient", _MockTrading):
+        snap_id, df = lib.fetch_assets(cfg, logging.getLogger("test"))
+    assert snap_id != ""
+    assert df.shape[0] == 2
+    written = list(lib.assets_dir(cfg).glob("snapshot_id=*/assets.parquet"))
+    assert len(written) == 1
+
+
+# ---------------------------------------------------------------------------
+# Back-compat: BackfillConfig constructible without the new fields
+# ---------------------------------------------------------------------------
+
+
+def test_backfill_config_default_asset_max_age(tmp_path):
+    cfg = _cfg(tmp_path)
+    assert cfg.asset_snapshot_max_age_days == 7
+    assert cfg.audit_history_mode == "latest"
