@@ -84,3 +84,48 @@ def evaluate_objective(
 
 def is_degenerate(score: float) -> bool:
     return score <= _DEGENERATE_SCORE / 2.0
+
+
+# ---------------------------------------------------------------------------
+# Notebook smoke objective
+# ---------------------------------------------------------------------------
+
+
+def smoke_objective_from_candidates(candidates_df) -> Any:
+    """Bind a small smoke-grade Optuna objective to a cached candidates table.
+
+    Returns a callable ``objective(trial) -> float`` that can be passed to
+    :meth:`optuna.study.Study.optimize`. The objective is intentionally cheap
+    (no backtester replay) — it only filters the candidates table by the
+    suggested gate thresholds and rewards median ``signal_strength`` weighted
+    by candidate-count saturation up to 5,000.
+
+    Production walk-forward objectives live in :func:`evaluate_objective`
+    and run via the task runner; this helper is for sanity-checking the
+    search space inside ``notebooks/10_optuna_walkforward.ipynb``.
+    """
+    import pandas as _pd
+
+    from bowaka_lab.optuna.search_space import suggest_params
+
+    def objective(trial) -> float:
+        params = suggest_params(trial)
+        if candidates_df is None or candidates_df.empty:
+            return -1.0
+        rvol_col = candidates_df.get("rvol", _pd.Series([0.0] * len(candidates_df)))
+        atr_col = candidates_df.get("atr_pct", _pd.Series([0.0] * len(candidates_df)))
+        rng_col = candidates_df.get("range_expansion", _pd.Series([0.0] * len(candidates_df)))
+        mask = (
+            (rvol_col.fillna(0) >= float(params.get("rvol_min", 0.0)))
+            & (atr_col.fillna(0) >= float(params.get("atr_pct_min", 0.0)))
+            & (rng_col.fillna(0) >= float(params.get("range_expansion_min", 0.0)))
+        )
+        eligible = candidates_df[mask]
+        n = int(eligible.shape[0])
+        if n == 0:
+            return -1.0
+        strength = eligible.get("signal_strength", _pd.Series([0.0])).fillna(0)
+        median_strength = float(strength.median())
+        return median_strength * min(n / 5_000.0, 1.0)
+
+    return objective
