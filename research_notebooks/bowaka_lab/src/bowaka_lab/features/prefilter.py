@@ -19,7 +19,10 @@ from typing import Any
 import pandas as pd
 
 from bowaka_lab.config.models import PrefilterConfig, UniverseConfig
-from bowaka_lab.features.daily_features import compute_signal_strength
+from bowaka_lab.features.daily_features import (
+    compute_daily_features_history,
+    compute_signal_strength,
+)
 from bowaka_lab.features.instrument_classification import (
     classify_instrument,
 )
@@ -177,3 +180,74 @@ def apply_prefilter(
         all_decisions=df,
         metadata=meta,
     )
+
+
+def replay_prefilter_over_window(
+    bars: pd.DataFrame,
+    cfg: PrefilterConfig,
+    *,
+    signal_dates: list[date],
+    next_session_fn,
+    universe: UniverseConfig | None = None,
+    asset_snapshot: pd.DataFrame | None = None,
+) -> dict[date, CandidateSet]:
+    """Replay the prefilter across many signal_dates in one feature pass.
+
+    Computes daily features once over the full ``bars`` set (see
+    :func:`compute_daily_features_history`), then for each ``signal_date`` in
+    ``signal_dates`` slices the feature rows whose ``session_date`` equals
+    that date and applies the prefilter gates. Equivalent to looping
+    :func:`apply_prefilter` per-date, but ~N× faster on long windows where
+    N = len(signal_dates).
+
+    Parameters
+    ----------
+    bars
+        Daily OHLCV DataFrame with ``symbol``, ``timestamp`` (or
+        ``session_date``), ``open``, ``high``, ``low``, ``close``, ``volume``.
+    cfg
+        Prefilter configuration.
+    signal_dates
+        Sessions for which to materialise candidates.
+    next_session_fn
+        Callable mapping a session_date to the next trading session
+        (typically ``USEquityCalendar(...).next_session``). Used to populate
+        ``trade_date`` on each ``CandidateSet``.
+    universe
+        Optional universe config (instrument-class exclusions, blocklist).
+    asset_snapshot
+        Optional symbol→name/asset_class lookup for instrument classification.
+
+    Returns
+    -------
+    dict[date, CandidateSet]
+        One entry per ``signal_date`` that had at least one feature row.
+        Signal dates with no eligible rows are absent from the dict.
+    """
+    if bars.empty or not signal_dates:
+        return {}
+    history = compute_daily_features_history(bars, cfg)
+    if history.empty:
+        return {}
+    out: dict[date, CandidateSet] = {}
+    grouped = history.groupby("session_date", sort=False)
+    have_dates = set(history["session_date"].unique())
+    for sd in signal_dates:
+        if sd not in have_dates:
+            continue
+        feats = grouped.get_group(sd).copy()
+        feats = feats.set_index("symbol")
+        try:
+            td = next_session_fn(sd)
+        except Exception:
+            continue
+        cset = apply_prefilter(
+            feats,
+            cfg,
+            signal_date=sd,
+            trade_date=td,
+            asset_snapshot=asset_snapshot,
+            universe=universe,
+        )
+        out[sd] = cset
+    return out
