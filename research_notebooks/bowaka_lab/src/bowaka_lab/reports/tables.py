@@ -10,13 +10,28 @@ import pandas as pd
 
 
 def candidate_funnel(metadata: dict) -> pd.DataFrame:
+    """Render the prefilter funnel as a 5-row DataFrame.
+
+    Accepts either key style for back-compat:
+
+    - Aggregated funnel from
+      ``bowaka_lab.features.prefilter.aggregate_prefilter_funnel`` —
+      ``universe_with_features``, ``passed_universe_gates``, ``candidates``,
+      ``rejected_by_signal_gates``, ``excluded_by_instrument_class``.
+    - Single-session ``CandidateSet.metadata`` style with ``n_`` prefixes.
+    """
+    m = metadata or {}
+
+    def _get(stage: str) -> int:
+        return int(m.get(stage, m.get(f"n_{stage}", 0)) or 0)
+
     return pd.DataFrame(
         [
-            {"stage": "universe_with_features", "count": int(metadata.get("n_universe_with_features", 0))},
-            {"stage": "passed_universe_gates", "count": int(metadata.get("n_passed_universe_gates", 0))},
-            {"stage": "candidates", "count": int(metadata.get("n_candidates", 0))},
-            {"stage": "rejected_by_signal_gates", "count": int(metadata.get("n_rejected_by_signal_gates", 0))},
-            {"stage": "excluded_by_instrument_class", "count": int(metadata.get("n_excluded_by_instrument_class", 0))},
+            {"stage": "universe_with_features", "count": _get("universe_with_features")},
+            {"stage": "passed_universe_gates", "count": _get("passed_universe_gates")},
+            {"stage": "candidates", "count": _get("candidates")},
+            {"stage": "rejected_by_signal_gates", "count": _get("rejected_by_signal_gates")},
+            {"stage": "excluded_by_instrument_class", "count": _get("excluded_by_instrument_class")},
         ]
     )
 

@@ -81,6 +81,12 @@ class ReportInputs:
     adjustment: str = "raw"
     universe_mode: str = "alpaca_current_assets"
     prefilter_metadata: dict[str, Any] = field(default_factory=dict)
+    #: Optional aggregated funnel from
+    #: ``bowaka_lab.features.prefilter.aggregate_prefilter_funnel``. When set,
+    #: Section 5 reads from this dict (unprefixed keys); otherwise it falls
+    #: back to ``prefilter_metadata`` (which uses ``n_`` prefixes from a
+    #: single-session ``CandidateSet``).
+    prefilter_funnel: dict[str, Any] | None = None
     candidate_rank_distribution: pd.DataFrame | None = None
     trades: pd.DataFrame = field(default_factory=pd.DataFrame)
     counterfactuals: pd.DataFrame = field(default_factory=pd.DataFrame)
@@ -158,7 +164,8 @@ def build_markdown(inputs: ReportInputs) -> str:
     parts.append(f"\n## {SECTION_HEADERS[4]}\n")
     from bowaka_lab.reports.tables import candidate_funnel
 
-    parts.append(_md_table(candidate_funnel(inputs.prefilter_metadata)))
+    funnel_source = inputs.prefilter_funnel if inputs.prefilter_funnel else inputs.prefilter_metadata
+    parts.append(_md_table(candidate_funnel(funnel_source)))
 
     parts.append(f"\n## {SECTION_HEADERS[5]}\n")
     if inputs.candidate_rank_distribution is not None:
