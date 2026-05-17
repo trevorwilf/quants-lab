@@ -142,6 +142,34 @@ def backtest_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+@_register("reconcile-paper")
+def reconcile_paper_cmd(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    import pandas as pd
+
+    from bowaka_lab.reconcile.paper_log_importer import load_daily_summary
+    from bowaka_lab.reconcile.replay_comparator import reconcile
+
+    paper_root = Path(args.paper_root)
+    summary = load_daily_summary(paper_root / "daily_summary.jsonl").df
+    bt = pd.read_parquet(args.backtest_trades)
+    if not summary.empty:
+        paper_trades = summary.copy()
+        if "entry_timestamp" in paper_trades.columns:
+            paper_trades = paper_trades.rename(columns={"entry_timestamp": "entry_time"})
+        paper_trades = paper_trades.rename(columns={"ticker": "symbol", "link_id": "trade_id"})
+        if "session_date" not in paper_trades.columns and "entry_time" in paper_trades.columns:
+            paper_trades["session_date"] = pd.to_datetime(paper_trades["entry_time"]).dt.date
+    else:
+        paper_trades = pd.DataFrame()
+    out = reconcile(paper_trades=paper_trades, backtest_trades=bt)
+    print(json.dumps({"status": "ok", "rows": int(out.shape[0])}, indent=2))
+    if args.output:
+        out.to_csv(args.output, index=False)
+    return 0
+
+
 @_register("replay-prefilter")
 def replay_prefilter_cmd(args: argparse.Namespace) -> int:
     from datetime import date as _date
@@ -221,6 +249,11 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--candidates", required=True, help="Parquet file with candidates")
     bt.add_argument("--minute-bars", required=True, help="Parquet file with minute bars")
     bt.add_argument("--output", help="Optional Parquet path for trades")
+
+    rec = sub.add_parser("reconcile-paper", help="Reconcile paper logs against a backtest trade ledger")
+    rec.add_argument("--paper-root", required=True, help="Directory containing paper-trading data")
+    rec.add_argument("--backtest-trades", required=True, help="Parquet file with backtest trades")
+    rec.add_argument("--output", help="Optional CSV path for the reconciliation table")
 
     return parser
 
