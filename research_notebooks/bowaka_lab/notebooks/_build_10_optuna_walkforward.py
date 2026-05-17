@@ -1,7 +1,13 @@
 """Build ``notebooks/10_optuna_walkforward.ipynb``.
 
-Smoke-only Optuna run (default 20 trials). Real walk-forward studies should
-run via QuantLab task runner against Postgres-backed Optuna storage.
+The notebook has two modes:
+
+- ``MODE = "smoke"`` -- 20 trials, serial, in-memory SQLite. Sanity-check for
+  search-space + objective.
+- ``MODE = "production"`` -- N trials, process-parallel, PostgreSQL-backed.
+  Reads ``OPTUNA_STORAGE`` from the env (set by the docker stack).
+
+Production runs are picked up by the Optuna dashboard at http://localhost:8080.
 """
 
 from __future__ import annotations
@@ -16,35 +22,55 @@ HERE = Path(__file__).resolve().parent
 NB_PATH = HERE / "10_optuna_walkforward.ipynb"
 
 
-TITLE = """# 10 — Optuna walk-forward smoke
+TITLE = """# 10 -- Optuna walk-forward
 
-**Default is a 20-trial smoke run** to sanity-check the search space and
-objective. Production walk-forward studies that run for hours-to-days
-should go through ``make run-task config=bowaka_lab_tasks.yml`` against a
-Postgres-backed Optuna storage URL — not this notebook.
+Two modes, selected via the ``MODE`` parameter:
+
+- **smoke** -- 20 trials, serial, in-memory SQLite. Use this to sanity-check
+  the search space and objective before a real run. Completes in seconds.
+- **production** -- many trials, process-parallel, PostgreSQL-backed. Reads
+  ``OPTUNA_STORAGE`` from the env (the docker stack injects this in the
+  Jupyter container; from the host use ``localhost:5433``). Trials stream
+  into the Optuna dashboard at http://localhost:8080.
 
 Saves ``optuna_trials.parquet`` and ``optuna_best.json`` for the weekly
 report aggregator.
 """
 
 
-PARAMETERS = '''import os
+PARAMETERS = '''# --- Mode ---------------------------------------------------
+MODE = "smoke"   # "smoke" (in-notebook, 20 trials, sqlite) or "production" (postgres, n_trials big)
 
-RUN_ID         = "bt_iex_default"
+# --- Run identification -------------------------------------
+RUN_ID     = "bt_iex_default"
+STUDY_NAME = None      # None -> auto-derived from MODE + RUN_ID
+
+# --- Smoke mode ---------------------------------------------
+SMOKE_N_TRIALS = 20
+SMOKE_N_JOBS   = 1     # sqlite cannot do multi-worker safely
+
+# --- Production mode ----------------------------------------
+PROD_N_TRIALS         = 500
+PROD_N_JOBS           = 4    # process-parallel workers; requires postgres
+PROD_STRICT_PARALLEL  = True # raise on misconfig instead of falling back
+
 ARTIFACTS_ROOT = "research_notebooks/bowaka_lab/artifacts"
-N_TRIALS       = 20            # smoke; bump for real runs via run-task
-STUDY_NAME     = f"bowaka_smoke_{RUN_ID}"
-STORAGE_URL    = None          # None = in-memory sqlite; use postgres for production
 REBUILD        = False
 '''
 
 
 DERIVED = '''from pathlib import Path
 
-import optuna
 import pandas as pd
 
-from bowaka_lab.optuna.search_space import suggest_params
+from bowaka_lab.optuna import (
+    DegeneracyCheckCallback,
+    TrialLoggingCallback,
+    get_storage_url,
+    optimize_study_for_notebook,
+    print_environment,
+)
+from bowaka_lab.optuna.objective import smoke_objective_factory_from_candidates_path
 from bowaka_lab.utils import (
     ArtifactPaths,
     artifact_exists,
@@ -59,27 +85,31 @@ artifacts_root = Path(ARTIFACTS_ROOT) if Path(ARTIFACTS_ROOT).is_absolute() else
 paths = ArtifactPaths.for_run(RUN_ID, artifacts_root)
 paths.ensure_dir()
 assert paths.candidates.exists(), (
-    f"candidates missing: {paths.candidates} — run notebook 03 first."
+    f"candidates missing: {paths.candidates} -- run notebook 03 first."
 )
 
+print_environment()
 print(f"artifacts:  {paths.root}")
-print(f"trials:     {N_TRIALS}")
-print(f"storage:    {'in-memory sqlite' if STORAGE_URL is None else STORAGE_URL}")
+print(f"candidates: {paths.candidates}")
 '''
 
 
-SEARCH_OBJECTIVE = '''# Synthetic objective: rewards parameters that score well on a cheap proxy
-# (median signal_strength × candidate count). Real walk-forward objectives
-# replay the backtester against held-out folds — that lives in
-# bowaka_lab.optuna.objective and runs via the task runner.
-#
-# The objective itself is a small library helper so the notebook cell stays
-# orchestration-only (no def at cell scope).
-from bowaka_lab.optuna.objective import smoke_objective_from_candidates
+MODE_DISPATCH = '''if MODE == "smoke":
+    storage_url     = None                       # in-memory sqlite via create_study default
+    n_trials        = SMOKE_N_TRIALS
+    n_jobs          = SMOKE_N_JOBS
+    strict_parallel = False
+elif MODE == "production":
+    storage_url     = get_storage_url()          # reads OPTUNA_STORAGE
+    n_trials        = PROD_N_TRIALS
+    n_jobs          = PROD_N_JOBS
+    strict_parallel = PROD_STRICT_PARALLEL
+else:
+    raise ValueError(f"Unknown MODE: {MODE!r}")
 
-candidates = load_parquet(paths.candidates)
-objective = smoke_objective_from_candidates(candidates)
-print(f"smoke objective bound to {candidates.shape[0]:,} candidate rows")
+study_name = STUDY_NAME if STUDY_NAME else f"bowaka_{MODE}_{RUN_ID}"
+print(f"MODE={MODE}  n_trials={n_trials}  n_jobs={n_jobs}  study_name={study_name}")
+print(f"storage:    {'in-memory sqlite' if storage_url is None else storage_url}")
 '''
 
 
@@ -91,18 +121,18 @@ if not REBUILD and artifact_exists(paths, "optuna_trials") and artifact_exists(p
     trials_df = load_parquet(paths.optuna_trials)
     best_payload = load_json(paths.optuna_best)
 else:
-    sampler = optuna.samplers.TPESampler(seed=42)
-    storage = STORAGE_URL
-    study = optuna.create_study(
-        study_name=STUDY_NAME,
-        direction="maximize",
-        storage=storage,
-        load_if_exists=True if storage else False,
-        sampler=sampler,
+    study = optimize_study_for_notebook(
+        study_name=study_name,
+        storage_url=storage_url,
+        n_trials=n_trials,
+        n_jobs=n_jobs,
+        objective_factory=smoke_objective_factory_from_candidates_path,
+        factory_kwargs={"candidates_path": str(paths.candidates)},
+        callbacks=[TrialLoggingCallback(log_every=5), DegeneracyCheckCallback()],
+        strict_parallel=strict_parallel,
     )
-    study.optimize(objective, n_trials=N_TRIALS, n_jobs=1)
 
-    # Materialise the trial table — params + value + state.
+    # Materialise the trial table -- params + value + state.
     rows = []
     for t in study.trials:
         row = {"trial_number": t.number, "objective_value": t.value,
@@ -112,11 +142,12 @@ else:
     trials_df = pd.DataFrame(rows)
     save_parquet(paths.optuna_trials, trials_df)
 
+    completed = [t for t in study.trials if t.value is not None]
     best_payload = {
-        "study_name": STUDY_NAME,
+        "study_name": study_name,
         "n_trials": len(study.trials),
-        "best_value": study.best_value if study.trials else None,
-        "best_params": study.best_params if study.trials else {},
+        "best_value": study.best_value if completed else None,
+        "best_params": study.best_params if completed else {},
     }
     save_json(paths.optuna_best, best_payload)
     print(f"wrote {paths.optuna_trials}")
@@ -145,7 +176,7 @@ except Exception:
 if plt is not None and not trials_df.empty:
     fig, ax = plt.subplots(figsize=(8, 3))
     ax.plot(trials_df["trial_number"], trials_df["objective_value"], marker="o", linewidth=1)
-    ax.set_title(f"Optimization history — {STUDY_NAME}")
+    ax.set_title(f"Optimization history -- {study_name}")
     ax.set_xlabel("trial")
     ax.set_ylabel("objective_value")
     fig.tight_layout()
@@ -168,9 +199,9 @@ def main() -> None:
         code_cell(PARAMETERS, tag="parameters"),
         md_cell("## Derived paths"),
         code_cell(DERIVED, tag="derived"),
-        md_cell("## Search space + objective"),
-        code_cell(SEARCH_OBJECTIVE, tag="objective"),
-        md_cell("## Run smoke study"),
+        md_cell("## Mode dispatch"),
+        code_cell(MODE_DISPATCH, tag="mode_dispatch"),
+        md_cell("## Run study"),
         code_cell(RUN_STUDY, tag="run_study"),
         md_cell("## Top-K trials"),
         code_cell(DIAGNOSTICS, tag="diagnostics"),
