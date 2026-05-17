@@ -1,0 +1,179 @@
+"""Bowaka prefilter port.
+
+This module mirrors ``bowaka_prefilter.apply_filters`` but with two big
+research-only differences:
+
+1. **Rejected candidates are retained** with explicit rejection reasons.
+   The legacy script discards rejections; the research lab needs them for
+   counterfactuals on what could-have-been candidates.
+2. **Gate evaluation is deterministic and exposed** — each gate produces a
+   boolean column so the funnel can be inspected per symbol.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Any
+
+import pandas as pd
+
+from bowaka_lab.config.models import PrefilterConfig, UniverseConfig
+from bowaka_lab.features.daily_features import compute_signal_strength
+from bowaka_lab.features.instrument_classification import (
+    classify_instrument,
+)
+
+
+@dataclass
+class CandidateSet:
+    signal_date: date
+    trade_date: date
+    candidates: pd.DataFrame
+    all_decisions: pd.DataFrame
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+_MIN_GATE_SPECS = (
+    ("rvol_min", "rvol"),
+    ("atr_pct_min", "atr_pct"),
+    ("range_expansion_min", "range_expansion"),
+    ("close_location_min", "close_location"),
+    ("ema_distance_min", "ema_distance"),
+    ("ema_slope_min", "ema_slope"),
+)
+_MAX_GATE_SPECS = (
+    ("rvol_max", "rvol"),
+    ("range_expansion_max", "range_expansion"),
+    ("gap_pct_max", "gap_pct"),
+)
+
+
+def apply_prefilter(
+    features: pd.DataFrame,
+    cfg: PrefilterConfig,
+    *,
+    signal_date: date,
+    trade_date: date,
+    asset_snapshot: pd.DataFrame | None = None,
+    universe: UniverseConfig | None = None,
+) -> CandidateSet:
+    """Apply universe + signal gates; retain all rows with decisions and reasons."""
+    if features.empty:
+        empty = pd.DataFrame()
+        return CandidateSet(
+            signal_date=signal_date,
+            trade_date=trade_date,
+            candidates=empty,
+            all_decisions=empty,
+            metadata={
+                "n_universe_with_features": 0,
+                "n_passed_universe_gates": 0,
+                "n_candidates": 0,
+                "n_rejected_by_signal_gates": 0,
+                "n_excluded_by_instrument_class": 0,
+            },
+        )
+
+    df = features.copy()
+    n_total = int(df.shape[0])
+
+    # --- Universe gates ---
+    df["gate_price_min"] = df["close"] >= cfg.price_min
+    df["gate_price_max"] = df["close"] <= cfg.price_max
+    if cfg.avg_dollar_volume_min is not None:
+        df["gate_avg_dollar_volume_min"] = df["avg_dollar_volume"] >= cfg.avg_dollar_volume_min
+    if cfg.avg_dollar_volume_max is not None:
+        df["gate_avg_dollar_volume_max"] = df["avg_dollar_volume"] <= cfg.avg_dollar_volume_max
+
+    universe_gate_cols = [c for c in df.columns if c.startswith("gate_price_") or c.startswith("gate_avg_dollar")]
+    passed_universe = df[universe_gate_cols].fillna(False).all(axis=1)
+    n_passed_universe = int(passed_universe.sum())
+
+    # --- Signal gates ---
+    for key, col in _MIN_GATE_SPECS:
+        thr = getattr(cfg, key)
+        if thr is not None:
+            df[f"gate_{key}"] = df[col] >= thr
+    for key, col in _MAX_GATE_SPECS:
+        thr = getattr(cfg, key)
+        if thr is not None:
+            df[f"gate_{key}"] = df[col] <= thr
+
+    signal_gate_cols = [c for c in df.columns if c.startswith("gate_") and c not in universe_gate_cols]
+    if signal_gate_cols:
+        passed_signal = df[signal_gate_cols].fillna(False).all(axis=1)
+    else:
+        passed_signal = pd.Series(True, index=df.index)
+
+    # --- Instrument classification ---
+    blocklist = list(universe.ticker_blocklist) if universe is not None else None
+    name_lookup: dict[str, str] = {}
+    asset_class_lookup: dict[str, str] = {}
+    if asset_snapshot is not None and not asset_snapshot.empty:
+        key_col = "symbol" if "symbol" in asset_snapshot.columns else asset_snapshot.index.name
+        if key_col == "symbol":
+            for _, row in asset_snapshot.iterrows():
+                name_lookup[str(row["symbol"])] = str(row.get("name", "") or "")
+                asset_class_lookup[str(row["symbol"])] = str(row.get("asset_class", "") or "")
+        else:
+            for sym, row in asset_snapshot.iterrows():
+                name_lookup[str(sym)] = str(row.get("name", "") or "")
+                asset_class_lookup[str(sym)] = str(row.get("asset_class", "") or "")
+
+    cls_rows: list[tuple[str, bool, str]] = []
+    for sym in df.index.tolist():
+        cls = classify_instrument(
+            sym,
+            name=name_lookup.get(sym, ""),
+            asset_class=asset_class_lookup.get(sym, ""),
+            ticker_blocklist=blocklist,
+        )
+        cls_rows.append((cls.instrument_class, cls.eligible_for_bowaka_equity_bucket, cls.classification_reason))
+    df["instrument_class"] = [r[0] for r in cls_rows]
+    df["eligible_for_bowaka_equity_bucket"] = [r[1] for r in cls_rows]
+    df["classification_reason"] = [r[2] for r in cls_rows]
+
+    excluded_classes: set[str] = set()
+    if universe is not None:
+        if universe.exclude_leveraged_etp:
+            excluded_classes.add("leveraged_etp")
+        if universe.exclude_inverse_etp:
+            excluded_classes.add("inverse_etp")
+        if universe.exclude_etn:
+            excluded_classes.add("etn")
+    df["gate_instrument_class"] = ~df["instrument_class"].isin(excluded_classes)
+
+    # --- Combine ---
+    all_gate_cols = [c for c in df.columns if c.startswith("gate_")]
+    df["passed_prefilter"] = df[all_gate_cols].fillna(False).all(axis=1)
+
+    df["rejection_reasons"] = df.apply(
+        lambda r: [c.replace("gate_", "") for c in all_gate_cols if not bool(r[c])],
+        axis=1,
+    )
+    df["final_decision"] = df["passed_prefilter"].map({True: "candidate", False: "rejected"})
+
+    df["signal_strength"] = compute_signal_strength(df, cfg)
+    df = df.sort_values("signal_strength", ascending=False, kind="mergesort")
+    df["rank"] = range(1, len(df) + 1)
+
+    candidates = df[df["passed_prefilter"]].copy()
+    n_candidates = int(candidates.shape[0])
+    n_rejected_signal = int(((~passed_signal) & passed_universe).sum())
+    n_excluded_class = int((~df["gate_instrument_class"]).sum())
+
+    meta = {
+        "n_universe_with_features": n_total,
+        "n_passed_universe_gates": n_passed_universe,
+        "n_candidates": n_candidates,
+        "n_rejected_by_signal_gates": n_rejected_signal,
+        "n_excluded_by_instrument_class": n_excluded_class,
+    }
+    return CandidateSet(
+        signal_date=signal_date,
+        trade_date=trade_date,
+        candidates=candidates,
+        all_decisions=df,
+        metadata=meta,
+    )

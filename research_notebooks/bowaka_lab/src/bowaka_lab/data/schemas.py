@@ -108,3 +108,76 @@ def candidate_v3_doc(*, payload: dict[str, Any]) -> dict[str, Any]:
     if missing:
         raise ValueError(f"candidate v3 missing required fields: {missing}")
     return out
+
+
+def build_candidate_v2(
+    *,
+    strategy: str,
+    generated_at: str,
+    signal_date: date | str,
+    provider: str,
+    data_feed: str,
+    bar_timeframe: str,
+    config_hash: str,
+    config_hash_short: str,
+    universe_hash: str,
+    latest_bar_timestamp: str,
+    counts: dict[str, int],
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build a v2 candidate document matching the legacy strategy schema."""
+    return candidate_v2_doc(
+        payload={
+            "strategy": strategy,
+            "generated_at": generated_at,
+            "as_of_date": str(signal_date),
+            "provider": provider,
+            "data_feed": data_feed,
+            "bar_timeframe": bar_timeframe,
+            "config_hash": config_hash,
+            "config_hash_short": config_hash_short,
+            "universe_hash": universe_hash,
+            "latest_bar_timestamp": latest_bar_timestamp,
+            "n_universe_with_features": counts.get("n_universe_with_features", 0),
+            "n_passed_universe_gates": counts.get("n_passed_universe_gates", 0),
+            "n_in_play": counts.get("n_candidates", 0),
+            "n_excluded_by_instrument_class": counts.get("n_excluded_by_instrument_class", 0),
+            "candidates": candidates,
+        }
+    )
+
+
+def build_candidate_v3(
+    *,
+    strategy: str,
+    generated_at: str,
+    signal_date: date | str,
+    trade_date: date | str,
+    provider: str,
+    data_feed: str,
+    bar_timeframe: str,
+    adjustment: str,
+    config_hash: str,
+    dataset_hash: str,
+    universe_hash: str,
+    candidates: list[dict[str, Any]],
+    all_decisions_path: str,
+) -> dict[str, Any]:
+    """Build a v3 candidate document for research."""
+    return candidate_v3_doc(
+        payload={
+            "strategy": strategy,
+            "generated_at": generated_at,
+            "signal_date": str(signal_date),
+            "trade_date": str(trade_date),
+            "provider": provider,
+            "data_feed": data_feed,
+            "bar_timeframe": bar_timeframe,
+            "adjustment": adjustment,
+            "config_hash": config_hash,
+            "dataset_hash": dataset_hash,
+            "universe_hash": universe_hash,
+            "candidates": candidates,
+            "all_decisions_path": all_decisions_path,
+        }
+    )

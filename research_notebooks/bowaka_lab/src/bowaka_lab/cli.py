@@ -111,6 +111,52 @@ def fetch_daily_bars_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+@_register("replay-prefilter")
+def replay_prefilter_cmd(args: argparse.Namespace) -> int:
+    from datetime import date as _date
+
+    import pandas as pd
+
+    from bowaka_lab.config.loader import load_config_file
+    from bowaka_lab.data.calendar import USEquityCalendar
+    from bowaka_lab.features.daily_features import compute_daily_features
+    from bowaka_lab.features.prefilter import apply_prefilter
+
+    cfg = load_config_file(args.config)
+    bars = pd.read_parquet(args.bars)
+    signal_date = _date.fromisoformat(args.signal_date)
+    cal = USEquityCalendar(cfg.calendar.exchange)
+    trade_date = cal.next_session(signal_date)
+    features = compute_daily_features(bars, cfg.prefilter, signal_date=signal_date)
+    cset = apply_prefilter(
+        features,
+        cfg.prefilter,
+        signal_date=signal_date,
+        trade_date=trade_date,
+        universe=cfg.universe,
+    )
+    out = {"status": "ok", **cset.metadata, "candidates_count": int(cset.candidates.shape[0])}
+    print(json.dumps(out, indent=2))
+    if args.output:
+        from pathlib import Path
+
+        target = Path(args.output)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(
+                {
+                    "signal_date": signal_date.isoformat(),
+                    "trade_date": trade_date.isoformat(),
+                    "metadata": cset.metadata,
+                    "candidates": cset.candidates.reset_index().to_dict(orient="records"),
+                },
+                default=str,
+                indent=2,
+            )
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bowaka-lab", description="Bowaka Lab CLI")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -132,6 +178,12 @@ def build_parser() -> argparse.ArgumentParser:
     fdb.add_argument("--config", required=True, help="Path to YAML config")
     fdb.add_argument("--symbols", help="Comma-separated list of symbols")
     fdb.add_argument("--output", help="Optional Parquet output path")
+
+    rp = sub.add_parser("replay-prefilter", help="Replay prefilter on a Parquet daily-bar set")
+    rp.add_argument("--config", required=True, help="Path to YAML config")
+    rp.add_argument("--bars", required=True, help="Path to daily bars parquet file")
+    rp.add_argument("--signal-date", required=True, help="ISO date for signal_date")
+    rp.add_argument("--output", help="Optional output JSON for candidate set")
 
     return parser
 
