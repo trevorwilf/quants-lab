@@ -174,3 +174,18 @@ quants-lab/research_notebooks/market_lab/pmm_dynamic/artifacts
 quants-lab/research_notebooks/edastrategy/pmm_dynamic/
 quants-lab/research_notebooks/market_lab/pmm_dynamic/notebooks/artifacts
 .Trash-0/
+
+bowaka_lab_project_handoff_report.md
+
+# Bowaka Lab generated data and artifacts
+research_notebooks/bowaka_lab/data/**
+!research_notebooks/bowaka_lab/data/.gitkeep
+research_notebooks/bowaka_lab/artifacts/**
+!research_notebooks/bowaka_lab/artifacts/.gitkeep
+research_notebooks/bowaka_lab/.env
+research_notebooks/bowaka_lab/.pytest_cache/
+research_notebooks/bowaka_lab/.ruff_cache/
+research_notebooks/bowaka_lab/*.egg-info/
+app/data/bowaka_lab/
+app/outputs/bowaka_lab/
+
