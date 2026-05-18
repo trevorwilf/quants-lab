@@ -37,12 +37,15 @@ def nb_05(bowaka_root):
 
 
 def test_notebook_05_has_parameters_cell_with_ENTRY_RULES_list(nb_05):
+    """After Phase fidelity-1, the override knob is named OVERRIDE_ENTRY_RULES;
+    the underlying CounterfactualConfig defaults come from CONFIG_PATH."""
     src = _param_cell_src(nb_05)
-    assert re.search(r"\bENTRY_RULES\b\s*=", src), "05 parameters missing ENTRY_RULES"
+    assert re.search(r"\bOVERRIDE_ENTRY_RULES\b\s*=", src), "05 parameters missing OVERRIDE_ENTRY_RULES"
     # Must include the canonical 5 rules.
     for rule in ("fixed_time_0935", "fixed_time_0945", "fixed_time_1000",
                  "opening_range_break", "vwap_reclaim"):
-        assert rule in src, f"05 ENTRY_RULES missing {rule!r}"
+        assert rule in src, f"05 OVERRIDE_ENTRY_RULES missing {rule!r}"
+    assert re.search(r'CONFIG_PATH\s*=\s*[\'"][^\'"]+\.yml[\'"]', src)
 
 
 def test_notebook_05_imports_build_variant_grid_and_run_grid_for_candidates(nb_05):
@@ -78,9 +81,13 @@ def nb_06(bowaka_root):
 
 
 def test_notebook_06_has_parameters_cell_with_stop_target_hold_lists(nb_06):
+    """After Phase fidelity-1, knobs are renamed OVERRIDE_* and the base
+    config comes from CONFIG_PATH."""
     src = _param_cell_src(nb_06)
-    for name in ("STOP_PCTS", "TARGET_PCTS", "MAX_HOLD_DAYS_LIST", "STOP_MANAGER_MODELS"):
+    for name in ("OVERRIDE_STOP_PCTS", "OVERRIDE_TARGET_PCTS",
+                 "OVERRIDE_MAX_HOLD_DAYS", "OVERRIDE_STOP_MGRS"):
         assert re.search(rf"\b{name}\b\s*=", src), f"06 parameters missing {name}"
+    assert re.search(r'CONFIG_PATH\s*=\s*[\'"][^\'"]+\.yml[\'"]', src)
 
 
 def test_notebook_06_imports_build_variant_grid_and_run_grid_for_candidates(nb_06):

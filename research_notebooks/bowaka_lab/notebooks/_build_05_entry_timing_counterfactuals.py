@@ -33,22 +33,24 @@ DATA_ROOT                 = os.environ.get(
     "research_notebooks/bowaka_lab/db_tools/bowaka_data",
 )
 ARTIFACTS_ROOT            = "research_notebooks/bowaka_lab/artifacts"
-FEED                      = "iex"
+CONFIG_PATH               = "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
 REBUILD                   = False
 
-ENTRY_RULES               = [
+# Per-notebook overrides on the CounterfactualConfig — None = use the YAML's
+# counterfactuals block as-is.
+OVERRIDE_ENTRY_RULES      = [
     "fixed_time_0935",
     "fixed_time_0945",
     "fixed_time_1000",
     "opening_range_break",
     "vwap_reclaim",
 ]
-STOP_PCT                  = 0.08
-TARGET_PCT                = 0.15
-MAX_HOLD_DAYS             = 3
-SIGNAL_FADE_THRESHOLD     = None       # disabled — focus on entry timing
-STOP_MANAGER_MODEL        = "none"
-INCLUDE_REJECTED          = False     # only entered candidates
+OVERRIDE_STOP_PCT         = 0.08
+OVERRIDE_TARGET_PCT       = 0.15
+OVERRIDE_MAX_HOLD_DAYS    = 3
+OVERRIDE_SIGNAL_FADE      = None       # disabled — focus on entry timing
+OVERRIDE_STOP_MANAGER     = "none"
+OVERRIDE_INCLUDE_REJECTED = False
 '''
 
 
@@ -56,6 +58,11 @@ DERIVED = '''from pathlib import Path
 
 import pandas as pd
 
+from bowaka_lab.config import (
+    assert_exact_mode_invariants,
+    compute_config_hash,
+    load_config_file,
+)
 from bowaka_lab.config.models import CounterfactualConfig
 from bowaka_lab.data.parquet_io import MinuteBarLoader
 from bowaka_lab.sim.counterfactuals import run_grid_for_candidates
@@ -70,7 +77,13 @@ from bowaka_lab.utils import (
 
 data_root      = Path(DATA_ROOT)      if Path(DATA_ROOT).is_absolute()      else (repo_root / DATA_ROOT).resolve()
 artifacts_root = Path(ARTIFACTS_ROOT) if Path(ARTIFACTS_ROOT).is_absolute() else (repo_root / ARTIFACTS_ROOT).resolve()
-MINUTE_ROOT    = data_root / "parquet/bars/vendor=alpaca" / f"feed={FEED}" / "timeframe=1m/adjustment=raw"
+config_path    = Path(CONFIG_PATH)    if Path(CONFIG_PATH).is_absolute()    else (repo_root / CONFIG_PATH).resolve()
+
+cfg = load_config_file(config_path)
+assert_exact_mode_invariants(cfg)
+config_hash = compute_config_hash(cfg)
+
+MINUTE_ROOT = data_root / "parquet/bars/vendor=alpaca" / f"feed={cfg.data.feed}" / "timeframe=1m/adjustment=raw"
 
 paths = ArtifactPaths.for_run(RUN_ID, artifacts_root)
 paths.ensure_dir()
@@ -79,20 +92,24 @@ assert paths.candidates.exists(), (
     "Run notebook 03_prefilter_replay first."
 )
 
+# Explicit research overrides — narrow the CounterfactualConfig to focus
+# on entry-timing only (one stop/target/hold, single fade threshold).
 cf_cfg = CounterfactualConfig(
-    include_rejected_candidates=INCLUDE_REJECTED,
-    entry_rules=ENTRY_RULES,
-    stop_pct=[STOP_PCT],
-    target_pct=[TARGET_PCT],
-    max_hold_days=[MAX_HOLD_DAYS],
-    signal_fade_thresholds=[SIGNAL_FADE_THRESHOLD],
-    stop_manager_models=[STOP_MANAGER_MODEL],
+    include_rejected_candidates=OVERRIDE_INCLUDE_REJECTED,
+    entry_rules=OVERRIDE_ENTRY_RULES,
+    stop_pct=[OVERRIDE_STOP_PCT],
+    target_pct=[OVERRIDE_TARGET_PCT],
+    max_hold_days=[OVERRIDE_MAX_HOLD_DAYS],
+    signal_fade_thresholds=[OVERRIDE_SIGNAL_FADE],
+    stop_manager_models=[OVERRIDE_STOP_MANAGER],
 )
-fill_model = BowakaFillModel(slippage_bps=25.0)
+fill_model = BowakaFillModel(slippage_bps=cfg.entry.slippage_bps)
 minute_loader = MinuteBarLoader(MINUTE_ROOT)
+print(f"config:     {config_path}")
+print(f"config_hash:{config_hash}")
 print(f"artifacts:  {paths.root}")
-print(f"entries:    {ENTRY_RULES}")
-print(f"grid size:  {len(ENTRY_RULES)} variants per candidate")
+print(f"entries:    {OVERRIDE_ENTRY_RULES}")
+print(f"grid size:  {len(OVERRIDE_ENTRY_RULES)} variants per candidate")
 '''
 
 
@@ -179,8 +196,8 @@ if plt is not None and not outcomes_df.empty:
     )
     fig, ax = plt.subplots(figsize=(9, 4))
     data = [entered.loc[entered["entry_rule"] == r, "pnl_pct"].dropna().values
-            for r in ENTRY_RULES]
-    ax.boxplot(data, labels=ENTRY_RULES, showmeans=True)
+            for r in OVERRIDE_ENTRY_RULES]
+    ax.boxplot(data, labels=OVERRIDE_ENTRY_RULES, showmeans=True)
     ax.axhline(0, color="gray", linewidth=0.5)
     ax.set_title(f"PnL distribution by entry rule — {RUN_ID}")
     ax.set_ylabel("pnl_pct")

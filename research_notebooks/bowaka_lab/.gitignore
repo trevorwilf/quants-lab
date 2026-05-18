@@ -3,6 +3,9 @@ artifacts/*
 !data/.gitkeep
 !artifacts/.gitkeep
 
+# Source-strategy backup (read-only context for parity work, not a deliverable).
+reference/
+
 .env
 .pytest_cache/
 .ruff_cache/

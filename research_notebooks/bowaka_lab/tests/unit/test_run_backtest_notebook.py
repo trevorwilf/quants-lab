@@ -9,34 +9,14 @@ import nbformat
 import pytest
 
 
+# After Phase fidelity-1, the parameters cell exposes CONFIG_PATH + a couple of
+# narrow research overrides. All the old per-knob constants (START_DATE,
+# STOP_PCT, etc.) live in the YAML referenced by CONFIG_PATH.
 REQUIRED_PARAM_NAMES = {
     "DATA_ROOT",
     "ARTIFACTS_DIR",
     "RUN_ID",
-    "START_DATE",
-    "END_DATE",
-    "FEED",
-    "PRICE_MIN",
-    "PRICE_MAX",
-    "AVG_DOLLAR_VOLUME_MIN",
-    "LOOKBACK_DAYS",
-    "ATR_DAYS",
-    "EMA_DAYS",
-    "EMA_SLOPE_LOOKBACK",
-    "RVOL_MIN",
-    "ATR_PCT_MIN",
-    "RANGE_EXPANSION_MIN",
-    "CLOSE_LOCATION_MIN",
-    "EMA_DISTANCE_MIN",
-    "EMA_SLOPE_MIN",
-    "ENTRY_RULE",
-    "SLIPPAGE_BPS",
-    "STOP_PCT",
-    "TARGET_PCT",
-    "MAX_HOLD_DAYS",
-    "PER_TRADE_NOTIONAL",
-    "MAX_CONCURRENT_POSITIONS",
-    "MAX_TOTAL_ENTRIES_PER_DAY",
+    "CONFIG_PATH",
 }
 
 

@@ -46,6 +46,18 @@ def stable_hash(obj: Any, *, prefix: str = "sha256:") -> str:
     return prefix + hashlib.sha256(blob).hexdigest()
 
 
+def compute_config_hash(cfg: Any, *, prefix: str = "sha256:") -> str:
+    """Return a stable hash for a ``BowakaBacktestConfig`` (or any pydantic model
+    exposing ``canonical_dict()`` or ``model_dump()``)."""
+    if hasattr(cfg, "canonical_dict"):
+        payload = cfg.canonical_dict()
+    elif hasattr(cfg, "model_dump"):
+        payload = cfg.model_dump(mode="json")
+    else:
+        payload = cfg
+    return stable_hash(payload, prefix=prefix)
+
+
 def short(hash_str: str, length: int = 12) -> str:
     """Truncated form for log lines."""
     if ":" in hash_str:

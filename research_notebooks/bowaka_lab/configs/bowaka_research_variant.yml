@@ -1,12 +1,16 @@
+# Research-mode profile (formerly bowaka_backtest_iex_exploratory.yml). Knobs
+# here are exploratory; signal_fade is enabled with the integer-score research
+# hypothesis, etc. Exact-mode invariants are NOT enforced (fidelity_mode=research).
 project:
   name: bowaka_lab
   mode: research
-  run_label: bowaka_iex_exploratory_v1
+  run_label: bowaka_research_variant_v1
+  fidelity_mode: research
 
 storage:
   data_root: ${BOWAKA_DATA_ROOT:-app/data/bowaka_lab}
   output_root: ${BOWAKA_OUTPUT_ROOT:-app/outputs/bowaka_lab}
-  mongo_uri: ${MONGO_URI}
+  mongo_uri: ${MONGO_URI:-mongodb://localhost:27017/quants_lab}
   mongo_database: ${MONGO_DATABASE:-quants_lab}
   write_mongo: true
   write_parquet: true

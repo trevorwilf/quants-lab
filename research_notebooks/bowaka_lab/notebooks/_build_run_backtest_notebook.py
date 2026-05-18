@@ -66,8 +66,10 @@ import json
 
 import pandas as pd
 
-from bowaka_lab.config.models import (
-    BowakaBacktestConfig,
+from bowaka_lab.config import (
+    assert_exact_mode_invariants,
+    compute_config_hash,
+    load_config_file,
 )
 from bowaka_lab.data.calendar import USEquityCalendar
 from bowaka_lab.data.parquet_io import (
@@ -88,42 +90,17 @@ from bowaka_lab.utils.io import to_parquet_safe
 '''
 
 
-PARAMETERS = '''# --- Data location -------------------------------------
+PARAMETERS = '''# --- Data location + config ----------------------------
 DATA_ROOT = "research_notebooks/bowaka_lab/db_tools/bowaka_data"  # backfill output
 ARTIFACTS_DIR = "research_notebooks/bowaka_lab/artifacts/run_backtest"
 RUN_ID = "bt_iex_default"
+# Swap to ``configs/bowaka_exact_current_strategy.yml`` for the source-strategy
+# paper-mode profile.
+CONFIG_PATH = "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
 
-# --- Backtest window -----------------------------------
-START_DATE = "2025-01-02"
-END_DATE   = "2026-05-15"
-FEED       = "iex"
-
-# --- Prefilter knobs (universe + signal gates) ---------
-PRICE_MIN              = 1.0
-PRICE_MAX              = 20.0
-AVG_DOLLAR_VOLUME_MIN  = 200_000
-LOOKBACK_DAYS          = 20
-ATR_DAYS               = 14
-EMA_DAYS               = 10
-EMA_SLOPE_LOOKBACK     = 3
-RVOL_MIN               = 1.5
-ATR_PCT_MIN            = 0.06
-RANGE_EXPANSION_MIN    = 1.25
-CLOSE_LOCATION_MIN     = 0.60
-EMA_DISTANCE_MIN       = 0.0
-EMA_SLOPE_MIN          = 0.0
-
-# --- Entry / exit geometry -----------------------------
-ENTRY_RULE     = "fixed_time_0945"
-SLIPPAGE_BPS   = 25
-STOP_PCT       = 0.08
-TARGET_PCT     = 0.15
-MAX_HOLD_DAYS  = 3
-
-# --- Portfolio sizing ----------------------------------
-PER_TRADE_NOTIONAL        = 5_000
-MAX_CONCURRENT_POSITIONS  = 18
-MAX_TOTAL_ENTRIES_PER_DAY = 25
+# Optional explicit research overrides on data window — None = use YAML.
+OVERRIDE_START_DATE = None
+OVERRIDE_END_DATE   = None
 '''
 
 
@@ -134,36 +111,31 @@ artifacts_dir = Path(ARTIFACTS_DIR)
 if not artifacts_dir.is_absolute():
     artifacts_dir = bowaka_project.parent.parent / artifacts_dir
 artifacts_dir.mkdir(parents=True, exist_ok=True)
+config_path = Path(CONFIG_PATH)
+if not config_path.is_absolute():
+    config_path = bowaka_project.parent.parent / config_path
 
-DAILY_ROOT  = data_root / "parquet/bars/vendor=alpaca" / f"feed={FEED}" / "timeframe=1d/adjustment=raw"
-MINUTE_ROOT = data_root / "parquet/bars/vendor=alpaca" / f"feed={FEED}" / "timeframe=1m/adjustment=raw"
+cfg = load_config_file(config_path)
+if OVERRIDE_START_DATE is not None or OVERRIDE_END_DATE is not None:
+    cfg = cfg.model_copy(update={
+        "data": cfg.data.model_copy(update={
+            **({"start_date": OVERRIDE_START_DATE} if OVERRIDE_START_DATE else {}),
+            **({"end_date":   OVERRIDE_END_DATE}   if OVERRIDE_END_DATE   else {}),
+        }),
+    })
+assert_exact_mode_invariants(cfg)
+config_hash = compute_config_hash(cfg)
+
+DAILY_ROOT  = data_root / "parquet/bars/vendor=alpaca" / f"feed={cfg.data.feed}" / "timeframe=1d/adjustment=raw"
+MINUTE_ROOT = data_root / "parquet/bars/vendor=alpaca" / f"feed={cfg.data.feed}" / "timeframe=1m/adjustment=raw"
 
 assert DAILY_ROOT.exists(),  f"daily root missing: {DAILY_ROOT}"
 assert MINUTE_ROOT.exists(), f"minute root missing: {MINUTE_ROOT}"
 
-cfg = BowakaBacktestConfig.model_validate({
-    "data": {"vendor": "alpaca", "feed": FEED, "adjustment": "raw",
-             "start_date": START_DATE, "end_date": END_DATE},
-    "prefilter": {
-        "lookback_days": LOOKBACK_DAYS, "atr_days": ATR_DAYS,
-        "ema_days": EMA_DAYS, "ema_slope_lookback": EMA_SLOPE_LOOKBACK,
-        "price_min": PRICE_MIN, "price_max": PRICE_MAX,
-        "avg_dollar_volume_min": AVG_DOLLAR_VOLUME_MIN,
-        "rvol_min": RVOL_MIN, "atr_pct_min": ATR_PCT_MIN,
-        "range_expansion_min": RANGE_EXPANSION_MIN,
-        "close_location_min": CLOSE_LOCATION_MIN,
-        "ema_distance_min": EMA_DISTANCE_MIN, "ema_slope_min": EMA_SLOPE_MIN,
-        "score": {"bounded": False},
-    },
-    "entry": {"default_rule": ENTRY_RULE, "slippage_bps": SLIPPAGE_BPS},
-    "exits": {"stop_pct": STOP_PCT, "target_pct": TARGET_PCT,
-              "max_hold_days": MAX_HOLD_DAYS},
-    "portfolio": {"per_trade_notional": PER_TRADE_NOTIONAL,
-                  "max_concurrent_positions": MAX_CONCURRENT_POSITIONS,
-                  "max_total_entries_per_day": MAX_TOTAL_ENTRIES_PER_DAY},
-})
-
 cal = USEquityCalendar(cfg.calendar.exchange)
+print(f"config:        {config_path}")
+print(f"config_hash:   {config_hash}")
+print(f"fidelity_mode: {cfg.project.fidelity_mode}")
 print(f"data_root:     {data_root}")
 print(f"daily root:    {DAILY_ROOT}")
 print(f"minute root:   {MINUTE_ROOT}")
@@ -284,7 +256,7 @@ res = generate_weekly_report(
     output_dir=artifacts_dir,
     inputs=ReportInputs(
         run_id=RUN_ID,
-        config_hash="sha256:notebook_run",
+        config_hash=config_hash,
         data_feed=cfg.data.feed,
         universe_mode=cfg.universe.mode,
         trades=trades_for_report,

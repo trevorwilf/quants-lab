@@ -1,4 +1,4 @@
-"""Default config dict matching ``configs/bowaka_backtest_iex_exploratory.yml``."""
+"""Default config dict matching ``configs/bowaka_research_variant.yml``."""
 
 from __future__ import annotations
 

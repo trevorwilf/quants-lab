@@ -38,11 +38,15 @@ def nb_03(bowaka_root):
 
 
 def test_notebook_03_has_parameters_cell_with_RUN_ID_REBUILD_DATA_ROOT(nb_03):
+    """After Phase fidelity-1, the parameters cell exposes CONFIG_PATH + narrow
+    research overrides instead of the old inline-config knobs. Old knobs like
+    START_DATE/RVOL_MIN/etc. now live in the YAML and are NOT in the parameters
+    cell."""
     src = _param_cell_src(nb_03)
-    for name in ("RUN_ID", "REBUILD", "DATA_ROOT", "ARTIFACTS_ROOT",
-                 "START_DATE", "END_DATE", "FEED",
-                 "LOOKBACK_DAYS", "RVOL_MIN", "ATR_PCT_MIN"):
+    for name in ("RUN_ID", "REBUILD", "DATA_ROOT", "ARTIFACTS_ROOT", "CONFIG_PATH"):
         assert re.search(rf"\b{name}\b\s*=", src), f"03 parameters missing {name}"
+    # CONFIG_PATH must point at a YAML in configs/.
+    assert re.search(r'CONFIG_PATH\s*=\s*[\'"][^\'"]+\.yml[\'"]', src)
 
 
 def test_notebook_03_imports_replay_prefilter_over_window(nb_03):
@@ -91,12 +95,12 @@ def nb_04(bowaka_root):
 
 
 def test_notebook_04_has_parameters_cell_with_required_options(nb_04):
+    """After Phase fidelity-1, notebook 04 reads ENTRY_RULE/STOP_PCT/etc. from
+    CONFIG_PATH instead of inline parameters."""
     src = _param_cell_src(nb_04)
-    for name in ("RUN_ID", "DATA_ROOT", "ARTIFACTS_ROOT", "FEED", "REBUILD",
-                 "ENTRY_RULE", "SLIPPAGE_BPS", "STOP_PCT", "TARGET_PCT",
-                 "MAX_HOLD_DAYS", "PER_TRADE_NOTIONAL",
-                 "MAX_CONCURRENT_POSITIONS", "MAX_TOTAL_ENTRIES_PER_DAY"):
+    for name in ("RUN_ID", "DATA_ROOT", "ARTIFACTS_ROOT", "REBUILD", "CONFIG_PATH"):
         assert re.search(rf"\b{name}\b\s*=", src), f"04 parameters missing {name}"
+    assert re.search(r'CONFIG_PATH\s*=\s*[\'"][^\'"]+\.yml[\'"]', src)
 
 
 def test_notebook_04_imports_BowakaPortfolioBacktester(nb_04):

@@ -108,12 +108,15 @@ assert not missing_required, (
 '''
 
 
-BUILD_INPUTS = '''from bowaka_lab.metrics.bucket_analysis import flatten_variant_column
+BUILD_INPUTS = '''from bowaka_lab.config.hashing import stable_hash
+from bowaka_lab.metrics.bucket_analysis import flatten_variant_column
 from bowaka_lab.reports.tables import candidate_rank_distribution
 
 funnel  = load_json(paths.funnel)     if required_status["funnel"]  else None
 config  = load_json(paths.config)     if required_status["config"]  else {}
 summary = load_json(paths.summary)    if required_status["summary"] else {}
+# Hash the actual backtest config that notebook 04 persisted, not a literal.
+config_hash = stable_hash(config) if config else "sha256:no_config_artifact"
 
 candidates_df = load_parquet(paths.candidates) if required_status["candidates"] else pd.DataFrame()
 rank_distribution = candidate_rank_distribution(candidates_df) if not candidates_df.empty else None
@@ -146,7 +149,7 @@ counterfactuals_df = pd.concat(cf_frames, ignore_index=True) if cf_frames else p
 
 inputs = ReportInputs(
     run_id=RUN_ID,
-    config_hash="sha256:notebook_11",
+    config_hash=config_hash,
     data_feed=(config.get("data", {}) or {}).get("feed", "iex"),
     universe_mode=(config.get("universe", {}) or {}).get("mode", "alpaca_current_assets"),
     prefilter_funnel=funnel,
