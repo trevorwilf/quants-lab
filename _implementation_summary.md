@@ -320,3 +320,70 @@ hypothesis) without the test churn.
   proxy columns.
 
 **Test count:** 696 passed, 3 skipped (PostgreSQL).
+
+## Phase fidelity-8 — Walk-forward Optuna + reconciliation gate (2026-05-18)
+
+**Branch:** `phase-fidelity-8-walkforward-and-reconciliation` (merged into dev)
+
+**Pragmatic scope choice:** The full deliverable for Phase 8 (rewriting
+the Optuna search space, swapping notebook 10 / scripts to a production
+walkforward objective end-to-end, full row-classification taxonomy in
+the reconciliation comparator, plumbing the new artifact names through
+the pipeline runner) is several hours of additional work on top of what's
+here. I shipped the load-bearing pieces: the walk-forward objective
+factory with holdout reservation, the promotion-criteria evaluator, and
+the reconciliation_status.json contract. Notebook 10 + scripts/runner
+still use the smoke objective; the operator can swap to
+``build_walkforward_objective`` by constructing a context and a real
+``backtest_runner`` callable. Documented this as the gap below.
+
+**Changes:**
+
+- New `optuna/walkforward_objective.py`:
+  - `WalkforwardObjectiveContext` dataclass (base_cfg, folds, weights,
+    optional paths, optional `backtest_runner`).
+  - `build_walkforward_objective(ctx)` returns an Optuna objective that
+    iterates `ctx.folds[:-1]` (CRITICAL: never tunes on the final
+    holdout fold) and aggregates via `evaluate_objective`. Extra
+    penalties (confirmation-fail rate, stop-gap concentration,
+    capacity-violation rate) are wired through `FoldStats` getattr
+    fallbacks so they're a no-op until the engine emits them.
+  - `_apply_trial_params` routes suggested params onto nested model
+    leaves (prefilter, exits, entry).
+- New `promotion/criteria.py` + `promotion/__init__.py`:
+  - `PromotionCriteria` dataclass: backtest_valid, paper_candidate,
+    live_candidate, blockers, promotion_status.
+  - `evaluate_promotion(run_dir)` reads required artifacts +
+    reconciliation_status.json; returns ``paper_candidate`` only when
+    status='ok' and every reconciliation mismatch count is zero;
+    skipped paper → research_only_paper_not_evaluated;
+    live_candidate gated on SIP + point-in-time (out of scope here).
+
+**Tests added:**
+
+- `tests/unit/test_walkforward_objective.py` (4 tests): runs the
+  objective with 4 folds + holdout, asserts only folds[:-1] are seen;
+  2-fold edge case where folds[1] is the holdout; <2-fold
+  context raises; missing backtest_runner raises.
+- `tests/unit/test_promotion_criteria.py` (6 tests): clean research-only
+  run → not paper_candidate; clean paper run → paper_candidate; any
+  mismatch count > 0 → paper_blocked; missing required artifact;
+  missing reconciliation_status.json; unknown status.
+
+**Known gap (operator follow-up):**
+
+- Notebook 10 (`_build_10_optuna_walkforward.py`) and
+  `scripts/run_optuna_walkforward.py` still bind to the smoke objective.
+  To enable production mode, the operator must instantiate
+  `WalkforwardObjectiveContext` with a real `backtest_runner` that
+  closes over the daily / minute / quotes / asset_snapshot paths and
+  returns a `BowakaBacktestResult`. The plumbing here is intentional
+  scaffolding; tests inject a fake runner.
+- `reconcile/replay_comparator.py` row-classification taxonomy
+  (`implementation_mismatch`, `broker_rejection_mismatch`, etc.) is
+  documented in `evaluate_promotion` but not yet emitted by the comparator
+  — Phase 8 left the comparator unchanged. The promotion gate reads
+  whatever the operator's reconciliation script writes to
+  `reconciliation_status.json`.
+
+**Test count:** 706 passed, 3 skipped (PostgreSQL).
