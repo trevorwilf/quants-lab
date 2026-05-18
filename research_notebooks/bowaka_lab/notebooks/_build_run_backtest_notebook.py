@@ -71,6 +71,7 @@ from bowaka_lab.config import (
     compute_config_hash,
     load_config_file,
 )
+from bowaka_lab.data.assets import load_latest_asset_snapshot
 from bowaka_lab.data.calendar import USEquityCalendar
 from bowaka_lab.data.parquet_io import (
     MinuteBarLoader,
@@ -123,7 +124,14 @@ if OVERRIDE_START_DATE is not None or OVERRIDE_END_DATE is not None:
             **({"end_date":   OVERRIDE_END_DATE}   if OVERRIDE_END_DATE   else {}),
         }),
     })
-assert_exact_mode_invariants(cfg)
+
+# Asset snapshot is loaded BEFORE invariants so exact mode fails closed when
+# absent. Research mode just gets an empty DataFrame and skips classification.
+asset_snapshot = load_latest_asset_snapshot(data_root)
+asset_snapshot_id = asset_snapshot.attrs.get("snapshot_id", "")
+print(f"asset_snapshot: rows={asset_snapshot.shape[0]:,}  snapshot_id={asset_snapshot_id!r}")
+
+assert_exact_mode_invariants(cfg, asset_snapshot=asset_snapshot)
 config_hash = compute_config_hash(cfg)
 
 DAILY_ROOT  = data_root / "parquet/bars/vendor=alpaca" / f"feed={cfg.data.feed}" / "timeframe=1d/adjustment=raw"
@@ -164,6 +172,7 @@ candidates_by_signal = replay_prefilter_over_window(
     signal_dates=candidate_signals,
     next_session_fn=cal.next_session,
     universe=cfg.universe,
+    asset_snapshot=asset_snapshot if not asset_snapshot.empty else None,
 )
 
 # Hand the backtester ranked candidate frames (not full CandidateSet objects).

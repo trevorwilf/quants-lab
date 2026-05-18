@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable
 
 import pandas as pd
@@ -187,3 +188,40 @@ def build_asset_snapshot(
 
 def assets_to_dataframe(rows: list[AssetRow]) -> pd.DataFrame:
     return pd.DataFrame([r.__dict__ for r in rows])
+
+
+def load_latest_asset_snapshot(data_root: Path | str) -> pd.DataFrame:
+    """Load the most-recent asset_snapshot parquet under ``data_root``.
+
+    Looks for files under ``<data_root>/parquet/assets/vendor=alpaca/snapshot_id=*/assets.parquet``,
+    matching the layout from ``db_tools/_backfill_lib.py::assets_file``.
+
+    Sort key: the partition mtime, then the snapshot_id (lexicographic) as a
+    tie-breaker. Returns an empty DataFrame with the expected columns when no
+    snapshot is present so callers can branch on ``snapshot.empty`` without
+    handling ``FileNotFoundError`` separately.
+
+    Attaches ``snapshot_id`` to the returned DataFrame's ``attrs`` so the
+    prefilter persistence path can lineage-tag candidates with it.
+    """
+    data_root = Path(data_root)
+    assets_root = data_root / "parquet" / "assets" / "vendor=alpaca"
+    snapshot_files = sorted(
+        assets_root.glob("snapshot_id=*/assets.parquet"),
+        key=lambda p: (p.stat().st_mtime if p.exists() else 0, p.parent.name),
+    )
+    if not snapshot_files:
+        empty = pd.DataFrame(
+            columns=[
+                "snapshot_id", "symbol", "symbol_key", "name", "exchange",
+                "venue_code", "asset_class", "tradable", "marginable", "shortable",
+                "fractionable", "status", "instrument_class", "classification_reason",
+            ]
+        )
+        empty.attrs["snapshot_id"] = ""
+        return empty
+    latest = snapshot_files[-1]
+    df = pd.read_parquet(latest)
+    snapshot_id = latest.parent.name.split("=", 1)[1] if "=" in latest.parent.name else ""
+    df.attrs["snapshot_id"] = snapshot_id
+    return df

@@ -62,6 +62,7 @@ from bowaka_lab.config import (
     compute_config_hash,
     load_config_file,
 )
+from bowaka_lab.data.assets import load_latest_asset_snapshot
 from bowaka_lab.data.calendar import USEquityCalendar
 from bowaka_lab.data.parquet_io import load_daily_bars_from_root
 from bowaka_lab.features.prefilter import (
@@ -93,7 +94,14 @@ if OVERRIDE_START_DATE is not None or OVERRIDE_END_DATE is not None:
             **({"end_date":   OVERRIDE_END_DATE}   if OVERRIDE_END_DATE   else {}),
         }),
     })
-assert_exact_mode_invariants(cfg)
+
+# Load the latest asset snapshot before the invariant check so exact mode can
+# fail closed on an empty snapshot.
+asset_snapshot = load_latest_asset_snapshot(data_root)
+asset_snapshot_id = asset_snapshot.attrs.get("snapshot_id", "")
+print(f"asset_snapshot: rows={asset_snapshot.shape[0]:,}  snapshot_id={asset_snapshot_id!r}")
+
+assert_exact_mode_invariants(cfg, asset_snapshot=asset_snapshot)
 config_hash = compute_config_hash(cfg)
 
 DAILY_ROOT = data_root / "parquet/bars/vendor=alpaca" / f"feed={cfg.data.feed}" / "timeframe=1d/adjustment=raw"
@@ -148,6 +156,7 @@ REPLAY = '''if candidates_df is None:
         signal_dates=candidate_signals,
         next_session_fn=cal.next_session,
         universe=cfg.universe,
+        asset_snapshot=asset_snapshot if not asset_snapshot.empty else None,
     )
     funnel = aggregate_prefilter_funnel(csets)
 
@@ -163,10 +172,42 @@ REPLAY = '''if candidates_df is None:
     candidates_df = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(
         columns=["symbol", "signal_date", "trade_date", "rank", "signal_strength"]
     )
+    # Lineage tag every candidates row with the config hash + data feed +
+    # asset snapshot id so Phase 8 paper-vs-backtest reconciliation can pin
+    # which dataset the row came from.
+    if not candidates_df.empty:
+        candidates_df["config_hash"]       = config_hash
+        candidates_df["data_feed"]         = cfg.data.feed
+        candidates_df["asset_snapshot_id"] = asset_snapshot_id
+
+    # Persist EVERY decision (passed + rejected) so notebooks 05/06/07 can
+    # build rejected-candidate counterfactuals.
+    all_decisions_rows = []
+    for sd, cset in csets.items():
+        if cset.all_decisions is None or cset.all_decisions.empty:
+            continue
+        df = cset.all_decisions.reset_index()
+        df["signal_date"] = sd
+        df["trade_date"] = cset.trade_date
+        all_decisions_rows.append(df)
+    if all_decisions_rows:
+        all_decisions_df = pd.concat(all_decisions_rows, ignore_index=True)
+    else:
+        all_decisions_df = pd.DataFrame(columns=[
+            "symbol", "signal_date", "trade_date", "passed_prefilter",
+            "rejection_reasons", "instrument_class", "classification_reason",
+            "final_decision", "signal_strength", "rank",
+        ])
+    if not all_decisions_df.empty:
+        all_decisions_df["config_hash"]       = config_hash
+        all_decisions_df["data_feed"]         = cfg.data.feed
+        all_decisions_df["asset_snapshot_id"] = asset_snapshot_id
 
     save_parquet(paths.candidates, candidates_df)
+    save_parquet(paths.all_decisions, all_decisions_df)
     save_json(paths.funnel, funnel)
     print(f"  wrote {paths.candidates}")
+    print(f"  wrote {paths.all_decisions}  ({all_decisions_df.shape[0]:,} rows)")
     print(f"  wrote {paths.funnel}")
 
 print()
@@ -174,6 +215,11 @@ print("funnel totals:")
 for k in ("universe_with_features", "passed_universe_gates", "candidates",
           "rejected_by_signal_gates", "excluded_by_instrument_class"):
     print(f"  {k}: {funnel[k]:,}")
+print()
+print("by instrument_class:")
+for cls, counts in (funnel.get("by_instrument_class") or {}).items():
+    print(f"  {cls}: n_rows={counts['n_rows']:,}  passed={counts['n_passed_prefilter']:,}  "
+          f"eligible={counts['n_eligible_equity_bucket']:,}")
 '''
 
 

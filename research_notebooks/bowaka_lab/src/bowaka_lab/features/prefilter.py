@@ -207,19 +207,40 @@ def aggregate_prefilter_funnel(candidates_by_signal: dict) -> dict:
     - ``rejected_by_signal_gates``
     - ``excluded_by_instrument_class``
     - ``per_session``: ``{"<YYYY-MM-DD>": {<same 5 counts>}, ...}``
+    - ``by_instrument_class``: per-class breakdown
+      ``{"<class>": {"n_rows": int, "n_passed_prefilter": int,
+                       "n_eligible_equity_bucket": int}, ...}``
 
     Each top-level int is the sum across sessions. ``per_session`` preserves
-    the breakdown so 11_weekly_research_report can render trends.
+    the breakdown so 11_weekly_research_report can render trends. The
+    instrument-class breakdown is derived from each cset's ``all_decisions``
+    DataFrame; sessions with empty all_decisions are skipped.
     """
     totals = {k: 0 for k in FUNNEL_TOTAL_KEYS}
     per_session: dict[str, dict[str, int]] = {}
+    by_instrument_class: dict[str, dict[str, int]] = {}
     for sd, cset in candidates_by_signal.items():
         meta = getattr(cset, "metadata", None) or {}
         session_counts = {k_out: int(meta.get(k_in, 0) or 0) for k_in, k_out in _FUNNEL_KEY_MAP.items()}
         for k, v in session_counts.items():
             totals[k] += v
         per_session[str(sd)] = session_counts
-    return {**totals, "per_session": per_session}
+
+        decisions = getattr(cset, "all_decisions", None)
+        if decisions is None or decisions.empty or "instrument_class" not in decisions.columns:
+            continue
+        for cls, group in decisions.groupby("instrument_class"):
+            bucket = by_instrument_class.setdefault(
+                str(cls), {"n_rows": 0, "n_passed_prefilter": 0, "n_eligible_equity_bucket": 0}
+            )
+            bucket["n_rows"] += int(group.shape[0])
+            if "passed_prefilter" in group.columns:
+                bucket["n_passed_prefilter"] += int(group["passed_prefilter"].fillna(False).sum())
+            if "eligible_for_bowaka_equity_bucket" in group.columns:
+                bucket["n_eligible_equity_bucket"] += int(
+                    group["eligible_for_bowaka_equity_bucket"].fillna(False).sum()
+                )
+    return {**totals, "per_session": per_session, "by_instrument_class": by_instrument_class}
 
 
 def replay_prefilter_over_window(

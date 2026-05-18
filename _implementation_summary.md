@@ -56,3 +56,46 @@
   `research_notebooks/bowaka_lab/reference/source_strategy/bowaka_backup.zip`;
   it has been unpacked locally but `reference/` is gitignored so the
   binary blob does not enter the repo.
+
+## Phase fidelity-2 — Prefilter replay artifacts + asset_snapshot (2026-05-17)
+
+**Branch:** `phase-fidelity-2-prefilter-artifacts` (merged into dev)
+
+**Changes:**
+
+- Added `bowaka_lab.data.assets.load_latest_asset_snapshot(data_root)` that
+  scans `<data_root>/parquet/assets/vendor=alpaca/snapshot_id=*/assets.parquet`
+  and returns the newest snapshot (empty DataFrame when none exist).
+- Extended `assert_exact_mode_invariants(cfg, *, asset_snapshot=None)` so
+  exact mode fails closed on an empty asset snapshot.
+- Notebooks 03 + run_backtest load the snapshot before invariants and pass
+  it through `replay_prefilter_over_window(..., asset_snapshot=...)`.
+- Notebook 03 persists a new `all_decisions.parquet` containing every
+  per-(signal_date, symbol) row from the prefilter (passed + rejected),
+  lineage-tagged with `config_hash`, `data_feed`, `asset_snapshot_id`.
+  Candidates parquet gets the same lineage columns.
+- `aggregate_prefilter_funnel` now returns a `by_instrument_class` block
+  derived from each `CandidateSet.all_decisions` frame; the weekly report
+  Section 5 renders it via the new `instrument_class_breakdown` helper.
+- `ArtifactPaths` gains `all_decisions` (this phase) plus pre-allocated
+  properties for `entry_skips`, `order_events`, `signal_fade_telemetry`,
+  `reconciliation_status` (used in Phases 3–8).
+
+**Tests added:**
+
+- `tests/integration/test_prefilter_parity_with_source.py` extended with
+  `classify_instrument` parity tests against a verbatim source excerpt
+  copied to `tests/fixtures/source_classify_instrument.py`.
+- `tests/unit/test_all_decisions_artifact.py` — `apply_prefilter` returns
+  `all_decisions` as a superset of `candidates` with rejection reasons,
+  instrument class, classification reason, and `final_decision`.
+- `tests/unit/test_notebook_03_persists_all_decisions.py` — AST/regex
+  test asserting the builder loads the asset snapshot, passes it through,
+  and saves `paths.all_decisions` with lineage tags.
+- `tests/unit/test_funnel_includes_instrument_class.py` — funnel dict
+  contains the per-class breakdown; `instrument_class_breakdown` helper
+  renders a tidy frame.
+- Updated `tests/unit/test_prefilter_funnel_aggregation.py` to allow the
+  new `by_instrument_class` top-level key.
+
+**Test count:** 621 passed, 3 skipped (PostgreSQL).

@@ -13,6 +13,7 @@ from bowaka_lab.features.prefilter import (
 )
 
 
+# Phase fidelity-2 added ``by_instrument_class`` to the top-level funnel block.
 _EXPECTED_TOP_KEYS = {
     "universe_with_features",
     "passed_universe_gates",
@@ -20,6 +21,7 @@ _EXPECTED_TOP_KEYS = {
     "rejected_by_signal_gates",
     "excluded_by_instrument_class",
     "per_session",
+    "by_instrument_class",
 }
 
 

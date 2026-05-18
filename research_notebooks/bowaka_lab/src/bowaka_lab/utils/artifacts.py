@@ -61,6 +61,34 @@ class ArtifactPaths:
         return self.root / "candidates.parquet"
 
     @property
+    def all_decisions(self) -> Path:
+        """Every per-(signal_date, symbol) row from the prefilter replay,
+        including passed + rejected rows. Phase fidelity-2."""
+        return self.root / "all_decisions.parquet"
+
+    @property
+    def entry_skips(self) -> Path:
+        """Per-candidate skip reasons from the entry-confirmation gate.
+        Phase fidelity-3."""
+        return self.root / "entry_skips.parquet"
+
+    @property
+    def order_events(self) -> Path:
+        """Broker simulator events (parent submit/fill/reject, OCO
+        attach/fail/retry, fallback, flatten). Phase fidelity-4."""
+        return self.root / "order_events.parquet"
+
+    @property
+    def signal_fade_telemetry(self) -> Path:
+        """Source-aligned signal-fade score telemetry. Phase fidelity-6."""
+        return self.root / "signal_fade_telemetry.parquet"
+
+    @property
+    def reconciliation_status(self) -> Path:
+        """Paper-vs-backtest reconciliation status JSON. Phase fidelity-8."""
+        return self.root / "reconciliation_status.json"
+
+    @property
     def trades(self) -> Path:
         return self.root / "trades.parquet"
 

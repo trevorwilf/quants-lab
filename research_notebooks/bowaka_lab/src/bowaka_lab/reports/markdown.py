@@ -187,10 +187,18 @@ def build_markdown(inputs: ReportInputs) -> str:
         parts.append("- _no dataset hashes provided_")
 
     parts.append(f"\n## {SECTION_HEADERS[4]}\n")
-    from bowaka_lab.reports.tables import candidate_funnel
+    from bowaka_lab.reports.tables import candidate_funnel, instrument_class_breakdown
 
     funnel_source = inputs.prefilter_funnel if inputs.prefilter_funnel else inputs.prefilter_metadata
     parts.append(_md_table(candidate_funnel(funnel_source)))
+
+    # Instrument-class breakdown (Phase fidelity-2). Only rendered when the
+    # funnel actually carries it; legacy callers still see just the 5-stage table.
+    if isinstance(inputs.prefilter_funnel, dict):
+        ic_breakdown = inputs.prefilter_funnel.get("by_instrument_class") or {}
+        if ic_breakdown:
+            parts.append("\n**Per instrument_class:**")
+            parts.append(_md_table(instrument_class_breakdown(ic_breakdown)))
 
     parts.append(f"\n## {SECTION_HEADERS[5]}\n")
     if inputs.candidate_rank_distribution is not None and not inputs.candidate_rank_distribution.empty:

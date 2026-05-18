@@ -39,6 +39,30 @@ def candidate_rank_distribution(candidates: pd.DataFrame) -> pd.DataFrame:
     return agg
 
 
+def instrument_class_breakdown(by_class: dict) -> pd.DataFrame:
+    """Render the per-instrument_class summary from
+    ``aggregate_prefilter_funnel``'s ``by_instrument_class`` block.
+
+    Input shape: ``{"<class>": {"n_rows": int, "n_passed_prefilter": int,
+    "n_eligible_equity_bucket": int}, ...}``. Returns a tidy DataFrame
+    sorted by ``n_rows`` desc.
+    """
+    if not by_class:
+        return pd.DataFrame(columns=["instrument_class", "n_rows", "n_passed_prefilter", "n_eligible_equity_bucket"])
+    rows = []
+    for cls, counts in by_class.items():
+        rows.append(
+            {
+                "instrument_class": str(cls),
+                "n_rows": int(counts.get("n_rows", 0) or 0),
+                "n_passed_prefilter": int(counts.get("n_passed_prefilter", 0) or 0),
+                "n_eligible_equity_bucket": int(counts.get("n_eligible_equity_bucket", 0) or 0),
+            }
+        )
+    out = pd.DataFrame(rows)
+    return out.sort_values("n_rows", ascending=False).reset_index(drop=True)
+
+
 def candidate_funnel(metadata: dict) -> pd.DataFrame:
     """Render the prefilter funnel as a 5-row DataFrame.
 
