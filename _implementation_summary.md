@@ -99,3 +99,51 @@
   new `by_instrument_class` top-level key.
 
 **Test count:** 621 passed, 3 skipped (PostgreSQL).
+
+## Phase fidelity-3 — Intraday confirmation + quote-aware fills (2026-05-17)
+
+**Branch:** `phase-fidelity-3-confirmation-and-quotes` (merged into dev)
+
+**Changes:**
+
+- New `bowaka_lab.data.quote_loader.QuoteLoader` partitioned-parquet reader,
+  callable like `MinuteBarLoader`; returns empty DataFrame on missing
+  partition.
+- New `bowaka_lab.sim.intraday_confirmation` module with
+  `ConfirmationResult` dataclass and `confirm_entry()` — semantic parity
+  with source `_confirm_entry` (lines 1943-1991): bid/ask validity, spread
+  cap, quote-age cap, price-band chase/failure. Returns stable fail-reason
+  strings (`no_quote`, `spread>X`, `quote_age>Xs`, `chase>X`, `failure<X`,
+  `bad_quote_timestamp`). Helper `latest_quote_at_or_before(quotes, ts)`.
+- `EntryConfig.intraday_confirmation: IntradayConfirmationConfig` field
+  (Pydantic nested), default `enabled=false` so research configs that
+  don't pass a quote_loader keep working unchanged.
+- `BowakaPortfolioBacktester` constructor accepts `quote_loader`; when
+  `entry.intraday_confirmation.enabled` it routes through the gate:
+    - Exact mode + no quote → entry skipped with `no_quote_exact_mode`.
+    - Research mode + no quote → enters with `fill_label='no_quote'`.
+    - Failed confirmation → entry skipped, reason recorded.
+    - Passed → uses ask-based quote fill (via `buy_from_quote`) when
+      `cfg.entry.use_quotes_if_available`.
+  Engine init raises in exact mode if `intraday_confirmation.enabled=false`.
+- New artifact path `ArtifactPaths.entry_skips` (parquet); the result
+  carries an `entry_skips: list[EntrySkipRecord]` plus `entry_skips_df()`.
+- `assert_exact_mode_invariants` extended: requires
+  `intraday_confirmation.enabled=true`, `max_spread_pct <= 0.01`,
+  `max_quote_age_seconds <= 15`. Exact YAML profile reflects these.
+
+**Tests added:**
+
+- `tests/integration/test_confirmation_parity_with_source.py` — 8
+  parameterized cases against a verbatim source excerpt at
+  `tests/fixtures/source_confirm_entry.py`.
+- `tests/unit/test_quote_loader.py` — partition discovery, multi-symbol
+  aggregation, derived-column backfill.
+- `tests/unit/test_portfolio_engine_confirmation_research_mode.py` —
+  valid quote enters, missing quote falls back to bar fill, stale quote
+  skips, wide spread skips, entry_skips_df schema.
+- `tests/unit/test_portfolio_engine_confirmation_exact_mode.py` — exact
+  + no quote skips, exact + disabled raises, exact-mode invariant blocks
+  loose thresholds.
+
+**Test count:** 641 passed, 3 skipped (PostgreSQL).

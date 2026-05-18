@@ -113,6 +113,17 @@ class EntryPriceBand(StrictModel):
     min_pct_below_close: float = -0.02
 
 
+class IntradayConfirmationConfig(StrictModel):
+    """Source-aligned intraday-confirmation gate. Disabled by default so
+    research-mode configs that don't load quotes keep working unchanged."""
+
+    enabled: bool = False
+    window_minutes: int = Field(default=15, ge=0, le=120)
+    max_spread_pct: float = Field(default=0.01, ge=0, lt=1.0)
+    max_quote_age_seconds: float = Field(default=15.0, ge=0, le=300.0)
+    price_band: EntryPriceBand = Field(default_factory=EntryPriceBand)
+
+
 class EntryConfig(StrictModel):
     default_rule: str = "fixed_time_0945"
     fixed_times: list[str] = Field(default_factory=lambda: ["09:35", "09:40", "09:45", "10:00"])
@@ -120,6 +131,9 @@ class EntryConfig(StrictModel):
     slippage_bps: float = Field(default=25.0, ge=0)
     use_quotes_if_available: bool = True
     price_band: EntryPriceBand = Field(default_factory=EntryPriceBand)
+    intraday_confirmation: IntradayConfirmationConfig = Field(
+        default_factory=IntradayConfirmationConfig
+    )
 
 
 class ExitConfig(StrictModel):

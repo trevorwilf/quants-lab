@@ -31,6 +31,11 @@ from bowaka_lab.config.models import (
 from bowaka_lab.data.calendar import USEquityCalendar
 from bowaka_lab.sim.exits import ExitEvent, evaluate_bar_exit, is_time_stop_due
 from bowaka_lab.sim.fill_model import BowakaFillModel
+from bowaka_lab.sim.intraday_confirmation import (
+    ConfirmationResult,
+    confirm_entry,
+    latest_quote_at_or_before,
+)
 from bowaka_lab.sim.positions import SimulatedPosition
 from bowaka_lab.utils.ids import trade_id
 
@@ -65,12 +70,41 @@ class TradeRecord:
 
 
 @dataclass
+class EntrySkipRecord:
+    """One row per (symbol, trade_date) that the confirmation gate skipped.
+
+    Persisted as ``entry_skips.parquet`` so the weekly report and Phase 8
+    reconciliation can see which candidates the engine refused to enter and
+    why.
+    """
+    symbol: str
+    trade_date: date
+    fail_reason: str
+    candidate_rank: int
+    bar_ts: pd.Timestamp | None = None
+    mid: float | None = None
+    spread_pct: float | None = None
+    quote_age_seconds: float | None = None
+
+
+@dataclass
 class BowakaBacktestResult:
     trades: list[TradeRecord]
     daily_summary: pd.DataFrame
     open_positions: list[SimulatedPosition]
     shadow_blocks: list[dict] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
+    entry_skips: list[EntrySkipRecord] = field(default_factory=list)
+
+    def entry_skips_df(self) -> pd.DataFrame:
+        if not self.entry_skips:
+            return pd.DataFrame(
+                columns=[
+                    "symbol", "trade_date", "fail_reason", "candidate_rank",
+                    "bar_ts", "mid", "spread_pct", "quote_age_seconds",
+                ]
+            )
+        return pd.DataFrame([s.__dict__ for s in self.entry_skips])
 
     def trades_df(self) -> pd.DataFrame:
         if not self.trades:
@@ -119,12 +153,30 @@ class BowakaPortfolioBacktester:
         minute_bars_for: Callable[[date, list[str]], pd.DataFrame],
         fill_model: BowakaFillModel | None = None,
         calendar: USEquityCalendar | None = None,
+        quote_loader: Callable[[date, list[str]], pd.DataFrame] | None = None,
     ):
         self.cfg = config
         self.candidate_source = candidate_source
         self.minute_bars_for = minute_bars_for
         self.fill_model = fill_model or BowakaFillModel(slippage_bps=config.entry.slippage_bps)
         self.cal = calendar or USEquityCalendar(config.calendar.exchange)
+        self.quote_loader = quote_loader
+
+        # Engine-init guard: exact mode requires intraday_confirmation.enabled=true.
+        if config.is_exact_mode and not config.entry.intraday_confirmation.enabled:
+            raise RuntimeError(
+                "exact mode requires entry.intraday_confirmation.enabled=true; "
+                "research mode keeps the legacy bar-fill behavior."
+            )
+
+    def _confirmation_time_for_session(self, trade_date: date) -> pd.Timestamp:
+        """Source uses ``09:30 + window_minutes`` for the confirmation tick."""
+        ic = self.cfg.entry.intraday_confirmation
+        session_open = pd.Timestamp(trade_date).tz_localize("America/New_York") + pd.Timedelta(
+            hours=9, minutes=30
+        )
+        ts = session_open + pd.Timedelta(minutes=ic.window_minutes)
+        return ts.tz_convert("UTC")
 
     def _entry_time_for_session(self, trade_date: date, rule: str) -> pd.Timestamp:
         """For the default 'fixed_time_HHMM' rule, return that ET timestamp."""
@@ -194,6 +246,7 @@ class BowakaPortfolioBacktester:
         open_positions: dict[str, _OpenPositionState] = {}
         shadow_blocks: list[dict] = []
         daily_rows: list[dict] = []
+        entry_skips: list[EntrySkipRecord] = []
 
         sessions = self.cal.sessions(cfg.data.start_date, cfg.data.end_date)
         for signal_date in sessions:
@@ -258,7 +311,24 @@ class BowakaPortfolioBacktester:
                         open_positions.pop(sym, None)
 
             # 2. Evaluate entries for ranked candidates on trade_date.
-            entry_time = self._entry_time_for_session(trade_date, cfg.entry.default_rule)
+            ic_cfg = cfg.entry.intraday_confirmation
+            if ic_cfg.enabled:
+                entry_time = self._confirmation_time_for_session(trade_date)
+            else:
+                entry_time = self._entry_time_for_session(trade_date, cfg.entry.default_rule)
+
+            # Load quotes once per session (callable returns empty when missing).
+            quotes_today = pd.DataFrame()
+            if ic_cfg.enabled and self.quote_loader is not None:
+                symbols_for_quotes = (
+                    candidates["symbol"].astype(str).tolist() if not candidates.empty else []
+                )
+                if symbols_for_quotes:
+                    try:
+                        quotes_today = self.quote_loader(trade_date, symbols_for_quotes)
+                    except Exception:
+                        quotes_today = pd.DataFrame()
+
             entries_blocked = False
             candidates_to_iter = candidates.sort_values("rank") if not candidates.empty else pd.DataFrame()
             for _, candidate in candidates_to_iter.iterrows():
@@ -278,8 +348,66 @@ class BowakaPortfolioBacktester:
                 if entry_bar.empty:
                     continue
                 entry_bar = entry_bar.iloc[0]
-                fill = self.fill_model.buy_from_bar(entry_bar.to_dict())
+                bar_ts = pd.Timestamp(entry_bar["timestamp"])
+
+                # Intraday confirmation gate (Phase fidelity-3).
+                fill_label = "no_confirmation"
+                confirmation: ConfirmationResult | None = None
+                latest_q: dict | None = None
+                if ic_cfg.enabled:
+                    sym_quotes = (
+                        quotes_today[quotes_today["symbol"] == sym]
+                        if not quotes_today.empty else pd.DataFrame()
+                    )
+                    latest_q = latest_quote_at_or_before(sym_quotes, bar_ts)
+                    if latest_q is None:
+                        # No quote available: exact mode fails closed, research
+                        # mode falls back to bar fill with a 'no_quote' label.
+                        if cfg.is_exact_mode:
+                            entry_skips.append(EntrySkipRecord(
+                                symbol=str(sym), trade_date=trade_date,
+                                fail_reason="no_quote_exact_mode",
+                                candidate_rank=int(candidate.get("rank") or 0),
+                                bar_ts=bar_ts,
+                            ))
+                            continue
+                        fill_label = "no_quote"
+                    else:
+                        confirmation = confirm_entry(
+                            candidate_close=float(candidate.get("close") or 0.0),
+                            quote_row=latest_q,
+                            now_utc=bar_ts,
+                            max_spread_pct=ic_cfg.max_spread_pct,
+                            max_quote_age_seconds=ic_cfg.max_quote_age_seconds,
+                            price_band_max_above=ic_cfg.price_band.max_pct_above_close,
+                            price_band_min_below=ic_cfg.price_band.min_pct_below_close,
+                        )
+                        if not confirmation.passed:
+                            entry_skips.append(EntrySkipRecord(
+                                symbol=str(sym), trade_date=trade_date,
+                                fail_reason=confirmation.fail_reason or "confirmation_failed",
+                                candidate_rank=int(candidate.get("rank") or 0),
+                                bar_ts=bar_ts,
+                                mid=confirmation.mid,
+                                spread_pct=confirmation.spread_pct,
+                                quote_age_seconds=confirmation.quote_age_seconds,
+                            ))
+                            continue
+                        fill_label = "quote_confirmed"
+
+                # Build the fill. Quote-confirmed entries can use the ask
+                # (when use_quotes_if_available is on). Bar-fill is the fallback.
+                use_quote_fill = (
+                    confirmation is not None
+                    and latest_q is not None
+                    and cfg.entry.use_quotes_if_available
+                )
+                if use_quote_fill:
+                    fill = self.fill_model.buy_from_quote(latest_q)
+                else:
+                    fill = self.fill_model.buy_from_bar(entry_bar.to_dict())
                 entry_price = fill.fill_price
+                fill_diag = {**(fill.diagnostics or {}), "fill_label": fill_label}
                 qty = self._qty_for(entry_price=entry_price, portfolio=cfg.portfolio)
                 qty = self._maybe_apply_realism_cap(qty=qty, candidate=candidate.to_dict(), realism=cfg.realism)
                 if qty <= 0:
@@ -360,6 +488,7 @@ class BowakaPortfolioBacktester:
             open_positions=[s.position for s in open_positions.values()],
             shadow_blocks=shadow_blocks,
             metadata={"sessions": len(sessions)},
+            entry_skips=entry_skips,
         )
 
     def _build_record(self, pos: SimulatedPosition, *, prefilter_rank: int, ambiguous_bar: bool) -> TradeRecord:
