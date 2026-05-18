@@ -1,8 +1,13 @@
 """Phase 3: parity test against legacy ``bowaka_prefilter.py``.
 
-Skipped unless ``BOWAKA_SOURCE_STRATEGY_ROOT`` is set. The env var must point
-to a directory containing ``scripts/bowaka_prefilter.py`` — typically the
-openalgo strategies checkout.
+The ``compute_features`` parity branch is skipped unless
+``BOWAKA_SOURCE_STRATEGY_ROOT`` is set (it depends on importing the full
+legacy module which pulls Alpaca SDK deps).
+
+Phase fidelity-2 adds ``classify_instrument`` parity tests, which run
+against a verbatim excerpt of the source function under
+``tests/fixtures/source_classify_instrument.py``. These do not depend on
+the env var and always run.
 """
 
 from __future__ import annotations
@@ -19,6 +24,13 @@ import pytest
 
 from bowaka_lab.config.models import PrefilterConfig, ScoreConfig
 from bowaka_lab.features.daily_features import compute_daily_features
+from bowaka_lab.features.instrument_classification import (
+    DEFAULT_NAME_KEYWORDS,
+    classify_instrument as lab_classify,
+)
+from tests.fixtures.source_classify_instrument import (
+    classify_instrument as source_classify,
+)
 
 
 def _legacy_module():
@@ -84,3 +96,72 @@ def test_compute_features_parity(fixtures_dir: Path):
             assert abs(float(legacy_val) - float(new_val)) < 1e-9, (
                 f"feature parity broken for {sym}.{col}: legacy={legacy_val} new={new_val}"
             )
+
+
+# ----------------------------------------------------------------------------
+# Phase fidelity-2: classify_instrument parity (verbatim source excerpt).
+# ----------------------------------------------------------------------------
+
+_SOURCE_CFG = {
+    "instrument_rules": {
+        "ticker_blocklist": ["TSLL", "CONL", "SMCX"],
+        "name_keywords": DEFAULT_NAME_KEYWORDS,
+    }
+}
+
+_FIXTURE_ROWS = [
+    # (symbol, name, asset_class, expected_label)
+    ("AAPL",    "APPLE INC",                          "us_equity", "operating_equity"),
+    ("SPXS",    "DIREXION DAILY S&P 500 BEAR 3X",     "us_equity", "leveraged_etp"),
+    ("SH",      "PROSHARES SHORT S&P500",             "us_equity", "inverse_etp"),
+    ("DJP",     "IPATH BLOOMBERG COMMODITY ETN",      "us_equity", "etn"),
+    ("TSLL",    "DIREXION DAILY TSLA BULL 1.5X",      "us_equity", "leveraged_etp"),
+    ("UNKNOWN", "",                                   "us_equity", "operating_equity"),
+    ("ETF1",    "QQQ TRUST",                          "etf",       "etf"),
+    ("ETF2",    "QQQ TRUST",                          "us_etf",    "etf"),
+    ("ZZZZ",    None,                                 None,        "operating_equity"),
+]
+
+
+@pytest.mark.parametrize("symbol,name,asset_class,expected", _FIXTURE_ROWS)
+def test_classify_instrument_matches_source(symbol, name, asset_class, expected):
+    lab_out = lab_classify(
+        symbol,
+        name=name,
+        asset_class=asset_class,
+        ticker_blocklist=_SOURCE_CFG["instrument_rules"]["ticker_blocklist"],
+    )
+    src_out = source_classify(symbol, {"name": name, "asset_class": asset_class}, _SOURCE_CFG)
+    assert lab_out.instrument_class == src_out["instrument_class"], (
+        f"{symbol}: lab={lab_out.instrument_class!r} vs source={src_out['instrument_class']!r}"
+    )
+    assert (
+        lab_out.eligible_for_bowaka_equity_bucket
+        == src_out["eligible_for_bowaka_equity_bucket"]
+    )
+    assert lab_out.classification_reason == src_out["classification_reason"]
+    assert lab_out.instrument_class == expected
+
+
+def test_classify_instrument_blocklist_precedence():
+    cfg_local = {
+        "instrument_rules": {
+            "ticker_blocklist": ["AAPL"],
+            "name_keywords": DEFAULT_NAME_KEYWORDS,
+        }
+    }
+    lab_out = lab_classify("AAPL", name="APPLE INC", asset_class="us_equity", ticker_blocklist=["AAPL"])
+    src_out = source_classify("AAPL", {"name": "APPLE INC", "asset_class": "us_equity"}, cfg_local)
+    assert lab_out.classification_reason == "ticker_blocklist"
+    assert src_out["classification_reason"] == "ticker_blocklist"
+
+
+def test_classify_instrument_leveraged_wins_over_inverse():
+    name = "DIREXION DAILY BEAR 3X"
+    lab_out = lab_classify("FOO", name=name, asset_class="us_equity")
+    src_out = source_classify(
+        "FOO", {"name": name, "asset_class": "us_equity"},
+        {"instrument_rules": {"name_keywords": DEFAULT_NAME_KEYWORDS}},
+    )
+    assert lab_out.instrument_class == "leveraged_etp"
+    assert src_out["instrument_class"] == "leveraged_etp"

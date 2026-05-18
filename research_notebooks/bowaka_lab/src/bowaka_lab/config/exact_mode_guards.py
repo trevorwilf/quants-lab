@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pandas as pd
+
 if TYPE_CHECKING:
     from bowaka_lab.config.models import BowakaBacktestConfig
 
@@ -18,10 +20,24 @@ if TYPE_CHECKING:
 _REQUIRED_BLOCKED = {"TSLL", "CONL", "SMCX"}
 
 
-def assert_exact_mode_invariants(cfg: "BowakaBacktestConfig") -> None:
+def assert_exact_mode_invariants(
+    cfg: "BowakaBacktestConfig",
+    *,
+    asset_snapshot: pd.DataFrame | None = None,
+) -> None:
     """Raise ``ValueError`` if a config tagged ``fidelity_mode=exact`` drifted.
 
     Pass-through for ``research`` mode — this function is a no-op outside exact.
+
+    Parameters
+    ----------
+    cfg
+        Loaded ``BowakaBacktestConfig``.
+    asset_snapshot
+        Optional. When ``cfg.is_exact_mode`` and the caller has loaded an
+        asset snapshot, pass it in so the guard can fail closed on an empty
+        snapshot. Callers that haven't loaded one yet can omit this — the
+        check is skipped.
     """
     if not cfg.is_exact_mode:
         return
@@ -51,6 +67,12 @@ def assert_exact_mode_invariants(cfg: "BowakaBacktestConfig") -> None:
             "exact mode: signal_fade.enabled must be false (source default after the "
             "2026-05-15 incident; flip only after a counterfactual study validates "
             "the thresholds)"
+        )
+
+    if asset_snapshot is not None and asset_snapshot.empty:
+        errs.append(
+            "exact mode: asset_snapshot is empty — instrument-class filtering "
+            "cannot run. Generate an asset snapshot first (notebook 01)."
         )
 
     if errs:
