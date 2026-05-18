@@ -64,10 +64,11 @@ SECTION_HEADERS: list[str] = [
     "11. Exit surface counterfactuals",
     "12. Signal-fade threshold comparison",
     "13. Liquidity bucket analysis",
-    "14. Paper-vs-backtest reconciliation",
-    "15. Known limitations",
-    "16. Stop-ship / research-only status",
-    "17. Exact next actions",
+    "14. Walk-forward optimization (Optuna)",
+    "15. Paper-vs-backtest reconciliation",
+    "16. Known limitations",
+    "17. Stop-ship / research-only status",
+    "18. Exact next actions",
 ]
 
 
@@ -91,9 +92,33 @@ class ReportInputs:
     trades: pd.DataFrame = field(default_factory=pd.DataFrame)
     counterfactuals: pd.DataFrame = field(default_factory=pd.DataFrame)
     reconciliation: pd.DataFrame | None = None
+    #: Per-trade signal-fade evaluations from notebook 07. When provided,
+    #: Section 12 renders a bucket distribution from this frame instead of the
+    #: variant-threshold view derived from ``counterfactuals``.
+    signal_fade: pd.DataFrame | None = None
+    #: Tidy liquidity-bucket summary from notebook 08
+    #: (e.g. ``bucket, trades, win_rate, median_pnl_pct, stop_gap_rate``).
+    #: When provided, Section 13 renders this directly instead of
+    #: re-bucketing from ``trades``.
+    liquidity: pd.DataFrame | None = None
+    #: ``optuna_best.json`` payload from notebook 10. When non-empty, Section 14
+    #: renders the study summary and Section 17's ``walk_forward_not_run`` flag
+    #: clears. Operators can also set :attr:`has_walk_forward` explicitly.
+    optuna_best: dict[str, Any] | None = None
+    #: Per-trial table from notebook 10 (``optuna_trials.parquet``). When
+    #: present, Section 14 also renders the top-N trials by objective value.
+    optuna_trials: pd.DataFrame | None = None
     has_walk_forward: bool = False
     known_limitations: list[str] = field(default_factory=list)
     next_actions: list[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        # Derive has_walk_forward from optuna_best when caller didn't set it.
+        if not self.has_walk_forward and self.optuna_best:
+            n_trials = int(self.optuna_best.get("n_trials") or 0)
+            best = self.optuna_best.get("best_value")
+            if n_trials > 0 and best is not None:
+                self.has_walk_forward = True
 
 
 def _md_table(df: pd.DataFrame, *, max_rows: int | None = None) -> str:
@@ -168,7 +193,7 @@ def build_markdown(inputs: ReportInputs) -> str:
     parts.append(_md_table(candidate_funnel(funnel_source)))
 
     parts.append(f"\n## {SECTION_HEADERS[5]}\n")
-    if inputs.candidate_rank_distribution is not None:
+    if inputs.candidate_rank_distribution is not None and not inputs.candidate_rank_distribution.empty:
         parts.append(_md_table(inputs.candidate_rank_distribution))
     else:
         parts.append("_not provided_")
@@ -199,16 +224,49 @@ def build_markdown(inputs: ReportInputs) -> str:
     parts.append(_md_table(exit_counterfactual_grid(inputs.counterfactuals)))
 
     parts.append(f"\n## {SECTION_HEADERS[11]}\n")
-    from bowaka_lab.reports.tables import signal_fade_thresholds
+    if inputs.signal_fade is not None and not inputs.signal_fade.empty:
+        from bowaka_lab.reports.tables import signal_fade_bucket_distribution
 
-    parts.append(_md_table(signal_fade_thresholds(inputs.counterfactuals)))
+        parts.append(_md_table(signal_fade_bucket_distribution(inputs.signal_fade)))
+    else:
+        from bowaka_lab.reports.tables import signal_fade_thresholds
+
+        parts.append(_md_table(signal_fade_thresholds(inputs.counterfactuals)))
 
     parts.append(f"\n## {SECTION_HEADERS[12]}\n")
-    from bowaka_lab.reports.tables import liquidity_buckets
+    if inputs.liquidity is not None and not inputs.liquidity.empty:
+        parts.append(_md_table(inputs.liquidity))
+    else:
+        from bowaka_lab.reports.tables import liquidity_buckets
 
-    parts.append(_md_table(liquidity_buckets(inputs.trades)))
+        parts.append(_md_table(liquidity_buckets(inputs.trades)))
 
     parts.append(f"\n## {SECTION_HEADERS[13]}\n")
+    if inputs.optuna_best:
+        ob = inputs.optuna_best
+        study_name = ob.get("study_name", "_unknown_")
+        n_trials = ob.get("n_trials", 0)
+        best_value = ob.get("best_value")
+        best_params = ob.get("best_params") or {}
+        parts.append(f"- **Study:** `{study_name}`")
+        parts.append(f"- **Trials:** {n_trials}")
+        if best_value is not None:
+            parts.append(f"- **Best objective:** {best_value:.6f}")
+        else:
+            parts.append("- **Best objective:** _no completed trials_")
+        if best_params:
+            parts.append("- **Best parameters:**")
+            for k, v in sorted(best_params.items()):
+                parts.append(f"  - `{k}` = `{v}`")
+        if inputs.optuna_trials is not None and not inputs.optuna_trials.empty:
+            from bowaka_lab.reports.tables import optuna_top_trials
+
+            parts.append("\n**Top trials by objective value:**")
+            parts.append(_md_table(optuna_top_trials(inputs.optuna_trials, n=10)))
+    else:
+        parts.append("_no walk-forward optimization run; set Section 14 by running notebook 10 in production mode_")
+
+    parts.append(f"\n## {SECTION_HEADERS[14]}\n")
     if inputs.reconciliation is None or inputs.reconciliation.empty:
         parts.append("_no paper reconciliation provided_")
     else:
@@ -216,7 +274,7 @@ def build_markdown(inputs: ReportInputs) -> str:
 
         parts.append(_md_table(paper_vs_backtest_summary(inputs.reconciliation)))
 
-    parts.append(f"\n## {SECTION_HEADERS[14]}\n")
+    parts.append(f"\n## {SECTION_HEADERS[15]}\n")
     if inputs.known_limitations:
         for lim in inputs.known_limitations:
             parts.append(f"- {lim}")
@@ -224,7 +282,7 @@ def build_markdown(inputs: ReportInputs) -> str:
         parts.append("- IEX-only exploratory feed" if inputs.data_feed == "iex" else "- None recorded")
 
     flags = research_status_flags(inputs)
-    parts.append(f"\n## {SECTION_HEADERS[15]}\n")
+    parts.append(f"\n## {SECTION_HEADERS[16]}\n")
     if flags:
         parts.append("**Research status:** `research-grade exploratory evidence` (not live-trading approved).")
         parts.append("Flags:")
@@ -233,7 +291,7 @@ def build_markdown(inputs: ReportInputs) -> str:
     else:
         parts.append("All known stop-ship flags pass. Status: `paper_validation_candidate`.")
 
-    parts.append(f"\n## {SECTION_HEADERS[16]}\n")
+    parts.append(f"\n## {SECTION_HEADERS[17]}\n")
     if inputs.next_actions:
         for action in inputs.next_actions:
             parts.append(f"- {action}")

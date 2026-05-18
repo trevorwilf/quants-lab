@@ -1,4 +1,9 @@
-"""Phase 8: report must include all 17 sections per §20.1."""
+"""Report must include all sections per §20.1.
+
+The original §20.1 spec called for 17 sections. We added a Walk-forward
+optimization section (currently 14) so the weekly report surfaces Optuna
+study results inline; that pushed the count to 18.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +22,7 @@ def _empty_inputs() -> ReportInputs:
     )
 
 
-def test_all_17_section_headers_present():
+def test_all_section_headers_present():
     md = build_markdown(_empty_inputs())
     for header in SECTION_HEADERS:
         assert f"## {header}" in md, f"Missing section header: {header}"
@@ -30,5 +35,5 @@ def test_report_has_run_id_and_config_hash():
     assert "sha256:abc" in md
 
 
-def test_section_count_is_exactly_17():
-    assert len(SECTION_HEADERS) == 17
+def test_section_count_is_18_after_walkforward_insert():
+    assert len(SECTION_HEADERS) == 18

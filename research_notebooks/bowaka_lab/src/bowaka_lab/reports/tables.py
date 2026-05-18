@@ -9,6 +9,36 @@ from __future__ import annotations
 import pandas as pd
 
 
+def candidate_rank_distribution(candidates: pd.DataFrame) -> pd.DataFrame:
+    """Summarize candidates.parquet for Section 6.
+
+    Returns a tidy frame with one row per rank bucket (1-50, 51-100, etc.)
+    showing the count of candidates and the median signal_strength in that
+    bucket. Buckets above the observed max are dropped so the table stays
+    informative on small runs.
+    """
+    if candidates is None or candidates.empty or "rank" not in candidates.columns:
+        return pd.DataFrame(columns=["rank_bucket", "candidates", "median_signal_strength"])
+    bins = [0, 50, 100, 200, 500, 1000, float("inf")]
+    labels = ["1-50", "51-100", "101-200", "201-500", "501-1000", "1000+"]
+    df = candidates.copy()
+    df["rank_bucket"] = pd.cut(df["rank"], bins=bins, labels=labels, include_lowest=True)
+    agg = (
+        df.groupby("rank_bucket", observed=False)
+        .agg(
+            candidates=("rank", "size"),
+            median_signal_strength=("signal_strength", "median")
+            if "signal_strength" in df.columns
+            else ("rank", "size"),
+        )
+        .reset_index()
+    )
+    # Trim empty trailing buckets so the table is compact.
+    agg = agg[agg["candidates"] > 0].reset_index(drop=True)
+    agg["rank_bucket"] = agg["rank_bucket"].astype(str)
+    return agg
+
+
 def candidate_funnel(metadata: dict) -> pd.DataFrame:
     """Render the prefilter funnel as a 5-row DataFrame.
 
@@ -91,6 +121,37 @@ def signal_fade_thresholds(outcomes: pd.DataFrame) -> pd.DataFrame:
     return summarize_by_signal_fade_threshold(outcomes)
 
 
+def signal_fade_bucket_distribution(evaluations: pd.DataFrame) -> pd.DataFrame:
+    """Summarize notebook 07's per-trade signal-fade evaluations.
+
+    Expects the schema written by notebook 07:
+    ``[trade_id, symbol, trade_date, eval_label, eval_time, score, bucket,
+       current_price, current_return_pct, mfe_pct, triggered_components]``.
+
+    Returns a tidy bucket-x-eval_label grid so the weekly report can show
+    how the fade scoreboard looks at RTH eval vs after-close eval.
+    """
+    if evaluations is None or evaluations.empty or "bucket" not in evaluations.columns:
+        return pd.DataFrame(columns=["bucket", "eval_label", "trades", "mean_score"])
+    group_cols = ["bucket"]
+    if "eval_label" in evaluations.columns:
+        group_cols.append("eval_label")
+    out = (
+        evaluations.groupby(group_cols, dropna=False)
+        .agg(
+            trades=("trade_id", "size") if "trade_id" in evaluations.columns else ("bucket", "size"),
+            mean_score=("score", "mean") if "score" in evaluations.columns else ("bucket", "size"),
+        )
+        .reset_index()
+    )
+    bucket_order = ["none", "soft", "hard", "critical"]
+    out["bucket"] = pd.Categorical(out["bucket"], categories=bucket_order, ordered=True)
+    sort_cols = ["bucket"] + (["eval_label"] if "eval_label" in out.columns else [])
+    out = out.sort_values(sort_cols).reset_index(drop=True)
+    out["bucket"] = out["bucket"].astype(str)
+    return out
+
+
 def liquidity_buckets(trades: pd.DataFrame) -> pd.DataFrame:
     if trades.empty or "notional" not in trades.columns:
         return pd.DataFrame(columns=["bucket", "count"])
@@ -99,6 +160,31 @@ def liquidity_buckets(trades: pd.DataFrame) -> pd.DataFrame:
     df = trades.copy()
     df["notional_bucket"] = pd.cut(df["notional"], bins=bins, labels=labels, include_lowest=True)
     return df.groupby("notional_bucket", observed=False).agg(count=("notional", "size")).reset_index().rename(columns={"notional_bucket": "bucket"})
+
+
+def optuna_top_trials(trials: pd.DataFrame, n: int = 10) -> pd.DataFrame:
+    """Return the top-N completed Optuna trials sorted by objective value.
+
+    Notebook 10 writes ``optuna_trials.parquet`` with columns
+    ``trial_number``, ``objective_value``, ``state``, plus a ``param_<name>``
+    column for each search-space dimension. We keep ``trial_number`` and
+    ``objective_value`` up front and append each parameter column so the
+    weekly report shows what tuning the best trials used.
+    """
+    if trials is None or trials.empty or "objective_value" not in trials.columns:
+        return pd.DataFrame(columns=["trial_number", "objective_value"])
+    completed = trials
+    if "state" in trials.columns:
+        completed = trials[trials["state"].astype(str).str.upper().str.contains("COMPLETE")]
+        if completed.empty:
+            completed = trials
+    out = completed.dropna(subset=["objective_value"])
+    if out.empty:
+        return pd.DataFrame(columns=["trial_number", "objective_value"])
+    out = out.sort_values("objective_value", ascending=False).head(n)
+    cols = ["trial_number", "objective_value"]
+    cols += [c for c in out.columns if c.startswith("param_")]
+    return out[cols].reset_index(drop=True)
 
 
 def paper_vs_backtest_summary(reconciliation: pd.DataFrame) -> pd.DataFrame:

@@ -108,9 +108,15 @@ assert not missing_required, (
 '''
 
 
-BUILD_INPUTS = '''funnel  = load_json(paths.funnel)     if required_status["funnel"]  else None
+BUILD_INPUTS = '''from bowaka_lab.metrics.bucket_analysis import flatten_variant_column
+from bowaka_lab.reports.tables import candidate_rank_distribution
+
+funnel  = load_json(paths.funnel)     if required_status["funnel"]  else None
 config  = load_json(paths.config)     if required_status["config"]  else {}
 summary = load_json(paths.summary)    if required_status["summary"] else {}
+
+candidates_df = load_parquet(paths.candidates) if required_status["candidates"] else pd.DataFrame()
+rank_distribution = candidate_rank_distribution(candidates_df) if not candidates_df.empty else None
 
 trades_df = load_parquet(paths.trades) if required_status["trades"] else pd.DataFrame()
 if not trades_df.empty:
@@ -121,6 +127,10 @@ else:
 
 cf_entry        = load_parquet(paths.cf_entry)        if optional_status["cf_entry"]        else None
 cf_exit         = load_parquet(paths.cf_exit)         if optional_status["cf_exit"]         else None
+# Pre-flatten the variant JSON column so Sections 10/11 do not depend on a
+# freshly-loaded bucket_analysis module inside the kernel.
+cf_entry        = flatten_variant_column(cf_entry)
+cf_exit         = flatten_variant_column(cf_exit)
 signal_fade_df  = load_parquet(paths.signal_fade)     if optional_status["signal_fade"]     else None
 liquidity_df    = load_parquet(paths.liquidity)       if optional_status["liquidity"]       else None
 reconciliation  = load_parquet(paths.reconciliation)  if optional_status["reconciliation"]  else None
@@ -140,9 +150,14 @@ inputs = ReportInputs(
     data_feed=(config.get("data", {}) or {}).get("feed", "iex"),
     universe_mode=(config.get("universe", {}) or {}).get("mode", "alpaca_current_assets"),
     prefilter_funnel=funnel,
+    candidate_rank_distribution=rank_distribution,
     trades=trades_for_report,
     counterfactuals=counterfactuals_df,
     reconciliation=reconciliation,
+    signal_fade=signal_fade_df,
+    liquidity=liquidity_df,
+    optuna_best=optuna_best,
+    optuna_trials=optuna_trials,
     known_limitations=[
         "IEX-only feed (exploratory)" if (config.get("data", {}) or {}).get("feed") == "iex" else "",
         "current-universe survivorship-biased" if (config.get("universe", {}) or {}).get("mode") == "alpaca_current_assets" else "",
@@ -160,6 +175,7 @@ print(f"  signal_fade:      {'present' if signal_fade_df is not None and not sig
 print(f"  liquidity:        {'present' if liquidity_df is not None and not liquidity_df.empty else 'missing'}")
 print(f"  reconciliation:   {'present' if reconciliation is not None and not reconciliation.empty else 'missing'}")
 print(f"  optuna:           {'present' if optuna_best else 'missing'}")
+print(f"  walk_forward:     {'set (optuna ran)' if inputs.has_walk_forward else 'not set'}")
 '''
 
 

@@ -116,11 +116,26 @@ print(f"storage:    {'in-memory sqlite' if storage_url is None else storage_url}
 RUN_STUDY = '''trials_df = None
 best_payload = None
 
+# Fast-path is only valid when the cached artifacts came from the SAME study
+# as the one we are about to run. Without this guard, switching MODE from
+# "smoke" -> "production" silently reloads the cached smoke trials and never
+# runs the new search. The cached optuna_best.json carries the study_name
+# that produced it.
+fast_path_taken = False
 if not REBUILD and artifact_exists(paths, "optuna_trials") and artifact_exists(paths, "optuna_best"):
-    print("Fast path: optuna artifacts exist; loading.")
-    trials_df = load_parquet(paths.optuna_trials)
-    best_payload = load_json(paths.optuna_best)
-else:
+    cached_best = load_json(paths.optuna_best)
+    if cached_best.get("study_name") == study_name:
+        print(f"Fast path: cached artifacts match study={study_name!r}; loading.")
+        trials_df = load_parquet(paths.optuna_trials)
+        best_payload = cached_best
+        fast_path_taken = True
+    else:
+        print(
+            f"Cached artifacts are from study={cached_best.get('study_name')!r}, "
+            f"not matching current study={study_name!r}. Re-running."
+        )
+
+if not fast_path_taken:
     study = optimize_study_for_notebook(
         study_name=study_name,
         storage_url=storage_url,
