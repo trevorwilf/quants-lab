@@ -213,6 +213,32 @@ class RealismConfig(StrictModel):
     adv_tier_caps: list[AdvTierCap] = Field(default_factory=list)
 
 
+class BrokerSimConfig(StrictModel):
+    """Phase fidelity-4: broker-realism knobs.
+
+    Default ``enabled=False`` so the engine keeps the legacy inline
+    exit-evaluation behavior. Operators flip ``enabled=True`` to route
+    fills through ``SimulatedBroker`` with parent → OCO → fallback → flatten
+    semantics.
+    """
+
+    enabled: bool = False
+    parent_fill_latency_seconds: float = Field(default=0.5, ge=0)
+    marketable_limit_timeout_seconds: int = Field(default=30, ge=0)
+    partial_fill_probability: float = Field(default=0.0, ge=0, le=1.0)
+    partial_fill_min_fraction: float = Field(default=0.5, gt=0, le=1.0)
+    broker_rejection_probability: float = Field(default=0.0, ge=0, le=1.0)
+    oco_attach_latency_seconds: float = Field(default=0.5, ge=0)
+    oco_attach_failure_probability: float = Field(default=0.0, ge=0, le=1.0)
+    max_oco_attach_attempts: int = Field(default=2, ge=1, le=10)
+    max_unprotected_seconds: int = Field(default=10, ge=0)
+    fallback_stop_enabled: bool = True
+    fallback_stop_limit_offset_pct: float = Field(default=0.02, ge=0, lt=1.0)
+    flatten_if_unprotected: bool = True
+    oco_time_in_force: Literal["GTC", "DAY"] = "GTC"
+    random_seed: int = 0
+
+
 class CounterfactualConfig(StrictModel):
     include_rejected_candidates: bool = True
     entry_rules: list[str] = Field(
@@ -249,6 +275,7 @@ class BowakaBacktestConfig(StrictModel):
     portfolio: PortfolioConfig = Field(default_factory=PortfolioConfig)
     shadow_risk: ShadowRiskConfig = Field(default_factory=ShadowRiskConfig)
     realism: RealismConfig = Field(default_factory=RealismConfig)
+    broker_sim: BrokerSimConfig = Field(default_factory=BrokerSimConfig)
     counterfactuals: CounterfactualConfig = Field(default_factory=CounterfactualConfig)
     outputs: OutputConfig = Field(default_factory=OutputConfig)
 
