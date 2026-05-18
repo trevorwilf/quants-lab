@@ -22,6 +22,7 @@ class ProjectConfig(StrictModel):
     name: str = "bowaka_lab"
     mode: Literal["research", "validation", "live_candidate"] = "research"
     run_label: str = "bowaka_iex_exploratory_v1"
+    fidelity_mode: Literal["exact", "research"] = "research"
 
 
 class StorageConfig(StrictModel):
@@ -240,3 +241,7 @@ class BowakaBacktestConfig(StrictModel):
     def canonical_dict(self) -> dict[str, Any]:
         """Return a dict suitable for stable hashing (sorted, JSON-friendly)."""
         return self.model_dump(mode="json")
+
+    @property
+    def is_exact_mode(self) -> bool:
+        return self.project.fidelity_mode == "exact"

@@ -105,9 +105,9 @@ exits:
         load_config_file(config_file)
 
 
-def test_real_iex_exploratory_config_loads(monkeypatch, bowaka_root):
+def test_real_research_variant_config_loads(monkeypatch, bowaka_root):
     monkeypatch.setenv("MONGO_URI", "mongodb://test:test@localhost:27017/db?authSource=admin")
-    cfg = load_config_file(bowaka_root / "configs" / "bowaka_backtest_iex_exploratory.yml")
+    cfg = load_config_file(bowaka_root / "configs" / "bowaka_research_variant.yml")
     assert cfg.project.name == "bowaka_lab"
     assert cfg.data.feed == "iex"
     assert cfg.storage.mongo_uri.startswith("mongodb://")

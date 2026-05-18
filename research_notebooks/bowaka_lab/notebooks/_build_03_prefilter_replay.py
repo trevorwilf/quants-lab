@@ -40,25 +40,15 @@ DATA_ROOT      = os.environ.get(
     "research_notebooks/bowaka_lab/db_tools/bowaka_data",
 )
 ARTIFACTS_ROOT = "research_notebooks/bowaka_lab/artifacts"
-FEED           = "iex"
-START_DATE     = "2025-01-02"
-END_DATE       = "2026-05-15"
+# CONFIG_PATH is the single source of truth for the backtest profile.
+# Swap to ``configs/bowaka_exact_current_strategy.yml`` to run the
+# source-strategy paper-mode profile (signal_fade off, ADV tiers, etc.).
+CONFIG_PATH    = "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
 REBUILD        = False    # if False and candidates.parquet exists, skip to inline diagnostics
 
-# Prefilter knobs (mirror configs/bowaka_backtest_iex_exploratory.yml defaults)
-LOOKBACK_DAYS         = 20
-ATR_DAYS              = 14
-EMA_DAYS              = 10
-EMA_SLOPE_LOOKBACK    = 3
-PRICE_MIN             = 1.0
-PRICE_MAX             = 20.0
-AVG_DOLLAR_VOLUME_MIN = 200_000
-RVOL_MIN              = 1.5
-ATR_PCT_MIN           = 0.06
-RANGE_EXPANSION_MIN   = 1.25
-CLOSE_LOCATION_MIN    = 0.60
-EMA_DISTANCE_MIN      = 0.0
-EMA_SLOPE_MIN         = 0.0
+# Optional explicit research overrides — None = use the YAML value.
+OVERRIDE_START_DATE = None
+OVERRIDE_END_DATE   = None
 '''
 
 
@@ -67,7 +57,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from bowaka_lab.config.models import BowakaBacktestConfig
+from bowaka_lab.config import (
+    assert_exact_mode_invariants,
+    compute_config_hash,
+    load_config_file,
+)
 from bowaka_lab.data.calendar import USEquityCalendar
 from bowaka_lab.data.parquet_io import load_daily_bars_from_root
 from bowaka_lab.features.prefilter import (
@@ -87,28 +81,30 @@ from bowaka_lab.utils import (
 # works from anywhere under research_notebooks/.
 data_root      = Path(DATA_ROOT)      if Path(DATA_ROOT).is_absolute()      else (repo_root / DATA_ROOT).resolve()
 artifacts_root = Path(ARTIFACTS_ROOT) if Path(ARTIFACTS_ROOT).is_absolute() else (repo_root / ARTIFACTS_ROOT).resolve()
-DAILY_ROOT = data_root / "parquet/bars/vendor=alpaca" / f"feed={FEED}" / "timeframe=1d/adjustment=raw"
+config_path    = Path(CONFIG_PATH)    if Path(CONFIG_PATH).is_absolute()    else (repo_root / CONFIG_PATH).resolve()
 
-cfg = BowakaBacktestConfig.model_validate({
-    "data": {"vendor": "alpaca", "feed": FEED, "adjustment": "raw",
-             "start_date": START_DATE, "end_date": END_DATE},
-    "prefilter": {
-        "lookback_days": LOOKBACK_DAYS, "atr_days": ATR_DAYS,
-        "ema_days": EMA_DAYS, "ema_slope_lookback": EMA_SLOPE_LOOKBACK,
-        "price_min": PRICE_MIN, "price_max": PRICE_MAX,
-        "avg_dollar_volume_min": AVG_DOLLAR_VOLUME_MIN,
-        "rvol_min": RVOL_MIN, "atr_pct_min": ATR_PCT_MIN,
-        "range_expansion_min": RANGE_EXPANSION_MIN,
-        "close_location_min": CLOSE_LOCATION_MIN,
-        "ema_distance_min": EMA_DISTANCE_MIN, "ema_slope_min": EMA_SLOPE_MIN,
-        "score": {"bounded": False},
-    },
-})
+cfg = load_config_file(config_path)
+# Explicit research overrides (operator opt-in): swap start/end without
+# editing the YAML.
+if OVERRIDE_START_DATE is not None or OVERRIDE_END_DATE is not None:
+    cfg = cfg.model_copy(update={
+        "data": cfg.data.model_copy(update={
+            **({"start_date": OVERRIDE_START_DATE} if OVERRIDE_START_DATE else {}),
+            **({"end_date":   OVERRIDE_END_DATE}   if OVERRIDE_END_DATE   else {}),
+        }),
+    })
+assert_exact_mode_invariants(cfg)
+config_hash = compute_config_hash(cfg)
+
+DAILY_ROOT = data_root / "parquet/bars/vendor=alpaca" / f"feed={cfg.data.feed}" / "timeframe=1d/adjustment=raw"
 
 cal = USEquityCalendar(cfg.calendar.exchange)
 paths = ArtifactPaths.for_run(RUN_ID, artifacts_root)
 paths.ensure_dir()
 
+print(f"config:         {config_path}")
+print(f"fidelity_mode:  {cfg.project.fidelity_mode}")
+print(f"config_hash:    {config_hash}")
 print(f"data_root:      {data_root}")
 print(f"daily root:     {DAILY_ROOT}")
 print(f"artifacts:      {paths.root}")

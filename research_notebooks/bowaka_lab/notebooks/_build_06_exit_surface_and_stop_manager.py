@@ -35,16 +35,17 @@ DATA_ROOT                 = os.environ.get(
     "research_notebooks/bowaka_lab/db_tools/bowaka_data",
 )
 ARTIFACTS_ROOT            = "research_notebooks/bowaka_lab/artifacts"
-FEED                      = "iex"
+CONFIG_PATH               = "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
 REBUILD                   = False
 
-ENTRY_RULE                = "fixed_time_0945"
-STOP_PCTS                 = [0.05, 0.08, 0.10, 0.12]
-TARGET_PCTS               = [0.10, 0.15, 0.20, 0.25]
-MAX_HOLD_DAYS_LIST        = [1, 3, 5]
-STOP_MANAGER_MODELS       = ["none", "breakeven_after_5pct", "mfe_ladder_v1"]
-SIGNAL_FADE_THRESHOLD     = None
-INCLUDE_REJECTED          = False
+# Explicit research overrides on the CounterfactualConfig.
+OVERRIDE_ENTRY_RULE       = "fixed_time_0945"
+OVERRIDE_STOP_PCTS        = [0.05, 0.08, 0.10, 0.12]
+OVERRIDE_TARGET_PCTS      = [0.10, 0.15, 0.20, 0.25]
+OVERRIDE_MAX_HOLD_DAYS    = [1, 3, 5]
+OVERRIDE_STOP_MGRS        = ["none", "breakeven_after_5pct", "mfe_ladder_v1"]
+OVERRIDE_SIGNAL_FADE      = None
+OVERRIDE_INCLUDE_REJECTED = False
 '''
 
 
@@ -52,6 +53,11 @@ DERIVED = '''from pathlib import Path
 
 import pandas as pd
 
+from bowaka_lab.config import (
+    assert_exact_mode_invariants,
+    compute_config_hash,
+    load_config_file,
+)
 from bowaka_lab.config.models import CounterfactualConfig
 from bowaka_lab.data.parquet_io import MinuteBarLoader
 from bowaka_lab.sim.counterfactuals import run_grid_for_candidates
@@ -66,7 +72,13 @@ from bowaka_lab.utils import (
 
 data_root      = Path(DATA_ROOT)      if Path(DATA_ROOT).is_absolute()      else (repo_root / DATA_ROOT).resolve()
 artifacts_root = Path(ARTIFACTS_ROOT) if Path(ARTIFACTS_ROOT).is_absolute() else (repo_root / ARTIFACTS_ROOT).resolve()
-MINUTE_ROOT    = data_root / "parquet/bars/vendor=alpaca" / f"feed={FEED}" / "timeframe=1m/adjustment=raw"
+config_path    = Path(CONFIG_PATH)    if Path(CONFIG_PATH).is_absolute()    else (repo_root / CONFIG_PATH).resolve()
+
+cfg = load_config_file(config_path)
+assert_exact_mode_invariants(cfg)
+config_hash = compute_config_hash(cfg)
+
+MINUTE_ROOT = data_root / "parquet/bars/vendor=alpaca" / f"feed={cfg.data.feed}" / "timeframe=1m/adjustment=raw"
 
 paths = ArtifactPaths.for_run(RUN_ID, artifacts_root)
 paths.ensure_dir()
@@ -76,17 +88,19 @@ assert paths.candidates.exists(), (
 )
 
 cf_cfg = CounterfactualConfig(
-    include_rejected_candidates=INCLUDE_REJECTED,
-    entry_rules=[ENTRY_RULE],
-    stop_pct=STOP_PCTS,
-    target_pct=TARGET_PCTS,
-    max_hold_days=MAX_HOLD_DAYS_LIST,
-    signal_fade_thresholds=[SIGNAL_FADE_THRESHOLD],
-    stop_manager_models=STOP_MANAGER_MODELS,
+    include_rejected_candidates=OVERRIDE_INCLUDE_REJECTED,
+    entry_rules=[OVERRIDE_ENTRY_RULE],
+    stop_pct=OVERRIDE_STOP_PCTS,
+    target_pct=OVERRIDE_TARGET_PCTS,
+    max_hold_days=OVERRIDE_MAX_HOLD_DAYS,
+    signal_fade_thresholds=[OVERRIDE_SIGNAL_FADE],
+    stop_manager_models=OVERRIDE_STOP_MGRS,
 )
-fill_model = BowakaFillModel(slippage_bps=25.0)
+fill_model = BowakaFillModel(slippage_bps=cfg.entry.slippage_bps)
 minute_loader = MinuteBarLoader(MINUTE_ROOT)
-grid_size = len(STOP_PCTS) * len(TARGET_PCTS) * len(MAX_HOLD_DAYS_LIST) * len(STOP_MANAGER_MODELS)
+grid_size = len(OVERRIDE_STOP_PCTS) * len(OVERRIDE_TARGET_PCTS) * len(OVERRIDE_MAX_HOLD_DAYS) * len(OVERRIDE_STOP_MGRS)
+print(f"config:     {config_path}")
+print(f"config_hash:{config_hash}")
 print(f"artifacts:  {paths.root}")
 print(f"grid size:  {grid_size} variants per candidate")
 '''

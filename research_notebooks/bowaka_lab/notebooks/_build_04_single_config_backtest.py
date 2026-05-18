@@ -40,18 +40,10 @@ DATA_ROOT      = os.environ.get(
     "research_notebooks/bowaka_lab/db_tools/bowaka_data",
 )
 ARTIFACTS_ROOT = "research_notebooks/bowaka_lab/artifacts"
-FEED           = "iex"
+# Swap to ``configs/bowaka_exact_current_strategy.yml`` for the source-strategy
+# paper-mode profile.
+CONFIG_PATH    = "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
 REBUILD        = False
-
-ENTRY_RULE     = "fixed_time_0945"
-SLIPPAGE_BPS   = 25
-STOP_PCT       = 0.08
-TARGET_PCT     = 0.15
-MAX_HOLD_DAYS  = 3
-
-PER_TRADE_NOTIONAL        = 5_000
-MAX_CONCURRENT_POSITIONS  = 18
-MAX_TOTAL_ENTRIES_PER_DAY = 25
 '''
 
 
@@ -60,7 +52,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from bowaka_lab.config.models import BowakaBacktestConfig
+from bowaka_lab.config import (
+    assert_exact_mode_invariants,
+    compute_config_hash,
+    load_config_file,
+)
 from bowaka_lab.data.calendar import USEquityCalendar
 from bowaka_lab.data.parquet_io import MinuteBarLoader, candidates_dict_to_source
 from bowaka_lab.metrics.trade_metrics import per_trade_metrics, summary_stats
@@ -78,7 +74,13 @@ from bowaka_lab.utils import (
 
 data_root      = Path(DATA_ROOT)      if Path(DATA_ROOT).is_absolute()      else (repo_root / DATA_ROOT).resolve()
 artifacts_root = Path(ARTIFACTS_ROOT) if Path(ARTIFACTS_ROOT).is_absolute() else (repo_root / ARTIFACTS_ROOT).resolve()
-MINUTE_ROOT = data_root / "parquet/bars/vendor=alpaca" / f"feed={FEED}" / "timeframe=1m/adjustment=raw"
+config_path    = Path(CONFIG_PATH)    if Path(CONFIG_PATH).is_absolute()    else (repo_root / CONFIG_PATH).resolve()
+
+cfg = load_config_file(config_path)
+assert_exact_mode_invariants(cfg)
+config_hash = compute_config_hash(cfg)
+
+MINUTE_ROOT = data_root / "parquet/bars/vendor=alpaca" / f"feed={cfg.data.feed}" / "timeframe=1m/adjustment=raw"
 
 paths = ArtifactPaths.for_run(RUN_ID, artifacts_root)
 paths.ensure_dir()
@@ -87,18 +89,10 @@ assert paths.candidates.exists(), (
     "Run notebook 03_prefilter_replay first."
 )
 
-cfg = BowakaBacktestConfig.model_validate({
-    "data": {"vendor": "alpaca", "feed": FEED, "adjustment": "raw",
-             "start_date": "2025-01-02", "end_date": "2026-05-15"},
-    "entry": {"default_rule": ENTRY_RULE, "slippage_bps": SLIPPAGE_BPS},
-    "exits": {"stop_pct": STOP_PCT, "target_pct": TARGET_PCT,
-              "max_hold_days": MAX_HOLD_DAYS},
-    "portfolio": {"per_trade_notional": PER_TRADE_NOTIONAL,
-                  "max_concurrent_positions": MAX_CONCURRENT_POSITIONS,
-                  "max_total_entries_per_day": MAX_TOTAL_ENTRIES_PER_DAY},
-})
-
 cal = USEquityCalendar(cfg.calendar.exchange)
+print(f"config:        {config_path}")
+print(f"config_hash:   {config_hash}")
+print(f"fidelity_mode: {cfg.project.fidelity_mode}")
 print(f"artifacts:     {paths.root}")
 print(f"minute root:   {MINUTE_ROOT}")
 print(f"entry:         {cfg.entry.default_rule}, slip={cfg.entry.slippage_bps}bps")

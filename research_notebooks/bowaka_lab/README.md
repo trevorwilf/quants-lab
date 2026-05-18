@@ -72,3 +72,28 @@ Current-universe runs are survivorship-biased.
 
 Research-grade exploratory backtesting platform. Not live-trading approval. See
 `bowaka_lab_project_handoff_report.md §31` for promotion criteria.
+
+## Reference: source strategy
+
+`reference/source_strategy/scripts/` holds the source-strategy backup
+(`bowaka_strategy.py`, `bowaka_strategy.yaml`, `bowaka_prefilter.py`,
+`bowaka_prefilter.yaml`) used as the parity contract for the lab. The
+directory is **read-only context** — never modify these files. It is also
+listed in `.gitignore`, so the operator unpacks the zip locally and the
+files do not enter the repo.
+
+## Fidelity mode profiles
+
+Two YAML profiles in `configs/`:
+
+- `bowaka_research_variant.yml` — `fidelity_mode: research`, current
+  exploratory defaults (signal_fade integer-score hypothesis enabled, $5k
+  per-trade legacy notional, etc.). Notebooks default to this profile.
+- `bowaka_exact_current_strategy.yml` — `fidelity_mode: exact`. Mirrors
+  the source-strategy paper-mode contract (signal_fade disabled, ADV-tier
+  caps, ticker blocklist). `assert_exact_mode_invariants` refuses to load
+  configs that drift from this contract.
+
+Every notebook builder reads its profile via `load_config_file(CONFIG_PATH)`
+and computes `config_hash = compute_config_hash(cfg)` so artifacts are
+lineage-tagged with the actual config used.
