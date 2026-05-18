@@ -185,11 +185,22 @@ class StopManagerShadowConfig(StrictModel):
 
 class PortfolioConfig(StrictModel):
     mode: Literal["paper_data_collection", "validation", "live_candidate"] = "paper_data_collection"
-    sizing_mode: Literal["equal_slice", "risk_per_trade"] = "equal_slice"
-    per_trade_notional: float = Field(default=5_000.0, gt=0)
+    sizing_mode: Literal["equal_slice", "risk_per_trade", "legacy_fixed_notional"] = "equal_slice"
+    # ``per_trade_notional`` is required only when sizing_mode='legacy_fixed_notional'.
+    # equal_slice resolves per-trade dollars from bankroll/N. Keeping a default
+    # > 0 so legacy tests / configs that don't set sizing_mode still work.
+    per_trade_notional: float | None = Field(default=5_000.0)
+    bankroll_dollars: float | None = None
+    equal_slice_per_position: bool = True
+    # null = auto-couple to max_gross_exposure_pct.
+    equal_slice_bankroll_fraction: float | None = None
     max_concurrent_positions: int = Field(default=18, ge=1, le=500)
     max_total_entries_per_day: int | None = 25
     max_gross_exposure_pct: float | None = 2.0
+    target_risk_dollars: float = Field(default=200, gt=0)
+    max_per_trade_dollars: float | None = None
+    min_order_notional: float = Field(default=500, ge=0)
+    expected_stop_slippage_pct: float = Field(default=0.015, ge=0, lt=0.20)
     daily_loss_pct: float | None = None
     max_stopouts_per_day: int | None = None
     stop_trading_after_consecutive_stopouts: int | None = None

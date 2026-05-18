@@ -193,3 +193,47 @@
   oco_attached events in `order_events_df()`.
 
 **Test count:** 653 passed, 3 skipped (PostgreSQL).
+
+## Phase fidelity-5 — Exact sizing + ADV-tier enforcement (2026-05-18)
+
+**Branch:** `phase-fidelity-5-sizing-and-adv` (merged into dev)
+
+**Changes:**
+
+- `PortfolioConfig` extended: `sizing_mode` accepts `equal_slice`,
+  `risk_per_trade`, `legacy_fixed_notional`. New fields: `bankroll_dollars`,
+  `equal_slice_per_position`, `equal_slice_bankroll_fraction` (null =
+  auto-couple to max_gross_exposure_pct), `target_risk_dollars`,
+  `max_per_trade_dollars`, `min_order_notional`, `expected_stop_slippage_pct`.
+  `per_trade_notional` is now optional (only required for legacy mode).
+- New `sim/sizing.py`:
+  - `resolve_per_trade_dollars(portfolio)` → equal_slice math
+    (`fraction × bankroll / max_concurrent`); legacy fallback when
+    `bankroll_dollars=None` keeps pre-Phase-5 tests passing.
+  - `resolve_qty_risk_per_trade(...)` →
+    `floor(target_risk / (close × (stop_pct + slip_pct)))`.
+- `BowakaPortfolioBacktester._qty_for` rewritten:
+  routes through the resolver; applies `max_per_trade_dollars` clamp and
+  `min_order_notional` floor.
+- `_maybe_apply_realism_cap` now returns `(qty, diag)` with
+  `adv_tier_index`, `adv_cap_dollars`, `adv_cap_qty`, `adv_cap_reason`.
+  Diagnostics merge into the engine's `fill_diag` for reporting.
+- `_check_shadow_risk` rebased on `_cached_per_trade_dollars` so the
+  thresholds keep working when `per_trade_notional` is null.
+- Exact-mode invariants extended: require `sizing_mode='equal_slice'`,
+  explicit `bankroll_dollars`, explicit `equal_slice_bankroll_fraction`.
+- Exact YAML profile populated with `bankroll_dollars=90000`,
+  `equal_slice_bankroll_fraction=0.80` (so per-trade = $4000 at N=18).
+
+**Tests added:**
+
+- `tests/unit/test_sizing_equal_slice.py` (9 tests): explicit/auto fraction,
+  fallback to legacy per_trade_notional, bad fraction, risk_per_trade
+  math, legacy mode, validation guards.
+- `tests/unit/test_adv_tier_enforcement.py` (6 tests): reject_if_below,
+  tier walk to $1M-$5M bucket, null catch-all, empty-tiers flat fallback,
+  missing-ADV diagnostic, min_order_notional floor.
+- `tests/unit/test_exact_mode_sizing_invariants.py` (4 tests): exact YAML
+  passes; sizing_mode / bankroll / fraction violations each raise.
+
+**Test count:** 672 passed, 3 skipped (PostgreSQL).
