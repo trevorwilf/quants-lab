@@ -280,3 +280,43 @@ hypothesis) without the test churn.
   loads, missing source_signal_fade raises, enabled=true raises.
 
 **Test count:** 686 passed, 3 skipped (PostgreSQL).
+
+## Phase fidelity-7 — Counterfactual entry rules + liquidity proxy fix (2026-05-18)
+
+**Branch:** `phase-fidelity-7-counterfactuals-and-liquidity` (merged into dev)
+
+**Changes:**
+
+- `sim/counterfactuals.py`:
+  - New `_entry_bar_for_opening_range_break(...)` — uses the first
+    `or_window_minutes` bars as the opening range and returns the first
+    subsequent bar with `high > or_high × (1 + breakout_buffer_pct)`.
+  - New `_entry_bar_for_vwap_reclaim(...)` — computes cumulative VWAP from
+    session open and returns the first bar where `open < vwap` and `close
+    > vwap × (1 + reclaim_threshold_pct)`.
+  - New `_find_entry_bar(rule, bars, trade_date)` dispatcher. Replaces the
+    silent 09:45 fallback in `simulate_variant`.
+  - `_entry_time_for_rule` now raises on non-fixed-time rules instead of
+    silently returning 09:45.
+  - `simulate_variant` returns `would_enter=False, exit_reason='no_breakout'`
+    or `'no_reclaim'` when the OR / VWAP helpers find no entry bar.
+- `notebooks/_build_08_liquidity_and_execution_quality.py`:
+  - Title rewritten to spell out three independent proxies + the fact that
+    the old `abs(exit_price - entry_price)` was an analysis bug.
+  - `SPREAD_BUCKETS_CELL` now declares `quote_spread_bps`,
+    `entry_minute_range_bps`, `first_minute_range_bps` columns (each left
+    NaN where the underlying data isn't yet wired) and prints
+    per-proxy availability instead of bucketing on a fake proxy.
+
+**Tests added:**
+
+- `tests/unit/test_counterfactual_or_break.py` (8 tests): OR-break first
+  breakout, no-breakout returns None, buffer threshold, dispatcher routing,
+  VWAP reclaim with dip → entry, VWAP no-dip → None, unknown rule raises,
+  OR-vs-fixed-time differ for the same fixture (proves the silent-fallback
+  bug is fixed).
+- `tests/unit/test_notebook_08_no_outcome_range_proxy.py`: builder must
+  not contain `(exit_price - entry_price)`; must declare the three new
+  proxy columns.
+
+**Test count:** 696 passed, 3 skipped (PostgreSQL).

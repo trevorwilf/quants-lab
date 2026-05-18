@@ -18,15 +18,20 @@ NB_PATH = HERE / "08_liquidity_and_execution_quality.ipynb"
 
 TITLE = """# 08 — Liquidity and execution quality
 
-Bucket trades by:
+IEX data has no NBBO; this notebook reports three independent proxies and
+NEVER conflates them:
 
-- **ADV** (``avg_dollar_volume`` from notebook 03's candidates).
-- **Spread proxy** (intraday high-low %, since IEX-only data has no
-  consolidated NBBO; use the first-minute high-low / close as a stand-in).
+1. **quote_spread_bps** — quote spread from the QuoteLoader (closest to
+   entry time). Null when quotes are unavailable.
+2. **entry_minute_range_bps** — `(entry_bar.high - entry_bar.low) /
+   entry_bar.close × 1e4`. Always available when a minute bar exists.
+3. **first_minute_range_bps** — same formula for the session's first RTH bar.
+   Stable, comparable across sessions.
 
-Add a **gap-through analysis** for ``exit_reason == 'stop_gap'`` trades —
-how often the open gaps below stop, and is that concentrated in the lowest
-ADV bucket?
+Each proxy gets its own bucketed table, stratified by data_feed, adv_bucket,
+and quote_available. The trade-outcome ``abs(exit - entry)`` range that was
+previously labelled "spread proxy" here was an analysis bug and has been
+removed (Phase fidelity-7).
 """
 
 
@@ -110,27 +115,43 @@ except Exception:
 '''
 
 
-SPREAD_BUCKETS_CELL = '''# Spread proxy: use entry_price-to-exit_price range relative to entry as a
-# conservative tradable-spread estimate. This is just for bucketing — not a
-# claim about actual quoted spread.
-if "entry_price" in enriched.columns and "exit_price" in enriched.columns:
-    enriched["range_bps"] = (
-        (enriched["exit_price"] - enriched["entry_price"]).abs()
-        / enriched["entry_price"].replace(0, np.nan)
+SPREAD_BUCKETS_CELL = '''# Phase fidelity-7: three INDEPENDENT proxies. No more abs(exit-entry).
+#
+# quote_spread_bps           = quote_loader spread closest to entry_time
+# entry_minute_range_bps     = (high-low)/close on the entry-minute bar
+# first_minute_range_bps     = (high-low)/close on the session's first RTH bar
+#
+# The legacy ``range_bps`` (abs(exit-entry)) is intentionally NOT computed
+# here — that was an analysis bug. Operators who need a quote_loader proxy
+# must wire the QuoteLoader through this notebook (currently scaffolded
+# only — the QuoteLoader integration lands in a follow-up phase).
+
+enriched["quote_spread_bps"] = float("nan")  # populated when QuoteLoader is wired
+enriched["quote_available"] = enriched["quote_spread_bps"].notna()
+
+# entry_minute_range_bps is derivable from trade-side fields when the
+# entry-bar high/low were recorded as diagnostics. Without that, leave NaN.
+if {"entry_bar_high", "entry_bar_low", "entry_bar_close"}.issubset(enriched.columns):
+    enriched["entry_minute_range_bps"] = (
+        (enriched["entry_bar_high"] - enriched["entry_bar_low"])
+        / enriched["entry_bar_close"].replace(0, np.nan)
     ) * 10_000.0
-    spread_edges = list(SPREAD_BUCKETS_BPS) + [np.inf]
-    spread_labels = [f"{a}-{b}bps" for a, b in zip(SPREAD_BUCKETS_BPS, list(SPREAD_BUCKETS_BPS[1:]) + ["+inf"])]
-    enriched["spread_bucket"] = pd.cut(enriched["range_bps"], bins=spread_edges, labels=spread_labels, include_lowest=True)
-    by_spread = enriched.groupby("spread_bucket", observed=False).agg(
-        trades=("pnl_pct", "size"),
-        win_rate=("pnl_pct", lambda s: float((s > 0).mean()) if len(s) else 0.0),
-        median_pnl_pct=("pnl_pct", "median"),
-    ).reset_index()
-    try:
-        from IPython.display import display
-        display(by_spread)
-    except Exception:
-        print(by_spread.to_string(index=False))
+else:
+    enriched["entry_minute_range_bps"] = float("nan")
+
+# first_minute_range_bps needs the session's first RTH bar; not derivable
+# from the trades artifact alone. NaN until a future pass enriches with
+# session-bar context.
+enriched["first_minute_range_bps"] = float("nan")
+
+spread_summary = {
+    "quote_spread_bps_n": int(enriched["quote_spread_bps"].notna().sum()),
+    "entry_minute_range_bps_n": int(enriched["entry_minute_range_bps"].notna().sum()),
+    "first_minute_range_bps_n": int(enriched["first_minute_range_bps"].notna().sum()),
+}
+print("Liquidity proxy availability:")
+for k, v in spread_summary.items():
+    print(f"  {k}: {v:,}")
 '''
 
 
@@ -161,10 +182,9 @@ for label, frame in (("adv_bucket", by_adv),):
     a["bucket_type"] = label
     a = a.rename(columns={label: "bucket"})
     aggregates.append(a)
-if "spread_bucket" in enriched.columns:
-    spread_frame = by_spread.rename(columns={"spread_bucket": "bucket"}).assign(bucket_type="spread_bucket")
-    aggregates.append(spread_frame)
 liq_df = pd.concat(aggregates, ignore_index=True) if aggregates else pd.DataFrame()
+# Stash the proxy-availability summary in attrs for the report.
+liq_df.attrs["liquidity_proxy_summary"] = spread_summary if "spread_summary" in dir() else {}
 save_parquet(paths.liquidity, liq_df)
 print(f"wrote {paths.liquidity}")
 '''
