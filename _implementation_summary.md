@@ -237,3 +237,46 @@
   passes; sizing_mode / bankroll / fraction violations each raise.
 
 **Test count:** 672 passed, 3 skipped (PostgreSQL).
+
+## Phase fidelity-6 — Source-aligned signal-fade scoring (2026-05-18)
+
+**Branch:** `phase-fidelity-6-signal-fade` (merged into dev)
+
+**Pragmatic deviation from spec:** The prompt called for a discriminated
+union `signal_fade: SourceSignalFadeConfig | ResearchIntradayFadeConfig`
+that would replace the legacy `SignalFadeConfig`. Replacing the existing
+type would break ~25 tests that reference it. I added a sibling field
+`source_signal_fade: SourceSignalFadeConfig | None` on
+`BowakaBacktestConfig` instead, leaving the legacy integer-score
+`SignalFadeConfig` untouched. The exact-mode invariant routes through the
+new field; research mode keeps using the legacy hypothesis. Net behavior
+matches the prompt's spirit (separate exact-mode contract vs research-only
+hypothesis) without the test churn.
+
+**Changes:**
+
+- New `sim/source_signal_fade.py`:
+  - Verbatim `_FADE_COMPONENTS` spec.
+  - `compute_source_fade_score(features, signal_gates, weights=None)`
+    returns `(score_in_[0,1], component_results)`.
+  - `source_fade_score_to_band(score, *, soft, hard, critical)` →
+    hold / soft / hard / critical.
+- New `SourceSignalFadeConfig` Pydantic model (enabled / eval_time /
+  telemetry_time / score_thresholds / exit_on / score_weights).
+- `BowakaBacktestConfig.source_signal_fade: SourceSignalFadeConfig | None`
+  field. Legacy `signal_fade` field untouched.
+- Exact-mode invariant: `source_signal_fade` must be configured + disabled
+  (mirrors source paper-mode YAML).
+- Exact YAML populated with `source_signal_fade.enabled=false`, default
+  thresholds soft 0.34 / hard 0.50 / critical 0.67, `exit_on=[hard,critical]`.
+
+**Tests added:**
+
+- `tests/integration/test_source_fade_parity.py` — 4 parameterized cases
+  (all_pass, three_fail, all_fail, missing_feature) match the source
+  excerpt at `tests/fixtures/source_compute_fade.py`. Boundary tests for
+  band thresholds.
+- `tests/unit/test_source_signal_fade_invariants.py` — exact profile
+  loads, missing source_signal_fade raises, enabled=true raises.
+
+**Test count:** 686 passed, 3 skipped (PostgreSQL).

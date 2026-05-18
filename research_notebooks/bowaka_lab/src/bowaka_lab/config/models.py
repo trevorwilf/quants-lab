@@ -167,6 +167,26 @@ class SignalFadeConfig(StrictModel):
         return v
 
 
+class SourceSignalFadeConfig(StrictModel):
+    """Phase fidelity-6: source-aligned signal fade (fraction-in-[0,1] score).
+
+    DISABLED by default (matches source paper-mode YAML). Exact-mode runs use
+    this; research-mode runs may keep using the legacy integer-score
+    ``SignalFadeConfig``. Both coexist on ``BowakaBacktestConfig``.
+    """
+
+    enabled: bool = False
+    eval_time: str = "15:45"
+    telemetry_time: str = "16:05"
+    score_thresholds: dict = Field(
+        default_factory=lambda: {"soft": 0.34, "hard": 0.50, "critical": 0.67}
+    )
+    exit_on: list[Literal["soft", "hard", "critical"]] = Field(
+        default_factory=lambda: ["hard", "critical"]
+    )
+    score_weights: dict | None = None
+
+
 class StopManagerRule(StrictModel):
     mfe_min: float = Field(ge=0)
     stop_at: float
@@ -282,6 +302,10 @@ class BowakaBacktestConfig(StrictModel):
     entry: EntryConfig = Field(default_factory=EntryConfig)
     exits: ExitConfig = Field(default_factory=ExitConfig)
     signal_fade: SignalFadeConfig = Field(default_factory=SignalFadeConfig)
+    # Phase fidelity-6: source-aligned fade. None = not configured (legacy);
+    # operators set this for exact mode and pin enabled=false until a
+    # counterfactual study validates the thresholds.
+    source_signal_fade: SourceSignalFadeConfig | None = None
     stop_manager_shadow: StopManagerShadowConfig = Field(default_factory=StopManagerShadowConfig)
     portfolio: PortfolioConfig = Field(default_factory=PortfolioConfig)
     shadow_risk: ShadowRiskConfig = Field(default_factory=ShadowRiskConfig)

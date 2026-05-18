@@ -95,10 +95,8 @@ exits:
   stop_gap_policy: next_available_open
   target_fill_policy: limit_touch
 
-# Source default — signal_fade is DISABLED in exact mode (Phase 6 will add
-# the discriminated source/research union; for now we keep the legacy field
-# but set enabled=false to satisfy the invariant). Re-enable only after a
-# counterfactual study (Phase 7) confirms the score thresholds.
+# Legacy integer-score signal_fade is disabled in exact mode (kept for
+# back-compat — exact-mode runs route through source_signal_fade below).
 signal_fade:
   enabled: false
   rth_eval_time: "15:45"
@@ -106,6 +104,21 @@ signal_fade:
   after_close_action: log_only
   execute_threshold: 8
   shadow_thresholds: [4, 5, 6, 7, 8, 9]
+
+# Phase fidelity-6: source-aligned fade with fraction-in-[0, 1] score and
+# soft / hard / critical bands. Disabled by default after the 2026-05-15
+# incident; the engine still emits telemetry to signal_fade_telemetry.parquet
+# so the counterfactual study can compare exit windows.
+source_signal_fade:
+  enabled: false
+  eval_time: "15:45"
+  telemetry_time: "16:05"
+  score_thresholds:
+    soft: 0.34
+    hard: 0.50
+    critical: 0.67
+  exit_on: ["hard", "critical"]
+  score_weights: null
 
 stop_manager_shadow:
   enabled: true

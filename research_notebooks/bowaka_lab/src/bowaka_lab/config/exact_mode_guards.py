@@ -106,5 +106,17 @@ def assert_exact_mode_invariants(
             "(not auto-coupled). Source paper-mode profile pins it at 0.80."
         )
 
+    # Phase fidelity-6: source-aligned signal_fade must be configured.
+    if cfg.source_signal_fade is None:
+        errs.append(
+            "exact mode: source_signal_fade must be configured "
+            "(set source_signal_fade.enabled=false to mirror source paper-mode default)"
+        )
+    elif cfg.source_signal_fade.enabled:
+        errs.append(
+            "exact mode: source_signal_fade.enabled must be false (source default after the "
+            "2026-05-15 incident; flip only after a counterfactual study validates thresholds)"
+        )
+
     if errs:
         raise ValueError("exact-mode invariant failures:\n  - " + "\n  - ".join(errs))
