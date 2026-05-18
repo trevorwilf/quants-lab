@@ -75,5 +75,21 @@ def assert_exact_mode_invariants(
             "cannot run. Generate an asset snapshot first (notebook 01)."
         )
 
+    # Phase fidelity-3: intraday-confirmation gate must be enabled and
+    # configured with source-aligned thresholds.
+    ic = cfg.entry.intraday_confirmation
+    if not ic.enabled:
+        errs.append("exact mode requires entry.intraday_confirmation.enabled=true")
+    if ic.max_spread_pct > 0.01:
+        errs.append(
+            f"exact mode: entry.intraday_confirmation.max_spread_pct must be <= 0.01 "
+            f"(got {ic.max_spread_pct})"
+        )
+    if ic.max_quote_age_seconds > 15:
+        errs.append(
+            f"exact mode: entry.intraday_confirmation.max_quote_age_seconds must be <= 15 "
+            f"(got {ic.max_quote_age_seconds})"
+        )
+
     if errs:
         raise ValueError("exact-mode invariant failures:\n  - " + "\n  - ".join(errs))
