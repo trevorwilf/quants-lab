@@ -15,6 +15,7 @@ from bowaka_lab.config.models import (
     ProjectConfig,
     RealismConfig,
     SignalFadeConfig,
+    SourceSignalFadeConfig,
     StorageConfig,
     UniverseConfig,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "ProjectConfig",
     "RealismConfig",
     "SignalFadeConfig",
+    "SourceSignalFadeConfig",
     "StorageConfig",
     "UniverseConfig",
     "assert_exact_mode_invariants",
