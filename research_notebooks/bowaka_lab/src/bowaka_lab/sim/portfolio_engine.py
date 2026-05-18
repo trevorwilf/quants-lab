@@ -23,12 +23,14 @@ import pandas as pd
 
 from bowaka_lab.config.models import (
     BowakaBacktestConfig,
+    BrokerSimConfig,
     ExitConfig,
     PortfolioConfig,
     RealismConfig,
     ShadowRiskConfig,
 )
 from bowaka_lab.data.calendar import USEquityCalendar
+from bowaka_lab.sim.broker import BrokerEvent, SimulatedBroker
 from bowaka_lab.sim.exits import ExitEvent, evaluate_bar_exit, is_time_stop_due
 from bowaka_lab.sim.fill_model import BowakaFillModel
 from bowaka_lab.sim.intraday_confirmation import (
@@ -67,6 +69,13 @@ class TradeRecord:
     ambiguous_bar: bool
     data_feed: str = "iex"
     diagnostics: dict = field(default_factory=dict)
+    # Phase fidelity-4 — broker-state lineage.
+    parent_order_id: str | None = None
+    bracket_id: str | None = None
+    entry_event_type: str | None = None       # market_fill | marketable_limit_fill | partial_fill_aggregate
+    protection_outcome: str | None = None     # oco_active_held | fallback_stop_executed | flattened_unprotected | broker_rejected
+    entry_slippage_pct: float | None = None
+    exit_slippage_pct: float | None = None
 
 
 @dataclass
@@ -95,6 +104,7 @@ class BowakaBacktestResult:
     shadow_blocks: list[dict] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
     entry_skips: list[EntrySkipRecord] = field(default_factory=list)
+    broker_events: list[BrokerEvent] = field(default_factory=list)
 
     def entry_skips_df(self) -> pd.DataFrame:
         if not self.entry_skips:
@@ -105,6 +115,14 @@ class BowakaBacktestResult:
                 ]
             )
         return pd.DataFrame([s.__dict__ for s in self.entry_skips])
+
+    def order_events_df(self) -> pd.DataFrame:
+        if not self.broker_events:
+            return pd.DataFrame(columns=[
+                "event_id", "ts", "event_type", "parent_order_id", "bracket_id",
+                "symbol", "qty", "price", "reason", "attach_attempt", "protection_state",
+            ])
+        return pd.DataFrame([e.to_row() for e in self.broker_events])
 
     def trades_df(self) -> pd.DataFrame:
         if not self.trades:
@@ -154,6 +172,7 @@ class BowakaPortfolioBacktester:
         fill_model: BowakaFillModel | None = None,
         calendar: USEquityCalendar | None = None,
         quote_loader: Callable[[date, list[str]], pd.DataFrame] | None = None,
+        broker: SimulatedBroker | None = None,
     ):
         self.cfg = config
         self.candidate_source = candidate_source
@@ -161,6 +180,14 @@ class BowakaPortfolioBacktester:
         self.fill_model = fill_model or BowakaFillModel(slippage_bps=config.entry.slippage_bps)
         self.cal = calendar or USEquityCalendar(config.calendar.exchange)
         self.quote_loader = quote_loader
+        # The broker is opt-in via cfg.broker_sim.enabled; the engine still
+        # owns position lifecycle. The broker is currently used to log order
+        # events to ``order_events.parquet`` so Phase 8 reconciliation can
+        # compare paper vs backtest event streams. Full FSM integration
+        # (parent → OCO → fallback) is exercised by the broker's own tests.
+        self.broker: SimulatedBroker | None = broker
+        if self.broker is None and config.broker_sim.enabled:
+            self.broker = SimulatedBroker(config.broker_sim)
 
         # Engine-init guard: exact mode requires intraday_confirmation.enabled=true.
         if config.is_exact_mode and not config.entry.intraday_confirmation.enabled:
@@ -416,6 +443,27 @@ class BowakaPortfolioBacktester:
                 stop_price = entry_price * (1.0 - cfg.exits.stop_pct)
                 target_price = entry_price * (1.0 + cfg.exits.target_pct)
                 max_hold_date = self.cal.add_sessions(trade_date, cfg.exits.max_hold_days)
+
+                # Phase fidelity-4 — log a synthetic parent_submitted + parent_filled
+                # event for the broker FSM so order_events.parquet has a stream that
+                # Phase 8 reconciliation can compare against the paper logs. The
+                # engine still owns position lifecycle; the broker is used here as
+                # an event sink.
+                parent_order_id_for_record: str | None = None
+                if self.broker is not None:
+                    parent = self.broker.submit_parent(
+                        symbol=str(sym), side="buy", qty=qty, style="market",
+                        limit_price=None, ts=fill.fill_time,
+                    )
+                    self.broker.step(now_ts=fill.fill_time, bar=entry_bar.to_dict(),
+                                      quote=latest_q if latest_q is not None else None)
+                    self.broker.attach_oco(
+                        parent=parent, stop_price=stop_price, target_price=target_price,
+                        ts=fill.fill_time,
+                    )
+                    self.broker.step(now_ts=fill.fill_time + pd.Timedelta(seconds=1),
+                                      bar=entry_bar.to_dict(), quote=None)
+                    parent_order_id_for_record = parent.order_id
                 pos = SimulatedPosition(
                     trade_id=tid,
                     symbol=sym,
@@ -482,6 +530,7 @@ class BowakaPortfolioBacktester:
             })
 
         daily_df = pd.DataFrame(daily_rows)
+        broker_events = list(self.broker.events) if self.broker is not None else []
         return BowakaBacktestResult(
             trades=trades,
             daily_summary=daily_df,
@@ -489,6 +538,7 @@ class BowakaPortfolioBacktester:
             shadow_blocks=shadow_blocks,
             metadata={"sessions": len(sessions)},
             entry_skips=entry_skips,
+            broker_events=broker_events,
         )
 
     def _build_record(self, pos: SimulatedPosition, *, prefilter_rank: int, ambiguous_bar: bool) -> TradeRecord:

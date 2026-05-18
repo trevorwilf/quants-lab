@@ -147,3 +147,49 @@
   loose thresholds.
 
 **Test count:** 641 passed, 3 skipped (PostgreSQL).
+
+## Phase fidelity-4 — Broker / order / protection state simulation (2026-05-18)
+
+**Branch:** `phase-fidelity-4-broker-state` (merged into dev)
+
+**Changes:**
+
+- New `BrokerSimConfig` in `config/models.py`: enabled flag, latency
+  knobs, partial-fill / rejection / OCO-attach-failure probabilities,
+  max_unprotected_seconds, fallback / flatten flags, GTC default TIF.
+  All probabilities 0 by default — deterministic.
+- New FSM types in `sim/orders.py`: `OrderStatus`, `ProtectionState`,
+  `FillEvent`, `ParentOrder` (with `add_fill` for weighted-average price),
+  `OcoBracket`.
+- New module `sim/broker.py`:
+  - `SimulatedBroker` with `submit_parent`, `attach_oco`,
+    `submit_fallback_stop`, `flatten`, `step(now_ts, bar, quote)`.
+  - Escalation ladder (retry → fallback → flatten) drives
+    `protection_state` transitions on attach failure.
+  - Bracket exits (stop, target) fire from `step()`'s `_step_active_brackets`
+    sub-loop using the bar's high/low.
+  - `BrokerEvent` dataclass + `events_df()` for the `order_events.parquet`
+    artifact. Event-type constants (`EVT_PARENT_FILLED` etc.) exported.
+- `BowakaPortfolioBacktester` constructor gains `broker: SimulatedBroker | None`
+  and auto-constructs one when `cfg.broker_sim.enabled`. On every entry
+  the engine submits a synthetic parent + attaches an OCO so
+  `order_events.parquet` carries a stream that Phase 8 reconciliation can
+  diff against paper logs. The engine still owns position lifecycle for
+  the legacy/research path; the broker FSM is exercised end-to-end by its
+  unit tests.
+- `BowakaBacktestResult` gains `broker_events` + `order_events_df()`.
+- `TradeRecord` extension: `parent_order_id`, `bracket_id`,
+  `entry_event_type`, `protection_outcome`, `entry_slippage_pct`,
+  `exit_slippage_pct`.
+
+**Tests added:**
+
+- `tests/unit/test_broker_state_machine.py` (11 tests): market /
+  marketable_limit / partial / rejection / timeout parent fills;
+  OCO attach success, retry → fallback, retry → flatten; stop-hit;
+  target-hit; event artifact schema.
+- `tests/integration/test_engine_with_broker_smoke.py`: end-to-end run
+  with broker enabled, asserts parent_submitted + oco_attach_pending +
+  oco_attached events in `order_events_df()`.
+
+**Test count:** 653 passed, 3 skipped (PostgreSQL).
