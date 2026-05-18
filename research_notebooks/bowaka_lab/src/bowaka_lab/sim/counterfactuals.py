@@ -91,14 +91,118 @@ def build_variant_grid(cfg: CounterfactualConfig) -> list[CounterfactualVariant]
 
 
 def _entry_time_for_rule(rule: str, trade_date: date) -> pd.Timestamp:
+    """Resolve a fixed-time entry rule (``fixed_time_HHMM``) to a UTC timestamp.
+
+    NOTE: ``opening_range_break`` and ``vwap_reclaim`` no longer fall back
+    here (they did pre-Phase-7). Use the helpers below instead.
+    """
     if not rule.startswith("fixed_time_"):
-        # opening_range / vwap_reclaim / etc. fall back to 09:45 ET for v1.
-        hhmm = "0945"
-    else:
-        hhmm = rule.split("fixed_time_", 1)[1]
+        raise ValueError(
+            f"_entry_time_for_rule only supports fixed_time_HHMM; got {rule!r}. "
+            "Use _entry_bar_for_opening_range_break or _entry_bar_for_vwap_reclaim."
+        )
+    hhmm = rule.split("fixed_time_", 1)[1]
     hh, mm = hhmm[:2], hhmm[2:]
     ts = pd.Timestamp(trade_date).tz_localize("America/New_York") + pd.Timedelta(hours=int(hh), minutes=int(mm))
     return ts.tz_convert("UTC")
+
+
+def _session_open_utc(trade_date: date) -> pd.Timestamp:
+    """09:30 ET → UTC."""
+    return (
+        pd.Timestamp(trade_date).tz_localize("America/New_York")
+        + pd.Timedelta(hours=9, minutes=30)
+    ).tz_convert("UTC")
+
+
+def _entry_bar_for_opening_range_break(
+    *,
+    minute_bars: pd.DataFrame,
+    trade_date: date,
+    or_window_minutes: int = 5,
+    breakout_buffer_pct: float = 0.0,
+) -> pd.Series | None:
+    """Return the first bar whose high crosses
+    ``or_high × (1 + breakout_buffer_pct)``, where ``or_high`` is the max
+    high across the first ``or_window_minutes`` bars after session open.
+    Returns ``None`` if no breakout occurs in the session.
+    """
+    if minute_bars is None or minute_bars.empty:
+        return None
+    df = minute_bars.sort_values("timestamp").reset_index(drop=True)
+    session_open = _session_open_utc(trade_date)
+    window_end = session_open + pd.Timedelta(minutes=or_window_minutes)
+    or_bars = df[(df["timestamp"] >= session_open) & (df["timestamp"] < window_end)]
+    if or_bars.empty:
+        return None
+    or_high = float(or_bars["high"].max())
+    threshold = or_high * (1.0 + float(breakout_buffer_pct))
+    post_window = df[df["timestamp"] >= window_end]
+    if post_window.empty:
+        return None
+    breakouts = post_window[post_window["high"] > threshold]
+    if breakouts.empty:
+        return None
+    return breakouts.iloc[0]
+
+
+def _entry_bar_for_vwap_reclaim(
+    *,
+    minute_bars: pd.DataFrame,
+    trade_date: date,
+    vwap_window_minutes: int = 15,
+    reclaim_threshold_pct: float = 0.0,
+) -> pd.Series | None:
+    """Return the first bar where the close crosses cumulative VWAP from
+    below (bar opens below VWAP, closes above VWAP × (1 + threshold)).
+    Computed cumulatively starting at session open. ``None`` if no reclaim.
+
+    ``vwap_window_minutes`` is currently advisory — the cumulative VWAP
+    starts at the session open and grows; the parameter is kept so the
+    operator can stretch the lookback later if a windowed VWAP is desired.
+    """
+    if minute_bars is None or minute_bars.empty:
+        return None
+    df = minute_bars.sort_values("timestamp").reset_index(drop=True)
+    session_open = _session_open_utc(trade_date)
+    session = df[df["timestamp"] >= session_open].copy()
+    if session.empty:
+        return None
+    # Cumulative VWAP from session open.
+    typical = (session["high"] + session["low"] + session["close"]) / 3.0
+    vol = session["volume"].astype(float)
+    pv = typical * vol
+    session["cum_pv"] = pv.cumsum()
+    session["cum_vol"] = vol.cumsum()
+    session["vwap"] = (session["cum_pv"] / session["cum_vol"]).where(session["cum_vol"] > 0, 0.0)
+    # Reclaim: open below VWAP, close above VWAP * (1 + threshold).
+    threshold_mult = 1.0 + float(reclaim_threshold_pct)
+    reclaim = session[
+        (session["open"] < session["vwap"])
+        & (session["close"] > session["vwap"] * threshold_mult)
+    ]
+    if reclaim.empty:
+        return None
+    return reclaim.iloc[0]
+
+
+def _find_entry_bar(rule: str, minute_bars: pd.DataFrame, trade_date: date) -> pd.Series | None:
+    """Dispatch entry-bar resolution per rule. Phase fidelity-7: genuine
+    OR break / VWAP reclaim rules instead of the silent 09:45 fallback.
+    """
+    if rule.startswith("fixed_time_"):
+        entry_time = _entry_time_for_rule(rule, trade_date)
+        eligible = minute_bars[minute_bars["timestamp"] >= entry_time]
+        return None if eligible.empty else eligible.iloc[0]
+    if rule == "opening_range_break":
+        return _entry_bar_for_opening_range_break(
+            minute_bars=minute_bars, trade_date=trade_date,
+        )
+    if rule == "vwap_reclaim":
+        return _entry_bar_for_vwap_reclaim(
+            minute_bars=minute_bars, trade_date=trade_date,
+        )
+    raise ValueError(f"Unknown entry rule: {rule!r}")
 
 
 def simulate_variant(
@@ -143,9 +247,15 @@ def simulate_variant(
         )
 
     df = minute_bars.sort_values("timestamp").reset_index(drop=True)
-    entry_time = _entry_time_for_rule(variant.entry_rule, trade_date)
-    eligible = df[df["timestamp"] >= entry_time]
-    if eligible.empty:
+    entry_bar = _find_entry_bar(variant.entry_rule, df, trade_date)
+    if entry_bar is None:
+        # Phase fidelity-7: no silent fallback. Distinguish breakout vs reclaim
+        # vs missing-bar so the report can split out signal-availability rates.
+        no_entry_reason = (
+            "no_breakout" if variant.entry_rule == "opening_range_break"
+            else "no_reclaim" if variant.entry_rule == "vwap_reclaim"
+            else "no_entry_bar"
+        )
         return CounterfactualOutcome(
             counterfactual_id=cfid,
             symbol=symbol,
@@ -157,15 +267,19 @@ def simulate_variant(
             would_enter=False,
             entry_price=None,
             exit_price=None,
-            exit_reason="no_entry_bar",
+            exit_reason=no_entry_reason,
             pnl_pct=0.0,
             mfe_pct=0.0,
             mae_pct=0.0,
             first_touch="none",
-            diagnostics={"reason": "no_bar_at_or_after_entry_time"},
+            diagnostics={"reason": no_entry_reason},
         )
 
-    entry_bar = eligible.iloc[0]
+    # Walk the bars from the resolved entry bar forward (Phase fidelity-7
+    # entry rules return one of the existing bars; downstream loop expects
+    # ``rest`` to be everything strictly after the entry bar).
+    entry_ts = pd.Timestamp(entry_bar["timestamp"])
+    eligible = df[df["timestamp"] >= entry_ts]
     entry_fill = fill_model.buy_from_bar(entry_bar.to_dict())
     entry_price = entry_fill.fill_price
     stop_price = entry_price * (1.0 - variant.stop_pct)
