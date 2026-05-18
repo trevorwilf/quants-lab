@@ -39,6 +39,10 @@ from bowaka_lab.sim.intraday_confirmation import (
     latest_quote_at_or_before,
 )
 from bowaka_lab.sim.positions import SimulatedPosition
+from bowaka_lab.sim.sizing import (
+    resolve_per_trade_dollars,
+    resolve_qty_risk_per_trade,
+)
 from bowaka_lab.utils.ids import trade_id
 
 
@@ -219,32 +223,89 @@ class BowakaPortfolioBacktester:
         ts = pd.Timestamp(trade_date).tz_localize("America/New_York") + pd.Timedelta(hours=int(hh), minutes=int(mm))
         return ts.tz_convert("UTC")
 
-    def _qty_for(self, *, entry_price: float, portfolio: PortfolioConfig) -> int:
-        if portfolio.sizing_mode == "equal_slice":
-            return max(0, int(portfolio.per_trade_notional // entry_price))
-        # risk_per_trade requires stop_pct context — handled by caller in v1.
-        return max(0, int(portfolio.per_trade_notional // entry_price))
+    def _qty_for(
+        self,
+        *,
+        entry_price: float,
+        portfolio: PortfolioConfig,
+        exits: ExitConfig | None = None,
+        candidate: dict | None = None,
+    ) -> int:
+        """Resolve per-trade qty.
+
+        Phase fidelity-5: routes through :func:`resolve_per_trade_dollars` for
+        ``equal_slice`` / ``legacy_fixed_notional`` and through
+        :func:`resolve_qty_risk_per_trade` for ``risk_per_trade``. Also applies
+        ``max_per_trade_dollars`` and ``min_order_notional`` clamps.
+        """
+        if portfolio.sizing_mode == "risk_per_trade":
+            if exits is None:
+                return 0
+            stop_pct = float(exits.stop_pct)
+            close = float((candidate or {}).get("close") or entry_price)
+            qty = resolve_qty_risk_per_trade(
+                target_risk_dollars=portfolio.target_risk_dollars,
+                close=close,
+                stop_pct=stop_pct,
+                expected_stop_slippage_pct=portfolio.expected_stop_slippage_pct,
+            )
+        else:
+            per_trade_dollars = self._cached_per_trade_dollars
+            if portfolio.max_per_trade_dollars is not None:
+                per_trade_dollars = min(per_trade_dollars, float(portfolio.max_per_trade_dollars))
+            qty = max(0, int(per_trade_dollars // entry_price))
+        # Reject orders smaller than min_order_notional (Phase fidelity-5).
+        if qty * entry_price < portfolio.min_order_notional:
+            return 0
+        return qty
 
     def _maybe_apply_realism_cap(
         self, *, qty: int, candidate: dict, realism: RealismConfig
-    ) -> int:
+    ) -> tuple[int, dict]:
+        """Apply ADV-tier cap. Returns (clamped_qty, diag) where ``diag`` has
+        ``adv_tier_index``, ``adv_cap_dollars``, ``adv_cap_qty``, ``adv_cap_reason``.
+        """
+        diag: dict = {
+            "adv_tier_index": None,
+            "adv_cap_dollars": None,
+            "adv_cap_qty": None,
+            "adv_cap_reason": None,
+        }
         if not realism.max_position_as_adv_frac_enabled:
-            return qty
+            return qty, diag
         adv = float(candidate.get("avg_dollar_volume") or 0.0)
         if adv <= 0:
-            return qty
+            diag["adv_cap_reason"] = "missing_adv"
+            return qty, diag
         cap_frac = realism.max_position_as_adv_frac
-        for tier in realism.adv_tier_caps:
-            if tier.reject_if_below and tier.max_adv_dollars is not None and adv < tier.max_adv_dollars:
-                return 0
-            if tier.max_adv_dollars is None or adv <= tier.max_adv_dollars:
-                if tier.max_position_as_adv_frac is not None:
-                    cap_frac = tier.max_position_as_adv_frac
+        # Walk tiers top-to-bottom: first tier whose max_adv_dollars >= adv
+        # (or max_adv_dollars=None catch-all) wins. ``reject_if_below=True``
+        # on a thin tier rejects ADVs below that tier's threshold.
+        if realism.adv_tier_caps:
+            matched = False
+            for idx, tier in enumerate(realism.adv_tier_caps):
+                if tier.reject_if_below and tier.max_adv_dollars is not None and adv < tier.max_adv_dollars:
+                    diag["adv_tier_index"] = idx
+                    diag["adv_cap_reason"] = "adv_below_tier_threshold"
+                    return 0, diag
+                if tier.max_adv_dollars is None or adv <= tier.max_adv_dollars:
+                    if tier.max_position_as_adv_frac is not None:
+                        cap_frac = tier.max_position_as_adv_frac
+                    diag["adv_tier_index"] = idx
+                    matched = True
                     break
+            if not matched:
+                # adv exceeded the last finite tier and no null catch-all.
+                diag["adv_cap_reason"] = "adv_above_all_tiers"
         entry_price = float(candidate.get("close") or 1.0)
         max_dollars = adv * cap_frac
         max_qty = int(max_dollars // entry_price)
-        return max(0, min(qty, max_qty))
+        diag["adv_cap_dollars"] = float(max_dollars)
+        diag["adv_cap_qty"] = int(max_qty)
+        out_qty = max(0, min(qty, max_qty))
+        if out_qty < qty:
+            diag.setdefault("adv_cap_reason", "adv_tier_clamp")
+        return out_qty, diag
 
     def _check_shadow_risk(
         self,
@@ -256,14 +317,19 @@ class BowakaPortfolioBacktester:
         shadow: ShadowRiskConfig,
     ) -> list[dict]:
         blocks: list[dict] = []
+        # Phase fidelity-5: shadow thresholds scale against the resolved
+        # per-trade dollars, falling back to per_trade_notional when set.
+        basis = self._cached_per_trade_dollars if getattr(self, "_cached_per_trade_dollars", None) else (
+            self.cfg.portfolio.per_trade_notional or 0.0
+        )
         for thr in shadow.max_entries_thresholds:
             if entries_today >= thr:
                 blocks.append({"rule": "max_entries", "threshold": thr, "trade_date": date_today})
         for thr in shadow.max_gross_exposure_thresholds:
-            if gross_notional >= thr * self.cfg.portfolio.per_trade_notional:
+            if basis > 0 and gross_notional >= thr * basis:
                 blocks.append({"rule": "max_gross_exposure", "threshold": thr, "trade_date": date_today})
         for thr in shadow.daily_loss_thresholds:
-            if loss_today <= -thr * self.cfg.portfolio.per_trade_notional:
+            if basis > 0 and loss_today <= -thr * basis:
                 blocks.append({"rule": "daily_loss", "threshold": thr, "trade_date": date_today})
         return blocks
 
@@ -274,6 +340,13 @@ class BowakaPortfolioBacktester:
         shadow_blocks: list[dict] = []
         daily_rows: list[dict] = []
         entry_skips: list[EntrySkipRecord] = []
+
+        # Resolve per-trade dollars once per run. ``risk_per_trade`` skips
+        # this path entirely.
+        try:
+            self._cached_per_trade_dollars = resolve_per_trade_dollars(cfg.portfolio)
+        except (ValueError, NotImplementedError):
+            self._cached_per_trade_dollars = float(cfg.portfolio.per_trade_notional or 0.0)
 
         sessions = self.cal.sessions(cfg.data.start_date, cfg.data.end_date)
         for signal_date in sessions:
@@ -435,8 +508,14 @@ class BowakaPortfolioBacktester:
                     fill = self.fill_model.buy_from_bar(entry_bar.to_dict())
                 entry_price = fill.fill_price
                 fill_diag = {**(fill.diagnostics or {}), "fill_label": fill_label}
-                qty = self._qty_for(entry_price=entry_price, portfolio=cfg.portfolio)
-                qty = self._maybe_apply_realism_cap(qty=qty, candidate=candidate.to_dict(), realism=cfg.realism)
+                qty = self._qty_for(
+                    entry_price=entry_price, portfolio=cfg.portfolio,
+                    exits=cfg.exits, candidate=candidate.to_dict(),
+                )
+                qty, adv_diag = self._maybe_apply_realism_cap(
+                    qty=qty, candidate=candidate.to_dict(), realism=cfg.realism,
+                )
+                fill_diag = {**fill_diag, **adv_diag}
                 if qty <= 0:
                     continue
                 tid = trade_id(symbol=sym, trade_date=trade_date, entry_rule=cfg.entry.default_rule, config_hash="cfg")

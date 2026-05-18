@@ -117,13 +117,18 @@ stop_manager_shadow:
 portfolio:
   mode: paper_data_collection
   sizing_mode: equal_slice
-  # per_trade_notional is resolved at runtime from bankroll/N (Phase 5).
-  # The lab's PortfolioConfig keeps the field required >0 today; the exact
-  # profile sets it as a placeholder that Phase 5 will swap for null + bankroll.
-  per_trade_notional: 5000
+  # Phase fidelity-5: equal_slice resolves per-trade dollars from
+  # bankroll × fraction / max_concurrent_positions = 90000 * 0.80 / 18 = $4000.
+  per_trade_notional: null
+  bankroll_dollars: 90000
+  equal_slice_per_position: true
+  equal_slice_bankroll_fraction: 0.80
   max_concurrent_positions: 18
   max_total_entries_per_day: 25
   max_gross_exposure_pct: 2.0
+  target_risk_dollars: 200
+  expected_stop_slippage_pct: 0.015
+  min_order_notional: 500
   daily_loss_pct: null
   max_stopouts_per_day: null
   stop_trading_after_consecutive_stopouts: null

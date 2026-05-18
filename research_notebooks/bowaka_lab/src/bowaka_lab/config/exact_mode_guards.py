@@ -91,5 +91,20 @@ def assert_exact_mode_invariants(
             f"(got {ic.max_quote_age_seconds})"
         )
 
+    # Phase fidelity-5: sizing must be equal_slice + explicit bankroll +
+    # explicit equal_slice_bankroll_fraction (source paper-mode pinning).
+    portfolio = cfg.portfolio
+    if portfolio.sizing_mode != "equal_slice":
+        errs.append(
+            f"exact mode: sizing_mode must be 'equal_slice' (got {portfolio.sizing_mode!r})"
+        )
+    if portfolio.bankroll_dollars is None:
+        errs.append("exact mode: portfolio.bankroll_dollars must be set")
+    if portfolio.equal_slice_bankroll_fraction is None:
+        errs.append(
+            "exact mode: portfolio.equal_slice_bankroll_fraction must be explicit "
+            "(not auto-coupled). Source paper-mode profile pins it at 0.80."
+        )
+
     if errs:
         raise ValueError("exact-mode invariant failures:\n  - " + "\n  - ".join(errs))
