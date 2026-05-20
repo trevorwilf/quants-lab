@@ -1,0 +1,37 @@
+tasks:
+  bowaka_v2_lab_research_pipeline:
+    enabled: true
+    task_class: notebook
+
+    schedule:
+      type: cron
+      cron: "0 0 * * 1-5"
+      timezone: UTC
+
+    max_retries: 0
+    retry_delay_seconds: 60
+    timeout_seconds: 1800
+    dependencies: []
+
+    config:
+      notebooks:
+        - path: "bowaka_v2_lab/notebooks/04_intraday_event_replay.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_backtest_smoke.yml"
+
+        - path: "bowaka_v2_lab/notebooks/05_single_config_backtest.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_backtest_smoke.yml"
+
+      output_dir: "app/outputs/bowaka_v2_lab/notebooks"
+      save_outputs: true
+      extract_results: true
+      kernel: "python3"
+      timeout: "30m"
+      execution: "sequential"
+      continue_on_error: false
+
+    tags:
+      - bowaka_v2
+      - smoke
+      - ci

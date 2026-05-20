@@ -1,0 +1,66 @@
+tasks:
+  bowaka_v2_lab_research_pipeline:
+    enabled: true
+    task_class: notebook
+
+    schedule:
+      type: cron
+      cron: "30 23 * * 1-5"
+      timezone: UTC
+
+    max_retries: 2
+    retry_delay_seconds: 300
+    timeout_seconds: 14400
+    dependencies: []
+
+    config:
+      notebooks:
+        - path: "bowaka_v2_lab/notebooks/01_shared_data_inventory.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_research_iex_plumbing.yml"
+
+        - path: "bowaka_v2_lab/notebooks/02_universe_backfill_and_snapshot.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_research_iex_plumbing.yml"
+
+        - path: "bowaka_v2_lab/notebooks/03_volume_curve_build.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_research_iex_plumbing.yml"
+
+        - path: "bowaka_v2_lab/notebooks/04_intraday_event_replay.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_research_iex_plumbing.yml"
+
+        - path: "bowaka_v2_lab/notebooks/05_single_config_backtest.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_research_iex_plumbing.yml"
+
+        - path: "bowaka_v2_lab/notebooks/06_execution_cost_and_liquidity_study.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_research_iex_plumbing.yml"
+
+        - path: "bowaka_v2_lab/notebooks/07_ablation_and_delay_sensitivity.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_research_iex_plumbing.yml"
+
+        - path: "bowaka_v2_lab/notebooks/08_counterfactual_exits_and_holds.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_research_iex_plumbing.yml"
+
+        - path: "bowaka_v2_lab/notebooks/11_weekly_research_report.ipynb"
+          parameters:
+            CONFIG_PATH: "research_notebooks/bowaka_v2_lab/configs/bowaka_v2_research_iex_plumbing.yml"
+
+      output_dir: "app/outputs/bowaka_v2_lab/notebooks"
+      save_outputs: true
+      extract_results: true
+      kernel: "python3"
+      timeout: "4h"
+      execution: "sequential"
+      continue_on_error: false
+
+    tags:
+      - bowaka_v2
+      - equities
+      - backtest
+      - research
