@@ -1,45 +1,15 @@
-"""One-at-a-time and grouped parameter perturbation."""
-
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Any, Callable
-
-import pandas as pd
+"""Re-export shim: sensitivity.py now lives in bowaka_common.research.sensitivity.
 
 
-@dataclass
-class SensitivityResult:
-    perturbations: pd.DataFrame  # rows: (param, value, score)
-    baseline_score: float
+This shim preserves the v1 public import surface during the Phase 2 refactor.
 
+Public objects are *identical* (id() match) to their bowaka_common counterparts.
+"""
 
-def one_at_a_time(
-    *,
-    baseline_params: dict[str, Any],
-    evaluator: Callable[[dict[str, Any]], float],
-    perturbations: dict[str, list[Any]],
-) -> SensitivityResult:
-    baseline_score = float(evaluator(baseline_params))
-    rows: list[dict] = []
-    for param, values in perturbations.items():
-        for v in values:
-            cfg = dict(baseline_params)
-            cfg[param] = v
-            rows.append({"param": param, "value": v, "score": float(evaluator(cfg))})
-    return SensitivityResult(perturbations=pd.DataFrame(rows), baseline_score=baseline_score)
+from bowaka_common.research.sensitivity import (  # noqa: F401
+    SensitivityResult,
+    one_at_a_time,
+    grouped,
+)
 
-
-def grouped(
-    *,
-    baseline_params: dict[str, Any],
-    evaluator: Callable[[dict[str, Any]], float],
-    group_perturbations: dict[str, dict[str, Any]],
-) -> SensitivityResult:
-    baseline_score = float(evaluator(baseline_params))
-    rows: list[dict] = []
-    for group_name, group_cfg in group_perturbations.items():
-        cfg = dict(baseline_params)
-        cfg.update(group_cfg)
-        rows.append({"param": "group", "value": group_name, "score": float(evaluator(cfg))})
-    return SensitivityResult(perturbations=pd.DataFrame(rows), baseline_score=baseline_score)
+__all__ = ['SensitivityResult', 'one_at_a_time', 'grouped']
