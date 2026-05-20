@@ -95,9 +95,57 @@ def build_parser() -> argparse.ArgumentParser:
 
     pg = sub.add_parser("promotion-gate", help="run promotion checklist + bundler (Phase 9)")
     pg.add_argument("--run-id", required=True)
-    pg.set_defaults(func=_placeholder("promotion-gate"))
+    pg.add_argument("--artifacts-root", default=None,
+                     help="override artifacts/ root; defaults to research_notebooks/bowaka_v2_lab/artifacts")
+    pg.set_defaults(func=_cmd_promotion_gate)
 
     return p
+
+
+def _cmd_promotion_gate(args: argparse.Namespace) -> int:
+    """Run the promotion checklist + bundle, write a verdict JSON, exit 0 iff all P0 checks pass."""
+    from .promotion.bundler import bundle_review_package
+    from .promotion.checklist import run_all_checklists
+    from .promotion.suitability import decide_suitability
+
+    repo_root = Path(__file__).resolve().parents[4]
+    artifacts_root = Path(args.artifacts_root) if args.artifacts_root else (
+        repo_root / "research_notebooks" / "bowaka_v2_lab" / "artifacts"
+    )
+    run_dir = artifacts_root / "runs" / args.run_id
+    if not run_dir.is_dir():
+        print(json.dumps({"status": "error", "error": f"run_dir not found: {run_dir}"}), file=sys.stderr)
+        return 2
+
+    results = run_all_checklists(run_dir)
+    tier = decide_suitability(run_dir, results)
+    # Bundle, tolerating optional artifacts.
+    promotion_root = artifacts_root / "promotion"
+    try:
+        bundle_dir = bundle_review_package(
+            source_run_dir=run_dir,
+            promotion_root=promotion_root,
+            run_id=args.run_id,
+        )
+        bundle_status = "ok"
+    except FileNotFoundError as e:
+        bundle_dir = None
+        bundle_status = f"failed: {e}"
+
+    # P0 = every checklist item must be "pass" (no fail/unknown).
+    p0_failures = [k for k, (s, _) in results.items() if s != "pass"]
+    out = {
+        "run_id": args.run_id,
+        "run_dir": str(run_dir),
+        "tier": tier,
+        "p0_failures": p0_failures,
+        "p0_passed": len(p0_failures) == 0,
+        "bundle_dir": str(bundle_dir) if bundle_dir else None,
+        "bundle_status": bundle_status,
+        "checklist_results": {k: {"status": s, "evidence": ev} for k, (s, ev) in results.items()},
+    }
+    print(json.dumps(out, indent=2, sort_keys=True))
+    return 0 if (out["p0_passed"] and bundle_status == "ok") else 1
 
 
 def main(argv: Sequence[str] | None = None) -> int:
