@@ -1,0 +1,4 @@
+{"event_id": "p:2024-09-04:AAA:001", "session_date": "2024-09-04", "symbol": "AAA", "scan_timestamp": "2024-09-04T14:00:00Z", "signal_strength": 4.5}
+{"event_id": "p:2024-09-04:BBB:001", "session_date": "2024-09-04", "symbol": "BBB", "scan_timestamp": "2024-09-04T14:01:00Z", "signal_strength": 3.2}
+{"event_id": "p:2024-09-05:AAA:001", "session_date": "2024-09-05", "symbol": "AAA", "scan_timestamp": "2024-09-05T14:00:00Z", "signal_strength": 4.0}
+{"event_id": "p:2024-09-05:BBB:001", "session_date": "2024-09-05", "symbol": "BBB", "scan_timestamp": "2024-09-05T14:02:00Z", "signal_strength": 2.8}
