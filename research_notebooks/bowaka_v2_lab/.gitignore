@@ -1,0 +1,17 @@
+data/**
+!data/.gitkeep
+!data/fixtures/.gitkeep
+artifacts/**
+!artifacts/.gitkeep
+!artifacts/smoke/.gitkeep
+!artifacts/runs/.gitkeep
+!artifacts/optuna/.gitkeep
+!artifacts/reports/.gitkeep
+.env
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+src/*.egg-info/
+reference/source_strategy_v2/**
+__pycache__/
+*.pyc

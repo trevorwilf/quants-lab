@@ -1,0 +1,30 @@
+# Bowaka v2 MongoDB collection index definitions.
+# Per [Report §12.1]. Indexes scoped to v2 collections only; v1 collections are unaffected.
+
+collections:
+  bowaka_v2_candidate_events:
+    indexes:
+      - keys: [["scan_timestamp", 1], ["symbol", 1]]
+        options: {name: scan_ts_symbol}
+      - keys: [["session_date", 1], ["symbol", 1]]
+        options: {name: session_symbol}
+      - keys: [["candidate_event_id", 1]]
+        options: {name: candidate_event_id_unique, unique: true}
+      - keys: [["dataset_hash", 1]]
+        options: {name: dataset_hash}
+
+  bowaka_v2_entry_decisions:
+    indexes:
+      - keys: [["decision_timestamp", 1], ["symbol", 1]]
+        options: {name: decision_ts_symbol}
+      - keys: [["candidate_event_id", 1]]
+        options: {name: candidate_event_id}
+      - keys: [["reason", 1]]
+        options: {name: reason}
+
+  bowaka_v2_runs:
+    indexes:
+      - keys: [["run_id", 1]]
+        options: {name: run_id_unique, unique: true}
+      - keys: [["strategy_id", 1], ["created_at", -1]]
+        options: {name: strategy_created_at}

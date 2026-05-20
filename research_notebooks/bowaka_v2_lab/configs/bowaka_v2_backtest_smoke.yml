@@ -1,0 +1,82 @@
+# Bowaka v2 smoke config — used by env-check tests and the comprehensive backtester's
+# smoke-fixture path. Points at the bundled tests/fixtures/ tree.
+
+strategy_id: bowaka_v2
+strategy_version: "0.1.0"
+
+market_data:
+  feed: iex
+  allow_non_sip_for_research_only: true
+  max_bar_age_seconds: 300
+  minute_bar_source: fixture
+  daily_bar_source: fixture
+  quote_source: fixture
+  assume_naive_timezone: false
+
+session:
+  calendar: XNYS
+  scan_window_local_start: "09:30"
+  scan_window_local_end: "15:55"
+  scan_interval_seconds: 60
+
+universe:
+  asset_classes: [operating_equity]
+  min_price: 1.0
+  max_price: 1000.0
+  min_adv_dollars: 100000
+  exclude_pattern_class: true
+  symbols: [AAA, BBB, CCC]
+
+scanner:
+  max_candidates_per_scan: 10
+  max_entries_per_scan: 3
+  min_signal_strength: 0.0
+
+signals:
+  allow_unknown_instrument_class_for_research: false
+
+execution:
+  order_type: marketable_limit
+  limit_offset_bps: 5
+  max_quote_age_seconds: 60
+  max_spread_bps: 200
+
+sizing:
+  method: fixed_dollar
+  dollars_per_position: 1000
+  max_position_dollars: 5000
+
+risk:
+  max_concurrent_positions: 5
+  max_total_entries_per_day: 12
+  max_gross_exposure_pct: 0.50
+  daily_loss_pct: 0.10
+  strategy_slice_loss_pct: 0.20
+  max_stopouts_per_day: 6
+  stop_trading_after_consecutive_stopouts: 6
+  adv_tier_caps: []
+
+exits:
+  stop_loss_pct: 0.02
+  take_profit_pct: 0.06
+  max_hold_days: 3
+  signal_fade_mode: telemetry_only
+
+backtest:
+  start_date: "2024-10-01"
+  end_date: "2024-10-03"
+  cost_stress: base
+  entry_delay_minutes: 0
+
+artifacts:
+  write_parquet: true
+  write_jsonl: true
+
+run:
+  kind: smoke
+  seed: 1337
+
+paths:
+  lab_root: research_notebooks/bowaka_v2_lab
+  data_root: research_notebooks/bowaka_v2_lab/data
+  artifact_root: research_notebooks/bowaka_v2_lab/artifacts
