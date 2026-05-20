@@ -17,28 +17,28 @@ tasks:
       notebooks:
         - path: "bowaka_lab/notebooks/00_environment_check.ipynb"
           parameters:
-            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
 
         - path: "bowaka_lab/notebooks/01_alpaca_asset_universe.ipynb"
           parameters:
-            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
 
         - path: "bowaka_lab/notebooks/02_daily_bar_backfill.ipynb"
           parameters:
-            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
             DAYS: 120
 
         - path: "bowaka_lab/notebooks/03_prefilter_replay.ipynb"
           parameters:
-            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
 
         - path: "bowaka_lab/notebooks/04_single_config_backtest.ipynb"
           parameters:
-            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
 
         - path: "bowaka_lab/notebooks/11_weekly_research_report.ipynb"
           parameters:
-            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_backtest_iex_exploratory.yml"
+            CONFIG_PATH: "research_notebooks/bowaka_lab/configs/bowaka_research_variant.yml"
 
       output_dir: "app/outputs/bowaka_lab/notebooks"
       save_outputs: true

@@ -191,3 +191,21 @@ app/outputs/bowaka_lab/
 
 research_notebooks/bowaka_lab/db_tools/bowaka_data/parquet/bars/*
 research_notebooks/bowaka_lab/db_tools/bowaka_data/parquet/assets/*
+
+# Bowaka v2 lab
+research_notebooks/bowaka_v2_lab/data/**
+!research_notebooks/bowaka_v2_lab/data/.gitkeep
+research_notebooks/bowaka_v2_lab/artifacts/**
+!research_notebooks/bowaka_v2_lab/artifacts/.gitkeep
+research_notebooks/bowaka_v2_lab/.env
+research_notebooks/bowaka_v2_lab/.pytest_cache/
+research_notebooks/bowaka_v2_lab/.ruff_cache/
+research_notebooks/bowaka_v2_lab/*.egg-info/
+research_notebooks/bowaka_v2_lab/reference/source_strategy_v2/**
+app/data/bowaka_v2_lab/
+app/outputs/bowaka_v2_lab/
+
+# Bowaka common
+research_notebooks/bowaka_common/.pytest_cache/
+research_notebooks/bowaka_common/.ruff_cache/
+research_notebooks/bowaka_common/*.egg-info/
