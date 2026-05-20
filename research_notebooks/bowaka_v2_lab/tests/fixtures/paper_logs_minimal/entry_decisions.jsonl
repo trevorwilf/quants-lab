@@ -1,0 +1,3 @@
+{"event_id": "p:2024-09-04:AAA:entry:001", "candidate_event_id": "p:2024-09-04:AAA:001", "session_date": "2024-09-04", "symbol": "AAA", "decision": "accepted", "reason": "all_gates_passed", "decision_timestamp": "2024-09-04T14:00:01Z"}
+{"event_id": "p:2024-09-04:BBB:entry:001", "candidate_event_id": "p:2024-09-04:BBB:001", "session_date": "2024-09-04", "symbol": "BBB", "decision": "rejected", "reason": "spread_too_wide", "decision_timestamp": "2024-09-04T14:01:01Z"}
+{"event_id": "p:2024-09-05:AAA:entry:001", "candidate_event_id": "p:2024-09-05:AAA:001", "session_date": "2024-09-05", "symbol": "AAA", "decision": "accepted", "reason": "all_gates_passed", "decision_timestamp": "2024-09-05T14:00:01Z"}
