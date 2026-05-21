@@ -7,6 +7,7 @@ from .loaders import (
 )
 from .universe_pit import write_universe_snapshot, build_pit_universe_snapshot
 from .manifest import build_v2_dataset_manifest
+from .suppliers import build_daily_cache_from_lake, make_lake_suppliers
 
 __all__ = [
     "daily_bars_for",
@@ -16,4 +17,6 @@ __all__ = [
     "write_universe_snapshot",
     "build_pit_universe_snapshot",
     "build_v2_dataset_manifest",
+    "make_lake_suppliers",
+    "build_daily_cache_from_lake",
 ]
