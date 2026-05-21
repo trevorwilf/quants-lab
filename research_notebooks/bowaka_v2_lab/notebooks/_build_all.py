@@ -1,12 +1,15 @@
-"""Build all Phase 5 / 6 / 7 notebooks.
+"""Build the v2 lab notebooks 01-08 and 11.
 
 Run from the lab root:
     python notebooks/_build_all.py
+
+Every notebook is real and config-driven: with a research config
+(``market_data.*_source: alpaca``) it reads the shared market-data lake; with the
+smoke / fixture config it uses deterministic synthetic data. No smoke stubs.
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import sys
 
@@ -67,74 +70,96 @@ def main() -> None:
     _build(
         "02_universe_backfill_and_snapshot.ipynb",
         [
-            {"type": "markdown", "source": "# 02 — Universe Backfill & PIT Snapshot"},
+            {"type": "markdown", "source": "# 02 — Universe Backfill & PIT Snapshot\n\nBuilds a point-in-time universe snapshot. Symbols and price/ADV baselines come from the shared lake (research config) or are synthetic (smoke config)."},
             {"type": "code", "source": (
-                "import datetime as _dt\n"
                 "import pandas as pd\n"
                 "from bowaka_v2_lab.config import load_config\n"
+                "from bowaka_v2_lab.backtest_runner import resolve_symbols, config_sessions, uses_lake\n"
                 "from bowaka_v2_lab.scanner.universe_builder import build_universe_snapshot\n"
                 "cfg = load_config(CONFIG_PATH)\n"
-                "_syms = cfg.get('universe', {}).get('symbols') or ['AAA','BBB']\n"
-                "_md = cfg.get('market_data', {})\n"
-                "if _md.get('daily_bar_source', 'fixture') in ('alpaca', 'shared'):\n"
-                "    from bowaka_common.marketdata import MarketDataStore\n"
-                "    _assets = MarketDataStore(_md.get('shared_root')).assets()\n"
-                "    if not _assets.empty and 'symbol' in _assets.columns:\n"
-                "        _syms = sorted(_assets['symbol'].astype(str).tolist())[:50]\n"
+                "md = cfg.get('market_data', {})\n"
+                "session = config_sessions(cfg)[-1]\n"
+                "syms = resolve_symbols(cfg)\n"
+                "cols = ['symbol', 'prior_close', 'avg_dollar_volume_20d']\n"
+                "if uses_lake(cfg):\n"
+                "    from bowaka_v2_lab.data.suppliers import build_daily_cache_from_lake\n"
+                "    cache = build_daily_cache_from_lake(md.get('shared_root'), syms, session, feed=md.get('feed', 'iex'))\n"
+                "    baselines = cache[cols] if not cache.empty else pd.DataFrame(columns=cols)\n"
+                "else:\n"
+                "    baselines = pd.DataFrame([{'symbol': s, 'prior_close': 100.0,\n"
+                "                               'avg_dollar_volume_20d': 5_000_000} for s in syms])\n"
                 "asset_master = pd.DataFrame([{'symbol': s, 'exchange': 'NASDAQ', 'venue_code': 'XNAS',\n"
                 "  'instrument_class': 'operating_equity', 'eligible_for_bowaka_equity_bucket': True}\n"
-                "  for s in _syms])\n"
-                "baselines = pd.DataFrame([{'symbol': s, 'prior_close': 100.0, 'avg_dollar_volume_20d': 5_000_000}\n"
-                "  for s in _syms])\n"
-                "snap = build_universe_snapshot(asset_master=asset_master, daily_baselines=baselines, cfg=cfg,\n"
-                "  session_date=_dt.date.today())\n"
-                "print('universe size:', len(snap['symbols']))\n"
+                "  for s in syms])\n"
+                "snap = build_universe_snapshot(asset_master=asset_master, daily_baselines=baselines,\n"
+                "  cfg=cfg, session_date=session)\n"
+                "n_pass = len(snap['symbols'])\n"
+                "print('session', session, '-', n_pass, 'symbols pass the universe gate',\n"
+                "      'of', len(syms), 'candidates')\n"
             )},
         ],
     )
     _build(
         "03_volume_curve_build.ipynb",
         [
-            {"type": "markdown", "source": "# 03 — Volume Curve Build"},
+            {"type": "markdown", "source": "# 03 — Volume Curve Build\n\nBuilds the intraday volume curve from real lake minute bars (research config) or the synthetic default (smoke config)."},
             {"type": "code", "source": (
-                "from bowaka_v2_lab.features.volume_curve import synthesize_default_curve, adv_bucket\n"
-                "curve = synthesize_default_curve()\n"
-                "print(curve.head())\n"
-                "print('size:', len(curve))\n"
+                "import pandas as pd\n"
+                "from bowaka_v2_lab.config import load_config\n"
+                "from bowaka_v2_lab.backtest_runner import resolve_symbols, uses_lake\n"
+                "from bowaka_v2_lab.features.volume_curve import build_volume_curve_from_minute_bars, synthesize_default_curve\n"
+                "cfg = load_config(CONFIG_PATH)\n"
+                "md = cfg.get('market_data', {})\n"
+                "bt = cfg.get('backtest', {})\n"
+                "if uses_lake(cfg):\n"
+                "    from bowaka_common.marketdata import MarketDataStore\n"
+                "    store = MarketDataStore(md.get('shared_root'))\n"
+                "    syms = resolve_symbols(cfg, cap=25)\n"
+                "    start = pd.Timestamp(bt.get('start_date'))\n"
+                "    end = pd.Timestamp(bt.get('end_date', bt.get('start_date'))) + pd.Timedelta(days=1)\n"
+                "    frames = []\n"
+                "    for s in syms:\n"
+                "        df = store.minute_bars(s, start, end, feed=md.get('feed', 'iex'))\n"
+                "        if not df.empty:\n"
+                "            frames.append(df)\n"
+                "    if frames:\n"
+                "        curve = build_volume_curve_from_minute_bars(pd.concat(frames, ignore_index=True))\n"
+                "        source = 'lake minute bars (' + str(len(frames)) + ' symbols)'\n"
+                "    else:\n"
+                "        curve = synthesize_default_curve()\n"
+                "        source = 'synthetic_default (no lake minute bars in range)'\n"
+                "else:\n"
+                "    curve = synthesize_default_curve()\n"
+                "    source = 'synthetic_default (fixture config)'\n"
+                "print('volume curve source:', source)\n"
+                "print('rows:', len(curve))\n"
+                "print(curve.head(10))\n"
             )},
         ],
     )
     _build(
         "04_intraday_event_replay.ipynb",
         [
-            {"type": "markdown", "source": "# 04 — Intraday Event Replay"},
+            {"type": "markdown", "source": "# 04 — Intraday Event Replay\n\nReplays the scanner over a session. Bars and the daily cache come from the shared lake (research config) or are synthetic (smoke config)."},
             {"type": "code", "source": (
-                "import datetime as _dt\n"
                 "import pandas as pd\n"
                 "from pathlib import Path\n"
                 "from bowaka_v2_lab.config import load_config\n"
+                "from bowaka_v2_lab.backtest_runner import (resolve_symbols, config_sessions,\n"
+                "  resolve_suppliers, resolve_daily_cache)\n"
                 "from bowaka_v2_lab.scanner.replay import replay_scanner\n"
-                "from bowaka_v2_lab.sim.replay_fixtures import synthetic_universe, synthetic_daily_cache\n"
+                "from bowaka_v2_lab.sim.replay_fixtures import synthetic_universe\n"
                 "cfg = load_config(CONFIG_PATH)\n"
-                "syms = cfg.get('universe', {}).get('symbols') or ['AAA','BBB','CCC']\n"
+                "syms = resolve_symbols(cfg)\n"
+                "session = config_sessions(cfg)[0]\n"
+                "scan_ts = [pd.Timestamp(str(session) + 'T14:00:00', tz='UTC')]\n"
+                "bars_supplier, _ = resolve_suppliers(cfg)\n"
+                "daily_cache = resolve_daily_cache(cfg, syms, session)\n"
                 "universe = synthetic_universe(syms)\n"
-                "daily_cache = synthetic_daily_cache(syms)\n"
-                "scan_ts = [pd.Timestamp('2024-09-04 14:00:00', tz='UTC')]\n"
-                "_md = cfg.get('market_data', {})\n"
-                "if _md.get('minute_bar_source', 'fixture') in ('alpaca', 'shared'):\n"
-                "    # Real data: bars come from the shared market-data lake.\n"
-                "    from bowaka_v2_lab.data.suppliers import make_lake_suppliers\n"
-                "    supplier, _ = make_lake_suppliers(_md.get('shared_root'), feed=_md.get('feed', 'iex'))\n"
-                "else:\n"
-                "    def supplier(sym, ts):\n"
-                "        rows = []\n"
-                "        for i in range(30):\n"
-                "            rows.append({'timestamp': pd.Timestamp('2024-09-04 13:30:00', tz='UTC') + pd.Timedelta(minutes=i),\n"
-                "                          'open': 100+i*0.1, 'high': 100+i*0.2, 'low': 99.5, 'close': 100+i*0.15, 'volume': 1000.0})\n"
-                "        return pd.DataFrame(rows)\n"
-                "run_dir = Path('research_notebooks/bowaka_v2_lab/artifacts/runs/replay_nb_smoke')\n"
+                "run_dir = Path('research_notebooks/bowaka_v2_lab/artifacts/runs') / ('replay_nb_' + str(session))\n"
                 "summary = replay_scanner(cfg=cfg, universe_snapshot=universe, daily_cache=daily_cache,\n"
-                "  volume_curve=None, scan_timestamps=scan_ts, bars_supplier=supplier, run_dir=run_dir)\n"
+                "  volume_curve=None, scan_timestamps=scan_ts, bars_supplier=bars_supplier, run_dir=run_dir)\n"
+                "print('replay session:', session)\n"
                 "print(summary)\n"
             )},
         ],
@@ -142,43 +167,10 @@ def main() -> None:
     _build(
         "05_single_config_backtest.ipynb",
         [
-            {"type": "markdown", "source": "# 05 — Single Config Backtest"},
+            {"type": "markdown", "source": "# 05 — Single Config Backtest\n\nRuns a real backtest over the config's `backtest` window against the shared market-data lake (research config) or synthetic data (smoke config)."},
             {"type": "code", "source": (
-                "import datetime as _dt\n"
-                "import pandas as pd\n"
-                "from pathlib import Path\n"
-                "from bowaka_v2_lab.config import load_config, BowakaV2Paths\n"
-                "from bowaka_v2_lab.config.models import BowakaV2Config\n"
-                "from bowaka_v2_lab.sim.backtester import run_backtest\n"
-                "from bowaka_v2_lab.sim.replay_fixtures import synthetic_universe, synthetic_daily_cache\n"
-                "cfg = load_config(CONFIG_PATH)\n"
-                "validated = BowakaV2Config.model_validate(cfg)\n"
-                "paths = BowakaV2Paths.from_config(validated, repo_root=Path('.').resolve())\n"
-                "sessions = [_dt.date(2024, 9, 4)]\n"
-                "syms = cfg.get('universe', {}).get('symbols') or ['AAA','BBB','CCC']\n"
-                "universe = {s: synthetic_universe(syms) for s in sessions}\n"
-                "_md = cfg.get('market_data', {})\n"
-                "if _md.get('minute_bar_source', 'fixture') in ('alpaca', 'shared'):\n"
-                "    # Real data: suppliers + daily cache come from the shared lake.\n"
-                "    from bowaka_v2_lab.data.suppliers import make_lake_suppliers, build_daily_cache_from_lake\n"
-                "    _feed, _root = _md.get('feed', 'iex'), _md.get('shared_root')\n"
-                "    minute_supplier, daily_supplier = make_lake_suppliers(_root, feed=_feed)\n"
-                "    daily_cache = {s: build_daily_cache_from_lake(_root, syms, s, feed=_feed) for s in sessions}\n"
-                "else:\n"
-                "    daily_cache = {s: synthetic_daily_cache(syms) for s in sessions}\n"
-                "    def minute_supplier(sym, ts):\n"
-                "        rows = []\n"
-                "        for i in range(30):\n"
-                "            rows.append({'timestamp': pd.Timestamp('2024-09-04 13:30:00', tz='UTC') + pd.Timedelta(minutes=i),\n"
-                "                          'open': 100+i*0.1, 'high': 100+i*0.2, 'low': 99.5, 'close': 100+i*0.15, 'volume': 5000.0})\n"
-                "        return pd.DataFrame(rows)\n"
-                "    def daily_supplier(sym, d):\n"
-                "        return pd.DataFrame([{'symbol': sym, 'session_date': d, 'open': 100.0, 'high': 110.0, 'low': 98.0, 'close': 108.0, 'volume': 100000}])\n"
-                "result = run_backtest(cfg=cfg, sessions=sessions,\n"
-                "  scan_times_per_session=lambda d: [pd.Timestamp(f'{d}T14:00:00', tz='UTC')],\n"
-                "  universe_snapshot_by_session=universe, daily_cache_by_session=daily_cache,\n"
-                "  minute_bars_supplier=minute_supplier, daily_bars_supplier=daily_supplier,\n"
-                "  initial_bankroll=10_000.0, paths=paths)\n"
+                "from bowaka_v2_lab.backtest_runner import run_config_backtest\n"
+                "result = run_config_backtest(CONFIG_PATH)\n"
                 "print('run_id:', result.run_id)\n"
                 "print('run_dir:', result.run_dir)\n"
                 "print('summary:', result.summary)\n"
@@ -188,23 +180,42 @@ def main() -> None:
     _build(
         "06_execution_cost_and_liquidity_study.ipynb",
         [
-            {"type": "markdown", "source": "# 06 — Execution Cost & Liquidity Study"},
+            {"type": "markdown", "source": "# 06 — Execution Cost & Liquidity Study\n\nRuns a real backtest, then profiles its entry decisions by ADV bucket, spread bucket, and time of day."},
             {"type": "code", "source": (
-                "from bowaka_v2_lab.sim.cost_model import COST_STRESS_LEVELS, slippage_bps\n"
-                "for lvl in COST_STRESS_LEVELS:\n"
-                "    s = slippage_bps(stress_level=lvl, adv_participation_frac=0.01)\n"
-                "    print(f'{lvl}: {s:.2f} bps')\n"
+                "import pandas as pd\n"
+                "from bowaka_v2_lab.backtest_runner import run_config_backtest\n"
+                "from bowaka_v2_lab.reports.liquidity_execution import (adv_bucket_distribution,\n"
+                "  spread_bucket_distribution, time_of_day_buckets)\n"
+                "result = run_config_backtest(CONFIG_PATH)\n"
+                "print('backtest summary:', result.summary)\n"
+                "dec_path = result.run_dir / 'entry_decisions.parquet'\n"
+                "if dec_path.is_file():\n"
+                "    decisions = pd.read_parquet(dec_path)\n"
+                "    print('entry decisions:', len(decisions))\n"
+                "    print('--- ADV-bucket distribution ---')\n"
+                "    print(adv_bucket_distribution(decisions))\n"
+                "    print('--- spread-bucket distribution ---')\n"
+                "    print(spread_bucket_distribution(decisions))\n"
+                "    print('--- time-of-day distribution ---')\n"
+                "    print(time_of_day_buckets(decisions))\n"
+                "else:\n"
+                "    print('no entry_decisions.parquet at', dec_path)\n"
             )},
         ],
     )
     _build(
         "07_ablation_and_delay_sensitivity.ipynb",
         [
-            {"type": "markdown", "source": "# 07 — Ablation & Delay Sensitivity"},
+            {"type": "markdown", "source": "# 07 — Ablation & Delay Sensitivity\n\nRuns a real backtest at each entry-delay setting and tabulates how performance degrades with delay."},
             {"type": "code", "source": (
+                "from bowaka_v2_lab.backtest_runner import run_config_backtest\n"
                 "from bowaka_v2_lab.reports.delay_sensitivity import delay_sensitivity_grid, standard_delays\n"
-                "summaries = {d: {'n_trades': d, 'win_rate': 0.5, 'total_pnl': 100.0*d, 'net_return_pct': 0.01*d}\n"
-                "              for d in standard_delays()}\n"
+                "summaries = {}\n"
+                "for d in standard_delays():\n"
+                "    result = run_config_backtest(CONFIG_PATH,\n"
+                "      param_overrides={'backtest': {'entry_delay_minutes': d}})\n"
+                "    summaries[d] = result.summary\n"
+                "    print('delay', d, 'min ->', result.summary.get('n_trades'), 'trades')\n"
                 "print(delay_sensitivity_grid(summaries))\n"
             )},
         ],
@@ -212,13 +223,16 @@ def main() -> None:
     _build(
         "08_counterfactual_exits_and_holds.ipynb",
         [
-            {"type": "markdown", "source": "# 08 — Counterfactual Exits & Holds"},
+            {"type": "markdown", "source": "# 08 — Counterfactual Exits & Holds\n\nKeeps entries fixed and re-runs real backtests with alternative exit / hold parameters to compare outcomes."},
             {"type": "code", "source": (
+                "from bowaka_v2_lab.config import load_config\n"
+                "from bowaka_v2_lab.backtest_runner import run_config_backtest\n"
                 "from bowaka_v2_lab.research.counterfactuals import run_counterfactual_grid\n"
+                "base_cfg = load_config(CONFIG_PATH)\n"
                 "result = run_counterfactual_grid(\n"
-                "    base_cfg={'exits': {'stop_loss_pct': 0.02, 'take_profit_pct': 0.05, 'max_hold_days': 3}},\n"
+                "    base_cfg=base_cfg,\n"
                 "    exit_variants=[{'max_hold_days': 1}, {'max_hold_days': 5}, {'take_profit_pct': 0.10}],\n"
-                "    backtest_runner=lambda cfg: {'n_trades': 5, 'win_rate': 0.4, 'net_return_pct': 0.005},\n"
+                "    backtest_runner=lambda cfg: run_config_backtest(cfg).summary,\n"
                 ")\n"
                 "print(result)\n"
             )},
@@ -227,47 +241,15 @@ def main() -> None:
     _build(
         "11_weekly_research_report.ipynb",
         [
-            {"type": "markdown", "source": "# 11 — Weekly Research Report"},
+            {"type": "markdown", "source": "# 11 — Weekly Research Report\n\nRuns a real backtest and renders the run report (with suitability tier)."},
             {"type": "code", "source": (
-                "import datetime as _dt\n"
-                "import pandas as pd\n"
-                "from pathlib import Path\n"
-                "from bowaka_v2_lab.config import load_config, BowakaV2Paths\n"
-                "from bowaka_v2_lab.config.models import BowakaV2Config\n"
-                "from bowaka_v2_lab.sim.backtester import run_backtest\n"
-                "from bowaka_v2_lab.sim.replay_fixtures import synthetic_universe, synthetic_daily_cache\n"
+                "from bowaka_v2_lab.backtest_runner import run_config_backtest\n"
                 "from bowaka_v2_lab.reports.render_run_report import render_run_report\n"
-                "cfg = load_config(CONFIG_PATH)\n"
-                "validated = BowakaV2Config.model_validate(cfg)\n"
-                "paths = BowakaV2Paths.from_config(validated, repo_root=Path('.').resolve())\n"
-                "sessions = [_dt.date(2024, 9, 4)]\n"
-                "syms = ['AAA']\n"
-                "universe = {s: synthetic_universe(syms) for s in sessions}\n"
-                "_md = cfg.get('market_data', {})\n"
-                "if _md.get('minute_bar_source', 'fixture') in ('alpaca', 'shared'):\n"
-                "    from bowaka_v2_lab.data.suppliers import make_lake_suppliers, build_daily_cache_from_lake\n"
-                "    _feed, _root = _md.get('feed', 'iex'), _md.get('shared_root')\n"
-                "    minute_supplier, daily_supplier = make_lake_suppliers(_root, feed=_feed)\n"
-                "    daily_cache = {s: build_daily_cache_from_lake(_root, syms, s, feed=_feed) for s in sessions}\n"
-                "else:\n"
-                "    daily_cache = {s: synthetic_daily_cache(syms) for s in sessions}\n"
-                "    def minute_supplier(sym, ts):\n"
-                "        rows = []\n"
-                "        for i in range(30):\n"
-                "            rows.append({'timestamp': pd.Timestamp('2024-09-04 13:30:00', tz='UTC') + pd.Timedelta(minutes=i),\n"
-                "                          'open': 100, 'high': 101, 'low': 99, 'close': 100.5, 'volume': 5000.0})\n"
-                "        return pd.DataFrame(rows)\n"
-                "    def daily_supplier(sym, d):\n"
-                "        return pd.DataFrame([{'symbol': sym, 'session_date': d, 'open': 100.0, 'high': 110.0, 'low': 98.0, 'close': 108.0, 'volume': 100000}])\n"
-                "result = run_backtest(cfg=cfg, sessions=sessions,\n"
-                "  scan_times_per_session=lambda d: [pd.Timestamp(f'{d}T14:00:00', tz='UTC')],\n"
-                "  universe_snapshot_by_session=universe, daily_cache_by_session=daily_cache,\n"
-                "  minute_bars_supplier=minute_supplier, daily_bars_supplier=daily_supplier,\n"
-                "  initial_bankroll=10_000.0, paths=paths)\n"
+                "result = run_config_backtest(CONFIG_PATH)\n"
                 "report_md = render_run_report(result.run_dir, suitability='backtesting_only')\n"
                 "(result.run_dir / 'report.md').write_text(report_md, encoding='utf-8')\n"
-                "print('report contains suitability:', 'suitability' in report_md.lower())\n"
-                "print(report_md[:500])\n"
+                "print('report written to', result.run_dir / 'report.md')\n"
+                "print(report_md[:800])\n"
             )},
         ],
     )
@@ -275,4 +257,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    print('Built all Phase 5 notebooks.')
+    print("Built notebooks 01-08 and 11.")
