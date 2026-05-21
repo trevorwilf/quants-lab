@@ -24,7 +24,11 @@ session:
   calendar: XNYS
   scan_window_local_start: "09:30"
   scan_window_local_end: "15:55"
-  scan_interval_seconds: 60
+  # Realism Phase 4: smoke runs replay the full intraday cadence (not one
+  # scan). A coarse 15-minute interval keeps the deterministic plumbing path
+  # fast — ((15:30-09:45)/900)+1 = 24 scans/session — while still exercising
+  # multi-scan replay. Research configs keep the live 60s cadence.
+  scan_interval_seconds: 900
 
 universe:
   asset_classes: [operating_equity]

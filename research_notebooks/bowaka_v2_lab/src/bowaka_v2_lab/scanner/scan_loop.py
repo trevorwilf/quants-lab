@@ -12,6 +12,18 @@
 - Per-symbol gate dumps are returned as a list rather than written via a
   global file handle, so callers (scanner.replay, sim.event_loop) can route
   them anywhere.
+
+Realism Phase 4 (audit P0-003 / P0-006):
+
+- Every ``(scan_ts, symbol)`` tuple produces exactly one gate-dump row, carrying
+  ``scan_ts``, the gate result booleans, the gate input values, ``score``,
+  ``rank``, ``candidate_emitted`` and ``rejection_reason`` — so the dump is a
+  complete per-scan funnel.
+- ``signal_expiry_seconds``, ``same_symbol_entries_per_day`` and
+  ``symbol_cooldown_minutes`` (the live scanner dedup keys) are honoured across
+  scans via the threaded ``state`` dict: a symbol emitted in a recent scan is
+  not re-emitted until its cooldown elapses, and once its per-day entry quota is
+  hit it is skipped for the rest of the session.
 """
 from __future__ import annotations
 
@@ -37,6 +49,8 @@ from .event_builder import build_candidate_event
 
 SCAN_SKIP_REASONS: tuple[str, ...] = (
     "already_entered_today",
+    "symbol_cooldown",
+    "same_symbol_day_cap",
     "no_baselines",
     "bars_fetch_failed",
     "no_bars",
@@ -49,6 +63,8 @@ SCAN_SKIP_REASONS_SET: frozenset[str] = frozenset(SCAN_SKIP_REASONS)
 
 class ScanSkipReason(str, enum.Enum):
     ALREADY_ENTERED_TODAY = "already_entered_today"
+    SYMBOL_COOLDOWN = "symbol_cooldown"
+    SAME_SYMBOL_DAY_CAP = "same_symbol_day_cap"
     NO_BASELINES = "no_baselines"
     BARS_FETCH_FAILED = "bars_fetch_failed"
     NO_BARS = "no_bars"
@@ -86,7 +102,15 @@ def evaluate_one_scan(
     scan_ts: Any,
     bars_supplier: Callable[[str, Any], pd.DataFrame | None],
 ) -> ScanResult:
-    """Pure scan evaluation. ``bars_supplier`` is the only data-side injection."""
+    """Pure scan evaluation. ``bars_supplier`` is the only data-side injection.
+
+    ``state`` carries cross-scan dedup memory: ``entered_symbols_today``
+    (symbols with an open position — never re-emitted), ``symbol_last_emit_ts``
+    (UTC ISO of each symbol's last emitted candidate, for the cooldown gate) and
+    ``entries_per_symbol_today`` (per-symbol emitted-candidate counter, for the
+    ``same_symbol_entries_per_day`` cap). The caller threads one ``state`` dict
+    through every scan of a session and resets it per session.
+    """
     scanner_cfg = cfg.get("scanner") or {}
     signals_cfg = cfg.get("signals") or {}
     score_cfg = cfg.get("score") or {}
@@ -108,7 +132,14 @@ def evaluate_one_scan(
     # Per [Report §15.1 P0]: stale-bar enforcement BEFORE feature compute.
     max_bar_age_seconds = int(market_data_cfg.get("max_bar_age_seconds", 90))
 
+    # Realism Phase 4 — live scanner dedup keys (frozen-contract defaults).
+    same_symbol_day_cap = int(scanner_cfg.get("same_symbol_entries_per_day", 1))
+    symbol_cooldown_minutes = float(scanner_cfg.get("symbol_cooldown_minutes", 390))
+    symbol_cooldown = pd.Timedelta(minutes=symbol_cooldown_minutes)
+
     entered = set(state.get("entered_symbols_today") or [])
+    symbol_last_emit_ts: dict[str, str] = state.setdefault("symbol_last_emit_ts", {})
+    entries_per_symbol: dict[str, int] = state.setdefault("entries_per_symbol_today", {})
     universe_meta_by_sym = {
         s["symbol"]: s for s in universe_snapshot.get("symbols", [])
     }
@@ -123,25 +154,71 @@ def evaluate_one_scan(
     scan_ts_obj = pd.Timestamp(scan_ts)
     if scan_ts_obj.tzinfo is None:
         raise ValueError("evaluate_one_scan: scan_ts must be tz-aware")
+    scan_iso = _iso_utc(scan_ts)
+
+    def _row(symbol: str, **extra: Any) -> dict[str, Any]:
+        """Base gate-dump row — every (scan_ts, symbol) tuple gets exactly one.
+
+        ``scan_ts`` / ``candidate_emitted`` / ``rejection_reason`` are always
+        present (Phase 4 contract). ``rejection_reason`` is ``None`` for a
+        symbol that emitted a candidate.
+        """
+        base: dict[str, Any] = {
+            "scan_ts": scan_iso,
+            "scan_timestamp": scan_iso,  # back-compat column name
+            "symbol": symbol,
+            "candidate_emitted": False,
+            "rejection_reason": None,
+            "score": None,
+            "rank": None,
+        }
+        base.update(extra)
+        return base
+
+    def _skip(symbol: str, reason: ScanSkipReason, **extra: Any) -> dict[str, Any]:
+        """Gate-dump row for a skipped symbol (records ``skipped`` + ``rejection_reason``)."""
+        return _row(
+            symbol,
+            skipped=reason.value,
+            rejection_reason=reason.value,
+            **extra,
+        )
 
     result = ScanResult(universe_size=len(universe_meta_by_sym))
     passing: list[tuple[float, dict[str, Any]]] = []
+    # Gate-dump rows for symbols that passed gates — finalised after ranking so
+    # rank / candidate_emitted reflect the per-scan cap.
+    passing_rows: dict[str, dict[str, Any]] = {}
     for symbol, meta in universe_meta_by_sym.items():
         if symbol in entered:
-            result.gate_dump.append({
-                "scan_timestamp": _iso_utc(scan_ts),
-                "symbol": symbol,
-                "skipped": ScanSkipReason.ALREADY_ENTERED_TODAY.value,
-            })
+            result.gate_dump.append(_skip(symbol, ScanSkipReason.ALREADY_ENTERED_TODAY))
             continue
+
+        # Realism Phase 4 — same_symbol_entries_per_day cap.
+        if entries_per_symbol.get(symbol, 0) >= same_symbol_day_cap > 0:
+            result.gate_dump.append(_skip(
+                symbol, ScanSkipReason.SAME_SYMBOL_DAY_CAP,
+                entries_today=int(entries_per_symbol.get(symbol, 0)),
+                same_symbol_entries_per_day=same_symbol_day_cap,
+            ))
+            continue
+
+        # Realism Phase 4 — symbol cooldown: skip if emitted within cooldown.
+        last_emit = symbol_last_emit_ts.get(symbol)
+        if last_emit is not None and symbol_cooldown > pd.Timedelta(0):
+            last_emit_ts = pd.Timestamp(last_emit)
+            cooldown_age = scan_ts_obj - last_emit_ts
+            if cooldown_age < symbol_cooldown:
+                result.gate_dump.append(_skip(
+                    symbol, ScanSkipReason.SYMBOL_COOLDOWN,
+                    cooldown_age_seconds=float(cooldown_age.total_seconds()),
+                    symbol_cooldown_minutes=symbol_cooldown_minutes,
+                ))
+                continue
 
         baselines = cache_by_sym.get(symbol)
         if not baselines:
-            result.gate_dump.append({
-                "scan_timestamp": _iso_utc(scan_ts),
-                "symbol": symbol,
-                "skipped": ScanSkipReason.NO_BASELINES.value,
-            })
+            result.gate_dump.append(_skip(symbol, ScanSkipReason.NO_BASELINES))
             continue
 
         adv = baselines.get("avg_dollar_volume_20d")
@@ -156,19 +233,12 @@ def evaluate_one_scan(
         try:
             bars = bars_supplier(symbol, scan_ts_obj)
         except Exception as e:
-            result.gate_dump.append({
-                "scan_timestamp": _iso_utc(scan_ts),
-                "symbol": symbol,
-                "skipped": ScanSkipReason.BARS_FETCH_FAILED.value,
-                "error": str(e)[:200],
-            })
+            result.gate_dump.append(_skip(
+                symbol, ScanSkipReason.BARS_FETCH_FAILED, error=str(e)[:200],
+            ))
             continue
         if bars is None or len(bars) == 0:
-            result.gate_dump.append({
-                "scan_timestamp": _iso_utc(scan_ts),
-                "symbol": symbol,
-                "skipped": ScanSkipReason.NO_BARS.value,
-            })
+            result.gate_dump.append(_skip(symbol, ScanSkipReason.NO_BARS))
             continue
 
         # STALE BAR CHECK — per [Report §15.1 P0], BEFORE feature compute.
@@ -181,22 +251,17 @@ def evaluate_one_scan(
             last_bar_ts = pd.Timestamp(bars[ts_col].iloc[-1])
             if last_bar_ts.tzinfo is None:
                 # Reject naive — same policy as features module.
-                result.gate_dump.append({
-                    "scan_timestamp": _iso_utc(scan_ts),
-                    "symbol": symbol,
-                    "skipped": ScanSkipReason.STALE_BAR.value,
-                    "reason": "naive_timestamp",
-                })
+                result.gate_dump.append(_skip(
+                    symbol, ScanSkipReason.STALE_BAR, reason="naive_timestamp",
+                ))
                 continue
             age_seconds = (scan_ts_obj - last_bar_ts).total_seconds()
             if age_seconds > max_bar_age_seconds:
-                result.gate_dump.append({
-                    "scan_timestamp": _iso_utc(scan_ts),
-                    "symbol": symbol,
-                    "skipped": ScanSkipReason.STALE_BAR.value,
-                    "bar_age_seconds": float(age_seconds),
-                    "max_bar_age_seconds": max_bar_age_seconds,
-                })
+                result.gate_dump.append(_skip(
+                    symbol, ScanSkipReason.STALE_BAR,
+                    bar_age_seconds=float(age_seconds),
+                    max_bar_age_seconds=max_bar_age_seconds,
+                ))
                 continue
 
         sess = aggregate_forming_session_bar(bars)
@@ -209,27 +274,30 @@ def evaluate_one_scan(
             ema_slope_prior=ema_slope,
             instrument_class=meta.get("instrument_class"),
         )
-        result.gate_dump.append({
-            "scan_timestamp": _iso_utc(scan_ts),
-            "symbol": symbol,
-            "ok": bool(ok),
-            "failing_gates": sorted(k for k, v in (gates or {}).items() if not v),
-            "gate_results": gates,
-            "features": feats,
-            "baselines": {
+        score = compute_signal_strength(feats, score_cfg, ema_slope_prior=ema_slope) if ok else None
+        dump_row = _row(
+            symbol,
+            ok=bool(ok),
+            failing_gates=sorted(k for k, v in (gates or {}).items() if not v),
+            gate_results=gates,
+            features=feats,
+            baselines={
                 "prior_close": baselines.get("prior_close"),
                 "prior_atr_pct": prior_atr_pct,
                 "ema_slope_prior": ema_slope,
                 "avg_dollar_volume_20d": adv,
             },
-            "session_bar": sess,
-            "volume_curve_fraction": vcf,
-            "instrument_class": meta.get("instrument_class"),
-        })
+            session_bar=sess,
+            volume_curve_fraction=vcf,
+            instrument_class=meta.get("instrument_class"),
+            score=score,
+        )
         if not ok:
+            dump_row["rejection_reason"] = ScanSkipReason.GATE_FAILED.value
+            dump_row["skipped"] = ScanSkipReason.GATE_FAILED.value
+            result.gate_dump.append(dump_row)
             continue
 
-        score = compute_signal_strength(feats, score_cfg, ema_slope_prior=ema_slope)
         ev = build_candidate_event(
             symbol=symbol,
             universe_meta=meta,
@@ -246,25 +314,29 @@ def evaluate_one_scan(
             signal_strength=score,
         )
         passing.append((score, ev))
+        passing_rows[symbol] = dump_row
 
     passing.sort(key=lambda x: -x[0])
-    for rank, (_score, ev) in enumerate(passing[:effective_cap], start=1):
+    for rank, (score, ev) in enumerate(passing, start=1):
         ev["candidate_rank"] = rank
-        result.emitted.append(ev)
-        state.setdefault("in_play_pool", {})[ev["symbol"]] = {
-            "last_signal_ts": ev["scan_timestamp"],
-            "signal_expiry_ts": ev["signal_expiry_timestamp"],
-            "last_signal_strength": ev["features"]["signal_strength"],
-        }
-    if len(passing) > effective_cap:
-        # Record the capped overflow in the dump for visibility.
-        for _score, ev in passing[effective_cap:]:
-            result.gate_dump.append({
-                "scan_timestamp": _iso_utc(scan_ts),
-                "symbol": ev["symbol"],
-                "ok": True,
-                "skipped": ScanSkipReason.MAX_ENTRIES_CAP.value,
-                "effective_cap": effective_cap,
-            })
-    state["scanner_last_run_ts"] = _iso_utc(scan_ts)
+        row = passing_rows[ev["symbol"]]
+        row["rank"] = rank
+        if rank <= effective_cap:
+            result.emitted.append(ev)
+            row["candidate_emitted"] = True
+            state.setdefault("in_play_pool", {})[ev["symbol"]] = {
+                "last_signal_ts": ev["scan_timestamp"],
+                "signal_expiry_ts": ev["signal_expiry_timestamp"],
+                "last_signal_strength": ev["features"]["signal_strength"],
+            }
+            # Realism Phase 4 — record emit for cooldown + per-day cap.
+            symbol_last_emit_ts[ev["symbol"]] = scan_iso
+            entries_per_symbol[ev["symbol"]] = entries_per_symbol.get(ev["symbol"], 0) + 1
+        else:
+            # Passed gates but capped by max_entries_per_scan.
+            row["rejection_reason"] = ScanSkipReason.MAX_ENTRIES_CAP.value
+            row["skipped"] = ScanSkipReason.MAX_ENTRIES_CAP.value
+            row["effective_cap"] = effective_cap
+        result.gate_dump.append(row)
+    state["scanner_last_run_ts"] = scan_iso
     return result
