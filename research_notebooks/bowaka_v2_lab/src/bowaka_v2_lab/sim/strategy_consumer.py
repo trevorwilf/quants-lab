@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import datetime as _dt
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from ..schemas.decisions import (
     build_accepted_entry_decision,
@@ -30,6 +30,42 @@ class StrategyConsumerResult:
     decisions: list[dict] = field(default_factory=list)
     new_positions: list[Position] = field(default_factory=list)
     parent_orders: list[ParentOrder] = field(default_factory=list)
+
+
+def compute_target_notional(sizing_cfg: Mapping[str, Any]) -> float:
+    """Per-position target notional from the sizing config (realism Phase 1).
+
+    ``equal_slice`` (live default): ``equal_slice_bankroll_fraction *
+    bankroll_fixed_dollars / max_concurrent_positions``. ``fixed_dollar``
+    (back-compat): ``min(dollars_per_position, max_position_dollars)``. The
+    result is floored at ``min_order_notional`` and capped at
+    ``max_per_trade_dollars`` when set.
+    """
+    mode = str(sizing_cfg.get("sizing_mode", "equal_slice"))
+    if mode == "fixed_dollar":
+        vals = [
+            float(v)
+            for v in (sizing_cfg.get("dollars_per_position"), sizing_cfg.get("max_position_dollars"))
+            if v is not None
+        ]
+        target = min(vals) if vals else 5_000.0
+    else:  # equal_slice
+        bankroll = float(sizing_cfg.get("bankroll_fixed_dollars", 90_000.0))
+        n_slots = max(1, int(sizing_cfg.get("max_concurrent_positions", 18)))
+        frac = float(sizing_cfg.get("equal_slice_bankroll_fraction", 0.80))
+        target = frac * bankroll / n_slots
+    target = max(target, float(sizing_cfg.get("min_order_notional", 0.0)))
+    cap = sizing_cfg.get("max_per_trade_dollars")
+    if cap is not None:
+        target = min(target, float(cap))
+    return target
+
+
+def size_quantity(target_notional: float, price: float) -> int:
+    """Whole-share quantity for ``target_notional`` at ``price`` (floor division)."""
+    if price <= 0:
+        return 0
+    return int(target_notional // price)
 
 
 class StrategyConsumer:
@@ -106,10 +142,8 @@ class StrategyConsumer:
             ))
             return result
 
-        # Sizing.
-        dollars_per_position = float(sizing_cfg.get("dollars_per_position", 5000))
-        max_position_dollars = float(sizing_cfg.get("max_position_dollars", 25_000))
-        target_notional = min(dollars_per_position, max_position_dollars)
+        # Sizing (equal-slice by default; see compute_target_notional).
+        target_notional = compute_target_notional(sizing_cfg)
         candidate_adv = float(
             (candidate_event.get("prior_daily_baselines") or {}).get("avg_dollar_volume_20d") or 0.0
         )
@@ -140,7 +174,7 @@ class StrategyConsumer:
             ))
             return result
 
-        qty = max(1, int(target_notional / quote.ask)) if quote.ask > 0 else 0
+        qty = size_quantity(target_notional, quote.ask)
         if qty == 0:
             result.decisions.append(build_rejected_entry_decision(
                 candidate_event=candidate_event,
@@ -155,8 +189,8 @@ class StrategyConsumer:
             side=OrderSide.BUY,
             order_style=execution_cfg.get("order_type", "marketable_limit"),
             qty=qty,
-            stop_pct=float(exits_cfg.get("stop_loss_pct", 0.02)),
-            target_pct=float(exits_cfg.get("take_profit_pct", 0.06)),
+            stop_pct=float(exits_cfg.get("stop_pct", exits_cfg.get("stop_loss_pct", 0.02))),
+            target_pct=float(exits_cfg.get("target_pct", exits_cfg.get("take_profit_pct", 0.06))),
             max_hold_days=int(exits_cfg.get("max_hold_days", 5)),
             estimated_notional=qty * quote.ask,
         )

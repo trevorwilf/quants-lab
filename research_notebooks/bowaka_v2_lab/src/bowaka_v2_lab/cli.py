@@ -94,6 +94,20 @@ def _cmd_replay_scanner(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_import_actual_config(args: argparse.Namespace) -> int:
+    """Regenerate the intended-realism config from the frozen contract."""
+    from .reference.import_config import import_actual_config
+
+    dest = import_actual_config(out_path=args.out, feed=args.feed)
+    print(json.dumps({
+        "status": "ok",
+        "command": "import-actual-config",
+        "out": str(dest),
+        "feed": args.feed,
+    }, indent=2, sort_keys=True))
+    return 0
+
+
 def _cmd_optuna(args: argparse.Namespace) -> int:
     from .optuna.walkforward_runner import run_walkforward_study
 
@@ -150,6 +164,16 @@ def build_parser() -> argparse.ArgumentParser:
     opt.add_argument("--allow-smoke-optimization", action="store_true",
                      help="permit walk-forward optimization on a simulation.mode=smoke_fixture config")
     opt.set_defaults(func=_cmd_optuna)
+
+    iac = sub.add_parser(
+        "import-actual-config",
+        help="regenerate the intended-realism config from the frozen contract",
+    )
+    iac.add_argument("--out", default="configs/bowaka_v2_intended_realism.yml",
+                     help="output path for the generated config")
+    iac.add_argument("--feed", default="sip", choices=["sip", "iex"],
+                     help="market_data.feed for the generated config")
+    iac.set_defaults(func=_cmd_import_actual_config)
 
     pg = sub.add_parser("promotion-gate", help="run promotion checklist + bundler (Phase 9)")
     pg.add_argument("--run-id", required=True)

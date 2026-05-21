@@ -49,7 +49,7 @@ execution:
   max_spread_bps: 200
 
 sizing:
-  method: fixed_dollar
+  sizing_mode: fixed_dollar
   dollars_per_position: 1000
   max_position_dollars: 5000
 
