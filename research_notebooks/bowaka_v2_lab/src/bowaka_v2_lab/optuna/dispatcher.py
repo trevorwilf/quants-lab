@@ -31,6 +31,8 @@ class OptunaStudy:
     storage_uri: Optional[str] = None
     n_trials: int = 20
     n_jobs: int = 1
+    #: Random-sampling trials before TPE-guided search begins (Optuna default 10).
+    n_startup_trials: int = 10
     study: Optional[optuna.Study] = None
     promotion_eligible: bool = field(default=False)
 
@@ -41,7 +43,9 @@ class OptunaStudy:
             study_name=name,
             storage=self.storage_uri,
             load_if_exists=True,
-            sampler=optuna.samplers.TPESampler(multivariate=True, seed=1337),
+            sampler=optuna.samplers.TPESampler(
+                multivariate=True, seed=1337, n_startup_trials=self.n_startup_trials,
+            ),
         )
         # Attach run-side metadata.
         self.study.set_user_attr("feed", self.feed)

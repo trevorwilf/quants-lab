@@ -92,7 +92,10 @@ def _cmd_replay_scanner(args: argparse.Namespace) -> int:
 def _cmd_optuna(args: argparse.Namespace) -> int:
     from .optuna.walkforward_runner import run_walkforward_study
 
-    result = run_walkforward_study(args.config, n_trials=args.n_trials, n_jobs=args.n_jobs)
+    result = run_walkforward_study(
+        args.config, n_trials=args.n_trials, n_jobs=args.n_jobs,
+        n_startup_trials=args.n_startup_trials,
+    )
     print(json.dumps(result, indent=2, default=str))
     return 0
 
@@ -134,6 +137,8 @@ def build_parser() -> argparse.ArgumentParser:
     opt.add_argument("--config", required=True)
     opt.add_argument("--n-trials", type=int, default=None, help="override optuna.n_trials")
     opt.add_argument("--n-jobs", type=int, default=None, help="override optuna.n_jobs")
+    opt.add_argument("--n-startup-trials", type=int, default=None,
+                     help="override optuna.n_startup_trials (random trials before TPE)")
     opt.set_defaults(func=_cmd_optuna)
 
     pg = sub.add_parser("promotion-gate", help="run promotion checklist + bundler (Phase 9)")

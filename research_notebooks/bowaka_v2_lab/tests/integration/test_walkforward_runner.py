@@ -122,3 +122,27 @@ def test_cli_optuna_command(tmp_path, lab_root):
     )
     rc = cli.main(["optuna", "--config", str(cfg_path), "--n-trials", "2"])
     assert rc == 0
+
+
+def test_run_walkforward_study_configurable_startup_trials(tmp_path, lab_root):
+    lake = tmp_path / "lake"
+    build_tiny_lake(lake, ["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1))
+    cfg_path = write_test_config(
+        lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml",
+        tmp_path / "wf.yml",
+        lake=lake, symbols=["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1), n_trials=3,
+    )
+    result = run_walkforward_study(cfg_path, n_trials=3, n_startup_trials=2)
+    assert result["n_startup_trials"] == 2
+
+
+def test_n_startup_trials_reaches_the_tpe_sampler():
+    """The configured count must actually reach the TPE sampler."""
+    from bowaka_v2_lab.optuna.dispatcher import OptunaStudy
+
+    study = OptunaStudy(
+        feed="sip", cost_stress="conservative",
+        dataset_hash="d" * 16, config_hash="c" * 16, n_startup_trials=4,
+    )
+    study.create()
+    assert study.study.sampler._n_startup_trials == 4

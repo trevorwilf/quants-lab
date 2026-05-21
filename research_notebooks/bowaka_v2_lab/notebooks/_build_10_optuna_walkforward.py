@@ -15,7 +15,8 @@ def main() -> None:
         {"type": "code", "source": (
             "# Papermill parameters.\n"
             "CONFIG_PATH = 'research_notebooks/bowaka_v2_lab/configs/bowaka_v2_walkforward_optuna.yml'\n"
-            "N_TRIALS = 20  # bounded first run; set None to use optuna.n_trials from the config\n"
+            "N_TRIALS = None          # None -> optuna.n_trials from the config; or set an integer\n"
+            "N_STARTUP_TRIALS = None  # None -> optuna.n_startup_trials; random trials before TPE\n"
         )},
         {"type": "markdown", "source": (
             "# 10 — Walk-Forward Optuna\n\n"
@@ -24,17 +25,19 @@ def main() -> None:
             "to the config, and runs a real backtest over every walk-forward\n"
             "validation window; the trial objective is the median fold score. The\n"
             "final-holdout window is never read during tuning.\n\n"
-            "**Compute:** each run is `N_TRIALS` x `n_folds` real backtests. `N_TRIALS`\n"
-            "defaults to **20** — a bounded, multi-hour run (TPE does ~10 random then\n"
-            "~10 guided trials). Raise it, or set `N_TRIALS = None` to use the\n"
-            "config's `optuna.n_trials`, for a deeper search. Set `universe.symbols`\n"
-            "in the config to bound the universe (otherwise it is the lake's\n"
-            "symbols, capped at 100)."
+            "**Parameters:** `N_TRIALS` is the total trial count (`None` -> the\n"
+            "config's `optuna.n_trials`). `N_STARTUP_TRIALS` is how many of those are\n"
+            "random-sampling trials before TPE-guided search begins (`None` -> the\n"
+            "config's `optuna.n_startup_trials`).\n\n"
+            "**Compute:** a run is `N_TRIALS` x `n_folds` real backtests — the config\n"
+            "default (2500 trials) is a multi-day job. Set a small `N_TRIALS` and a\n"
+            "focused `universe.symbols` for a quick run."
         )},
         {"type": "code", "source": (
             "import json\n"
             "from bowaka_v2_lab.optuna.walkforward_runner import run_walkforward_study\n"
-            "result = run_walkforward_study(CONFIG_PATH, n_trials=N_TRIALS)\n"
+            "result = run_walkforward_study(CONFIG_PATH, n_trials=N_TRIALS,\n"
+            "  n_startup_trials=N_STARTUP_TRIALS)\n"
             "print(json.dumps(result, indent=2, default=str))\n"
         )},
     ])
