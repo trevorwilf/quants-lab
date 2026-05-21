@@ -1,5 +1,5 @@
 .ONESHELL:
-.PHONY: help install uninstall build test test-unit test-live data-audit
+.PHONY: help install uninstall build test test-unit test-live data-audit migrate-market-data
 
 # Default target
 .DEFAULT_GOAL := help
@@ -19,6 +19,9 @@ test-live:  ## Run PMM Lab integration tests (requires MongoDB)
 
 data-audit:  ## Run PMM Lab data quality audit
 	python -m pmm_lab.data.quality
+
+migrate-market-data:  ## Migrate the legacy bowaka_lab parquet tree into the shared market-data lake
+	python scripts/migrate_market_data.py $(ARGS)
 
 # ============================================================================
 # INSTALLATION & SETUP
