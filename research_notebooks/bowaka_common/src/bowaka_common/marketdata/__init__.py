@@ -10,6 +10,7 @@ from __future__ import annotations
 from . import layout
 from .backfill import BackfillConfig, run_backfill
 from .catalog import available_symbols, dataset_hash, date_coverage
+from .runner import load_backfill_config, resolve_end_date, run_configured_backfill
 from .store import (
     MarketDataStore,
     default_market_data_root,
@@ -26,4 +27,7 @@ __all__ = [
     "layout",
     "BackfillConfig",
     "run_backfill",
+    "load_backfill_config",
+    "run_configured_backfill",
+    "resolve_end_date",
 ]

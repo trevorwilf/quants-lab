@@ -138,9 +138,18 @@ def _get_xnys_calendar():
 
 
 def incremental_window(
-    symbol_file: Path, target_end_date: date, calendar: Any = None
+    symbol_file: Path,
+    target_end_date: date,
+    calendar: Any = None,
+    *,
+    target_start_date: date | None = None,
 ) -> IncrementalPlan:
-    """Decide how to update a per-symbol daily-bar Parquet file."""
+    """Decide how to update a per-symbol daily-bar Parquet file.
+
+    Forward extension (``target_end_date`` advanced) → ``fetch_tail``. A missing
+    head (``target_start_date`` earlier than the file's first session) → a full
+    re-fetch, so changing either end of the date range fills what is missing.
+    """
     path = Path(symbol_file)
     if not path.exists():
         return IncrementalPlan(action="fetch_full")
@@ -157,7 +166,14 @@ def incremental_window(
         else:
             ts = ts.dt.tz_localize("America/New_York")
         existing_max = ts.dt.date.max()
+        existing_min = ts.dt.date.min()
     except Exception:
+        return IncrementalPlan(action="fetch_full")
+
+    # Missing head: the file starts materially later than the requested start →
+    # full re-fetch. The 7-day tolerance absorbs weekends/holidays so a re-run
+    # over the same range is not mistaken for a missing head.
+    if target_start_date is not None and existing_min > target_start_date + timedelta(days=7):
         return IncrementalPlan(action="fetch_full")
 
     if existing_max >= target_end_date:
@@ -521,7 +537,12 @@ def fetch_daily_bars(
     }
     daily_root(cfg).mkdir(parents=True, exist_ok=True)
 
-    plans = {sym: incremental_window(daily_file(cfg, sym), cfg.end_date) for sym in symbols}
+    plans = {
+        sym: incremental_window(
+            daily_file(cfg, sym), cfg.end_date, target_start_date=cfg.daily_fetch_start
+        )
+        for sym in symbols
+    }
     stats["symbols_up_to_date"] = sum(1 for p in plans.values() if p.action == "up_to_date")
 
     buckets: dict[tuple, list[str]] = {}

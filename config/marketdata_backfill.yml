@@ -1,0 +1,42 @@
+# Shared market-data lake backfill — configuration.
+#
+# Used by:
+#   scripts/backfill_market_data.py                                  (automation / cron)
+#   research_notebooks/bowaka_common/notebooks/marketdata_backfill.ipynb  (manual)
+#
+# The backfill is incremental: change the dates or the feed and re-run — only the
+# missing data is fetched. Re-running with the same settings is a near no-op.
+
+vendor: alpaca
+feed: iex                  # iex | sip — switch to sip once your Alpaca plan supports it.
+                           # Each feed is a separate partition; the first sip run
+                           # fills it, later runs extend it incrementally.
+adjustment: raw
+paper: true
+
+start_date: 2024-01-01
+end_date: auto             # 'auto' = yesterday (UTC) — ideal for a nightly job;
+                           # or pin an explicit YYYY-MM-DD.
+
+# Daily-bar universe — which symbols get daily bars.
+daily_universe:
+  source: alpaca_assets    # alpaca_assets (all active US equities) | explicit
+  symbols: []              # used only when source == explicit
+
+# Minute-bar universe — which (symbol, session) pairs get 1-minute bars.
+minute_bars:
+  enabled: true
+  policy: explicit         # none | explicit | all_daily | adv_gated
+  # policy == explicit  -> minute bars for exactly these symbols:
+  symbols: [SPY, QQQ, AAPL, MSFT, NVDA]
+  # policy == adv_gated -> minute bars for symbols passing this price + ADV gate:
+  price_min: 1.0
+  price_max: 20.0
+  adv_min: 200000
+  adv_window_days: 20
+  # policy == all_daily -> minute bars for every symbol with daily bars (heavy).
+  # policy == none      -> daily bars + assets only.
+
+# Alpaca API rate limiting.
+rate_limit_rpm: 180
+batch_size_symbols: 200
