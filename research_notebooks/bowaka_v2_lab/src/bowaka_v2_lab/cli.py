@@ -57,7 +57,9 @@ def _cmd_run_backtest(args: argparse.Namespace) -> int:
 
     print(json.dumps(
         run_backtest_command(
-            args.config, run_dir=args.run_dir, allow_smoke=args.allow_smoke_optimization
+            args.config, run_dir=args.run_dir,
+            allow_smoke=args.allow_smoke_optimization,
+            allow_synthetic_universe=args.allow_synthetic_universe,
         ),
         indent=2, default=str,
     ))
@@ -68,7 +70,11 @@ def _cmd_smoke(args: argparse.Namespace) -> int:
     from .cli_runners import run_backtest_command
 
     print(json.dumps(
-        run_backtest_command(args.config, smoke=True, run_dir=args.run_dir), indent=2, default=str
+        run_backtest_command(
+            args.config, smoke=True, run_dir=args.run_dir,
+            allow_synthetic_universe=args.allow_synthetic_universe,
+        ),
+        indent=2, default=str,
     ))
     return 0
 
@@ -90,7 +96,13 @@ def _cmd_build_volume_curve(args: argparse.Namespace) -> int:
 def _cmd_replay_scanner(args: argparse.Namespace) -> int:
     from .cli_runners import replay_scanner_command
 
-    print(json.dumps(replay_scanner_command(args.config, run_dir=args.run_dir), indent=2, default=str))
+    print(json.dumps(
+        replay_scanner_command(
+            args.config, run_dir=args.run_dir,
+            allow_synthetic_universe=args.allow_synthetic_universe,
+        ),
+        indent=2, default=str,
+    ))
     return 0
 
 
@@ -131,6 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
     smoke = sub.add_parser("smoke", help="run a one-session smoke backtest")
     smoke.add_argument("--config", required=True)
     smoke.add_argument("--run-dir", default=None, help="override the backtest run directory")
+    smoke.add_argument("--allow-synthetic-universe", action="store_true",
+                       help="use the synthetic universe (smoke_fixture mode only)")
     smoke.set_defaults(func=_cmd_smoke)
 
     bt = sub.add_parser("run-backtest", help="run the comprehensive backtest")
@@ -138,6 +152,9 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--run-dir", default=None, help="override the backtest run directory")
     bt.add_argument("--allow-smoke-optimization", action="store_true",
                     help="permit run-backtest on a simulation.mode=smoke_fixture config")
+    bt.add_argument("--allow-synthetic-universe", action="store_true",
+                    help="use the synthetic universe instead of the point-in-time "
+                         "universe; permitted only when simulation.mode=smoke_fixture")
     bt.set_defaults(func=_cmd_run_backtest)
 
     bu = sub.add_parser("build-universe", help="build a point-in-time universe snapshot")
@@ -153,6 +170,8 @@ def build_parser() -> argparse.ArgumentParser:
     rs = sub.add_parser("replay-scanner", help="historical scanner replay")
     rs.add_argument("--config", required=True)
     rs.add_argument("--run-dir", default=None, help="override the replay run directory")
+    rs.add_argument("--allow-synthetic-universe", action="store_true",
+                    help="use the synthetic universe (smoke_fixture mode only)")
     rs.set_defaults(func=_cmd_replay_scanner)
 
     opt = sub.add_parser("optuna", help="run a real walk-forward Optuna study against the lake")

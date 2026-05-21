@@ -35,6 +35,8 @@ from ..config.paths import BowakaV2Paths
 from ..data.data_quality import build_data_quality_report, evaluate_startup_dq
 from ..data.lineage import build_dataset_lineage
 from ..reference import actual_contract_hash, contract_available, load_actual_contract
+from ..universe.builder import UniverseRecord, to_scanner_snapshot
+from ..universe.persist import write_universe_artifacts
 from ..utils.atomic_io import append_jsonl, atomic_write_json, write_parquet
 from ..utils.ids import generate_run_id
 from ..utils.time import require_aware_timestamp
@@ -97,12 +99,72 @@ def _git_head() -> str:
     return "unknown"
 
 
+def _is_synthetic_universe_snapshot(snapshot: Any) -> bool:
+    """True when ``snapshot`` is the deterministic synthetic-fixture universe.
+
+    The synthetic fixture (``sim.replay_fixtures.synthetic_universe``) marks
+    itself with ``universe_hash == "sha256:synthetic"``; the PIT builder's
+    snapshot carries ``synthetic: False``. Either signal is conclusive.
+    """
+    if not isinstance(snapshot, Mapping):
+        return False
+    if snapshot.get("synthetic") is True:
+        return True
+    if snapshot.get("synthetic") is False:
+        return False
+    return str(snapshot.get("universe_hash", "")) == "sha256:synthetic"
+
+
+def _normalise_universe_by_session(
+    universe_snapshot_by_session: Mapping[_dt.date, Any],
+    *,
+    sim_mode: str,
+) -> tuple[dict[_dt.date, dict], dict[_dt.date, dict[str, UniverseRecord]]]:
+    """Normalise per-session universes to scanner-snapshot dicts.
+
+    Accepts either the legacy snapshot dict (``{"universe_hash", "symbols"}``)
+    or the Phase-3 PIT ``{symbol: UniverseRecord}`` map, per session. Returns
+    ``(snapshot_by_session, pit_records_by_session)`` — the latter is non-empty
+    only for sessions supplied as PIT records (so universe artifacts are written
+    only for real PIT universes).
+
+    A **synthetic** universe in a non-smoke (``current_code_parity`` /
+    ``intended_realism``) run is refused: a real run must consume the
+    point-in-time universe, not the deterministic fixture.
+    """
+    snapshots: dict[_dt.date, dict] = {}
+    pit_records: dict[_dt.date, dict[str, UniverseRecord]] = {}
+    non_smoke = sim_mode in ("current_code_parity", "intended_realism")
+    for session_date, value in universe_snapshot_by_session.items():
+        is_snapshot_dict = isinstance(value, Mapping) and (
+            "symbols" in value or "universe_hash" in value
+        )
+        is_pit_records = isinstance(value, Mapping) and not is_snapshot_dict and (
+            not value or all(isinstance(v, UniverseRecord) for v in value.values())
+        )
+        if is_pit_records:
+            # Phase-3 PIT record map for this session (possibly empty).
+            pit_records[session_date] = dict(value)
+            snapshots[session_date] = to_scanner_snapshot(value)
+            continue
+        # Legacy snapshot dict.
+        if non_smoke and _is_synthetic_universe_snapshot(value):
+            raise RuntimeError(
+                f"run_backtest refused: simulation.mode={sim_mode!r} consumed a "
+                f"synthetic universe for session {session_date}. A non-smoke run must "
+                f"use the point-in-time universe (universe.build_pit_universe_for_"
+                f"sessions). Synthetic universes are permitted only in smoke_fixture mode."
+            )
+        snapshots[session_date] = dict(value) if isinstance(value, Mapping) else value
+    return snapshots, pit_records
+
+
 def run_backtest(
     *,
     cfg: Mapping[str, Any],
     sessions: list[_dt.date],
     scan_times_per_session: Callable[[_dt.date], list[Any]],
-    universe_snapshot_by_session: Mapping[_dt.date, dict],
+    universe_snapshot_by_session: Mapping[_dt.date, Any],
     daily_cache_by_session: Mapping[_dt.date, pd.DataFrame],
     minute_bars_supplier: Callable[[str, Any], pd.DataFrame | None],
     daily_bars_supplier: Callable[[str, _dt.date], pd.DataFrame | None],
@@ -124,6 +186,14 @@ def run_backtest(
     # post-validator fills the four mode-coupled policy fields, so every field
     # is concrete for the manifest and report header.
     sim_cfg = SimulationConfig.model_validate(cfg_dict.get("simulation") or {})
+    # Realism Phase 3: normalise the per-session universe. Accepts either the
+    # legacy snapshot dict or the PIT {symbol: UniverseRecord} map; refuses a
+    # synthetic universe in a non-smoke run. ``pit_records_by_session`` is the
+    # subset supplied as real PIT records — universe artifacts are written for
+    # exactly those sessions.
+    universe_snapshot_by_session, pit_records_by_session = _normalise_universe_by_session(
+        universe_snapshot_by_session, sim_mode=sim_cfg.mode
+    )
     strategy_hash = canonical_strategy_hash(cfg_dict)
     run_hash = canonical_run_hash(cfg_dict)
 
@@ -327,6 +397,27 @@ def run_backtest(
             "daily_unrealized_pnl": portfolio.state.daily_unrealized_pnl if portfolio.state else 0,
         })
 
+    # Realism Phase 3: per-session universe artifacts + hashes. The funnel +
+    # snapshot parquet are written for sessions supplied as real PIT records;
+    # the per-session universe_hash (sorted eligible-symbol sha256) is collected
+    # for *every* session for the run manifest. For PIT sessions the hash comes
+    # from the funnel; for legacy snapshots it is the snapshot's own hash.
+    universe_hashes_by_session: dict[str, str] = {}
+    if pit_records_by_session:
+        pit_hashes = write_universe_artifacts(run_dir, pit_records_by_session)
+        for sd, uhash in pit_hashes.items():
+            key = sd.isoformat() if isinstance(sd, _dt.date) else str(sd)
+            universe_hashes_by_session[key] = uhash
+    for session_date, snap in universe_snapshot_by_session.items():
+        key = (
+            session_date.isoformat()
+            if isinstance(session_date, _dt.date)
+            else str(session_date)
+        )
+        universe_hashes_by_session.setdefault(
+            key, str(snap.get("universe_hash", "sha256:unknown"))
+        )
+
     # Build summary + write artifacts.
     accepted_count = sum(1 for d in all_decisions if d["decision"] == "accepted")
     rejected_count = sum(1 for d in all_decisions if d["decision"] == "rejected")
@@ -393,6 +484,8 @@ def run_backtest(
             "ambiguous_bar_count": ambiguous_bar_count,
             "simulation": sim_cfg.model_dump(),
             "lineage": lineage,
+            # Realism Phase 3: per-session point-in-time universe hashes.
+            "universe_hashes_by_session": universe_hashes_by_session,
             "data_quality": {
                 "regime": data_quality_report["regime"],
                 "passed": data_quality_report["passed"],

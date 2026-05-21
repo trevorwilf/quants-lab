@@ -21,6 +21,12 @@ from .scanner.replay import replay_scanner
 from .scanner.universe_builder import build_universe_snapshot, write_universe_snapshot
 from .sim.backtester import run_backtest
 from .sim.replay_fixtures import synthetic_daily_cache, synthetic_universe
+from .universe.builder import (
+    build_pit_universe,
+    build_pit_universe_for_sessions,
+    funnel as universe_funnel,
+    to_scanner_snapshot,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -110,6 +116,62 @@ def _synthetic_suppliers():
     return minute_supplier, daily_supplier
 
 
+def _lake_store(md: dict):
+    """A ``MarketDataStore`` over the configured shared-lake root."""
+    from bowaka_common.marketdata import MarketDataStore
+
+    return MarketDataStore(md.get("shared_root"))
+
+
+def _is_smoke(validated: BowakaV2Config) -> bool:
+    """True when the config declares ``simulation.mode == smoke_fixture``."""
+    return validated.simulation.mode == "smoke_fixture"
+
+
+def _build_pit_universe_by_session(
+    cfg: dict, sessions: list[_dt.date], md: dict
+):
+    """Point-in-time universe (``{session_date: {symbol: UniverseRecord}}``).
+
+    Realism Phase 3: a non-smoke run must consume the PIT universe built from
+    the lake asset snapshot + prior-day bars — never the synthetic fixture.
+    """
+    store = _lake_store(md)
+    return build_pit_universe_for_sessions(sessions, cfg, store)
+
+
+def _resolve_universe_for_backtest(
+    cfg: dict,
+    validated: BowakaV2Config,
+    sessions: list[_dt.date],
+    md: dict,
+    symbols: list[str],
+    *,
+    allow_synthetic_universe: bool,
+    command: str,
+):
+    """Resolve the per-session universe for a backtest / replay command.
+
+    Returns ``(universe_by_session, universe_kind)``. ``universe_kind`` is
+    ``"pit"`` (point-in-time, the default for every non-smoke config) or
+    ``"synthetic"`` (the deterministic fixture, permitted **only** in
+    ``smoke_fixture`` mode). ``--allow-synthetic-universe`` is honoured only in
+    smoke mode and raises in any real mode.
+    """
+    if allow_synthetic_universe and not _is_smoke(validated):
+        raise RuntimeError(
+            f"{command} refused: --allow-synthetic-universe is permitted only when "
+            f"simulation.mode is 'smoke_fixture'; this config is "
+            f"'{validated.simulation.mode}'. A non-smoke run must build the "
+            f"point-in-time universe from the lake."
+        )
+    if _is_smoke(validated):
+        # Smoke / fixture: synthetic universe is the intended path.
+        return {s: synthetic_universe(symbols) for s in sessions}, "synthetic"
+    # Non-smoke: build the point-in-time universe from the lake.
+    return _build_pit_universe_by_session(cfg, sessions, md), "pit"
+
+
 # --------------------------------------------------------------------------
 # Commands
 # --------------------------------------------------------------------------
@@ -119,6 +181,7 @@ def run_backtest_command(
     smoke: bool = False,
     run_dir: str | Path | None = None,
     allow_smoke: bool = False,
+    allow_synthetic_universe: bool = False,
 ) -> dict:
     """Run the comprehensive v2 backtest (``run-backtest`` / ``smoke``).
 
@@ -127,6 +190,10 @@ def run_backtest_command(
     ``smoke`` subcommand is the intended entry point for fixture configs, and a
     "real" backtest on synthetic data is misleading. The ``smoke`` subcommand
     (``smoke=True``) is always exempt.
+
+    Realism Phase 3: a non-smoke config builds the **point-in-time universe**
+    from the lake asset snapshot + prior-day bars. ``allow_synthetic_universe``
+    is honoured only in ``smoke_fixture`` mode and refused otherwise.
     """
     cfg, validated, paths = _load(config_path)
     if not smoke and validated.simulation.mode == "smoke_fixture" and not allow_smoke:
@@ -155,7 +222,13 @@ def run_backtest_command(
         minute_supplier, daily_supplier = _synthetic_suppliers()
         daily_cache = {s: synthetic_daily_cache(symbols) for s in sessions}
         data_source = "synthetic"
-    universe = {s: synthetic_universe(symbols) for s in sessions}
+    # Realism Phase 3: PIT universe for non-smoke configs; synthetic only in
+    # smoke mode (or when --allow-synthetic-universe is passed in smoke mode).
+    universe, universe_kind = _resolve_universe_for_backtest(
+        cfg, validated, sessions, md, symbols,
+        allow_synthetic_universe=allow_synthetic_universe,
+        command=("smoke" if smoke else "run-backtest"),
+    )
 
     result = run_backtest(
         cfg=cfg,
@@ -173,6 +246,7 @@ def run_backtest_command(
         "status": "ok",
         "command": "smoke" if smoke else "run-backtest",
         "data_source": data_source,
+        "universe_kind": universe_kind,
         "run_id": result.run_id,
         "run_dir": str(result.run_dir),
         "sessions": len(sessions),
@@ -181,37 +255,40 @@ def run_backtest_command(
 
 
 def build_universe_command(config_path: str | Path, *, out_path: str | Path | None = None) -> dict:
-    """Build a point-in-time universe snapshot (``build-universe``)."""
-    cfg, _validated, paths = _load(config_path)
+    """Build a point-in-time universe snapshot (``build-universe``).
+
+    Realism Phase 3: a non-smoke config builds the point-in-time universe from
+    the lake asset snapshot + prior-day bars via ``universe.build_pit_universe``;
+    a smoke config keeps the synthetic snapshot path.
+    """
+    cfg, validated, paths = _load(config_path)
     md = cfg.get("market_data", {}) or {}
     session = _to_date((cfg.get("backtest", {}) or {}).get("end_date"))
     symbols = _resolve_symbols(cfg, md)
 
-    if _uses_lake(cfg):
-        feed, root = md.get("feed", "iex"), md.get("shared_root")
-        cache = build_daily_cache_from_lake(root, symbols, session, feed=feed)
-        baselines = (
-            cache[["symbol", "prior_close", "avg_dollar_volume_20d"]]
-            if not cache.empty
-            else pd.DataFrame(columns=["symbol", "prior_close", "avg_dollar_volume_20d"])
-        )
+    if not _is_smoke(validated):
+        # Point-in-time universe from the lake asset master + prior-day bars.
+        records = build_pit_universe(session, cfg, _lake_store(md))
+        snapshot = to_scanner_snapshot(records)
+        snapshot["session_date"] = session.isoformat()
+        snapshot["funnel"] = universe_funnel(records)
         data_source = "lake"
     else:
         baselines = pd.DataFrame(
             [{"symbol": s, "prior_close": 100.0, "avg_dollar_volume_20d": 5_000_000} for s in symbols]
         )
+        asset_master = pd.DataFrame(
+            [
+                {"symbol": s, "exchange": "NASDAQ", "venue_code": "XNAS",
+                 "instrument_class": "operating_equity", "eligible_for_bowaka_equity_bucket": True}
+                for s in symbols
+            ]
+        )
+        snapshot = build_universe_snapshot(
+            asset_master=asset_master, daily_baselines=baselines, cfg=cfg, session_date=session
+        )
         data_source = "synthetic"
 
-    asset_master = pd.DataFrame(
-        [
-            {"symbol": s, "exchange": "NASDAQ", "venue_code": "XNAS",
-             "instrument_class": "operating_equity", "eligible_for_bowaka_equity_bucket": True}
-            for s in symbols
-        ]
-    )
-    snapshot = build_universe_snapshot(
-        asset_master=asset_master, daily_baselines=baselines, cfg=cfg, session_date=session
-    )
     out = Path(out_path) if out_path else (
         Path(paths.data_root) / "universe_snapshots" / f"{session.isoformat()}.json"
     )
@@ -264,9 +341,18 @@ def build_volume_curve_command(config_path: str | Path, *, out_path: str | Path 
     }
 
 
-def replay_scanner_command(config_path: str | Path, *, run_dir: str | Path | None = None) -> dict:
-    """Replay the historical scanner (``replay-scanner``)."""
-    cfg, _validated, paths = _load(config_path)
+def replay_scanner_command(
+    config_path: str | Path,
+    *,
+    run_dir: str | Path | None = None,
+    allow_synthetic_universe: bool = False,
+) -> dict:
+    """Replay the historical scanner (``replay-scanner``).
+
+    Realism Phase 3: a non-smoke config replays against the point-in-time
+    universe for the session; smoke configs keep the synthetic universe.
+    """
+    cfg, validated, paths = _load(config_path)
     md = cfg.get("market_data", {}) or {}
     symbols = _resolve_symbols(cfg, md)
     session = _to_date((cfg.get("backtest", {}) or {}).get("start_date"), _dt.date(2024, 9, 4))
@@ -282,12 +368,21 @@ def replay_scanner_command(config_path: str | Path, *, run_dir: str | Path | Non
         daily_cache = synthetic_daily_cache(symbols)
         data_source = "synthetic"
 
+    universe_by_session, universe_kind = _resolve_universe_for_backtest(
+        cfg, validated, [session], md, symbols,
+        allow_synthetic_universe=allow_synthetic_universe,
+        command="replay-scanner",
+    )
+    snapshot = universe_by_session[session]
+    if universe_kind == "pit":
+        snapshot = to_scanner_snapshot(snapshot)
+
     target = Path(run_dir) if run_dir else (
         Path(paths.artifact_root) / "runs" / f"replay_cli_{session.isoformat()}"
     )
     summary = replay_scanner(
         cfg=cfg,
-        universe_snapshot=synthetic_universe(symbols),
+        universe_snapshot=snapshot,
         daily_cache=daily_cache,
         volume_curve=None,
         scan_timestamps=scan_ts,
@@ -298,6 +393,7 @@ def replay_scanner_command(config_path: str | Path, *, run_dir: str | Path | Non
         "status": "ok",
         "command": "replay-scanner",
         "data_source": data_source,
+        "universe_kind": universe_kind,
         "run_dir": str(target),
         "summary": summary,
     }

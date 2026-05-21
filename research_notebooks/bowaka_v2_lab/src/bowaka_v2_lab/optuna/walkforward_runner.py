@@ -34,7 +34,7 @@ import pandas as pd
 from ..config import BowakaV2Paths, SimulationConfig, load_config
 from ..data.suppliers import build_daily_cache_from_lake, make_lake_suppliers
 from ..sim.backtester import run_backtest
-from ..sim.replay_fixtures import synthetic_universe
+from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
 from .dispatcher import OptunaStudy
 from .holdout_guard import HoldoutGuard
 from .objective import FoldResult, compute_objective
@@ -127,13 +127,26 @@ def _run_fold_backtest(
     symbols: list[str],
     paths: BowakaV2Paths,
 ) -> dict:
-    """Run one real backtest over a walk-forward validation window; return its summary."""
+    """Run one real backtest over a walk-forward validation window; return its summary.
+
+    Realism Phase 3: the walk-forward objective consumes the point-in-time
+    universe built per session from the lake — never the synthetic fixture.
+    """
     sessions = _xnys_sessions(val_start, val_end)
     if not sessions:
         return {}
+    from bowaka_common.marketdata import MarketDataStore
+
     minute_supplier, daily_supplier = make_lake_suppliers(lake_root, feed=feed)
-    universe = {s: synthetic_universe(symbols) for s in sessions}
-    daily_cache = {s: build_daily_cache_from_lake(lake_root, symbols, s, feed=feed) for s in sessions}
+    universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
+    # Build the daily-feature cache from each session's PIT-eligible symbols —
+    # the exact set the scanner iterates — so a cache entry exists for every
+    # symbol the universe admits. An empty PIT universe (no lake asset master)
+    # falls back to the explicit ``symbols`` list so the fold still runs.
+    daily_cache = {}
+    for s in sessions:
+        sess_syms = eligible_symbols(universe.get(s, {})) or symbols
+        daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
     run_dir = Path(tempfile.mkdtemp(prefix="bowaka_wf_fold_"))
     try:
         result = run_backtest(
