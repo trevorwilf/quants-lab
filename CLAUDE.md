@@ -105,6 +105,13 @@ The canonicalizer caps spread levels at `MAX_SPREAD_PCT = 50.0`. Levels beyond 5
 - Database: `hummingbot_api`, user: `hbot`
 - Used by `LivePerformanceTracker` for drift detection
 
+### Shared market-data lake (bowaka)
+- Partitioned-Parquet Alpaca market-data store at `research_notebooks/market_data/` (gitignored)
+- Code: `bowaka_common.marketdata` — `MarketDataStore` (reader), `layout`, `run_backfill`, `catalog`
+- Consumed by both `bowaka_lab` (v1) and `bowaka_v2_lab` (v2); v2 loaders read it via `source="alpaca"`
+- Root override: `MARKET_DATA_ROOT` in `.env` (unset → the in-repo default above)
+- Migrate the legacy `bowaka_lab/db_tools/bowaka_data` tree: `make migrate-market-data`
+
 ## .env File
 
 Located at the repo root. Required variables:
