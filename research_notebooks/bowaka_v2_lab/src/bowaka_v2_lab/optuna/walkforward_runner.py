@@ -32,8 +32,13 @@ from typing import Any, Callable
 import pandas as pd
 
 from ..config import BowakaV2Paths, SimulationConfig, load_config
-from ..data.suppliers import build_daily_cache_from_lake, make_lake_suppliers
+from ..data.suppliers import (
+    build_daily_cache_from_lake,
+    make_lake_suppliers,
+    resolve_intraday_window_policy,
+)
 from ..sim.backtester import run_backtest
+from ..sim.schedule import scan_times_for_session
 from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
 from .dispatcher import OptunaStudy
 from .holdout_guard import HoldoutGuard
@@ -137,7 +142,10 @@ def _run_fold_backtest(
         return {}
     from bowaka_common.marketdata import MarketDataStore
 
-    minute_supplier, daily_supplier = make_lake_suppliers(lake_root, feed=feed)
+    minute_supplier, daily_supplier = make_lake_suppliers(
+        lake_root, feed=feed,
+        intraday_window_policy=resolve_intraday_window_policy(cfg),
+    )
     universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
     # Build the daily-feature cache from each session's PIT-eligible symbols —
     # the exact set the scanner iterates — so a cache entry exists for every
@@ -149,10 +157,12 @@ def _run_fold_backtest(
         daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
     run_dir = Path(tempfile.mkdtemp(prefix="bowaka_wf_fold_"))
     try:
+        # Realism Phase 4: each walk-forward fold replays the full intraday
+        # scan cadence (was one hard-coded 14:00-UTC scan per session).
         result = run_backtest(
             cfg=cfg,
             sessions=sessions,
-            scan_times_per_session=lambda d: [pd.Timestamp(f"{d}T14:00:00", tz="UTC")],
+            scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
             universe_snapshot_by_session=universe,
             daily_cache_by_session=daily_cache,
             minute_bars_supplier=minute_supplier,

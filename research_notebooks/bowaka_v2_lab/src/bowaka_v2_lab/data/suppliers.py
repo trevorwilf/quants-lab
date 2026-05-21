@@ -15,6 +15,65 @@ import pandas as pd
 
 from bowaka_common.marketdata import MarketDataStore
 
+#: Local clock time (ET) each intraday-window policy starts the forming-session
+#: minute-bar window from. ``regular_open`` = 09:30, ``scanner_start`` = 09:45,
+#: ``extended_hours`` = 04:00 (premarket). Realism Phase 4 (audit P0-006).
+_INTRADAY_WINDOW_START_ET: dict[str, tuple[int, int]] = {
+    "scanner_start_to_scan": (9, 45),
+    "regular_open_to_scan": (9, 30),
+    "extended_hours_to_scan": (4, 0),
+}
+#: Policy used when a config omits ``simulation.intraday_window_policy``. The
+#: live scanner builds the window from scanner_start (09:45 ET).
+_DEFAULT_INTRADAY_WINDOW_POLICY = "scanner_start_to_scan"
+
+
+def intraday_window_start(cutoff: Any, intraday_window_policy: str) -> pd.Timestamp:
+    """UTC start of the forming-session minute-bar window for ``cutoff``.
+
+    Realism Phase 4 (audit P0-006). ``cutoff`` is the scan timestamp; the window
+    runs ``[start, cutoff]``. ``start`` is the policy's local (ET) clock time on
+    ``cutoff``'s ET session date:
+
+    - ``scanner_start_to_scan`` → 09:45 ET (the live scanner's behaviour)
+    - ``regular_open_to_scan`` → 09:30 ET (regular open)
+    - ``extended_hours_to_scan`` → 04:00 ET (premarket)
+
+    The ET session date is taken from ``cutoff`` converted to America/New_York,
+    so the window never spills into the previous calendar day's premarket.
+    """
+    ts = pd.Timestamp(cutoff)
+    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    session_date = ts.tz_convert("America/New_York").date()
+    hour, minute = _INTRADAY_WINDOW_START_ET.get(
+        str(intraday_window_policy), _INTRADAY_WINDOW_START_ET[_DEFAULT_INTRADAY_WINDOW_POLICY]
+    )
+    start_et = pd.Timestamp(
+        _dt.datetime.combine(session_date, _dt.time(hour=hour, minute=minute)),
+        tz="America/New_York",
+    )
+    return start_et.tz_convert("UTC")
+
+
+def resolve_intraday_window_policy(cfg: Any) -> str:
+    """Resolve ``simulation.intraday_window_policy`` from a config (dict or model).
+
+    Falls back to :data:`_DEFAULT_INTRADAY_WINDOW_POLICY` when unset — the
+    SimulationConfig post-validator normally fills this from ``mode``, so an
+    unset value here only happens for a bare dict that skipped validation.
+    """
+    sim = getattr(cfg, "simulation", None)
+    if sim is None and isinstance(cfg, dict):
+        sim = cfg.get("simulation") or {}
+    if sim is None:
+        sim = {}
+    if isinstance(sim, dict):
+        policy = sim.get("intraday_window_policy")
+    else:
+        policy = getattr(sim, "intraday_window_policy", None)
+    return str(policy) if policy else _DEFAULT_INTRADAY_WINDOW_POLICY
+
+
 #: Columns of the v2 daily-feature cache (mirrors ``synthetic_daily_cache``).
 DAILY_CACHE_COLUMNS = [
     "symbol",
@@ -49,21 +108,27 @@ def make_lake_suppliers(
     feed: str = "iex",
     vendor: str = "alpaca",
     daily_lookback_days: int = 400,
+    intraday_window_policy: str = _DEFAULT_INTRADAY_WINDOW_POLICY,
 ) -> tuple[Callable[[str, Any], pd.DataFrame], Callable[[str, Any], pd.DataFrame]]:
     """Return ``(minute_bars_supplier, daily_bars_supplier)`` reading the shared lake.
 
-    - ``minute_bars_supplier(symbol, cutoff)`` → that session's minute bars up to
+    - ``minute_bars_supplier(symbol, cutoff)`` → the forming-session minute bars
+      from the :func:`intraday_window_start` for ``intraday_window_policy`` up to
       ``cutoff`` (tz-aware).
     - ``daily_bars_supplier(symbol, session_date)`` → daily bars over the trailing
       ``daily_lookback_days`` ending on ``session_date``.
+
+    Realism Phase 4 (audit P0-006): the minute-bar window now starts at the
+    policy-resolved local time (09:30 / 09:45 / 04:00 ET) rather than UTC
+    midnight, so the forming-session bar window honours
+    ``simulation.intraday_window_policy``.
     """
     store = _as_store(shared_root, vendor=vendor)
 
     def minute_bars_supplier(symbol: str, cutoff: Any) -> pd.DataFrame:
         ts = pd.Timestamp(cutoff)
         ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
-        session_date = ts.tz_convert("America/New_York").date()
-        session_start = pd.Timestamp(session_date, tz="UTC")
+        session_start = intraday_window_start(ts, intraday_window_policy)
         return store.minute_bars(symbol, session_start, ts, feed=feed)
 
     def daily_bars_supplier(symbol: str, session_date: Any) -> pd.DataFrame:

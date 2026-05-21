@@ -47,7 +47,15 @@ def replay_scanner(
     if events_jsonl.exists():
         events_jsonl.unlink()
 
-    state: dict[str, Any] = {"entered_symbols_today": [], "in_play_pool": {}}
+    # Realism Phase 4: scanner dedup memory (cooldown, per-day entry count,
+    # in-play pool) is per session. Replay is a single-session call, so one
+    # state dict spanning the supplied scan timestamps is correct.
+    state: dict[str, Any] = {
+        "entered_symbols_today": [],
+        "in_play_pool": {},
+        "symbol_last_emit_ts": {},
+        "entries_per_symbol_today": {},
+    }
     all_events: list[dict[str, Any]] = []
     all_dump: list[dict[str, Any]] = []
     scan_count = 0

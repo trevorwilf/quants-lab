@@ -15,12 +15,17 @@ import pandas as pd
 
 from .config import BowakaV2Paths, load_config
 from .config.models import BowakaV2Config
-from .data.suppliers import build_daily_cache_from_lake, make_lake_suppliers
+from .data.suppliers import (
+    build_daily_cache_from_lake,
+    make_lake_suppliers,
+    resolve_intraday_window_policy,
+)
 from .features.volume_curve import build_volume_curve_from_minute_bars, synthesize_default_curve
 from .scanner.replay import replay_scanner
 from .scanner.universe_builder import build_universe_snapshot, write_universe_snapshot
 from .sim.backtester import run_backtest
 from .sim.replay_fixtures import synthetic_daily_cache, synthetic_universe
+from .sim.schedule import scan_times_for_session
 from .universe.builder import (
     build_pit_universe,
     build_pit_universe_for_sessions,
@@ -215,7 +220,10 @@ def run_backtest_command(
 
     if _uses_lake(cfg):
         feed, root = md.get("feed", "iex"), md.get("shared_root")
-        minute_supplier, daily_supplier = make_lake_suppliers(root, feed=feed)
+        minute_supplier, daily_supplier = make_lake_suppliers(
+            root, feed=feed,
+            intraday_window_policy=resolve_intraday_window_policy(cfg),
+        )
         daily_cache = {s: build_daily_cache_from_lake(root, symbols, s, feed=feed) for s in sessions}
         data_source = "lake"
     else:
@@ -230,10 +238,13 @@ def run_backtest_command(
         command=("smoke" if smoke else "run-backtest"),
     )
 
+    # Realism Phase 4: full calendar-aware intraday scan cadence (was one
+    # hard-coded 14:00-UTC scan per session). scan_times_for_session honours
+    # the session's scanner window, interval, DST, holidays and early closes.
     result = run_backtest(
         cfg=cfg,
         sessions=sessions,
-        scan_times_per_session=lambda d: [pd.Timestamp(f"{d}T14:00:00", tz="UTC")],
+        scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
         universe_snapshot_by_session=universe,
         daily_cache_by_session=daily_cache,
         minute_bars_supplier=minute_supplier,
@@ -356,11 +367,16 @@ def replay_scanner_command(
     md = cfg.get("market_data", {}) or {}
     symbols = _resolve_symbols(cfg, md)
     session = _to_date((cfg.get("backtest", {}) or {}).get("start_date"), _dt.date(2024, 9, 4))
-    scan_ts = [pd.Timestamp(f"{session}T14:00:00", tz="UTC")]
+    # Realism Phase 4: replay the full intraday scan cadence for the session
+    # (was one hard-coded 14:00-UTC scan).
+    scan_ts = scan_times_for_session(session, cfg)
 
     if _uses_lake(cfg):
         feed, root = md.get("feed", "iex"), md.get("shared_root")
-        bars_supplier, _ = make_lake_suppliers(root, feed=feed)
+        bars_supplier, _ = make_lake_suppliers(
+            root, feed=feed,
+            intraday_window_policy=resolve_intraday_window_policy(cfg),
+        )
         daily_cache = build_daily_cache_from_lake(root, symbols, session, feed=feed)
         data_source = "lake"
     else:

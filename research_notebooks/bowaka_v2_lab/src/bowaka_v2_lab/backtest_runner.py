@@ -18,6 +18,7 @@ import pandas as pd
 from .config import BowakaV2Paths, load_config
 from .sim.backtester import BacktestResult, run_backtest
 from .sim.replay_fixtures import synthetic_daily_cache, synthetic_universe
+from .sim.schedule import scan_times_for_session
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -95,12 +96,20 @@ def _synthetic_suppliers():
 
 
 def resolve_suppliers(cfg: dict):
-    """``(minute_supplier, daily_supplier)`` — lake-backed or synthetic per config."""
+    """``(minute_supplier, daily_supplier)`` — lake-backed or synthetic per config.
+
+    Realism Phase 4: the lake minute supplier's forming-session window honours
+    ``simulation.intraday_window_policy``.
+    """
     md = cfg.get("market_data", {}) or {}
     if uses_lake(cfg):
-        from .data.suppliers import make_lake_suppliers
+        from .data.suppliers import make_lake_suppliers, resolve_intraday_window_policy
 
-        return make_lake_suppliers(md.get("shared_root"), feed=md.get("feed", "iex"))
+        return make_lake_suppliers(
+            md.get("shared_root"),
+            feed=md.get("feed", "iex"),
+            intraday_window_policy=resolve_intraday_window_policy(cfg),
+        )
     return _synthetic_suppliers()
 
 
@@ -161,10 +170,12 @@ def run_config_backtest(
     minute_supplier, daily_supplier = resolve_suppliers(cfg)
     universe = {s: synthetic_universe(symbols) for s in sessions}
     daily_cache = {s: resolve_daily_cache(cfg, symbols, s) for s in sessions}
+    # Realism Phase 4: full calendar-aware intraday scan cadence (was one
+    # hard-coded 14:00-UTC scan per session).
     return run_backtest(
         cfg=cfg,
         sessions=sessions,
-        scan_times_per_session=lambda d: [pd.Timestamp(f"{d}T14:00:00", tz="UTC")],
+        scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
         universe_snapshot_by_session=universe,
         daily_cache_by_session=daily_cache,
         minute_bars_supplier=minute_supplier,

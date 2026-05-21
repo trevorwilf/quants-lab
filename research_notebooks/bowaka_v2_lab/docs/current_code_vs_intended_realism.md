@@ -157,14 +157,51 @@ Phase 3 (PIT universe builder) and Phase 4 (scanner replay) honor this policy.
 
 ---
 
+## 5. Early-close days — scan window truncation (Phase 4 deviation)
+
+**Lab module:** `src/bowaka_v2_lab/sim/schedule.py`
+**Live ref:** `bowaka_intraday_scanner.py:671-725` (`_run_live`)
+
+The live scanner's loop bound `session_end` is built **purely from the
+configured `scanner_end`** and the calendar is never consulted:
+
+```python
+session_end = pd.Timestamp(
+    f"{today_et_date} {sess_cfg.get('scanner_end', '15:30')}",
+    tz="America/New_York",
+)
+...
+if now > session_end:
+    LOG.info("past scanner_end (%s); scanner exiting", session_end)
+    break
+```
+
+On an early-close day (e.g. the day after Thanksgiving or Christmas Eve, when
+XNYS closes 13:00 ET) `scanner_end` is 15:30 ET — **after** the real market
+close — so the live scanner would keep ticking against a shut market (it would
+just receive no fresh bars and stale-skip every symbol).
+
+**Lab deviation (intentional).** `scan_times_for_session` truncates the scan
+window to `min(scanner_end, exchange early close)` using
+`exchange_calendars.session_close`. A backtest therefore emits **no scan after
+the market is closed** — the realistic behaviour. This is a deliberate
+divergence from the live code as written; it is not gated by a
+`simulation.mode` flag because emitting scans into a closed market is never
+correct in any mode. On a normal day the exchange close (16:00 ET) is well past
+`scanner_end` (15:30 ET) so the truncation is a no-op.
+
+---
+
 ## Summary table
 
-| # | Behavior                          | Lab flag                            | Live ref                          |
+| # | Behavior                          | Lab flag / module                   | Live ref                          |
 |---|-----------------------------------|-------------------------------------|-----------------------------------|
 | 1 | Scanner bar window start          | `intraday_window_policy`            | `bowaka_intraday_scanner.py:671-714` |
 | 2 | Quote fallback (no quote)         | `quote_fallback_policy`             | `bowaka_v2_strategy.py:743-748`   |
 | 3 | Acceptance emitted pre/post submit| `accepted_event_sequencing`         | `bowaka_v2_strategy.py:791-846`   |
 | 4 | Unknown instrument class          | `unknown_instrument_class_policy`   | `bowaka_v2_features.py:473-477`   |
+| 5 | Early-close scan-window truncation| `sim/schedule.py` (always-on)       | `bowaka_intraday_scanner.py:671-725` |
 
-All four are recorded in `run_manifest.json` (`simulation` block) and the
-backtest report header on every run.
+Items 1-4 are recorded in `run_manifest.json` (`simulation` block) and the
+backtest report header on every run. Item 5 is an unconditional correctness fix
+in the Phase 4 scheduler.

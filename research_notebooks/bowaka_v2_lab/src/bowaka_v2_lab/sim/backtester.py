@@ -45,6 +45,7 @@ from .event_loop import run_one_scan
 from .exits import evaluate_exits
 from .metrics import build_summary
 from .portfolio import Portfolio, Position
+from .schedule import scan_times_for_session
 
 
 @dataclass
@@ -157,6 +158,45 @@ def _normalise_universe_by_session(
             )
         snapshots[session_date] = dict(value) if isinstance(value, Mapping) else value
     return snapshots, pit_records
+
+
+#: Row count past which the gate dump is *also* written partitioned per session
+#: date (under ``scanner/gate_dump_by_session/``) so no single parquet is huge.
+#: Full intraday replay produces ~scans x universe rows; a multi-month run can
+#: reach millions of rows.
+_GATE_DUMP_PARTITION_THRESHOLD = 250_000
+
+
+def _write_gate_dump(run_dir: Path, all_gate_dump: list[dict]) -> None:
+    """Write the per-(scan_ts, symbol) gate dump (realism Phase 4).
+
+    Always writes the canonical ``gate_dump.parquet`` at the run-dir root (the
+    path the artifact contract + promotion checklist enforce). When the dump
+    exceeds :data:`_GATE_DUMP_PARTITION_THRESHOLD` rows it is additionally
+    written partitioned per session date under
+    ``scanner/gate_dump_by_session/<session>.parquet`` so each file is bounded.
+    """
+    if not all_gate_dump:
+        # Keep the contract path present even when no scan ran.
+        write_parquet(run_dir / "gate_dump.parquet", pd.DataFrame({"symbol": []}))
+        return
+    df = pd.json_normalize(all_gate_dump, sep=".")
+    write_parquet(run_dir / "gate_dump.parquet", df)
+    if len(df) <= _GATE_DUMP_PARTITION_THRESHOLD:
+        return
+    # Large dump — also partition per session date for bounded files.
+    part_dir = run_dir / "scanner" / "gate_dump_by_session"
+    part_dir.mkdir(parents=True, exist_ok=True)
+    if "scan_ts" in df.columns:
+        session_dates = (
+            pd.to_datetime(df["scan_ts"], utc=True, errors="coerce")
+            .dt.tz_convert("America/New_York")
+            .dt.date
+        )
+        for session_date, part in df.groupby(session_dates):
+            if pd.isna(session_date):
+                continue
+            write_parquet(part_dir / f"{session_date.isoformat()}.parquet", part)
 
 
 def run_backtest(
@@ -309,19 +349,46 @@ def run_backtest(
     all_trades: list[dict] = []
     daily_equity: list[dict] = []
     ambiguous_bar_count = 0
+    # Realism Phase 4: per-session scan-count + funnel summary for the run
+    # manifest. Records the cadence the calendar-aware scheduler produced and
+    # the accept / reject breakdown for each session.
+    scan_counts: dict[str, dict[str, Any]] = {}
 
-    state: dict[str, Any] = {"entered_symbols_today": [], "in_play_pool": {}}
     for session_date in sessions:
         portfolio.begin_session(session_date)
         # Per [Report §9.6]: open positions block re-entry by the same symbol.
         # The scanner's ``entered_symbols_today`` set acts as that block.
-        state["entered_symbols_today"] = sorted(portfolio.open_positions.keys())
+        # Realism Phase 4: the scanner dedup memory (cooldown, per-day entry
+        # count, in-play pool) is *per session* — a fresh state dict each
+        # session so a symbol's cooldown / day-cap never leaks across days.
+        state: dict[str, Any] = {
+            "entered_symbols_today": sorted(portfolio.open_positions.keys()),
+            "in_play_pool": {},
+            "symbol_last_emit_ts": {},
+            "entries_per_symbol_today": {},
+        }
         universe = universe_snapshot_by_session.get(session_date)
         daily_cache = daily_cache_by_session.get(session_date)
+        session_key = (
+            session_date.isoformat()
+            if isinstance(session_date, _dt.date)
+            else str(session_date)
+        )
+        # Realism Phase 4: every session records its scan cadence, even one
+        # skipped for a missing universe / daily cache (actual=0).
+        session_scan_times = list(scan_times_per_session(session_date))
+        sess_count: dict[str, Any] = {
+            "expected_scans": len(session_scan_times),
+            "actual_scans": 0,
+            "candidate_count": 0,
+            "accepted_count": 0,
+            "gate_rejection_breakdown": {},
+        }
+        scan_counts[session_key] = sess_count
         if universe is None or daily_cache is None:
             continue
 
-        for scan_ts in scan_times_per_session(session_date):
+        for scan_ts in session_scan_times:
             scan_result, consumer_results = run_one_scan(
                 cfg=cfg_dict, universe_snapshot=universe, daily_cache=daily_cache,
                 volume_curve=volume_curve, state=state, scan_ts=scan_ts,
@@ -330,8 +397,19 @@ def run_backtest(
             )
             all_candidate_events.extend(scan_result.emitted)
             all_gate_dump.extend(scan_result.gate_dump)
+            # Realism Phase 4: roll the per-session scan-count summary.
+            sess_count["actual_scans"] += 1
+            sess_count["candidate_count"] += len(scan_result.emitted)
+            for row in scan_result.gate_dump:
+                reason = row.get("rejection_reason")
+                if reason:
+                    breakdown = sess_count["gate_rejection_breakdown"]
+                    breakdown[reason] = breakdown.get(reason, 0) + 1
             for cr in consumer_results:
                 all_decisions.extend(cr.decisions)
+                sess_count["accepted_count"] += sum(
+                    1 for d in cr.decisions if d.get("decision") == "accepted"
+                )
                 for po in cr.parent_orders:
                     all_orders.append({
                         "parent_order_id": po.parent_order_id,
@@ -486,6 +564,10 @@ def run_backtest(
             "lineage": lineage,
             # Realism Phase 3: per-session point-in-time universe hashes.
             "universe_hashes_by_session": universe_hashes_by_session,
+            # Realism Phase 4: per-session intraday scan cadence + funnel —
+            # expected vs actual scan count, candidate / accepted counts and
+            # the gate-rejection breakdown.
+            "scan_counts": scan_counts,
             "data_quality": {
                 "regime": data_quality_report["regime"],
                 "passed": data_quality_report["passed"],
@@ -510,8 +592,11 @@ def run_backtest(
     else:
         (run_dir / "candidate_events.jsonl").write_text("", encoding="utf-8")
         write_parquet(run_dir / "candidate_events.parquet", pd.DataFrame({"symbol": []}))
-    write_parquet(run_dir / "gate_dump.parquet",
-                  pd.json_normalize(all_gate_dump, sep=".") if all_gate_dump else pd.DataFrame({"symbol": []}))
+    # Realism Phase 4: per-(scan_ts, symbol) gate dump. With full intraday
+    # replay this is ~scans x universe rows; when it grows past the partition
+    # threshold the rows are also written partitioned per session date under
+    # scanner/gate_dump_by_session/ to keep any single file bounded.
+    _write_gate_dump(run_dir, all_gate_dump)
     write_parquet(run_dir / "entry_decisions.parquet",
                   pd.json_normalize(all_decisions, sep=".") if all_decisions else pd.DataFrame({"symbol": []}))
     write_parquet(run_dir / "orders.parquet",
@@ -555,6 +640,25 @@ def run_backtest(
         f"- trades: {len(all_trades)}",
         f"- net_return_pct: {summary['net_return_pct']:.4%}",
         "- (Phase 5 fills in the full report sections.)",
+        "",
+    ]
+    # Realism Phase 4: intraday scan cadence — total scans replayed across all
+    # sessions, the scan window / interval and the per-session funnel.
+    total_expected = sum(s["expected_scans"] for s in scan_counts.values())
+    total_actual = sum(s["actual_scans"] for s in scan_counts.values())
+    _sess_cfg = cfg_dict.get("session") or {}
+    report_lines += [
+        "## Intraday scan cadence (Phase 4)",
+        "",
+        f"- sessions: {len(scan_counts)}",
+        f"- scan window: `{_sess_cfg.get('scanner_start', '09:45')}` -> "
+        f"`{_sess_cfg.get('scanner_end', '15:30')}` "
+        f"({_sess_cfg.get('timezone', 'America/New_York')})",
+        f"- scan_interval_seconds: `{_sess_cfg.get('scan_interval_seconds', 60)}`",
+        f"- total expected scan timestamps: {total_expected}",
+        f"- total scans replayed: {total_actual}",
+        f"- candidate events emitted: {len(all_candidate_events)}",
+        "- per-session scan counts: see `run_manifest.json['scan_counts']`",
         "",
     ]
     (run_dir / "report.md").write_text("\n".join(report_lines), encoding="utf-8")
