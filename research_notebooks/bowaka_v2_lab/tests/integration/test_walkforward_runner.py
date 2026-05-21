@@ -53,6 +53,7 @@ def write_test_config(
     raw["backtest"]["start_date"] = start.isoformat()
     raw["backtest"]["end_date"] = end.isoformat()
     raw["market_data"]["shared_root"] = str(lake)
+    raw["market_data"]["feed"] = "iex"  # pin to match build_tiny_lake's feed
     raw.setdefault("universe", {})["symbols"] = list(symbols)
     raw["optuna"]["n_trials"] = n_trials
     raw["optuna"]["n_jobs"] = 1
