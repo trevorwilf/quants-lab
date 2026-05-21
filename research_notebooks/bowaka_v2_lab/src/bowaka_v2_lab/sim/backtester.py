@@ -24,10 +24,15 @@ from bowaka_common.artifacts.code_manifest import build_code_manifest, code_mani
 from bowaka_common.artifacts.dataset_manifest import build_dataset_manifest
 from bowaka_common.artifacts.run_manifest import build_run_manifest
 
+from ..config.config_diff import (
+    unannotated_mismatches,
+    write_config_diff,
+    write_empty_config_diff,
+)
 from ..config.hashing import canonical_run_hash, canonical_strategy_hash
 from ..config.models import SimulationConfig
 from ..config.paths import BowakaV2Paths
-from ..reference import actual_contract_hash
+from ..reference import actual_contract_hash, contract_available, load_actual_contract
 from ..utils.atomic_io import append_jsonl, atomic_write_json, write_parquet
 from ..utils.ids import generate_run_id
 from ..utils.time import require_aware_timestamp
@@ -67,6 +72,7 @@ _REQUIRED_ARTIFACTS = (
     "execution_quality.parquet",
     "summary.json",
     "report.md",
+    "config_diff_vs_actual_bowaka_v2.yaml",
 )
 
 
@@ -126,6 +132,31 @@ def run_backtest(
         run_dir = paths.artifact_root / "runs" / run_id
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Config-parity diff vs the frozen live contract (realism Phase 1). Written
+    # on every run; in intended_realism mode an unannotated `mismatch` aborts
+    # the run at startup, before any other artifacts are produced.
+    if contract_available():
+        _diff_path, _diff_rows = write_config_diff(
+            run_dir, cfg_dict, load_actual_contract(),
+            config_path=cfg_dict.get("_source_path"),
+        )
+        if sim_cfg.mode == "intended_realism":
+            _unannotated = unannotated_mismatches(_diff_rows)
+            if _unannotated:
+                raise RuntimeError(
+                    f"intended_realism run aborted: config_diff_vs_actual_bowaka_v2.yaml "
+                    f"has {len(_unannotated)} unannotated mismatch(es) vs the live contract: "
+                    f"{sorted(_unannotated)}. Reconcile the config, or declare each as an "
+                    f"intentional override in the parity sidecar (<config>.parity.yml)."
+                )
+    else:
+        # No frozen contract on this host — emit a placeholder so the artifact
+        # contract still holds. Realism mode cannot be parity-gated; that is
+        # surfaced rather than silently skipped.
+        write_empty_config_diff(
+            run_dir, note="frozen contract unavailable; parity diff not computed"
+        )
 
     portfolio = Portfolio(initial_bankroll=initial_bankroll)
     broker = SimulatedBroker()

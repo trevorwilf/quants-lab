@@ -42,6 +42,22 @@ scanner:
 
 signals:
   allow_unknown_instrument_class_for_research: false
+  # SIP (consolidated-tape) thresholds — tighter than IEX per the v2 config comments.
+  rvol_so_far_min: 1.50
+  projected_full_day_rvol_min: 1.50
+  prior_atr_pct_min: 0.06
+  range_expansion_so_far_min: 1.25
+  close_location_so_far_min: 0.60
+  ema_distance_min: 0.0
+  ema_slope_min: 0.0
+  price_min: 1.0
+  price_max: 20.0
+  avg_dollar_volume_min: 250000
+  rvol_so_far_max: 8.0
+  projected_full_day_rvol_max: 8.0
+  range_expansion_so_far_max: 2.50
+  gap_pct_max: 0.25
+  current_return_pct_max: 0.50
 
 execution:
   order_type: marketable_limit
@@ -50,9 +66,12 @@ execution:
   max_spread_bps: 25              # tighter than IEX (25 vs 50)
 
 sizing:
-  method: fixed_dollar
-  dollars_per_position: 5000
-  max_position_dollars: 25000
+  sizing_mode: equal_slice
+  bankroll_fixed_dollars: 90000
+  max_concurrent_positions: 18
+  equal_slice_bankroll_fraction: 0.80
+  target_risk_dollars: 200
+  min_order_notional: 500
 
 risk:
   max_concurrent_positions: 5

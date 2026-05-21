@@ -185,6 +185,19 @@ def actual_contract_hash() -> str:
     return hashlib.sha256(ACTUAL_CONTRACT_PATH.read_bytes()).hexdigest()
 
 
+def __getattr__(name: str) -> Any:
+    """Lazily expose the Phase 1 contract->config mapper.
+
+    Kept lazy so importing :mod:`bowaka_v2_lab.reference` for lineage hashes
+    never pulls in the Pydantic config models.
+    """
+    if name in ("build_config_from_contract", "render_config_yaml", "import_actual_config"):
+        from . import import_config
+
+        return getattr(import_config, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     "REFERENCE_DIR",
     "ACTUAL_CONTRACT_PATH",
@@ -199,4 +212,7 @@ __all__ = [
     "contract_available",
     "load_actual_contract",
     "actual_contract_hash",
+    "build_config_from_contract",
+    "render_config_yaml",
+    "import_actual_config",
 ]

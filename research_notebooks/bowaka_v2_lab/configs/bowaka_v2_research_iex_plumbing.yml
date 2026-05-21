@@ -40,6 +40,22 @@ scanner:
 
 signals:
   allow_unknown_instrument_class_for_research: false
+  # IEX-relaxed thresholds (partial-tape bias) — see actual_bowaka_v2_contract.yaml.
+  rvol_so_far_min: 0.7
+  projected_full_day_rvol_min: 0.5
+  prior_atr_pct_min: 0.06
+  range_expansion_so_far_min: 0.5
+  close_location_so_far_min: 0.60
+  ema_distance_min: -0.05
+  ema_slope_min: -0.05
+  price_min: 1.0
+  price_max: 20.0
+  avg_dollar_volume_min: 250000
+  rvol_so_far_max: 8.0
+  projected_full_day_rvol_max: 8.0
+  range_expansion_so_far_max: 2.50
+  gap_pct_max: 0.25
+  current_return_pct_max: 0.50
 
 execution:
   order_type: marketable_limit
@@ -48,7 +64,7 @@ execution:
   max_spread_bps: 50
 
 sizing:
-  method: fixed_dollar
+  sizing_mode: fixed_dollar
   dollars_per_position: 5000
   max_position_dollars: 25000
 

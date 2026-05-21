@@ -14,10 +14,8 @@ _VALID_MODES = {"current_code_parity", "intended_realism", "smoke_fixture"}
 
 def test_shipping_configs_discovered() -> None:
     assert _CONFIGS, f"no bowaka_v2_*.yml configs under {_LAB_ROOT / 'configs'}"
-    names = {p.name for p in _CONFIGS}
-    # the broken walk-forward optuna config is quarantined (.quarantined suffix),
-    # so the *.yml glob must not pick it up.
-    assert "bowaka_v2_walkforward_optuna.yml" not in names
+    # Phase 1 restored the walk-forward optuna config (quarantine lifted); the
+    # parametrized test below still checks every config declares simulation.mode.
 
 
 @pytest.mark.parametrize("cfg_path", _CONFIGS, ids=[p.name for p in _CONFIGS])
