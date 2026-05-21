@@ -1,5 +1,5 @@
 .ONESHELL:
-.PHONY: help install uninstall build test test-unit test-live data-audit migrate-market-data
+.PHONY: help install uninstall build test test-unit test-live data-audit migrate-market-data backfill-market-data
 
 # Default target
 .DEFAULT_GOAL := help
@@ -22,6 +22,9 @@ data-audit:  ## Run PMM Lab data quality audit
 
 migrate-market-data:  ## Migrate the legacy bowaka_lab parquet tree into the shared market-data lake
 	python scripts/migrate_market_data.py $(ARGS)
+
+backfill-market-data:  ## Incrementally backfill the shared market-data lake from Alpaca
+	python scripts/backfill_market_data.py $(ARGS)
 
 # ============================================================================
 # INSTALLATION & SETUP
