@@ -51,7 +51,13 @@ print(f"bowaka_v2_lab {bowaka_v2_lab.__version__} (cwd={_repo_root})")
 
 
 def make_notebook(cells: list[dict]) -> nbformat.NotebookNode:
-    """Build a notebook with the bootstrap cell as cell 0 and ``cells`` after."""
+    """Build a notebook with the bootstrap cell as cell 0 and ``cells`` after.
+
+    The first passed cell (notebook cell 1) is, by convention, the papermill
+    parameter cell — it is tagged ``parameters`` so papermill injects overrides
+    *after* it. Without the tag papermill injects at the notebook top, where the
+    parameter cell's own defaults then clobber the injected values.
+    """
     nb = nbformat.v4.new_notebook()
     nb_cells = [nbformat.v4.new_code_cell(source=BOOTSTRAP_CELL_SOURCE)]
     for c in cells:
@@ -59,6 +65,8 @@ def make_notebook(cells: list[dict]) -> nbformat.NotebookNode:
             nb_cells.append(nbformat.v4.new_markdown_cell(source=c["source"]))
         elif c["type"] == "code":
             nb_cells.append(nbformat.v4.new_code_cell(source=c["source"]))
+    if len(nb_cells) > 1:
+        nb_cells[1]["metadata"]["tags"] = ["parameters"]
     nb["cells"] = nb_cells
     nb["metadata"] = {
         "kernelspec": {"name": "python3", "display_name": "Python 3"},
