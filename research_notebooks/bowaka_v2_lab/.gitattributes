@@ -1,0 +1,8 @@
+# Pin line endings for the Bowaka v2 lab.
+#
+# Generated / parity YAML (the frozen contract, the import-actual-config
+# output) must be byte-stable across OSes so `import-actual-config` round-trips
+# byte-identically and config-parity diffs are reproducible. Without this, a
+# Windows checkout rewrites LF -> CRLF and the round-trip test fails.
+*.yml  text eol=lf
+*.yaml text eol=lf
