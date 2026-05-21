@@ -107,7 +107,7 @@ def main() -> None:
                 "        rows.append({'timestamp': pd.Timestamp('2024-09-04 13:30:00', tz='UTC') + pd.Timedelta(minutes=i),\n"
                 "                      'open': 100+i*0.1, 'high': 100+i*0.2, 'low': 99.5, 'close': 100+i*0.15, 'volume': 1000.0})\n"
                 "    return pd.DataFrame(rows)\n"
-                "run_dir = Path('artifacts/runs/replay_nb_smoke')\n"
+                "run_dir = Path('research_notebooks/bowaka_v2_lab/artifacts/runs/replay_nb_smoke')\n"
                 "summary = replay_scanner(cfg=cfg, universe_snapshot=universe, daily_cache=daily_cache,\n"
                 "  volume_curve=None, scan_timestamps=scan_ts, bars_supplier=supplier, run_dir=run_dir)\n"
                 "print(summary)\n"

@@ -15,7 +15,7 @@ def main() -> None:
     nb = make_notebook([
         {"type": "code", "source": (
             "# Papermill parameter cell.\n"
-            "PAPER_LOGS_DIR = 'tests/fixtures/paper_logs_minimal'\n"
+            "PAPER_LOGS_DIR = 'research_notebooks/bowaka_v2_lab/tests/fixtures/paper_logs_minimal'\n"
         )},
         {"type": "markdown", "source": "# 09 — Paper-vs-Backtest Reconciliation"},
         {"type": "code", "source": (

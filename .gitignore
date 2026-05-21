@@ -189,6 +189,8 @@ research_notebooks/bowaka_lab/*.egg-info/
 app/data/bowaka_lab/
 app/outputs/bowaka_lab/
 
+research_notebooks/market_data/*
+
 research_notebooks/bowaka_lab/db_tools/bowaka_data/parquet/bars/*
 research_notebooks/bowaka_lab/db_tools/bowaka_data/parquet/assets/*
 
