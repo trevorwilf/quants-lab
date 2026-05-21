@@ -5,7 +5,7 @@ strategy_id: bowaka_v2
 strategy_version: "0.1.0"
 
 market_data:
-  feed: sip
+  feed: iex
   allow_non_sip_for_research_only: false
   max_bar_age_seconds: 60
   minute_bar_source: alpaca
@@ -63,7 +63,7 @@ exits:
 
 backtest:
   start_date: "2024-01-01"
-  end_date: "2024-12-31"
+  end_date: "2026-05-15"
   cost_stress: conservative
   entry_delay_minutes: 0
 
@@ -82,7 +82,7 @@ paths:
 
 optuna:
   storage: "${OPTUNA_STORAGE:-sqlite:///research_notebooks/bowaka_v2_lab/artifacts/optuna/local.db}"
-  n_trials: 200
+  n_trials: 2500
   n_jobs: 1
   study_name_prefix: bowaka_v2_sip
   cost_stress: conservative

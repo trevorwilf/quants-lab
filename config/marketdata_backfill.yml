@@ -26,9 +26,9 @@ daily_universe:
 # Minute-bar universe — which (symbol, session) pairs get 1-minute bars.
 minute_bars:
   enabled: true
-  policy: explicit         # none | explicit | all_daily | adv_gated
+  policy: adv_gated         # none | explicit | all_daily | adv_gated
   # policy == explicit  -> minute bars for exactly these symbols:
-  symbols: [SPY, QQQ, AAPL, MSFT, NVDA]
+  # symbols: [SPY, QQQ, AAPL, MSFT, NVDA]
   # policy == adv_gated -> minute bars for symbols passing this price + ADV gate:
   price_min: 1.0
   price_max: 20.0
