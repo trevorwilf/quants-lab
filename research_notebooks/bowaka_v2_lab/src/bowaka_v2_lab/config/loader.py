@@ -19,6 +19,7 @@ ALLOWED_TOP_LEVEL_KEYS = frozenset(
     {
         "strategy_id",
         "strategy_version",
+        "simulation",
         "market_data",
         "session",
         "universe",

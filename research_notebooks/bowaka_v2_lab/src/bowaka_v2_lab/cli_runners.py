@@ -114,10 +114,28 @@ def _synthetic_suppliers():
 # Commands
 # --------------------------------------------------------------------------
 def run_backtest_command(
-    config_path: str | Path, *, smoke: bool = False, run_dir: str | Path | None = None
+    config_path: str | Path,
+    *,
+    smoke: bool = False,
+    run_dir: str | Path | None = None,
+    allow_smoke: bool = False,
 ) -> dict:
-    """Run the comprehensive v2 backtest (``run-backtest`` / ``smoke``)."""
-    cfg, _validated, paths = _load(config_path)
+    """Run the comprehensive v2 backtest (``run-backtest`` / ``smoke``).
+
+    ``run-backtest`` (``smoke=False``) **refuses** a config whose
+    ``simulation.mode`` is ``smoke_fixture`` unless ``allow_smoke`` is set: the
+    ``smoke`` subcommand is the intended entry point for fixture configs, and a
+    "real" backtest on synthetic data is misleading. The ``smoke`` subcommand
+    (``smoke=True``) is always exempt.
+    """
+    cfg, validated, paths = _load(config_path)
+    if not smoke and validated.simulation.mode == "smoke_fixture" and not allow_smoke:
+        raise RuntimeError(
+            "run-backtest refused: simulation.mode is 'smoke_fixture'. Use the "
+            "`smoke` subcommand for fixture configs, run a research config "
+            "(intended_realism / current_code_parity), or pass "
+            "--allow-smoke-optimization to override."
+        )
     md = cfg.get("market_data", {}) or {}
     bt = cfg.get("backtest", {}) or {}
     symbols = _resolve_symbols(cfg, md)

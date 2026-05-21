@@ -31,7 +31,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from ..config import BowakaV2Paths, load_config
+from ..config import BowakaV2Paths, SimulationConfig, load_config
 from ..data.suppliers import build_daily_cache_from_lake, make_lake_suppliers
 from ..sim.backtester import run_backtest
 from ..sim.replay_fixtures import synthetic_universe
@@ -216,6 +216,7 @@ def run_walkforward_study(
     n_trials: int | None = None,
     n_jobs: int | None = None,
     n_startup_trials: int | None = None,
+    allow_smoke: bool = False,
     log: logging.Logger | None = None,
 ) -> dict:
     """Run a real walk-forward Optuna study driven entirely by the config.
@@ -223,9 +224,21 @@ def run_walkforward_study(
     ``n_trials`` / ``n_jobs`` / ``n_startup_trials`` override the config's
     ``optuna`` section when given. ``n_startup_trials`` is the number of random-
     sampling trials run before TPE-guided search begins.
+
+    A config whose ``simulation.mode`` is ``smoke_fixture`` is **refused** —
+    deterministic synthetic data is not a research-grade objective — unless
+    ``allow_smoke`` is set (CLI ``--allow-smoke-optimization``).
     """
     log = log or _log()
     cfg = load_config(config_path)
+    sim_cfg = SimulationConfig.model_validate(cfg.get("simulation") or {})
+    if sim_cfg.mode == "smoke_fixture" and not allow_smoke:
+        raise RuntimeError(
+            "walk-forward optimization refused: simulation.mode is 'smoke_fixture'. "
+            "Optimizing against deterministic synthetic data produces a meaningless "
+            "objective. Use a research config (intended_realism / current_code_parity), "
+            "or pass --allow-smoke-optimization (CLI) / allow_smoke=True to override."
+        )
     paths = BowakaV2Paths.from_config(cfg, repo_root=_REPO_ROOT)
     paths.assert_strategy_isolation()
 
@@ -286,6 +299,7 @@ def run_walkforward_study(
     out = {
         "status": "ok",
         "study_name": study.study.study_name,
+        "simulation_mode": sim_cfg.mode,
         "feed": feed,
         "n_trials_requested": trials,
         "n_trials_completed": len(completed),

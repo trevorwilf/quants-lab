@@ -19,6 +19,72 @@ class _StrictBase(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
+# --------------------------------------------------------------------------
+# Simulation-mode contract (realism remediation Phase 0).
+# --------------------------------------------------------------------------
+#: Per-mode defaults for the four behavior-coupling policy fields. A field left
+#: unset (``None``) in the YAML is resolved from the run's ``mode`` via these
+#: tables, so a config either inherits the mode's behavior wholesale or
+#: overrides a single axis explicitly.
+_SIMULATION_MODE_DEFAULTS: dict[str, dict[str, str]] = {
+    "current_code_parity": {
+        "intraday_window_policy": "scanner_start_to_scan",
+        "accepted_event_sequencing": "pre_submit",
+        "unknown_instrument_class_policy": "fail_open",
+        "quote_fallback_policy": "zero_spread",
+    },
+    "intended_realism": {
+        "intraday_window_policy": "regular_open_to_scan",
+        "accepted_event_sequencing": "post_submit",
+        "unknown_instrument_class_policy": "fail_closed",
+        "quote_fallback_policy": "require_real",
+    },
+    "smoke_fixture": {
+        "intraday_window_policy": "regular_open_to_scan",
+        "accepted_event_sequencing": "pre_submit",
+        "unknown_instrument_class_policy": "fail_open",
+        "quote_fallback_policy": "synthetic_calibrated",
+    },
+}
+
+
+class SimulationConfig(_StrictBase):
+    """Declares *which strategy* the simulator reproduces.
+
+    ``mode`` selects one of three contracts:
+
+    - ``current_code_parity`` — reproduce the *live code as written* (warts and
+      all) so the lab can reconcile a run against live Bowaka v2.
+    - ``intended_realism`` — model the *intended* strategy (audit §16 fixes).
+    - ``smoke_fixture`` — deterministic synthetic data for plumbing tests; never
+      a research- or promotion-grade run.
+
+    The four policy fields default to ``None`` and are resolved from ``mode``
+    (see :data:`_SIMULATION_MODE_DEFAULTS`) by a post-validator, so after
+    validation every field is concrete and can be written to the run manifest.
+    """
+
+    mode: Literal["current_code_parity", "intended_realism", "smoke_fixture"] = "smoke_fixture"
+    allow_research_relaxed: bool = False
+    intraday_window_policy: Optional[
+        Literal["scanner_start_to_scan", "regular_open_to_scan", "extended_hours_to_scan"]
+    ] = None
+    accepted_event_sequencing: Optional[Literal["pre_submit", "post_submit"]] = None
+    unknown_instrument_class_policy: Optional[Literal["fail_open", "fail_closed"]] = None
+    quote_fallback_policy: Optional[
+        Literal["zero_spread", "synthetic_calibrated", "require_real"]
+    ] = None
+
+    @model_validator(mode="after")
+    def _resolve_mode_coupled_defaults(self) -> "SimulationConfig":
+        """Fill any unset policy field from the mode-coupled default table."""
+        defaults = _SIMULATION_MODE_DEFAULTS[self.mode]
+        for field_name, default_value in defaults.items():
+            if getattr(self, field_name) is None:
+                setattr(self, field_name, default_value)
+        return self
+
+
 class MarketDataConfig(_StrictBase):
     feed: Literal["iex", "sip"]
     allow_non_sip_for_research_only: bool = True
@@ -140,6 +206,8 @@ class PromotionConfig(_StrictBase):
 class BowakaV2Config(_StrictBase):
     strategy_id: Literal["bowaka_v2"]
     strategy_version: str = "0.1.0"
+    # Declares which strategy the simulator reproduces (parity / realism / smoke).
+    simulation: SimulationConfig = Field(default_factory=SimulationConfig)
     market_data: MarketDataConfig
     session: SessionConfig = Field(default_factory=SessionConfig)
     universe: UniverseConfig = Field(default_factory=UniverseConfig)

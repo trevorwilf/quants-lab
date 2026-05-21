@@ -6,6 +6,13 @@
 strategy_id: bowaka_v2
 strategy_version: "0.1.0"
 
+# SIP is consolidated-tape; this config models the intended live strategy.
+# intended_realism mode couples to: regular_open_to_scan intraday window,
+# post_submit acceptance sequencing, fail_closed unknown-instrument policy,
+# require_real quote fallback.
+simulation:
+  mode: intended_realism
+
 market_data:
   feed: sip
   allow_non_sip_for_research_only: false

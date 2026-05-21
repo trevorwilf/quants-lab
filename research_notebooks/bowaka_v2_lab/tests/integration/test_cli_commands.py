@@ -22,7 +22,10 @@ def test_cli_smoke(tmp_path, lab_root):
 
 def test_cli_run_backtest(tmp_path, lab_root):
     run_dir = tmp_path / "bt_run"
-    rc = cli.main(["run-backtest", "--config", _smoke_config(lab_root), "--run-dir", str(run_dir)])
+    # The smoke config is simulation.mode=smoke_fixture; run-backtest refuses
+    # that mode unless --allow-smoke-optimization is passed (realism Phase 0).
+    rc = cli.main(["run-backtest", "--config", _smoke_config(lab_root),
+                   "--run-dir", str(run_dir), "--allow-smoke-optimization"])
     assert rc == 0
     assert (run_dir / "summary.json").is_file()
 
@@ -105,6 +108,8 @@ def test_cli_run_backtest_reads_the_lake(tmp_path, lab_root):
     cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
 
     run_dir = tmp_path / "lake_run"
-    rc = cli.main(["run-backtest", "--config", str(cfg_path), "--run-dir", str(run_dir)])
+    # config derives from the smoke config -> simulation.mode=smoke_fixture.
+    rc = cli.main(["run-backtest", "--config", str(cfg_path), "--run-dir", str(run_dir),
+                   "--allow-smoke-optimization"])
     assert rc == 0
     assert (run_dir / "summary.json").is_file()

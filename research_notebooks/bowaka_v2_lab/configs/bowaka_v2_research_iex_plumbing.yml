@@ -5,6 +5,12 @@
 strategy_id: bowaka_v2
 strategy_version: "0.1.0"
 
+# IEX is partial-tape coverage and cannot be trusted for signal research
+# (see [Report 11.2]). The IEX path is end-to-end plumbing validation only,
+# so it runs as smoke_fixture, not a research- or promotion-grade mode.
+simulation:
+  mode: smoke_fixture
+
 market_data:
   feed: iex
   allow_non_sip_for_research_only: true

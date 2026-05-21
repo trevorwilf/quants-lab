@@ -17,6 +17,7 @@ def main() -> None:
             "CONFIG_PATH = 'research_notebooks/bowaka_v2_lab/configs/bowaka_v2_walkforward_optuna.yml'\n"
             "N_TRIALS = None          # None -> optuna.n_trials from the config; or set an integer\n"
             "N_STARTUP_TRIALS = None  # None -> optuna.n_startup_trials; random trials before TPE\n"
+            "ALLOW_SMOKE = False      # True -> permit optimization on a smoke_fixture config\n"
         )},
         {"type": "markdown", "source": (
             "# 10 — Walk-Forward Optuna\n\n"
@@ -37,7 +38,7 @@ def main() -> None:
             "import json\n"
             "from bowaka_v2_lab.optuna.walkforward_runner import run_walkforward_study\n"
             "result = run_walkforward_study(CONFIG_PATH, n_trials=N_TRIALS,\n"
-            "  n_startup_trials=N_STARTUP_TRIALS)\n"
+            "  n_startup_trials=N_STARTUP_TRIALS, allow_smoke=ALLOW_SMOKE)\n"
             "print(json.dumps(result, indent=2, default=str))\n"
         )},
     ])
