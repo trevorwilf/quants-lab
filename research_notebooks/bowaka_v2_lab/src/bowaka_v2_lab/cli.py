@@ -55,7 +55,12 @@ def _cmd_env_check(args: argparse.Namespace) -> int:
 def _cmd_run_backtest(args: argparse.Namespace) -> int:
     from .cli_runners import run_backtest_command
 
-    print(json.dumps(run_backtest_command(args.config, run_dir=args.run_dir), indent=2, default=str))
+    print(json.dumps(
+        run_backtest_command(
+            args.config, run_dir=args.run_dir, allow_smoke=args.allow_smoke_optimization
+        ),
+        indent=2, default=str,
+    ))
     return 0
 
 
@@ -95,6 +100,7 @@ def _cmd_optuna(args: argparse.Namespace) -> int:
     result = run_walkforward_study(
         args.config, n_trials=args.n_trials, n_jobs=args.n_jobs,
         n_startup_trials=args.n_startup_trials,
+        allow_smoke=args.allow_smoke_optimization,
     )
     print(json.dumps(result, indent=2, default=str))
     return 0
@@ -116,6 +122,8 @@ def build_parser() -> argparse.ArgumentParser:
     bt = sub.add_parser("run-backtest", help="run the comprehensive backtest")
     bt.add_argument("--config", required=True)
     bt.add_argument("--run-dir", default=None, help="override the backtest run directory")
+    bt.add_argument("--allow-smoke-optimization", action="store_true",
+                    help="permit run-backtest on a simulation.mode=smoke_fixture config")
     bt.set_defaults(func=_cmd_run_backtest)
 
     bu = sub.add_parser("build-universe", help="build a point-in-time universe snapshot")
@@ -139,6 +147,8 @@ def build_parser() -> argparse.ArgumentParser:
     opt.add_argument("--n-jobs", type=int, default=None, help="override optuna.n_jobs")
     opt.add_argument("--n-startup-trials", type=int, default=None,
                      help="override optuna.n_startup_trials (random trials before TPE)")
+    opt.add_argument("--allow-smoke-optimization", action="store_true",
+                     help="permit walk-forward optimization on a simulation.mode=smoke_fixture config")
     opt.set_defaults(func=_cmd_optuna)
 
     pg = sub.add_parser("promotion-gate", help="run promotion checklist + bundler (Phase 9)")

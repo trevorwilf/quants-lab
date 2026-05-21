@@ -17,7 +17,7 @@ def test_papermill_execute_notebook_10(tmp_path: Path, lab_root: Path) -> None:
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1))
     cfg_path = write_test_config(
-        lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml",
+        lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml.quarantined",
         tmp_path / "wf_nb.yml",
         lake=lake, symbols=["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1), n_trials=2,
     )
@@ -27,7 +27,7 @@ def test_papermill_execute_notebook_10(tmp_path: Path, lab_root: Path) -> None:
     pm.execute_notebook(
         str(_NB),
         str(out),
-        parameters={"CONFIG_PATH": str(cfg_path), "N_TRIALS": 2},
+        parameters={"CONFIG_PATH": str(cfg_path), "N_TRIALS": 2, "ALLOW_SMOKE": True},
         cwd=str(lab_root),
         kernel_name="python3",
         execution_timeout=600,

@@ -208,6 +208,10 @@ research_notebooks/bowaka_v2_lab/.env
 research_notebooks/bowaka_v2_lab/.pytest_cache/
 research_notebooks/bowaka_v2_lab/.ruff_cache/
 research_notebooks/bowaka_v2_lab/*.egg-info/
+# Local, git-ignored mirror of the read-only live Bowaka v2 strategy source
+# (populated by mirror_bowaka_v2_source.ps1). The committed parity anchor is
+# reference/actual_bowaka_v2_contract.yaml, NOT this mirror.
+research_notebooks/bowaka_v2_lab/reference/source_strategy/**
 research_notebooks/bowaka_v2_lab/reference/source_strategy_v2/**
 app/data/bowaka_v2_lab/
 app/outputs/bowaka_v2_lab/

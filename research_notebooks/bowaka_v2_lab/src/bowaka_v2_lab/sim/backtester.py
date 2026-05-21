@@ -25,7 +25,9 @@ from bowaka_common.artifacts.dataset_manifest import build_dataset_manifest
 from bowaka_common.artifacts.run_manifest import build_run_manifest
 
 from ..config.hashing import canonical_run_hash, canonical_strategy_hash
+from ..config.models import SimulationConfig
 from ..config.paths import BowakaV2Paths
+from ..reference import actual_contract_hash
 from ..utils.atomic_io import append_jsonl, atomic_write_json, write_parquet
 from ..utils.ids import generate_run_id
 from ..utils.time import require_aware_timestamp
@@ -68,6 +70,25 @@ _REQUIRED_ARTIFACTS = (
 )
 
 
+def _git_head() -> str:
+    """Short-lived ``git rev-parse HEAD`` for run lineage; ``"unknown"`` on failure."""
+    try:
+        import subprocess
+
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=str(Path(__file__).resolve().parent),
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except Exception:  # noqa: BLE001 — lineage is best-effort, never fatal
+        pass
+    return "unknown"
+
+
 def run_backtest(
     *,
     cfg: Mapping[str, Any],
@@ -91,6 +112,10 @@ def run_backtest(
     paths.assert_strategy_isolation()
 
     cfg_dict = dict(cfg)
+    # Resolve the simulation-mode contract (parity / realism / smoke). The
+    # post-validator fills the four mode-coupled policy fields, so every field
+    # is concrete for the manifest and report header.
+    sim_cfg = SimulationConfig.model_validate(cfg_dict.get("simulation") or {})
     strategy_hash = canonical_strategy_hash(cfg_dict)
     run_hash = canonical_run_hash(cfg_dict)
     # Use plain hex for generate_run_id (no "sha256:" prefix — colons are invalid on Windows paths).
@@ -240,12 +265,29 @@ def run_backtest(
         bar_count=sum(len(daily_cache_by_session.get(s, pd.DataFrame())) for s in sessions),
         extras={"strategy_id": "bowaka_v2"},
     )
+    # Run lineage: the simulation-mode contract + the four lineage hashes.
+    git_head = _git_head()
+    strategy_config_hash_actual = actual_contract_hash()  # "" if contract not generated
+    lineage = {
+        "simulation_mode": sim_cfg.mode,
+        "feed": feed,
+        "strategy_config_hash_actual": strategy_config_hash_actual,
+        "lab_config_hash": strategy_hash,
+        "dataset_hash": dataset_hash,
+        "code_hash": git_head,
+        "code_manifest_hash": code_hash,
+    }
     run_man = build_run_manifest(
         strategy_id="bowaka_v2",
         strategy_version=str(cfg_dict.get("strategy_version", "0.1.0")),
         run_id=run_id, config_hash=strategy_hash, dataset_hash=dataset_hash,
         code_manifest_hash=code_hash, run_kind="backtest", feed=feed,
-        extras={"run_hash": run_hash, "ambiguous_bar_count": ambiguous_bar_count},
+        extras={
+            "run_hash": run_hash,
+            "ambiguous_bar_count": ambiguous_bar_count,
+            "simulation": sim_cfg.model_dump(),
+            "lineage": lineage,
+        },
     )
 
     # Write all 16 artifacts (atomic).
@@ -283,15 +325,35 @@ def run_backtest(
         "value": [broker_reject_count / max(1, len(all_decisions)), ambiguous_bar_count],
     }))
     atomic_write_json(run_dir / "summary.json", summary)
-    (run_dir / "report.md").write_text(
-        f"# Bowaka v2 Backtest Report (Phase 4 stub)\n\n"
-        f"- run_id: {run_id}\n"
-        f"- feed: {feed}\n"
-        f"- trades: {len(all_trades)}\n"
-        f"- net_return_pct: {summary['net_return_pct']:.4%}\n"
-        f"- (Phase 5 fills in the full report sections.)\n",
-        encoding="utf-8",
-    )
+    report_lines = [
+        "# Bowaka v2 Backtest Report (Phase 4 stub)",
+        "",
+        "## Run Header",
+        "",
+        f"- simulation.mode: `{sim_cfg.mode}`",
+        f"- feed: `{feed}`",
+        f"- strategy_config_hash_actual: `{strategy_config_hash_actual or '(contract not generated)'}`",
+        f"- lab_config_hash: `{strategy_hash}`",
+        f"- dataset_hash: `{dataset_hash}`",
+        f"- code_hash (git HEAD): `{git_head}`",
+        "",
+        "### Simulation contract",
+        "",
+        f"- intraday_window_policy: `{sim_cfg.intraday_window_policy}`",
+        f"- accepted_event_sequencing: `{sim_cfg.accepted_event_sequencing}`",
+        f"- unknown_instrument_class_policy: `{sim_cfg.unknown_instrument_class_policy}`",
+        f"- quote_fallback_policy: `{sim_cfg.quote_fallback_policy}`",
+        f"- allow_research_relaxed: `{sim_cfg.allow_research_relaxed}`",
+        "",
+        "## Summary",
+        "",
+        f"- run_id: {run_id}",
+        f"- trades: {len(all_trades)}",
+        f"- net_return_pct: {summary['net_return_pct']:.4%}",
+        "- (Phase 5 fills in the full report sections.)",
+        "",
+    ]
+    (run_dir / "report.md").write_text("\n".join(report_lines), encoding="utf-8")
     return BacktestResult(
         run_id=run_id, run_dir=run_dir, summary=summary,
         trades=all_trades, decisions=all_decisions,

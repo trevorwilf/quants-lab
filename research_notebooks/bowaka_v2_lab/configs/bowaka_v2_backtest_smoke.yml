@@ -4,6 +4,13 @@
 strategy_id: bowaka_v2
 strategy_version: "0.1.0"
 
+# Declares which strategy the simulator reproduces. smoke_fixture =
+# deterministic synthetic data for plumbing tests (never research-grade).
+# `run-backtest` / `optuna` refuse this mode unless --allow-smoke-optimization;
+# the `smoke` subcommand is the intended entry point.
+simulation:
+  mode: smoke_fixture
+
 market_data:
   feed: iex
   allow_non_sip_for_research_only: true

@@ -1,3 +1,23 @@
+# ==================================================================
+# QUARANTINED 2026-05-21 -- Bowaka v2 realism remediation Phase 0.
+#
+# This file is intentionally NOT a shipping config. Its `optuna:`
+# section sets `n_startup_trials`, but the OptunaConfig Pydantic model
+# does not yet declare that field, and OptunaConfig uses
+# extra="forbid" -- so `env-check` (which validates through
+# BowakaV2Config) fails on this file.
+#
+# The `.quarantined` suffix removes it from the `configs/bowaka_v2_*.yml`
+# glob used by env-check and the config-validation test-suite, so a
+# known-broken schema cannot be used until it is fixed.
+#
+# Phase 1 (phase-1-realism-config-parity) adds
+# `OptunaConfig.n_startup_trials: Optional[int] = None` with a
+# validator (0 <= n_startup_trials <= n_trials), then restores this
+# file to `bowaka_v2_walkforward_optuna.yml`. Do NOT un-quarantine by
+# hand -- restore it as part of Phase 1.
+# ==================================================================
+
 # Bowaka v2 walk-forward Optuna config.
 # Phase 6 fills the search-space stub; this file establishes the structure and references SIP.
 
