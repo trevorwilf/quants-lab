@@ -19,6 +19,7 @@ DEFAULTS: dict[str, Any] = {
         "daily_bar_source": "alpaca",
         "quote_source": "alpaca",
         "assume_naive_timezone": False,
+        "shared_root": None,
     },
     "session": {
         "calendar": "XNYS",

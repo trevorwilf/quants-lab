@@ -27,6 +27,10 @@ class MarketDataConfig(_StrictBase):
     daily_bar_source: str = "alpaca"
     quote_source: str = "alpaca"
     assume_naive_timezone: bool = False
+    # Optional override of the shared market-data lake root. None -> resolve
+    # MARKET_DATA_ROOT / the in-repo default. NOT routed through BowakaV2Paths,
+    # so assert_strategy_isolation() keeps governing only lab-owned paths.
+    shared_root: Optional[str] = None
 
 
 class SessionConfig(_StrictBase):
