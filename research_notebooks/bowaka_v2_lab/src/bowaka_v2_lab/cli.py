@@ -3,11 +3,15 @@
 Sub-commands:
 
 - ``env-check`` — validate environment + config; exit 0 if OK.
-- ``smoke``    — run a one-shot smoke (Phase 4 wires this).
-- ``run-backtest`` — orchestrator for the comprehensive sim (Phase 4).
-- ``build-universe`` — point-in-time universe snapshot (Phase 3).
-- ``build-volume-curve`` — per-symbol intraday volume curve (Phase 3).
-- ``replay-scanner`` — historical scanner replay (Phase 3).
+- ``smoke``    — run a one-session smoke backtest.
+- ``run-backtest`` — run the comprehensive backtest.
+- ``build-universe`` — build a point-in-time universe snapshot.
+- ``build-volume-curve`` — build the intraday volume curve.
+- ``replay-scanner`` — historical scanner replay.
+
+The five commands above are config-driven: with a research config
+(``market_data.*_source: alpaca``) they read the shared market-data lake;
+with the smoke / fixture config they use deterministic synthetic data.
 - ``promotion-gate`` — checklist + bundler (Phase 9).
 """
 from __future__ import annotations
@@ -48,21 +52,41 @@ def _cmd_env_check(args: argparse.Namespace) -> int:
     return 0
 
 
-def _placeholder(name: str) -> "callable[[argparse.Namespace], int]":
-    def _runner(args: argparse.Namespace) -> int:  # noqa: ARG001
-        print(
-            json.dumps(
-                {
-                    "status": "not_implemented_in_phase_1",
-                    "command": name,
-                    "note": "this command is wired in a later phase",
-                },
-                indent=2,
-            )
-        )
-        return 0
+def _cmd_run_backtest(args: argparse.Namespace) -> int:
+    from .cli_runners import run_backtest_command
 
-    return _runner
+    print(json.dumps(run_backtest_command(args.config, run_dir=args.run_dir), indent=2, default=str))
+    return 0
+
+
+def _cmd_smoke(args: argparse.Namespace) -> int:
+    from .cli_runners import run_backtest_command
+
+    print(json.dumps(
+        run_backtest_command(args.config, smoke=True, run_dir=args.run_dir), indent=2, default=str
+    ))
+    return 0
+
+
+def _cmd_build_universe(args: argparse.Namespace) -> int:
+    from .cli_runners import build_universe_command
+
+    print(json.dumps(build_universe_command(args.config, out_path=args.out), indent=2, default=str))
+    return 0
+
+
+def _cmd_build_volume_curve(args: argparse.Namespace) -> int:
+    from .cli_runners import build_volume_curve_command
+
+    print(json.dumps(build_volume_curve_command(args.config, out_path=args.out), indent=2, default=str))
+    return 0
+
+
+def _cmd_replay_scanner(args: argparse.Namespace) -> int:
+    from .cli_runners import replay_scanner_command
+
+    print(json.dumps(replay_scanner_command(args.config, run_dir=args.run_dir), indent=2, default=str))
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -73,25 +97,30 @@ def build_parser() -> argparse.ArgumentParser:
     env.add_argument("--config", required=True, help="path to a v2 lab YAML config")
     env.set_defaults(func=_cmd_env_check)
 
-    smoke = sub.add_parser("smoke", help="run a smoke backtest (Phase 4)")
+    smoke = sub.add_parser("smoke", help="run a one-session smoke backtest")
     smoke.add_argument("--config", required=True)
-    smoke.set_defaults(func=_placeholder("smoke"))
+    smoke.add_argument("--run-dir", default=None, help="override the backtest run directory")
+    smoke.set_defaults(func=_cmd_smoke)
 
-    bt = sub.add_parser("run-backtest", help="run the comprehensive backtest (Phase 4)")
+    bt = sub.add_parser("run-backtest", help="run the comprehensive backtest")
     bt.add_argument("--config", required=True)
-    bt.set_defaults(func=_placeholder("run-backtest"))
+    bt.add_argument("--run-dir", default=None, help="override the backtest run directory")
+    bt.set_defaults(func=_cmd_run_backtest)
 
-    bu = sub.add_parser("build-universe", help="build a PIT universe snapshot (Phase 3)")
+    bu = sub.add_parser("build-universe", help="build a point-in-time universe snapshot")
     bu.add_argument("--config", required=True)
-    bu.set_defaults(func=_placeholder("build-universe"))
+    bu.add_argument("--out", default=None, help="override the snapshot output path")
+    bu.set_defaults(func=_cmd_build_universe)
 
-    bvc = sub.add_parser("build-volume-curve", help="build per-symbol intraday volume curve (Phase 3)")
+    bvc = sub.add_parser("build-volume-curve", help="build the intraday volume curve")
     bvc.add_argument("--config", required=True)
-    bvc.set_defaults(func=_placeholder("build-volume-curve"))
+    bvc.add_argument("--out", default=None, help="override the volume-curve output path")
+    bvc.set_defaults(func=_cmd_build_volume_curve)
 
-    rs = sub.add_parser("replay-scanner", help="historical scanner replay (Phase 3)")
+    rs = sub.add_parser("replay-scanner", help="historical scanner replay")
     rs.add_argument("--config", required=True)
-    rs.set_defaults(func=_placeholder("replay-scanner"))
+    rs.add_argument("--run-dir", default=None, help="override the replay run directory")
+    rs.set_defaults(func=_cmd_replay_scanner)
 
     pg = sub.add_parser("promotion-gate", help="run promotion checklist + bundler (Phase 9)")
     pg.add_argument("--run-id", required=True)
