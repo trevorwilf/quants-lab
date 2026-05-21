@@ -215,11 +215,14 @@ def run_walkforward_study(
     *,
     n_trials: int | None = None,
     n_jobs: int | None = None,
+    n_startup_trials: int | None = None,
     log: logging.Logger | None = None,
 ) -> dict:
     """Run a real walk-forward Optuna study driven entirely by the config.
 
-    ``n_trials`` / ``n_jobs`` override the config's ``optuna`` section when given.
+    ``n_trials`` / ``n_jobs`` / ``n_startup_trials`` override the config's
+    ``optuna`` section when given. ``n_startup_trials`` is the number of random-
+    sampling trials run before TPE-guided search begins.
     """
     log = log or _log()
     cfg = load_config(config_path)
@@ -251,6 +254,9 @@ def run_walkforward_study(
 
     trials = int(n_trials if n_trials is not None else optuna_cfg.get("n_trials", 20))
     jobs = int(n_jobs if n_jobs is not None else optuna_cfg.get("n_jobs", 1))
+    startup = int(
+        n_startup_trials if n_startup_trials is not None else optuna_cfg.get("n_startup_trials", 10)
+    )
 
     study = OptunaStudy(
         feed=feed,
@@ -260,11 +266,12 @@ def run_walkforward_study(
         storage_uri=optuna_cfg.get("storage") or None,
         n_trials=trials,
         n_jobs=jobs,
+        n_startup_trials=startup,
     )
     study.create()
     log.info(
-        "walk-forward study %s: %d trials x %d folds, %d symbols, feed=%s",
-        study.study.study_name, trials, len(plan.splits), len(symbols), feed,
+        "walk-forward study %s: %d trials (%d random startup) x %d folds, %d symbols, feed=%s",
+        study.study.study_name, trials, startup, len(plan.splits), len(symbols), feed,
     )
     objective = make_walkforward_objective(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
@@ -282,6 +289,7 @@ def run_walkforward_study(
         "feed": feed,
         "n_trials_requested": trials,
         "n_trials_completed": len(completed),
+        "n_startup_trials": startup,
         "n_folds": len(plan.splits),
         "symbols": len(symbols),
         "final_holdout": [
