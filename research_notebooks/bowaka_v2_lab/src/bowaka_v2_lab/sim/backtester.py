@@ -32,6 +32,8 @@ from ..config.config_diff import (
 from ..config.hashing import canonical_run_hash, canonical_strategy_hash
 from ..config.models import SimulationConfig
 from ..config.paths import BowakaV2Paths
+from ..data.data_quality import build_data_quality_report, evaluate_startup_dq
+from ..data.lineage import build_dataset_lineage
 from ..reference import actual_contract_hash, contract_available, load_actual_contract
 from ..utils.atomic_io import append_jsonl, atomic_write_json, write_parquet
 from ..utils.ids import generate_run_id
@@ -124,18 +126,83 @@ def run_backtest(
     sim_cfg = SimulationConfig.model_validate(cfg_dict.get("simulation") or {})
     strategy_hash = canonical_strategy_hash(cfg_dict)
     run_hash = canonical_run_hash(cfg_dict)
-    # Use plain hex for generate_run_id (no "sha256:" prefix — colons are invalid on Windows paths).
-    dataset_hash = run_hash[:16]  # simulator-grade placeholder
-    run_id = generate_run_id(kind="backtest", cfg_hash=strategy_hash, dataset_hash=dataset_hash)
+
+    # Realism Phase 2: content-derived dataset hash + lineage. The hash is a
+    # deterministic function of the actual market data the run consumes (lake
+    # partition sizes, lake manifest hash, symbol universe, date range), so two
+    # runs over the same lake + config hash identically and a mutated parquet
+    # changes the hash. Synthetic / smoke runs get a stable logical hash.
+    requested_symbols = sorted(
+        {s["symbol"] for u in universe_snapshot_by_session.values() for s in u.get("symbols", [])}
+    )
+    date_start = sessions[0] if sessions else None
+    date_end = sessions[-1] if sessions else None
+    dataset_lineage = build_dataset_lineage(
+        cfg=cfg_dict,
+        symbols=requested_symbols,
+        start=date_start,
+        end=date_end,
+        lab_config_hash=strategy_hash,
+    )
+    dataset_hash = dataset_lineage["dataset_hash"]
+    dataset_provider = dataset_lineage["provider"]
+    # generate_run_id needs a short plain-hex token (no "sha256:" prefix — colons
+    # are invalid in Windows paths). The full content hash goes in the manifest.
+    run_id = generate_run_id(
+        kind="backtest", cfg_hash=strategy_hash, dataset_hash=dataset_hash
+    )
 
     if run_dir is None:
         run_dir = paths.artifact_root / "runs" / run_id
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    # Realism Phase 2: substantive data-quality report. Lake-backed runs get
+    # audit-derived + coverage + adjustment + quote checks; synthetic runs get a
+    # labelled non-fatal check set. Data quality is a *precondition* for a
+    # meaningful run, so it is gated before the config-parity diff: in
+    # intended_realism mode a failed *required* check (coverage, adjustment
+    # mismatch, missing quotes) fails the run closed before the parity diff and
+    # the heavy run loop. The precise reason is recorded in the run manifest and
+    # the CLI exits non-zero. smoke_fixture / current_code_parity runs are never
+    # failed by DQ — the report is still written for them.
+    data_quality_report = build_data_quality_report(
+        cfg=cfg_dict,
+        lineage=dataset_lineage,
+        requested_symbols=requested_symbols,
+        sessions=sessions,
+        daily_bars_supplier=daily_bars_supplier,
+        minute_bars_supplier=minute_bars_supplier,
+        scan_times_per_session=scan_times_per_session,
+    )
+    atomic_write_json(run_dir / "data_quality_report.json", data_quality_report)
+    startup_dq_failure = evaluate_startup_dq(
+        data_quality_report, simulation_mode=sim_cfg.mode
+    )
+    if startup_dq_failure is not None:
+        # Record the precise rejection reason in the run manifest, then abort.
+        feed = (cfg_dict.get("market_data") or {}).get("feed", "iex")
+        failure_manifest = build_run_manifest(
+            strategy_id="bowaka_v2",
+            strategy_version=str(cfg_dict.get("strategy_version", "0.1.0")),
+            run_id=run_id, config_hash=strategy_hash, dataset_hash=dataset_hash,
+            code_manifest_hash="(aborted before code manifest)",
+            run_kind="backtest", feed=feed,
+            extras={
+                "run_hash": run_hash,
+                "simulation": sim_cfg.model_dump(),
+                "startup_dq_failure": startup_dq_failure,
+                "dataset_lineage": {
+                    k: v for k, v in dataset_lineage.items() if k != "lake_manifest"
+                },
+            },
+        )
+        atomic_write_json(run_dir / "run_manifest.json", failure_manifest)
+        raise RuntimeError(startup_dq_failure)
+
     # Config-parity diff vs the frozen live contract (realism Phase 1). Written
     # on every run; in intended_realism mode an unannotated `mismatch` aborts
-    # the run at startup, before any other artifacts are produced.
+    # the run at startup, before the run loop produces any further artifacts.
     if contract_available():
         _diff_path, _diff_rows = write_config_diff(
             run_dir, cfg_dict, load_actual_contract(),
@@ -289,14 +356,18 @@ def run_backtest(
     if not all_symbols:
         all_symbols = ["SYNTH"]
     ds_man = build_dataset_manifest(
-        provider="fixture", feed=feed, symbols=all_symbols,
+        # Realism Phase 2: real provider — lake runs report the lake provider
+        # ("alpaca"); synthetic runs legitimately report "fixture".
+        provider=dataset_provider, feed=feed, symbols=all_symbols,
         start_date=sessions[0].isoformat() if sessions else "1970-01-01",
         end_date=sessions[-1].isoformat() if sessions else "1970-01-01",
         dataset_hash=dataset_hash,
         bar_count=sum(len(daily_cache_by_session.get(s, pd.DataFrame())) for s in sessions),
-        extras={"strategy_id": "bowaka_v2"},
+        adjustments=str(dataset_lineage.get("adjustment", "")) or None,
+        extras={"strategy_id": "bowaka_v2", "dataset_regime": dataset_lineage["regime"]},
     )
-    # Run lineage: the simulation-mode contract + the four lineage hashes.
+    # Run lineage: the simulation-mode contract + the four lineage hashes plus
+    # the Phase-2 content-derived dataset lineage (component hashes for forensics).
     git_head = _git_head()
     strategy_config_hash_actual = actual_contract_hash()  # "" if contract not generated
     lineage = {
@@ -307,6 +378,10 @@ def run_backtest(
         "dataset_hash": dataset_hash,
         "code_hash": git_head,
         "code_manifest_hash": code_hash,
+        "dataset_regime": dataset_lineage["regime"],
+        "dataset_provider": dataset_provider,
+        "dataset_adjustment": dataset_lineage.get("adjustment"),
+        "dataset_hash_components": dataset_lineage["components"],
     }
     run_man = build_run_manifest(
         strategy_id="bowaka_v2",
@@ -318,19 +393,24 @@ def run_backtest(
             "ambiguous_bar_count": ambiguous_bar_count,
             "simulation": sim_cfg.model_dump(),
             "lineage": lineage,
+            "data_quality": {
+                "regime": data_quality_report["regime"],
+                "passed": data_quality_report["passed"],
+                "failed": data_quality_report["failed"],
+                "warned": data_quality_report["warned"],
+                "required_failures": data_quality_report["required_failures"],
+            },
+            "startup_dq_failure": None,
         },
     )
 
-    # Write all 16 artifacts (atomic).
+    # Write all 16 artifacts (atomic). data_quality_report.json is written
+    # earlier (before the run loop) so the realism DQ gate can fail closed; it
+    # is not re-written here.
     atomic_write_json(run_dir / "run_manifest.json", run_man)
     atomic_write_json(run_dir / "config_snapshot.json", cfg_dict)
     atomic_write_json(run_dir / "dataset_manifest.json", ds_man)
     atomic_write_json(run_dir / "code_manifest.json", code_man)
-    atomic_write_json(run_dir / "data_quality_report.json", {
-        "schema_version": 1,
-        "checks": [],
-        "notes": "Phase 4: minimal data-quality report; Phase 5 extends.",
-    })
     if all_candidate_events:
         append_jsonl(run_dir / "candidate_events.jsonl", all_candidate_events)
         write_parquet(run_dir / "candidate_events.parquet", pd.json_normalize(all_candidate_events, sep="."))

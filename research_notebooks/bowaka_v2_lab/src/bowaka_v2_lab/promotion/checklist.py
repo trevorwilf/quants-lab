@@ -24,6 +24,25 @@ def _exists_check(run_dir: Path, filename: str) -> CHECKLIST_RESULT:
     return ("pass", f"{filename} present") if p.is_file() else ("fail", f"{filename} missing")
 
 
+def _data_quality_report_check(run_dir: Path) -> CHECKLIST_RESULT:
+    """data_quality_report.json must be present AND carry a non-empty ``checks`` list.
+
+    Realism Phase 2 made the DQ report substantive; an empty ``checks`` list now
+    means the report was never populated, which fails the promotion gate.
+    """
+    p = Path(run_dir) / "data_quality_report.json"
+    if not p.is_file():
+        return ("fail", "data_quality_report.json missing")
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        return ("fail", f"data_quality_report.json unreadable: {e}")
+    checks = doc.get("checks")
+    if not isinstance(checks, list) or len(checks) == 0:
+        return ("fail", "data_quality_report.json has empty checks")
+    return ("pass", f"data_quality_report.json present with {len(checks)} checks")
+
+
 def _summary_field(run_dir: Path, key: str, *, expect_truthy: bool = True) -> CHECKLIST_RESULT:
     p = Path(run_dir) / "summary.json"
     if not p.is_file():
@@ -48,7 +67,7 @@ QUANT_REVIEWER_CHECKLIST: dict[str, Callable[[Path], CHECKLIST_RESULT]] = {
     "qr.01_run_manifest_present":         lambda rd: _exists_check(rd, "run_manifest.json"),
     "qr.02_dataset_manifest_present":     lambda rd: _exists_check(rd, "dataset_manifest.json"),
     "qr.03_code_manifest_present":        lambda rd: _exists_check(rd, "code_manifest.json"),
-    "qr.04_data_quality_report_present":  lambda rd: _exists_check(rd, "data_quality_report.json"),
+    "qr.04_data_quality_report_present":  _data_quality_report_check,
     "qr.05_candidate_events_present":     lambda rd: _exists_check(rd, "candidate_events.parquet"),
     "qr.06_entry_decisions_present":      lambda rd: _exists_check(rd, "entry_decisions.parquet"),
     "qr.07_trades_present":               lambda rd: _exists_check(rd, "trades.parquet"),

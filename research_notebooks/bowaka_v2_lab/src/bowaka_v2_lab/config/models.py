@@ -93,6 +93,10 @@ class MarketDataConfig(_StrictBase):
     daily_bar_source: str = "alpaca"
     quote_source: str = "alpaca"
     assume_naive_timezone: bool = False
+    # Realism Phase 2: when True, a run whose lake declares ``adjustment: raw``
+    # (corporate actions not applied to daily bars) fails the data-quality gate
+    # in ``intended_realism`` mode. Default False — the current lake is raw.
+    require_adjusted_daily_bars: bool = False
     # Optional override of the shared market-data lake root. None -> resolve
     # MARKET_DATA_ROOT / the in-repo default. NOT routed through BowakaV2Paths,
     # so assert_strategy_isolation() keeps governing only lab-owned paths.
