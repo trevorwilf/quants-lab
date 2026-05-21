@@ -68,6 +68,18 @@ make trigger-task task=bowaka_lab_research_pipeline config=bowaka_lab_tasks.yml 
 IEX-only runs are exploratory. SIP/consolidated data is preferred for final validation.
 Current-universe runs are survivorship-biased.
 
+## Shared market-data lake
+
+`bowaka_lab` reads the canonical shared Alpaca market-data lake via
+`bowaka_lab.data.market_data` — `open_market_data_store()` returns a
+`bowaka_common.marketdata.MarketDataStore`, and `scope_3_universe()` computes the
+ADV-gated universe from lake daily bars. The lake lives at
+`research_notebooks/market_data/` (override with `MARKET_DATA_ROOT`).
+
+The legacy standalone backfill `db_tools/_backfill_lib.py` (Mongo + per-session
+parquet) is retained unchanged for the existing workflow; the canonical
+Parquet-only backfill is `bowaka_common.marketdata.run_backfill`.
+
 ## Research status
 
 Research-grade exploratory backtesting platform. Not live-trading approval. See

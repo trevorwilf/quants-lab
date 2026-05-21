@@ -192,6 +192,10 @@ app/outputs/bowaka_lab/
 research_notebooks/market_data/*
 !research_notebooks/market_data/README.md
 
+# Legacy bowaka_lab parquet tree — superseded by research_notebooks/market_data/.
+# Kept ignored until the operator deletes db_tools/bowaka_data/ (the operator
+# runbook in bowaka_shared_marketdata_lake_claude_code_prompt.md); remove these
+# two lines once that directory is gone.
 research_notebooks/bowaka_lab/db_tools/bowaka_data/parquet/bars/*
 research_notebooks/bowaka_lab/db_tools/bowaka_data/parquet/assets/*
 
