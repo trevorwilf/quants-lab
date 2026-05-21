@@ -36,18 +36,31 @@ def main() -> None:
     _build(
         "01_shared_data_inventory.ipynb",
         [
-            {"type": "markdown", "source": "# 01 — Shared Data Inventory\n\nLists fixtures present under `data/fixtures/`."},
+            {"type": "markdown", "source": "# 01 — Shared Data Inventory\n\nInventories local `data/fixtures/` **and** the shared market-data lake."},
             {"type": "code", "source": (
                 "from pathlib import Path\n"
                 "from bowaka_v2_lab.config import load_config, BowakaV2Paths\n"
                 "from bowaka_v2_lab.config.models import BowakaV2Config\n"
+                "from bowaka_common.marketdata import available_symbols, date_coverage, resolve_market_data_root\n"
                 "cfg = load_config(CONFIG_PATH)\n"
                 "validated = BowakaV2Config.model_validate(cfg)\n"
                 "paths = BowakaV2Paths.from_config(validated, repo_root=Path('.').resolve())\n"
+                "_feed = cfg.get('market_data', {}).get('feed', 'iex')\n"
+                "# --- local fixtures ---\n"
                 "fix_root = Path(paths.data_root) / 'fixtures'\n"
                 "files = sorted(p.relative_to(fix_root) for p in fix_root.rglob('*.parquet')) if fix_root.is_dir() else []\n"
-                "print(f'fixtures found: {len(files)}')\n"
-                "for f in files[:20]:\n    print(' ', f)\n"
+                "print(f'local fixtures: {len(files)} parquet file(s) under {fix_root}')\n"
+                "for f in files[:20]:\n    print('  ', f)\n"
+                "# --- shared market-data lake ---\n"
+                "lake_root = resolve_market_data_root(cfg.get('market_data', {}).get('shared_root'), create=False)\n"
+                "daily_syms = available_symbols(lake_root, timeframe='1d', feed=_feed)\n"
+                "minute_syms = available_symbols(lake_root, timeframe='1m', feed=_feed)\n"
+                "print(f'shared lake: {lake_root} (feed={_feed})')\n"
+                "print(f'  daily-bar symbols:  {len(daily_syms)}')\n"
+                "print(f'  minute-bar symbols: {len(minute_syms)}')\n"
+                "for sym in daily_syms[:10]:\n"
+                "    cov = date_coverage(sym, lake_root, timeframe='1d', feed=_feed)\n"
+                "    print(f'    {sym}: ' + (f'{cov[0]} -> {cov[1]}' if cov else '(no coverage)'))\n"
             )},
         ],
     )
