@@ -14,11 +14,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from bowaka_common.marketdata import layout
+from bowaka_common.marketdata import MarketDataStore, layout
 from bowaka_v2_lab.config.paths import BowakaV2Paths
 from bowaka_v2_lab.data.suppliers import build_daily_cache_from_lake, make_lake_suppliers
 from bowaka_v2_lab.sim.backtester import run_backtest
-from bowaka_v2_lab.sim.replay_fixtures import synthetic_universe
+from bowaka_v2_lab.universe.builder import build_pit_universe_for_sessions
+from tests.fixtures.universe_fixture import write_lake_asset_master
 
 
 def _write(path, df):
@@ -71,6 +72,8 @@ def _build_raw_lake(root: Path, symbol: str, session: dt.date) -> None:
             "audit_run_id": "audit_2024-09-01T000000Z_iex",
         }]
     ).to_parquet(audit_dir / "audit_2024-09-01T000000Z_iex.parquet", index=False)
+    # Phase 3: a minimal asset master so the run can build a PIT universe.
+    write_lake_asset_master(root, [symbol])
 
 
 def _cfg(lake_root: Path, *, mode: str, require_adjusted: bool) -> dict:
@@ -78,6 +81,12 @@ def _cfg(lake_root: Path, *, mode: str, require_adjusted: bool) -> dict:
         "strategy_id": "bowaka_v2",
         "strategy_version": "0.1.0",
         "simulation": {"mode": mode},
+        # Wide price band — the fixture lake prices bars at $100, outside the
+        # contract band ($1-20). The DQ-gate tests are not exercising the price
+        # filter; the band is widened so the fixture symbol stays in the PIT
+        # universe and the coverage/adjustment probes have a symbol to test.
+        "universe": {"price_min": 1.0, "price_max": 1_000.0,
+                     "avg_dollar_volume_min": 0},
         "market_data": {
             "feed": "iex", "max_bar_age_seconds": 600,
             "minute_bar_source": "alpaca", "daily_bar_source": "alpaca",
@@ -111,10 +120,12 @@ def _run(tmp_path, cfg, lake, symbol, session, run_dir_name):
     )
     minute_supplier, daily_supplier = make_lake_suppliers(lake, feed="iex")
     daily_cache = {session: build_daily_cache_from_lake(lake, [symbol], session, feed="iex")}
+    # Phase 3: a point-in-time universe built from the lake asset master.
+    universe = build_pit_universe_for_sessions([session], cfg, MarketDataStore(lake))
     return run_backtest(
         cfg=cfg, sessions=[session],
         scan_times_per_session=lambda d: [pd.Timestamp(f"{d}T14:00:00", tz="UTC")],
-        universe_snapshot_by_session={session: synthetic_universe([symbol])},
+        universe_snapshot_by_session=universe,
         daily_cache_by_session=daily_cache,
         minute_bars_supplier=minute_supplier, daily_bars_supplier=daily_supplier,
         initial_bankroll=10_000.0, paths=paths,
