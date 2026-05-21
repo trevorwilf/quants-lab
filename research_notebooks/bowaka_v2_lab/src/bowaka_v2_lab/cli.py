@@ -89,6 +89,14 @@ def _cmd_replay_scanner(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_optuna(args: argparse.Namespace) -> int:
+    from .optuna.walkforward_runner import run_walkforward_study
+
+    result = run_walkforward_study(args.config, n_trials=args.n_trials, n_jobs=args.n_jobs)
+    print(json.dumps(result, indent=2, default=str))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="bowaka-v2-lab", description="Bowaka v2 lab CLI")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -121,6 +129,12 @@ def build_parser() -> argparse.ArgumentParser:
     rs.add_argument("--config", required=True)
     rs.add_argument("--run-dir", default=None, help="override the replay run directory")
     rs.set_defaults(func=_cmd_replay_scanner)
+
+    opt = sub.add_parser("optuna", help="run a real walk-forward Optuna study against the lake")
+    opt.add_argument("--config", required=True)
+    opt.add_argument("--n-trials", type=int, default=None, help="override optuna.n_trials")
+    opt.add_argument("--n-jobs", type=int, default=None, help="override optuna.n_jobs")
+    opt.set_defaults(func=_cmd_optuna)
 
     pg = sub.add_parser("promotion-gate", help="run promotion checklist + bundler (Phase 9)")
     pg.add_argument("--run-id", required=True)
