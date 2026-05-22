@@ -336,6 +336,10 @@ class ReconcileConfig(_StrictBase):
 
 class PromotionConfig(_StrictBase):
     target_tier: Literal["research_only", "backtesting_only", "paper_candidate", "live_candidate"] = "backtesting_only"
+    #: Minimum closed-trade count a run must produce to clear the promotion
+    #: gate's ``qr.09_min_trade_count`` check (realism Phase 8). A run with
+    #: fewer trades is statistically uninformative and cannot be promoted.
+    min_trade_count: int = Field(default=30, ge=0)
 
 
 class BowakaV2Config(_StrictBase):

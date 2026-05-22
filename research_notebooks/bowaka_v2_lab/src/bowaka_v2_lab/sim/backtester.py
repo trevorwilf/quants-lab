@@ -77,6 +77,7 @@ _REQUIRED_ARTIFACTS = (
     "execution_quality.parquet",
     "summary.json",
     "report.md",
+    "report.json",
     "config_diff_vs_actual_bowaka_v2.yaml",
 )
 
@@ -808,83 +809,6 @@ def run_backtest(
     summary["exit_slippage_bps"] = exit_analysis["exit_slippage_bps"]
     summary["signal_fade_telemetry_count"] = len(all_fade_telemetry)
     atomic_write_json(run_dir / "summary.json", summary)
-    report_lines = [
-        "# Bowaka v2 Backtest Report (Phase 4 stub)",
-        "",
-        "## Run Header",
-        "",
-        f"- simulation.mode: `{sim_cfg.mode}`",
-        f"- feed: `{feed}`",
-        f"- strategy_config_hash_actual: `{strategy_config_hash_actual or '(contract not generated)'}`",
-        f"- lab_config_hash: `{strategy_hash}`",
-        f"- dataset_hash: `{dataset_hash}`",
-        f"- code_hash (git HEAD): `{git_head}`",
-        "",
-        "### Simulation contract",
-        "",
-        f"- intraday_window_policy: `{sim_cfg.intraday_window_policy}`",
-        f"- accepted_event_sequencing: `{sim_cfg.accepted_event_sequencing}`",
-        f"- unknown_instrument_class_policy: `{sim_cfg.unknown_instrument_class_policy}`",
-        f"- quote_fallback_policy: `{sim_cfg.quote_fallback_policy}`",
-        f"- allow_research_relaxed: `{sim_cfg.allow_research_relaxed}`",
-        "",
-        "## Summary",
-        "",
-        f"- run_id: {run_id}",
-        f"- trades: {len(all_trades)}",
-        f"- net_return_pct: {summary['net_return_pct']:.4%}",
-        "- (Phase 5 fills in the full report sections.)",
-        "",
-    ]
-    # Realism Phase 4: intraday scan cadence — total scans replayed across all
-    # sessions, the scan window / interval and the per-session funnel.
-    total_expected = sum(s["expected_scans"] for s in scan_counts.values())
-    total_actual = sum(s["actual_scans"] for s in scan_counts.values())
-    _sess_cfg = cfg_dict.get("session") or {}
-    report_lines += [
-        "## Intraday scan cadence (Phase 4)",
-        "",
-        f"- sessions: {len(scan_counts)}",
-        f"- scan window: `{_sess_cfg.get('scanner_start', '09:45')}` -> "
-        f"`{_sess_cfg.get('scanner_end', '15:30')}` "
-        f"({_sess_cfg.get('timezone', 'America/New_York')})",
-        f"- scan_interval_seconds: `{_sess_cfg.get('scan_interval_seconds', 60)}`",
-        f"- total expected scan timestamps: {total_expected}",
-        f"- total scans replayed: {total_actual}",
-        f"- candidate events emitted: {len(all_candidate_events)}",
-        "- per-session scan counts: see `run_manifest.json['scan_counts']`",
-        "",
-    ]
-    # Realism Phase 6: execution-quality report section.
-    report_lines += [
-        "## Execution quality (Phase 6)",
-        "",
-        f"- quote_fallback_policy: `{sim_cfg.quote_fallback_policy}`",
-        f"- cost_stress: `{(cfg_dict.get('backtest') or {}).get('cost_stress', 'conservative')}`",
-        f"- orders reaching fill stage: {len(all_fill_records)}",
-        f"- fills landed: {summary['fills_count']} "
-        f"(fill rate {summary['fill_rate']:.2%})",
-        f"- partial fills: {summary['partial_fill_count']}",
-        f"- missing-quote rejects: {missing_quote_count}",
-        f"- historical quote coverage: {quote_cov_pct:.2f}%",
-        f"- fees paid (commission + regulatory): {summary['fees_paid_total']}",
-        "- spread / quote-age / slippage distributions: see `execution_quality.parquet`",
-        "",
-    ]
-    # Realism Phase 7: exit-lifecycle analysis section — exit-reason
-    # distribution, exit-slippage distribution and per-trade MFE/MAE.
-    from ..reports.exit_analysis import render_exit_analysis_section
-
-    report_lines.append(render_exit_analysis_section(all_trades))
-    if all_fade_telemetry:
-        report_lines += [
-            "### Signal-fade telemetry (telemetry_only)",
-            "",
-            f"- would-have-exited events recorded (lot NOT closed): "
-            f"{len(all_fade_telemetry)}",
-            "",
-        ]
-    (run_dir / "report.md").write_text("\n".join(report_lines), encoding="utf-8")
 
     # ---- Realism Phase 6: finalize-step quote-coverage gate ----------------
     # In intended_realism mode the run FAILS at finalize when the fraction of
@@ -892,7 +816,8 @@ def run_backtest(
     # simulation.min_quote_coverage_pct. The coverage check is appended to the
     # already-written data_quality_report.json so the failure is recorded; the
     # run manifest's startup_dq_failure stays None (this is a finalize failure,
-    # distinct from the startup gate).
+    # distinct from the startup gate). This runs BEFORE the report is rendered
+    # so the report reflects the complete, finalized data-quality report.
     quote_cov_check = build_quote_coverage_check(
         quote_coverage_rows=quote_coverage_rows,
         min_quote_coverage_pct=sim_cfg.min_quote_coverage_pct,
@@ -900,7 +825,7 @@ def run_backtest(
     )
     try:
         _dq_doc = json.loads((run_dir / "data_quality_report.json").read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — defensive; the report was written above
+    except Exception:  # noqa: BLE001 — defensive; the report was written earlier
         _dq_doc = {"checks": []}
     _dq_doc.setdefault("checks", []).append(quote_cov_check)
     if quote_cov_check["status"] == "fail":
@@ -919,6 +844,22 @@ def run_backtest(
             "intended_realism run aborted at finalize: "
             + str(quote_cov_check["evidence"].get("detail", "quote_coverage failed"))
         )
+
+    # ---- Realism Phase 8: substantive report renderer ---------------------
+    # report.md (human) + report.json (machine-readable) are assembled entirely
+    # from the artifacts written above — nothing is recomputed. The renderer
+    # carries the full Phase 0-7 section set; the Phase-4 stub language is gone.
+    from ..reports.render_run_report import write_run_report
+    from ..promotion.checklist import run_all_checklists
+    from ..promotion.suitability import decide_suitability
+
+    _checklist_results = run_all_checklists(run_dir)
+    _tier = decide_suitability(run_dir, _checklist_results)
+    write_run_report(
+        run_dir,
+        suitability=_tier,
+        checklist_results=_checklist_results,
+    )
 
     return BacktestResult(
         run_id=run_id, run_dir=run_dir, summary=summary,
