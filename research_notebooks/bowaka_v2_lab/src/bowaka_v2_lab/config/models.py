@@ -74,6 +74,11 @@ class SimulationConfig(_StrictBase):
     quote_fallback_policy: Optional[
         Literal["zero_spread", "synthetic_calibrated", "require_real"]
     ] = None
+    #: Realism Phase 6: the minimum fraction (percent) of (symbol, scan_ts) pairs
+    #: that must be backed by a *historical* quote for an ``intended_realism`` run
+    #: to pass the finalize-step quote-coverage gate. Below this, the run fails.
+    #: Ignored in ``current_code_parity`` / ``smoke_fixture`` modes.
+    min_quote_coverage_pct: float = Field(default=95.0, ge=0.0, le=100.0)
 
     @model_validator(mode="after")
     def _resolve_mode_coupled_defaults(self) -> "SimulationConfig":

@@ -149,6 +149,11 @@ CANONICAL_REJECTION_REASONS: frozenset[str] = frozenset({
     "past_last_entry_time",
     "kill_switch",
     "broker_reject",
+    # Realism Phase 6 — quote-availability and fill outcomes.
+    "missing_quote",            # require_real policy: no historical quote
+    "partial_below_min",        # partial fill below min_order_notional
+    "marketable_limit_timeout", # marketable-limit order timed out unfilled
+    "fill_failed",              # fill simulation produced no executable fill
 })
 
 
