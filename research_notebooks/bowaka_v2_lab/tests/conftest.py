@@ -37,6 +37,28 @@ if _REPO_ROOT is not None:
                 os.environ.setdefault(k, v)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _test_session_banner() -> None:
+    """Log the worker PID once per session and ensure the JUnit output dir exists.
+
+    The PID makes it possible to attribute a hang to a specific worker process
+    when ``pytest-timeout`` (thread method, configured in pyproject.toml) prints
+    its stack trace. ``addopts`` writes JUnit XML to ``artifacts/test-junit.xml``;
+    pytest creates the parent dir, but we create it eagerly so the path is valid
+    even if collection aborts early. ``artifacts/`` is git-ignored.
+    """
+    pid = os.getpid()
+    print(f"\n[bowaka_v2_lab tests] session start — pid={pid}", flush=True)
+    if _REPO_ROOT is not None:
+        artifacts = _REPO_ROOT / "research_notebooks" / "bowaka_v2_lab" / "artifacts"
+        try:
+            artifacts.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+    yield
+    print(f"[bowaka_v2_lab tests] session end — pid={pid}", flush=True)
+
+
 @pytest.fixture(scope="session")
 def repo_root() -> Path:
     assert _REPO_ROOT is not None, "could not locate repo root from test fixtures"
