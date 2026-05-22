@@ -18,9 +18,16 @@ from .events import (
     ACCEPTED_REASON,
     CANDIDATE_EVENT_SCHEMA_VERSION,
     CANONICAL_REJECTION_REASONS,
+    TERMINAL_DECISIONS,
     make_event_id,
     validate_entry_decision,
 )
+
+#: Reason carried by a ``submitted_pending`` decision — the candidate cleared
+#: every pre-trade gate and the order has been handed to the broker, but the
+#: broker has not yet confirmed an accept / fill (Realism Phase 5,
+#: ``accepted_event_sequencing == "post_submit"``).
+SUBMITTED_PENDING_REASON: str = "all_gates_passed"
 
 
 def _ensure_quote(q: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -142,6 +149,35 @@ def build_rejected_entry_decision(
     return rec
 
 
+def build_submitted_pending_decision(
+    *,
+    candidate_event: Mapping[str, Any],
+    decision_ts: Any,
+    entry_trigger: str,
+    quote: Mapping[str, Any],
+    risk_snapshot: Mapping[str, Any],
+    order_plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build a ``submitted_pending`` entry-decision record (Realism Phase 5).
+
+    Emitted under ``accepted_event_sequencing == "post_submit"`` after every
+    pre-trade gate has passed and the order has been handed to the broker, but
+    BEFORE the broker has confirmed an accept / fill. The candidate later
+    resolves to ``accepted`` (broker confirmed) or ``broker_reject``.
+    """
+    rec = _common_envelope(
+        candidate_event=candidate_event,
+        decision="submitted_pending",
+        reason=SUBMITTED_PENDING_REASON,
+        decision_ts=decision_ts,
+        entry_trigger=entry_trigger,
+    )
+    rec["quote"] = _ensure_quote(quote)
+    rec["risk_snapshot"] = _ensure_risk(risk_snapshot)
+    rec["order_plan"] = _ensure_order_plan(order_plan)
+    return rec
+
+
 def build_broker_reject_record(
     candidate_event: Mapping[str, Any],
     *,
@@ -159,6 +195,13 @@ def build_broker_reject_record(
     same shape when the broker refuses an order. Without this builder, the
     sim silently dropped the candidate and reconciliation could not match
     paper rejections to sim non-events.
+
+    The record's ``decision`` is ``rejected`` and its ``reason`` is the
+    canonical ``broker_reject`` (the §15.1 P0 contract). The terminal
+    ``broker_reject`` decision string (Phase 5 ``TERMINAL_DECISIONS``) is a
+    superset alias — ``reason == "broker_reject"`` is the load-bearing field
+    reconciliation keys on, so the ``decision`` field is left as ``rejected``
+    for back-compat with every existing consumer of this record.
     """
     rec = build_rejected_entry_decision(
         candidate_event=candidate_event,

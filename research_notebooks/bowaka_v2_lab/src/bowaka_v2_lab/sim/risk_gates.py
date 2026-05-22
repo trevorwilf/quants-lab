@@ -1,14 +1,29 @@
 """Pre-trade risk gates per [Report §9.10].
 
 Evaluates every configured control:
-- max_concurrent_positions
+- max_concurrent_positions     (read from ``sizing`` — see Phase 5 below)
 - max_total_entries_per_day
 - max_gross_exposure_pct
 - daily_loss_pct
 - strategy_slice_loss_pct
 - max_stopouts_per_day
 - stop_trading_after_consecutive_stopouts
-- adv_tier_caps
+- adv_tier_caps                 (applied to the AGGREGATE symbol notional)
+
+Realism remediation Phase 5 — live-parity fixes:
+
+- ``max_concurrent_positions`` is read from ``sizing_cfg``, NOT ``risk_cfg``.
+  This matches the live strategy verbatim (``bowaka_v2_strategy.py:444-446``):
+  the live ``_risk_gates`` does ``int(sizing_cfg.get("max_concurrent_positions",
+  18))``. ``risk.max_concurrent_positions`` is a tolerated legacy fallback.
+- The ADV-tier cap binds the AGGREGATE position in the symbol — the dollar
+  notional already open in the symbol plus the candidate's target notional —
+  per live ``bowaka_v2_strategy.py:474-488`` (``_symbol_open_notional(state,
+  symbol) + target_notional``). Stacking lots across days therefore cannot
+  blow through the symbol's liquidity limit.
+- ``strategy_slice_loss_pct`` is enforced against ``bankroll *
+  strategy_slice_loss_pct`` — see ``docs/current_code_vs_intended_realism.md``
+  §"Strategy-slice loss gate" for how this relates to the live code.
 """
 from __future__ import annotations
 
@@ -67,8 +82,15 @@ def evaluate_risk_gates(
     sizing_cfg: Mapping[str, Any],
     candidate_adv: float,
     target_notional: float,
+    symbol: str = "",
 ) -> RiskGateResult:
-    """Return (accepted, reject_reason). Rejects use canonical reason names."""
+    """Return (accepted, reject_reason). Rejects use canonical reason names.
+
+    ``symbol`` is required for the aggregate-symbol ADV cap (Phase 5): the cap
+    binds existing open lots in the symbol plus the candidate. It defaults to
+    ``""`` so legacy callers that omit it still resolve the cap against the
+    candidate notional alone (no existing lots match the empty symbol).
+    """
     state = portfolio.state
     if state is None:
         return RiskGateResult(False, "kill_switch", target_notional, 0.0)
@@ -76,7 +98,13 @@ def evaluate_risk_gates(
     if state.kill_switch_state is not None:
         return RiskGateResult(False, "kill_switch", target_notional, 0.0)
 
-    max_concurrent = int(risk_cfg.get("max_concurrent_positions", 5))
+    # max_concurrent_positions — Phase 5: read from `sizing`, not `risk`, per
+    # live `bowaka_v2_strategy.py:444-446`. `risk.max_concurrent_positions` is
+    # honored only as a legacy fallback when sizing omits it.
+    max_concurrent = sizing_cfg.get("max_concurrent_positions")
+    if max_concurrent is None:
+        max_concurrent = risk_cfg.get("max_concurrent_positions", 18)
+    max_concurrent = int(max_concurrent)
     if len(portfolio.open_positions) >= max_concurrent:
         return RiskGateResult(False, "max_concurrent_positions", target_notional, 0.0)
 
@@ -106,13 +134,28 @@ def evaluate_risk_gates(
         state.kill_switch_state = "daily_loss"
         return RiskGateResult(False, "kill_switch", target_notional, 0.0)
 
+    # strategy_slice_loss_pct kill switch — Phase 5. Enforced against
+    # `bankroll * strategy_slice_loss_pct`. See docs/current_code_vs_intended_
+    # realism.md: the live `_risk_gates` enforces only `daily_loss_pct` against
+    # the per-strategy realized PnL; the lab keeps `strategy_slice_loss_pct` as
+    # a distinct, stricter (or looser) per-slice cap so the intended-realism
+    # contract can carry it without disturbing parity.
+    if "strategy_slice_loss_pct" in risk_cfg:
+        slice_loss_pct = float(risk_cfg["strategy_slice_loss_pct"])
+        if state.bankroll > 0 and (-total_daily_pnl / state.bankroll) >= slice_loss_pct:
+            state.kill_switch_state = "strategy_loss"
+            return RiskGateResult(False, "kill_switch", target_notional, 0.0)
+
     # ADV tier caps — ported live `adv_tier_cap` (Phase 1). Skipped when ADV is
-    # unknown / non-positive, matching live `_risk_gates`. Phase 5 makes the cap
-    # apply to the aggregate symbol notional (existing lots + candidate).
+    # unknown / non-positive, matching live `_risk_gates`. Phase 5: the cap
+    # binds the AGGREGATE symbol notional — the dollars already open in this
+    # symbol across all its lots plus the candidate — per live
+    # `bowaka_v2_strategy.py:474-488`.
     adv_participation = target_notional / candidate_adv if candidate_adv > 0 else 0.0
     if candidate_adv is not None and candidate_adv > 0:
         allowed, cap_dollars = adv_tier_cap(candidate_adv, {"risk": dict(risk_cfg)})
-        if not allowed or (cap_dollars and target_notional > cap_dollars):
+        projected_notional = portfolio.symbol_open_notional(symbol) + target_notional
+        if not allowed or (cap_dollars and projected_notional > cap_dollars):
             return RiskGateResult(False, "adv_cap", target_notional, adv_participation)
 
     return RiskGateResult(True, None, target_notional, adv_participation)

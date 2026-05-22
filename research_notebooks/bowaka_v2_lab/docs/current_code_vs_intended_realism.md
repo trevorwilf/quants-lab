@@ -192,6 +192,65 @@ correct in any mode. On a normal day the exchange close (16:00 ET) is well past
 
 ---
 
+## 6. Strategy-slice loss gate (Phase 5 deviation)
+
+**Lab module:** `src/bowaka_v2_lab/sim/risk_gates.py`
+**Live ref:** `bowaka_v2_strategy.py:467-472` (`_risk_gates`)
+
+The live `_risk_gates` has exactly **one** PnL kill-switch — `daily_loss_pct`,
+checked against the bucket's realized PnL:
+
+```python
+# daily_loss_pct → kill_switch reason
+daily_loss_pct = risk_cfg.get("daily_loss_pct")
+if daily_loss_pct is not None and bankroll and bankroll > 0:
+    pnl = float(state.get("daily_realized_pnl_strategy") or 0.0)
+    if pnl / bankroll <= -float(daily_loss_pct):
+        return "kill_switch"
+```
+
+There is **no** separate `strategy_slice_loss_pct` gate in the live code as
+written, even though `risk.strategy_slice_loss_pct` exists in the live config
+schema (it is carried but not consumed by `_risk_gates`).
+
+**Lab behavior.** `sim/risk_gates.evaluate_risk_gates` enforces
+`strategy_slice_loss_pct` as a *distinct* kill switch, checked against
+`bankroll * strategy_slice_loss_pct` using the same total-PnL term
+(`daily_realized_pnl + daily_unrealized_pnl`) as the `daily_loss_pct` gate. It
+fires only when the key is present in `risk_cfg`, sets
+`kill_switch_state = "strategy_loss"` and rejects with the canonical
+`kill_switch` reason.
+
+This is an **intended-realism extension**, not a parity break: it is additive
+(off unless `strategy_slice_loss_pct` is configured) and uses the canonical
+`kill_switch` reason, so a `current_code_parity` config that simply omits the
+key reproduces the live single-gate behavior exactly. The intended strategy
+treats the per-slice drawdown cap as a real, enforced control rather than dead
+config.
+
+---
+
+## 7. ADV-tier cap binds the aggregate symbol position (Phase 5)
+
+**Lab module:** `src/bowaka_v2_lab/sim/risk_gates.py`
+**Live ref:** `bowaka_v2_strategy.py:474-488` (`_risk_gates`), `:581-593`
+(`_symbol_open_notional`)
+
+This is **not a divergence** — it is a faithful port. The live `_risk_gates`
+applies the ADV-tier cap to the *aggregate* notional in a symbol
+(`_symbol_open_notional(state, symbol) + target_notional`), so stacking lots
+across days cannot blow through the symbol's liquidity limit. The lab's
+position-id-keyed `Portfolio` exposes `symbol_open_notional(symbol)` and
+`evaluate_risk_gates` applies the cap to `symbol_open_notional(symbol) +
+target_notional`, matching the live code in every mode.
+
+Likewise, the lab reads `max_concurrent_positions` from the **sizing** config,
+not the **risk** config — `bowaka_v2_strategy.py:444-446` does
+`int(sizing_cfg.get("max_concurrent_positions", 18))`. `risk.max_concurrent_
+positions` is honored only as a legacy fallback when `sizing` omits the key.
+
+---
+
 ## Summary table
 
 | # | Behavior                          | Lab flag / module                   | Live ref                          |
@@ -201,7 +260,10 @@ correct in any mode. On a normal day the exchange close (16:00 ET) is well past
 | 3 | Acceptance emitted pre/post submit| `accepted_event_sequencing`         | `bowaka_v2_strategy.py:791-846`   |
 | 4 | Unknown instrument class          | `unknown_instrument_class_policy`   | `bowaka_v2_features.py:473-477`   |
 | 5 | Early-close scan-window truncation| `sim/schedule.py` (always-on)       | `bowaka_intraday_scanner.py:671-725` |
+| 6 | Strategy-slice loss gate          | `sim/risk_gates.py` (additive)      | `bowaka_v2_strategy.py:467-472`   |
+| 7 | ADV cap on aggregate symbol notional | `sim/risk_gates.py` (parity port) | `bowaka_v2_strategy.py:474-488`   |
 
 Items 1-4 are recorded in `run_manifest.json` (`simulation` block) and the
 backtest report header on every run. Item 5 is an unconditional correctness fix
-in the Phase 4 scheduler.
+in the Phase 4 scheduler. Items 6-7 are Phase 5 risk-gate work: item 6 is an
+additive intended-realism extension, item 7 is a faithful port of the live code.
