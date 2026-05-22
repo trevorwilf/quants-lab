@@ -21,7 +21,7 @@ def test_best_trial_report_includes_neighbour_scores(tmp_path, lab_root):
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1))
     cfg_path = write_test_config(
-        lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml",
+        lab_root / "configs" / "quarantined" / "bowaka_v2_walkforward_optuna__DO_NOT_USE.yml",
         tmp_path / "wf.yml",
         lake=lake, symbols=["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1),
         n_trials=2,
@@ -60,7 +60,7 @@ def test_best_trial_report_present_in_persisted_results(tmp_path, lab_root):
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1))
     cfg_path = write_test_config(
-        lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml",
+        lab_root / "configs" / "quarantined" / "bowaka_v2_walkforward_optuna__DO_NOT_USE.yml",
         tmp_path / "wf2.yml",
         lake=lake, symbols=["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1),
         n_trials=2,

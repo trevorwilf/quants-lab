@@ -80,7 +80,7 @@ def test_detect_empty_lake_is_smoke(tmp_path: Path) -> None:
 def test_resolve_writes_loadable_iex_config(tmp_path: Path, lab_root: Path) -> None:
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=_START, end=_END, feed="iex")
-    base = lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml"
+    base = lab_root / "configs" / "bowaka_v2_intended_realism.yml"
     resolved = resolve_walkforward_config(base, lake_root=str(lake))
     assert resolved.feed == "iex"
     assert resolved.mode == "current_code_parity"
@@ -94,7 +94,7 @@ def test_resolve_writes_loadable_iex_config(tmp_path: Path, lab_root: Path) -> N
 def test_feed_override_synthetic_forces_smoke(tmp_path: Path, lab_root: Path) -> None:
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=_START, end=_END, feed="sip")
-    base = lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml"
+    base = lab_root / "configs" / "bowaka_v2_intended_realism.yml"
     resolved = resolve_walkforward_config(base, feed_override="synthetic", lake_root=str(lake))
     assert resolved.mode == "smoke_fixture"
     assert resolved.allow_smoke is True
@@ -104,13 +104,13 @@ def test_feed_override_iex_forces_iex(tmp_path: Path, lab_root: Path) -> None:
     """An explicit iex override is honored even when SIP data is present."""
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=_START, end=_END, feed="sip")
-    base = lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml"
+    base = lab_root / "configs" / "bowaka_v2_intended_realism.yml"
     resolved = resolve_walkforward_config(base, feed_override="iex", lake_root=str(lake))
     assert resolved.feed == "iex"
     assert resolved.mode == "current_code_parity"
 
 
 def test_invalid_feed_override_rejected(lab_root: Path) -> None:
-    base = lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml"
+    base = lab_root / "configs" / "bowaka_v2_intended_realism.yml"
     with pytest.raises(ValueError):
         resolve_walkforward_config(base, feed_override="nasdaq")

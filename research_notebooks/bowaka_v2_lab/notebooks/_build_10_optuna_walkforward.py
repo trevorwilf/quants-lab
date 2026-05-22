@@ -14,7 +14,11 @@ def main() -> None:
     nb = make_notebook([
         {"type": "code", "source": (
             "# Papermill parameters.\n"
-            "CONFIG_PATH = 'research_notebooks/bowaka_v2_lab/configs/bowaka_v2_walkforward_optuna.yml'\n"
+            "# NOTE: the prior bowaka_v2_walkforward_optuna.yml is QUARANTINED (realism\n"
+            "# audit 2026-05-22 §P0-001). This default points at the generated\n"
+            "# contract-parity intended-realism config; Realism Remediation 2 Phase 8\n"
+            "# ships purpose-built walk-forward Optuna configs.\n"
+            "CONFIG_PATH = 'research_notebooks/bowaka_v2_lab/configs/bowaka_v2_intended_realism.yml'\n"
             "N_TRIALS = None          # None -> optuna.n_trials from the config; or set an integer\n"
             "N_STARTUP_TRIALS = None  # None -> optuna.n_startup_trials; random trials before TPE\n"
             "FEED = 'auto'            # 'auto' (SIP > IEX > synthetic) | 'sip' | 'iex' | 'synthetic'\n"

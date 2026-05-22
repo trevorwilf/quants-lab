@@ -5,6 +5,19 @@
 > (paper / live) requires SIP-validated walk-forward results and paper-vs-sim
 > reconciliation, neither of which can be produced from this lab in isolation.
 
+## Active audit blockers (2026-05-22)
+
+A second realism audit
+([`docs/audits/2026-05-22_realism_audit.md`](docs/audits/2026-05-22_realism_audit.md))
+found that the lab can still **optimize the wrong strategy**: the prior
+`configs/bowaka_v2_walkforward_optuna.yml` claimed `current_code_parity` while
+materially changing execution, sizing, risk, stop/target and hold period
+(audit §5 P0-001). That config is now **quarantined** under
+[`configs/quarantined/`](configs/quarantined/README.md) and the standard config
+loader refuses to load it. Until the "Realism Remediation 2" phases land, treat
+the lab as research-only simulator infrastructure under development — see the
+audit for the full P0/P1 finding list.
+
 **Strategy identifier:** `bowaka_v2`
 
 **Feed policy:** the IEX feed is acceptable for research / methodology checks
