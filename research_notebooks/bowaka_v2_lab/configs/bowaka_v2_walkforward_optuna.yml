@@ -97,5 +97,5 @@ optuna:
   walkforward:
     train_months: 6
     val_months: 1
-    final_holdout_months: 1
+    final_holdout_months: 5
   search_space_overrides: {}
