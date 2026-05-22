@@ -12,6 +12,8 @@ Sub-commands:
 The five commands above are config-driven: with a research config
 (``market_data.*_source: alpaca``) they read the shared market-data lake;
 with the smoke / fixture config they use deterministic synthetic data.
+- ``config-parity`` — diff a config vs the frozen contract; non-zero exit on an
+  undeclared divergence (realism remediation 2 Phase 0).
 - ``promotion-gate`` — checklist + bundler (Phase 9).
 - ``reconcile`` — paper-vs-lab reconciliation (Phase 10, scaffolding only).
 """
@@ -121,6 +123,44 @@ def _cmd_import_actual_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_config_parity(args: argparse.Namespace) -> int:
+    """Print a config's parity diff vs the frozen contract.
+
+    Exits non-zero if any leaf diverges from the contract without being declared
+    in the config's ``<stem>.parity_sidecar.yaml`` (realism remediation 2
+    Phase 0). A clean config — or one whose every diff is declared — exits 0.
+    """
+    from .config.parity_sidecar import classify_config_parity, load_parity_sidecar
+    from .reference import contract_available, load_actual_contract
+
+    cfg = load_config(args.config)
+    if not contract_available():
+        print(json.dumps({
+            "status": "error",
+            "command": "config-parity",
+            "error": "frozen contract unavailable — cannot compute the parity diff",
+        }), file=sys.stderr)
+        return 2
+    sidecar = load_parity_sidecar(args.config)
+    result = classify_config_parity(
+        {k: v for k, v in cfg.items() if k != "_source_path"},
+        load_actual_contract(),
+        sidecar=sidecar,
+    )
+    undeclared = result["undeclared"]
+    payload = {
+        "status": "ok" if not undeclared else "parity_violation",
+        "command": "config-parity",
+        "config_path": str(args.config),
+        "summary": result["summary"],
+        "declared_diffs": result["declared"],
+        "undeclared_diffs": undeclared,
+        "parity_clean": not undeclared,
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+    return 0 if not undeclared else 1
+
+
 def _cmd_optuna(args: argparse.Namespace) -> int:
     """Run a walk-forward Optuna study, OR (``--final-holdout``) score the
     untouched holdout once against a chosen parameter set.
@@ -223,6 +263,14 @@ def build_parser() -> argparse.ArgumentParser:
     opt.add_argument("--out", default=None,
                      help="override the output path for the --final-holdout result JSON")
     opt.set_defaults(func=_cmd_optuna)
+
+    cp = sub.add_parser(
+        "config-parity",
+        help="diff a config vs the frozen contract; exit non-zero on an "
+             "undeclared divergence",
+    )
+    cp.add_argument("--config", required=True, help="path to a v2 lab YAML config")
+    cp.set_defaults(func=_cmd_config_parity)
 
     iac = sub.add_parser(
         "import-actual-config",

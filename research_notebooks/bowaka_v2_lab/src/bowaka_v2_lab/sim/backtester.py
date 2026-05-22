@@ -714,6 +714,11 @@ def run_backtest(
             "run_hash": run_hash,
             "ambiguous_bar_count": ambiguous_bar_count,
             "simulation": sim_cfg.model_dump(),
+            # Realism remediation 2 Phase 0: the simulation contract (== the
+            # simulation mode) is surfaced as a top-level manifest field so every
+            # run artifact declares which strategy it reproduced. suitability_tier
+            # is added below, after the mechanical decision runs.
+            "simulation_contract": sim_cfg.mode,
             "lineage": lineage,
             # Realism Phase 3: per-session point-in-time universe hashes.
             "universe_hashes_by_session": universe_hashes_by_session,
@@ -855,6 +860,11 @@ def run_backtest(
 
     _checklist_results = run_all_checklists(run_dir)
     _tier = decide_suitability(run_dir, _checklist_results)
+    # Realism remediation 2 Phase 0: stamp the mechanical suitability_tier onto
+    # the run manifest (simulation_contract was stamped above). The report
+    # renderer already surfaces both top-level fields in report.json.
+    run_man["suitability_tier"] = _tier
+    atomic_write_json(run_dir / "run_manifest.json", run_man)
     write_run_report(
         run_dir,
         suitability=_tier,

@@ -40,11 +40,12 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import pandas as pd
 
 from ..config import BowakaV2Paths, SimulationConfig, load_config
+from ..promotion.suitability import tier_for_simulation_contract
 from ..data.suppliers import (
     build_daily_cache_from_lake,
     make_forward_minute_supplier,
@@ -99,6 +100,55 @@ def _git_head() -> str:
     except Exception:  # noqa: BLE001 — lineage is best-effort, never fatal
         pass
     return "unknown"
+
+
+class OptunaParityError(RuntimeError):
+    """Raised when an Optuna config diverges from the frozen contract undeclared."""
+
+
+def assert_optuna_config_parity(cfg: Mapping[str, Any]) -> None:
+    """Refuse an Optuna study whose config diverges from the contract undeclared.
+
+    Realism remediation 2 Phase 0 (audit §P0-001). A study may start only when
+    EITHER the config↔contract diff is clean for every strategy-contract leaf,
+    OR every diverging leaf is declared in the config's
+    ``<stem>.parity_sidecar.yaml``. Any *undeclared* divergence raises
+    :class:`OptunaParityError` — Bayesian optimization must never silently tune a
+    different strategy than the one the config claims.
+
+    Scoped to ``current_code_parity`` / ``intended_realism``: a ``smoke_fixture``
+    study runs synthetic plumbing data and is never a parameter-recommendation
+    run (and is already gated behind ``allow_smoke``), so the contract-parity
+    requirement does not apply to it.
+
+    A no-op when the frozen contract is unavailable on the host (parity cannot be
+    computed) — that is surfaced by the data-quality / preflight gates instead.
+    """
+    from ..config.parity_sidecar import classify_config_parity, load_parity_sidecar
+    from ..reference import contract_available, load_actual_contract
+
+    sim = cfg.get("simulation") or {}
+    if (sim.get("mode") if isinstance(sim, dict) else None) == "smoke_fixture":
+        return
+    if not contract_available():
+        return
+    source_path = cfg.get("_source_path")
+    sidecar = load_parity_sidecar(source_path) if source_path else []
+    result = classify_config_parity(
+        {k: v for k, v in cfg.items() if k != "_source_path"},
+        load_actual_contract(),
+        sidecar=sidecar,
+    )
+    undeclared = result["undeclared"]
+    if undeclared:
+        raise OptunaParityError(
+            f"Optuna study refused: the config diverges from the frozen contract "
+            f"on {len(undeclared)} undeclared field(s): {undeclared}. Reconcile the "
+            f"config to the contract, or declare each divergence in "
+            f"<config-stem>.parity_sidecar.yaml (field_path / actual_value / "
+            f"lab_value / reason / risk_classification). "
+            f"See docs/audits/2026-05-22_realism_audit.md §P0-001."
+        )
 
 
 def _to_date(value: Any) -> _dt.date:
@@ -547,6 +597,10 @@ def run_walkforward_study(
     cfg = load_config(config_path)
     sim_cfg = SimulationConfig.model_validate(cfg.get("simulation") or {})
 
+    # Realism remediation 2 Phase 0: refuse to start a study whose config
+    # diverges from the frozen contract without a declared parity sidecar.
+    assert_optuna_config_parity(cfg)
+
     # Fast-fail the smoke-mode refusal before any expensive plan building /
     # dataset probing. The full preflight below re-asserts it (and the DQ /
     # quote-coverage gates) so the study metadata records the complete result.
@@ -687,6 +741,13 @@ def run_walkforward_study(
     }
     sampler = study.study.sampler
     pruner = study.study.pruner
+    # Realism remediation 2 Phase 0: every study artifact declares the simulation
+    # contract (== the simulation mode) and the mechanical suitability tier. The
+    # tier is the contract cap, further capped to research_only for the IEX feed.
+    simulation_contract = sim_cfg.mode
+    suitability_tier = tier_for_simulation_contract(simulation_contract)
+    if feed == "iex" and suitability_tier != "research_only":
+        suitability_tier = "research_only"
     study_metadata = {
         "dataset_hash": dataset_hash,
         "lab_config_hash": lab_config_hash,
@@ -703,6 +764,8 @@ def run_walkforward_study(
         "holdout_definition": holdout_definition,
         "search_space_version": SEARCH_SPACE_VERSION,
         "simulation_mode": sim_cfg.mode,
+        "simulation_contract": simulation_contract,
+        "suitability_tier": suitability_tier,
         "feed": feed,
         "preflight": preflight.as_dict(),
         "penalty_weights": vars(DEFAULT_PENALTY_WEIGHTS),
@@ -764,6 +827,9 @@ def run_walkforward_study(
         "status": "ok",
         "study_name": study.study.study_name,
         "simulation_mode": sim_cfg.mode,
+        # Realism remediation 2 Phase 0: top-level run/study labels.
+        "simulation_contract": simulation_contract,
+        "suitability_tier": suitability_tier,
         "feed": feed,
         "search_space_version": SEARCH_SPACE_VERSION,
         "n_trials_requested": trials,
@@ -806,4 +872,6 @@ __all__ = [
     "make_walkforward_objective",
     "build_best_trial_report",
     "run_walkforward_study",
+    "assert_optuna_config_parity",
+    "OptunaParityError",
 ]
