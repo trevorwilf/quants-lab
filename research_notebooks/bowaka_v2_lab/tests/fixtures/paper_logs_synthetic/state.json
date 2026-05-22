@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "fixture": "paper_logs_synthetic",
+  "frozen": true,
+  "purpose": "Phase 10 scaffolding-only reconciliation fixture - NOT real paper data",
+  "session_dates": ["2024-09-04"],
+  "n_candidates": 3,
+  "n_decisions": 3,
+  "n_orders": 1,
+  "n_fills": 1,
+  "n_exits": 1,
+  "n_brackets": 1,
+  "n_quotes": 3
+}
