@@ -117,7 +117,18 @@ def _xnys_sessions(start: _dt.date, end: _dt.date) -> list[_dt.date]:
 
 
 def _resolve_symbols(cfg: dict, md: dict, *, cap: int = 100) -> list[str]:
-    """Explicit ``universe.symbols`` > lake-derived (capped) > synthetic fallback."""
+    """A BOUNDED symbol sample for study-start preflight probing — NOT the
+    trading universe.
+
+    The walk-forward folds trade the per-session **point-in-time universe**
+    built by ``universe.builder.build_pit_universe_for_sessions`` (rebuilt every
+    session from the lake's asset master + filters — daily, uncapped, exactly
+    like the live scanner). This capped list is used only to keep the preflight
+    data-quality / quote-coverage probes fast, to seed the dataset-lineage hash,
+    and as a daily-cache fallback for a session whose PIT universe is empty.
+
+    Explicit ``universe.symbols`` > lake-derived (capped at ``cap``) > synthetic.
+    """
     explicit = (cfg.get("universe", {}) or {}).get("symbols")
     if explicit:
         return [str(s) for s in explicit]
@@ -575,6 +586,7 @@ def run_walkforward_study(
     # trial — a multi-hour study must not start against an un-usable dataset.
     dq_report = None
     quote_cov_pct = None
+    probe_sessions: list[_dt.date] = []
     try:
         from ..data.data_quality import build_data_quality_report
         from ..data.lineage import build_dataset_lineage
@@ -614,6 +626,25 @@ def run_walkforward_study(
         min_quote_coverage_pct=float(sim_cfg.min_quote_coverage_pct),
     )
     log.info("preflight passed: %d checks", len(preflight.checks))
+
+    # Report the ACTUAL per-fold trading universe — the daily point-in-time set
+    # each fold builds, NOT the capped preflight-probe sample. A representative
+    # single-session count; the eligible set changes day to day.
+    universe_pit_sample = None
+    try:
+        from bowaka_common.marketdata import MarketDataStore
+
+        if probe_sessions:
+            _pit = build_pit_universe_for_sessions(
+                probe_sessions[:1], cfg, MarketDataStore(lake_root)
+            )
+            _ps = probe_sessions[0]
+            universe_pit_sample = {
+                "session": _ps.isoformat(),
+                "eligible_symbols": len(eligible_symbols(_pit.get(_ps, {}))),
+            }
+    except Exception as exc:  # noqa: BLE001 — a universe-sample probe is non-fatal
+        log.warning("PIT universe sample probe failed: %s", exc)
 
     trials = int(n_trials if n_trials is not None else optuna_cfg.get("n_trials", 20))
     jobs = int(n_jobs if n_jobs is not None else optuna_cfg.get("n_jobs", 1))
@@ -681,10 +712,17 @@ def run_walkforward_study(
         study.study.set_user_attr(key, value)
 
     log.info(
-        "walk-forward study %s: %d trials (%d random startup) x %d folds, %d symbols, "
-        "feed=%s, search_space_version=%d",
-        study.study.study_name, trials, startup, len(plan.splits), len(symbols),
-        feed, SEARCH_SPACE_VERSION,
+        "walk-forward study %s: %d trials (%d random startup) x %d folds, feed=%s, "
+        "search_space_version=%d; per-fold universe = daily point-in-time set%s "
+        "(preflight probe sampled %d symbols)",
+        study.study.study_name, trials, startup, len(plan.splits), feed,
+        SEARCH_SPACE_VERSION,
+        (
+            f" (~{universe_pit_sample['eligible_symbols']} eligible on "
+            f"{universe_pit_sample['session']})"
+            if universe_pit_sample else ""
+        ),
+        len(symbols),
     )
     objective = make_walkforward_objective(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
@@ -732,7 +770,17 @@ def run_walkforward_study(
         "n_trials_completed": len(completed),
         "n_startup_trials": startup,
         "n_folds": len(plan.splits),
-        "symbols": len(symbols),
+        "universe": {
+            "selection": "daily_point_in_time",
+            "note": (
+                "each fold rebuilds the per-session PIT universe from the lake "
+                "(exchange / price-band / ADV / exclusion / blocklist filters) — "
+                "the trading universe is NOT capped and changes daily, like the "
+                "live scanner"
+            ),
+            "preflight_probe_symbols": len(symbols),
+            "pit_sample": universe_pit_sample,
+        },
         "final_holdout": [
             plan.final_holdout_start.isoformat(),
             plan.final_holdout_end.isoformat(),
