@@ -9,6 +9,12 @@ that **differs** from the lab schema — ``universe``, ``scanner`` and
 (``session``, ``signals``, ``sizing``, ``risk``, ``exits``) are copied verbatim
 (subject to a key allow-list for ``session``).
 
+The contract-level ``data:`` block (realism remediation 2 Phase 1, audit
+§P0-005) supplies the adjustment / freshness requirements; they are threaded
+into ``market_data.*`` so a generated config carries the live contract's
+``require_adjusted_daily_bars`` / ``require_split_adjustment`` /
+``max_bar_age_seconds`` / ``max_quote_age_seconds``.
+
 The output is rendered with :func:`render_config_yaml`, which sorts keys and
 pins the header so re-running ``import-actual-config`` is byte-identical.
 """
@@ -51,33 +57,74 @@ _SESSION_KEYS: tuple[str, ...] = (
     "loop_interval_seconds",
 )
 
+#: Valid ``--feed-thresholds`` values.
+FEED_THRESHOLD_MODES: tuple[str, ...] = ("actual", "sip_tightened")
+
+#: Valid ``simulation.mode`` values the mapper emits.
+CONFIG_MODES: tuple[str, ...] = ("intended_realism", "current_code_parity")
+
+#: The audit's documented SIP-intended signal thresholds (audit §3.3 / §6.1).
+#: ``--feed-thresholds sip_tightened`` overlays these on the contract's
+#: (IEX-relaxed) thresholds and declares each as a ``scoped`` parity diff.
+SIP_TIGHTENED_THRESHOLDS: dict[str, float] = {
+    "rvol_so_far_min": 1.50,
+    "projected_full_day_rvol_min": 1.50,
+    "range_expansion_so_far_min": 1.25,
+    "ema_distance_min": 0.0,
+    "ema_slope_min": 0.0,
+}
+
+
+#: Constant header block prepended to every generated config. Filename-agnostic
+#: so re-running ``import-actual-config --out <anything>`` is byte-identical
+#: regardless of the output path (the byte-stable parity test relies on this).
 _CONFIG_HEADER = """\
 # ------------------------------------------------------------------
-# bowaka_v2_intended_realism.yml -- GENERATED config (DO NOT hand-edit).
+# GENERATED bowaka_v2 lab config (DO NOT hand-edit).
 #
 # Built deterministically from the frozen live-strategy contract
 # (reference/actual_bowaka_v2_contract.yaml) by the contract -> config
 # mapper. Regenerate with:
 #   python -m bowaka_v2_lab.cli import-actual-config \\
-#       --out configs/bowaka_v2_intended_realism.yml [--feed sip|iex]
+#       --out configs/<name>.yml [--feed sip|iex] \\
+#       [--mode intended_realism|current_code_parity] \\
+#       [--feed-thresholds actual|sip_tightened]
 #
 # Re-running the command is byte-identical. Every value under the
 # schema-matching sections (session/signals/sizing/risk/exits) is
 # sourced verbatim from the contract; universe/scanner/execution are
-# remapped from the live schema. Phase 1's config-parity diff
+# remapped from the live schema. market_data.require_adjusted_daily_bars
+# / require_split_adjustment / max_bar_age_seconds / max_quote_age_seconds
+# come from the contract's data: block. Phase 1's config-parity diff
 # (config_diff_vs_actual_bowaka_v2.yaml) is checked against this file.
 # ------------------------------------------------------------------
 """
 
 
-def build_config_from_contract(contract: dict[str, Any], *, feed: str = "sip") -> dict[str, Any]:
+def build_config_from_contract(
+    contract: dict[str, Any],
+    *,
+    feed: str = "sip",
+    mode: str = "intended_realism",
+    feed_thresholds: str = "actual",
+) -> dict[str, Any]:
     """Map a frozen contract dict to a lab ``BowakaV2Config`` dict.
 
-    ``feed`` selects the ``market_data.feed`` (``sip`` default — the contract
-    models the intended live strategy on consolidated tape).
+    ``feed`` selects ``market_data.feed`` (``sip`` default — the contract models
+    the intended live strategy on consolidated tape). ``mode`` selects
+    ``simulation.mode`` (``intended_realism`` or ``current_code_parity``).
+    ``feed_thresholds`` is ``actual`` (contract thresholds verbatim) or
+    ``sip_tightened`` (the audit's documented SIP-intended thresholds overlaid).
     """
     if feed not in ("sip", "iex"):
         raise ValueError(f"feed must be 'sip' or 'iex', got {feed!r}")
+    if mode not in CONFIG_MODES:
+        raise ValueError(f"mode must be one of {CONFIG_MODES}, got {mode!r}")
+    if feed_thresholds not in FEED_THRESHOLD_MODES:
+        raise ValueError(
+            f"feed_thresholds must be one of {FEED_THRESHOLD_MODES}, got {feed_thresholds!r}"
+        )
+    c_data = dict(contract.get("data") or {})
     c_session = dict(contract.get("session") or {})
     c_universe = dict(contract.get("universe") or {})
     c_scanner = dict(contract.get("scanner") or {})
@@ -113,6 +160,10 @@ def build_config_from_contract(contract: dict[str, Any], *, feed: str = "sip") -
     signals: dict[str, Any] = {"allow_unknown_instrument_class_for_research": False}
     for key in SIGNAL_THRESHOLD_KEYS:
         signals[key] = c_signals.get(key)
+    if feed_thresholds == "sip_tightened":
+        # Overlay the audit's documented SIP-intended thresholds.
+        for key, value in SIP_TIGHTENED_THRESHOLDS.items():
+            signals[key] = value
 
     # --- execution: MAP from the live execution schema ---
     quote_gate = dict(c_execution.get("quote_gate") or {})
@@ -128,19 +179,28 @@ def build_config_from_contract(contract: dict[str, Any], *, feed: str = "sip") -
     risk: dict[str, Any] = dict(c_risk)
     exits: dict[str, Any] = dict(c_exits)
 
+    # --- market_data: feed + the contract data: block's adjustment / freshness ---
+    # The live contract requires adjusted + split-adjusted daily bars; thread
+    # those into market_data so the generated config carries them explicitly
+    # (the BowakaV2Config validator requires the field for real-mode configs).
+    market_data: dict[str, Any] = {
+        "feed": feed,
+        "allow_non_sip_for_research_only": (feed == "iex"),
+        "max_bar_age_seconds": int(c_data.get("max_bar_age_seconds", 90)),
+        "max_quote_age_seconds": int(c_data.get("max_quote_age_seconds", 15)),
+        "minute_bar_source": "alpaca",
+        "daily_bar_source": "alpaca",
+        "quote_source": "alpaca",
+        "assume_naive_timezone": False,
+        "require_adjusted_daily_bars": bool(c_data.get("require_adjusted_daily_bars", True)),
+        "require_split_adjustment": bool(c_data.get("require_split_adjustment", True)),
+    }
+
     cfg: dict[str, Any] = {
         "strategy_id": "bowaka_v2",
         "strategy_version": "0.1.0",
-        "simulation": {"mode": "intended_realism"},
-        "market_data": {
-            "feed": feed,
-            "allow_non_sip_for_research_only": False,
-            "max_bar_age_seconds": 60,
-            "minute_bar_source": "alpaca",
-            "daily_bar_source": "alpaca",
-            "quote_source": "alpaca",
-            "assume_naive_timezone": False,
-        },
+        "simulation": {"mode": mode},
+        "market_data": market_data,
         "session": session,
         "universe": universe,
         "scanner": scanner,
@@ -167,7 +227,11 @@ def build_config_from_contract(contract: dict[str, Any], *, feed: str = "sip") -
 
 
 def render_config_yaml(cfg: dict[str, Any]) -> str:
-    """Deterministic YAML text for a config dict (header + sorted body)."""
+    """Deterministic YAML text for a config dict (constant header + sorted body).
+
+    The body is always sorted-key YAML and the header is filename-agnostic, so
+    re-running ``import-actual-config`` is byte-identical.
+    """
     body = yaml.safe_dump(
         cfg,
         sort_keys=True,
@@ -178,30 +242,82 @@ def render_config_yaml(cfg: dict[str, Any]) -> str:
     return _CONFIG_HEADER + body
 
 
+def build_sip_tightened_sidecar_rows(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    """Parity-sidecar rows declaring the ``sip_tightened`` threshold diffs.
+
+    Each overlaid SIP-intended threshold differs from the contract's
+    (IEX-relaxed) value; declare every one as a ``scoped`` divergence so the
+    config stays parity-clean against the frozen contract.
+    """
+    c_signals = dict(contract.get("signals") or {})
+    rows: list[dict[str, Any]] = []
+    for key, value in SIP_TIGHTENED_THRESHOLDS.items():
+        rows.append(
+            {
+                "field_path": f"signals.{key}",
+                "actual_value": c_signals.get(key),
+                "lab_value": value,
+                "reason": (
+                    "SIP-intended threshold (audit §3.3): the contract carries "
+                    "IEX-relaxed thresholds; SIP consolidated tape supports the "
+                    "tighter documented value."
+                ),
+                "risk_classification": "scoped",
+            }
+        )
+    return rows
+
+
+def render_parity_sidecar_yaml(rows: list[dict[str, Any]]) -> str:
+    """Deterministic YAML text for a ``<config>.parity_sidecar.yaml`` file."""
+    doc = {"schema_version": 1, "declared_diffs": rows}
+    return yaml.safe_dump(doc, sort_keys=True, default_flow_style=False, width=1000)
+
+
 def import_actual_config(
-    *, out_path: str | Path, feed: str = "sip", contract: dict[str, Any] | None = None
+    *,
+    out_path: str | Path,
+    feed: str = "sip",
+    mode: str = "intended_realism",
+    feed_thresholds: str = "actual",
+    contract: dict[str, Any] | None = None,
 ) -> Path:
-    """Generate the intended-realism config from the frozen contract.
+    """Generate a config from the frozen contract. Returns the written path.
 
     Validates the mapped dict with :class:`BowakaV2Config` before writing, so a
-    mapping defect surfaces immediately. Returns the written path.
+    mapping defect surfaces immediately. When ``feed_thresholds=="sip_tightened"``
+    a ``<config-stem>.parity_sidecar.yaml`` declaring the threshold diffs is
+    written alongside the config.
     """
     from . import load_actual_contract
 
     if contract is None:
         contract = load_actual_contract()
-    cfg = build_config_from_contract(contract, feed=feed)
+    cfg = build_config_from_contract(
+        contract, feed=feed, mode=mode, feed_thresholds=feed_thresholds
+    )
     # Fail fast on a mapping defect.
     BowakaV2Config.model_validate(dict(cfg))
     dest = Path(out_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(render_config_yaml(cfg), encoding="utf-8")
+    if feed_thresholds == "sip_tightened":
+        sidecar = dest.with_name(f"{dest.stem}.parity_sidecar.yaml")
+        sidecar.write_text(
+            render_parity_sidecar_yaml(build_sip_tightened_sidecar_rows(contract)),
+            encoding="utf-8",
+        )
     return dest
 
 
 __all__ = [
     "SIGNAL_THRESHOLD_KEYS",
+    "FEED_THRESHOLD_MODES",
+    "CONFIG_MODES",
+    "SIP_TIGHTENED_THRESHOLDS",
     "build_config_from_contract",
+    "build_sip_tightened_sidecar_rows",
     "render_config_yaml",
+    "render_parity_sidecar_yaml",
     "import_actual_config",
 ]

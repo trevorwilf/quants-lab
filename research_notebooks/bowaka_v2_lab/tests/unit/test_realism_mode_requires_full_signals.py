@@ -37,7 +37,10 @@ def _base_cfg(*, simulation: dict, signals: dict) -> dict:
         "strategy_id": "bowaka_v2",
         "strategy_version": "0.1.0",
         "simulation": simulation,
-        "market_data": {"feed": "sip"},
+        # require_adjusted_daily_bars must be explicit for real-mode configs
+        # (realism remediation 2 Phase 1); this test exercises the signal-gate
+        # validator, not the adjustment one — set it so the latter is satisfied.
+        "market_data": {"feed": "sip", "require_adjusted_daily_bars": True},
         "signals": signals,
         "paths": {
             "lab_root": "research_notebooks/bowaka_v2_lab",

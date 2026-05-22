@@ -110,16 +110,28 @@ def _cmd_replay_scanner(args: argparse.Namespace) -> int:
 
 
 def _cmd_import_actual_config(args: argparse.Namespace) -> int:
-    """Regenerate the intended-realism config from the frozen contract."""
+    """Generate a lab config from the frozen contract."""
     from .reference.import_config import import_actual_config
 
-    dest = import_actual_config(out_path=args.out, feed=args.feed)
-    print(json.dumps({
+    dest = import_actual_config(
+        out_path=args.out,
+        feed=args.feed,
+        mode=args.mode,
+        feed_thresholds=args.feed_thresholds,
+    )
+    payload = {
         "status": "ok",
         "command": "import-actual-config",
         "out": str(dest),
         "feed": args.feed,
-    }, indent=2, sort_keys=True))
+        "mode": args.mode,
+        "feed_thresholds": args.feed_thresholds,
+    }
+    if args.feed_thresholds == "sip_tightened":
+        payload["parity_sidecar"] = str(
+            Path(args.out).with_name(f"{Path(args.out).stem}.parity_sidecar.yaml")
+        )
+    print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
 
@@ -274,12 +286,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     iac = sub.add_parser(
         "import-actual-config",
-        help="regenerate the intended-realism config from the frozen contract",
+        help="generate a lab config from the frozen contract",
     )
     iac.add_argument("--out", default="configs/bowaka_v2_intended_realism.yml",
                      help="output path for the generated config")
     iac.add_argument("--feed", default="sip", choices=["sip", "iex"],
                      help="market_data.feed for the generated config")
+    iac.add_argument("--mode", default="intended_realism",
+                     choices=["intended_realism", "current_code_parity"],
+                     help="simulation.mode for the generated config")
+    iac.add_argument("--feed-thresholds", dest="feed_thresholds", default="actual",
+                     choices=["actual", "sip_tightened"],
+                     help="signal thresholds: 'actual' copies the contract "
+                          "(IEX-relaxed) verbatim; 'sip_tightened' overlays the "
+                          "audit's SIP-intended thresholds + writes a parity sidecar")
     iac.set_defaults(func=_cmd_import_actual_config)
 
     pg = sub.add_parser("promotion-gate", help="run promotion checklist + bundler (Phase 9)")

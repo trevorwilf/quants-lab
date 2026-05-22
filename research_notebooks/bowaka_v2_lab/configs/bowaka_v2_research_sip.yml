@@ -21,6 +21,10 @@ market_data:
   daily_bar_source: alpaca
   quote_source: alpaca
   assume_naive_timezone: false
+  # Live contract requires adjusted + split-adjusted daily bars; an
+  # intended_realism config must set these explicitly (audit §P0-005 / §6.1).
+  require_adjusted_daily_bars: true
+  require_split_adjustment: true
 
 session:
   calendar: XNYS

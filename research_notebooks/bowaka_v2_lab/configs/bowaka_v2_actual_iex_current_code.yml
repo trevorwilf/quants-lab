@@ -52,10 +52,10 @@ exits:
     enabled: true
     exit_time: '15:45'
 market_data:
-  allow_non_sip_for_research_only: false
+  allow_non_sip_for_research_only: true
   assume_naive_timezone: false
   daily_bar_source: alpaca
-  feed: sip
+  feed: iex
   max_bar_age_seconds: 90
   max_quote_age_seconds: 15
   minute_bar_source: alpaca
@@ -134,7 +134,7 @@ signals:
   rvol_so_far_max: 8.0
   rvol_so_far_min: 0.7
 simulation:
-  mode: intended_realism
+  mode: current_code_parity
 sizing:
   bankroll_fixed_dollars: 90000
   equal_slice_bankroll_fraction: 0.8

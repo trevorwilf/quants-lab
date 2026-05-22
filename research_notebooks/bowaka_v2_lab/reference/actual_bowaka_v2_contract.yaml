@@ -13,7 +13,21 @@
 # source_sha256 is the SHA-256 of the live config file bytes; the
 # tests/parity/ suite flags drift between this snapshot and live.
 # ------------------------------------------------------------------
-contract_schema_version: 1
+contract_schema_version: 2
+data:
+  allow_non_sip_for_research_only: true
+  daily_timeframe: 1D
+  fail_on_missing_baseline: true
+  feed: iex
+  intraday_timeframe: 1m
+  live_requires_sip: true
+  max_bar_age_seconds: 90
+  max_quote_age_seconds: 15
+  min_history_trading_days: 45
+  provider: alpaca
+  require_adjusted_daily_bars: true
+  require_split_adjustment: true
+  timezone: America/New_York
 execution:
   bracket_pricing_mode: actual_fill
   default_venue_code: XNAS
