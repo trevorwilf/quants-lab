@@ -65,6 +65,8 @@ _REQUIRED_CHECK_NAMES: frozenset[str] = frozenset(
         "coverage_missing",
         "adjustment_mismatch",
         "quotes_required_but_absent",
+        # Realism Phase 6 — finalize-step historical-quote-coverage gate.
+        "quote_coverage",
     }
 )
 
@@ -369,6 +371,71 @@ def build_quote_check(
 
 
 # --------------------------------------------------------------------------
+# Quote coverage (Phase 6 — finalize-step gate)
+# --------------------------------------------------------------------------
+def historical_quote_coverage_pct(quote_coverage_rows: Iterable[Mapping[str, Any]]) -> float:
+    """Percentage of (symbol, scan_ts) rows backed by a *historical* quote.
+
+    ``quote_coverage_rows`` is the per-candidate coverage list the backtester
+    accumulates — each row has ``quote_present: bool``. Returns ``100.0`` when
+    there are no rows (no candidates to cover is not a coverage failure here;
+    that degenerate case is caught by the separate ``coverage_missing`` check).
+    """
+    rows = list(quote_coverage_rows)
+    if not rows:
+        return 100.0
+    present = sum(1 for r in rows if r.get("quote_present"))
+    return 100.0 * present / len(rows)
+
+
+def build_quote_coverage_check(
+    *,
+    quote_coverage_rows: Iterable[Mapping[str, Any]],
+    min_quote_coverage_pct: float,
+    simulation_mode: str,
+    source_file: str = "(per-run quote-coverage probe)",
+) -> dict[str, Any]:
+    """Finalize-step quote-coverage check (Phase 6 Task 7).
+
+    Marks ``quote_coverage`` ``fail`` when, in ``intended_realism`` mode, the
+    fraction of (symbol, scan_ts) pairs backed by a historical quote is below
+    ``min_quote_coverage_pct``. In other modes the check is informational
+    (``pass``) — it still records the measured coverage.
+    """
+    rows = list(quote_coverage_rows)
+    coverage = historical_quote_coverage_pct(rows)
+    n_present = sum(1 for r in rows if r.get("quote_present"))
+    is_realism = str(simulation_mode) == "intended_realism"
+    below = coverage < float(min_quote_coverage_pct)
+    if is_realism and below:
+        status = "fail"
+    elif below and rows:
+        status = "warn"
+    else:
+        status = "pass"
+    evidence: dict[str, Any] = {
+        "historical_quote_coverage_pct": round(coverage, 4),
+        "candidates_with_quote": n_present,
+        "candidates_total": len(rows),
+        "min_quote_coverage_pct": float(min_quote_coverage_pct),
+    }
+    if is_realism and below:
+        evidence["detail"] = (
+            f"historical quote coverage {coverage:.2f}% is below the required "
+            f"{float(min_quote_coverage_pct):.2f}% — the lake has insufficient "
+            f"historical quotes for an intended_realism run"
+        )
+    return _check(
+        name="quote_coverage",
+        status=status,
+        count=len(rows) - n_present,
+        threshold={"min_quote_coverage_pct": float(min_quote_coverage_pct)},
+        source_file=source_file,
+        evidence=evidence,
+    )
+
+
+# --------------------------------------------------------------------------
 # Synthetic regime
 # --------------------------------------------------------------------------
 def synthetic_data_quality_report(*, feed: str, note: str = "") -> dict[str, Any]:
@@ -574,6 +641,8 @@ __all__ = [
     "build_coverage_check",
     "build_adjustment_check",
     "build_quote_check",
+    "build_quote_coverage_check",
+    "historical_quote_coverage_pct",
     "find_latest_audit",
     "synthetic_data_quality_report",
     "assemble_report",

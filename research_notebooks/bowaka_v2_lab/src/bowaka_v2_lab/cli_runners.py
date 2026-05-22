@@ -17,7 +17,9 @@ from .config import BowakaV2Paths, load_config
 from .config.models import BowakaV2Config
 from .data.suppliers import (
     build_daily_cache_from_lake,
+    make_forward_minute_supplier,
     make_lake_suppliers,
+    make_quote_supplier,
     resolve_intraday_window_policy,
 )
 from .features.volume_curve import build_volume_curve_from_minute_bars, synthesize_default_curve
@@ -218,6 +220,8 @@ def run_backtest_command(
         sessions = sessions[:1]
         symbols = symbols[:3]
 
+    quote_supplier = None
+    forward_minute_supplier = None
     if _uses_lake(cfg):
         feed, root = md.get("feed", "iex"), md.get("shared_root")
         minute_supplier, daily_supplier = make_lake_suppliers(
@@ -225,6 +229,15 @@ def run_backtest_command(
             intraday_window_policy=resolve_intraday_window_policy(cfg),
         )
         daily_cache = {s: build_daily_cache_from_lake(root, symbols, s, feed=feed) for s in sessions}
+        # Realism Phase 6: historical-quote supplier + forward-minute supplier
+        # (for marketable-limit timeout detection) from the same lake.
+        quote_supplier = make_quote_supplier(
+            root, feed=feed,
+            default_max_age_seconds=float(
+                (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
+            ),
+        )
+        forward_minute_supplier = make_forward_minute_supplier(root, feed=feed)
         data_source = "lake"
     else:
         minute_supplier, daily_supplier = _synthetic_suppliers()
@@ -249,6 +262,8 @@ def run_backtest_command(
         daily_cache_by_session=daily_cache,
         minute_bars_supplier=minute_supplier,
         daily_bars_supplier=daily_supplier,
+        quote_supplier=quote_supplier,
+        forward_minute_supplier=forward_minute_supplier,
         initial_bankroll=100_000.0,
         paths=paths,
         run_dir=Path(run_dir) if run_dir else None,

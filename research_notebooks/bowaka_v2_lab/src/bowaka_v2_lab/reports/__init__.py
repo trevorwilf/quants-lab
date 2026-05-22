@@ -2,6 +2,7 @@
 from .gate_funnel import gate_funnel_by_date_symbol, top_failure_reasons
 from .trade_metrics import win_rate_summary, hold_duration_distribution, exit_mix
 from .liquidity_execution import adv_bucket_distribution, spread_bucket_distribution, time_of_day_buckets
+from .execution_quality import build_execution_quality_frame, build_execution_quality_rows
 from .mfe_mae import mfe_mae_per_trade
 from .cost_stress import cost_stress_compare
 from .delay_sensitivity import delay_sensitivity_grid
@@ -12,6 +13,7 @@ __all__ = [
     "gate_funnel_by_date_symbol", "top_failure_reasons",
     "win_rate_summary", "hold_duration_distribution", "exit_mix",
     "adv_bucket_distribution", "spread_bucket_distribution", "time_of_day_buckets",
+    "build_execution_quality_frame", "build_execution_quality_rows",
     "mfe_mae_per_trade",
     "cost_stress_compare",
     "delay_sensitivity_grid",

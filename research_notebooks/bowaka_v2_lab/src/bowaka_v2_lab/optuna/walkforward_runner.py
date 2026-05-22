@@ -34,7 +34,9 @@ import pandas as pd
 from ..config import BowakaV2Paths, SimulationConfig, load_config
 from ..data.suppliers import (
     build_daily_cache_from_lake,
+    make_forward_minute_supplier,
     make_lake_suppliers,
+    make_quote_supplier,
     resolve_intraday_window_policy,
 )
 from ..sim.backtester import run_backtest
@@ -146,6 +148,15 @@ def _run_fold_backtest(
         lake_root, feed=feed,
         intraday_window_policy=resolve_intraday_window_policy(cfg),
     )
+    # Realism Phase 6: each fold uses the lake's historical-quote supplier and
+    # the forward-minute supplier (marketable-limit timeout detection).
+    quote_supplier = make_quote_supplier(
+        lake_root, feed=feed,
+        default_max_age_seconds=float(
+            (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
+        ),
+    )
+    forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
     universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
     # Build the daily-feature cache from each session's PIT-eligible symbols —
     # the exact set the scanner iterates — so a cache entry exists for every
@@ -167,6 +178,8 @@ def _run_fold_backtest(
             daily_cache_by_session=daily_cache,
             minute_bars_supplier=minute_supplier,
             daily_bars_supplier=daily_supplier,
+            quote_supplier=quote_supplier,
+            forward_minute_supplier=forward_minute_supplier,
             initial_bankroll=100_000.0,
             paths=paths,
             run_dir=run_dir,

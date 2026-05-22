@@ -78,6 +78,10 @@ class ScanResult:
     emitted: list[dict[str, Any]] = field(default_factory=list)
     gate_dump: list[dict[str, Any]] = field(default_factory=list)
     universe_size: int = 0
+    #: Realism Phase 6 — per-(symbol, scan_ts) quote-coverage rows for each
+    #: emitted candidate. Populated by ``sim.event_loop.run_one_scan`` (the
+    #: scanner itself leaves it empty); drives ``historical_quote_coverage_pct``.
+    quote_coverage: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _config_hash(cfg: Mapping[str, Any]) -> str:

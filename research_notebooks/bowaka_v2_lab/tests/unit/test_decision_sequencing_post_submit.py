@@ -27,6 +27,18 @@ def _candidate() -> dict:
     }
 
 
+#: A real historical quote — required by intended_realism mode
+#: (quote_fallback_policy resolves to require_real, Phase 6). Without it the
+#: candidate is rejected for `missing_quote` before sequencing is exercised.
+def _historical_quote() -> dict:
+    return {
+        "bid": 99.99, "ask": 100.01, "mid": 100.0, "spread_pct": 0.0002,
+        "bid_size": 5000, "ask_size": 5000,
+        "quote_timestamp": "2024-09-04T13:30:00Z", "quote_age_seconds": 0.5,
+        "source": "historical",
+    }
+
+
 def _cfg() -> dict:
     return {
         # intended_realism resolves accepted_event_sequencing -> post_submit.
@@ -55,7 +67,8 @@ def test_post_submit_broker_reject_emits_submitted_pending_then_broker_reject() 
     assert consumer.accepted_event_sequencing == "post_submit"
 
     res = consumer.consume(_candidate(),
-                           decision_ts=pd.Timestamp("2024-09-04 13:30:01", tz="UTC"))
+                           decision_ts=pd.Timestamp("2024-09-04 13:30:01", tz="UTC"),
+                           historical_quote=_historical_quote())
 
     decisions = res.decisions
     # submitted_pending first, broker_reject second — and NEVER `accepted`.
@@ -75,7 +88,8 @@ def test_post_submit_broker_accept_emits_submitted_pending_then_accepted() -> No
     consumer = StrategyConsumer(portfolio=p, broker=SimulatedBroker(), cfg=_cfg())
 
     res = consumer.consume(_candidate(),
-                           decision_ts=pd.Timestamp("2024-09-04 13:30:01", tz="UTC"))
+                           decision_ts=pd.Timestamp("2024-09-04 13:30:01", tz="UTC"),
+                           historical_quote=_historical_quote())
     # Broker confirmed — submitted_pending THEN accepted, in that order.
     assert [d["decision"] for d in res.decisions] == ["submitted_pending", "accepted"]
     assert res.decisions[1]["reason"] == "all_gates_passed"
