@@ -42,7 +42,7 @@ from ..utils.ids import generate_run_id
 from ..utils.time import require_aware_timestamp
 from .broker import SimulatedBroker
 from .event_loop import run_one_scan
-from .exits import evaluate_exits
+from .exit_driver import drive_session_exits_daily, drive_session_exits_minute
 from .metrics import build_summary
 from .portfolio import Portfolio, Position
 from .schedule import scan_times_for_session
@@ -199,6 +199,81 @@ def _write_gate_dump(run_dir: Path, all_gate_dump: list[dict]) -> None:
             write_parquet(part_dir / f"{session_date.isoformat()}.parquet", part)
 
 
+def _build_fade_score_fn(
+    *,
+    cfg: Mapping[str, Any],
+    daily_cache: Optional[pd.DataFrame],
+    volume_curve: Optional[pd.DataFrame],
+    minute_bars_supplier: Optional[Callable[[str, Any], pd.DataFrame | None]],
+    session_minute_supplier: Optional[Callable[[str, _dt.date], pd.DataFrame | None]],
+) -> Callable[[Any, pd.Timestamp], Optional[float]]:
+    """Build the signal-fade re-scoring closure (Realism Phase 7, Task 5).
+
+    Returns ``fn(pos, eval_ts) -> Optional[float]`` — at the signal-fade
+    ``eval_time`` it recomputes the signal score on the *forming bar* (minute
+    bars up to ``eval_ts``) against the lot's prior daily baselines, exactly as
+    the live scanner scores a candidate. Returns ``None`` when the inputs to a
+    score are missing (no minute bars / no prior baseline row).
+    """
+    from ..features.forming_bar import (
+        aggregate_forming_session_bar,
+        compute_forming_session_features,
+        compute_signal_strength,
+        compute_volume_curve_fraction,
+    )
+
+    score_cfg = dict((cfg.get("scoring") or cfg.get("score") or {}))
+    # Per-symbol prior baselines from the session daily cache.
+    cache_by_symbol: dict[str, dict] = {}
+    if daily_cache is not None and len(daily_cache) > 0:
+        for _, r in daily_cache.iterrows():
+            cache_by_symbol[str(r.get("symbol"))] = r.to_dict()
+
+    def fade_score_fn(pos: Any, eval_ts: pd.Timestamp) -> Optional[float]:
+        baseline = cache_by_symbol.get(pos.symbol)
+        if baseline is None:
+            return None
+        # Minute bars forming up to the eval timestamp.
+        bars: Optional[pd.DataFrame] = None
+        eval_date = pd.Timestamp(eval_ts).tz_convert("America/New_York").date()
+        if session_minute_supplier is not None:
+            try:
+                full = session_minute_supplier(pos.symbol, eval_date)
+            except Exception:  # noqa: BLE001
+                full = None
+            if full is not None and len(full) > 0:
+                tcol = next((c for c in ("timestamp", "ts") if c in full.columns), None)
+                if tcol is not None:
+                    tsv = pd.to_datetime(full[tcol], utc=True)
+                    bars = full[tsv <= pd.Timestamp(eval_ts)]
+        if (bars is None or len(bars) == 0) and minute_bars_supplier is not None:
+            try:
+                bars = minute_bars_supplier(pos.symbol, eval_ts)
+            except Exception:  # noqa: BLE001
+                bars = None
+        if bars is None or len(bars) == 0:
+            return None
+        try:
+            sess = aggregate_forming_session_bar(bars)
+        except Exception:  # noqa: BLE001 - naive ts etc.; treat as un-scorable
+            return None
+        adv_bucket = str(baseline.get("adv_bucket", "mid"))
+        vcf = compute_volume_curve_fraction(volume_curve, eval_ts, adv_bucket)
+        prior = {
+            "prior_close": baseline.get("prior_close"),
+            "prior_atr_14d": baseline.get("prior_atr_14d"),
+            "avg_volume_20d": baseline.get("avg_volume_20d"),
+            "avg_dollar_volume_20d": baseline.get("avg_dollar_volume_20d"),
+            "ema_10_prior": baseline.get("ema_10_prior"),
+        }
+        feats = compute_forming_session_features(sess, prior, vcf)
+        return compute_signal_strength(
+            feats, score_cfg, ema_slope_prior=baseline.get("ema_slope_prior"),
+        )
+
+    return fade_score_fn
+
+
 def run_backtest(
     *,
     cfg: Mapping[str, Any],
@@ -210,6 +285,11 @@ def run_backtest(
     daily_bars_supplier: Callable[[str, _dt.date], pd.DataFrame | None],
     quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
     forward_minute_supplier: Optional[Callable[[str, Any], pd.DataFrame | None]] = None,
+    # Realism Phase 7: returns the FULL regular-session minute bars for a
+    # ``(symbol, session_date)`` — the path the per-lot minute exit walk
+    # consumes. When omitted the minute exit driver falls back to the ordinary
+    # ``minute_bars_supplier`` queried at the 16:00 ET close.
+    session_minute_supplier: Optional[Callable[[str, _dt.date], pd.DataFrame | None]] = None,
     volume_curve: Optional[pd.DataFrame] = None,
     initial_bankroll: float = 100_000.0,
     paths: Optional[BowakaV2Paths] = None,
@@ -350,6 +430,9 @@ def run_backtest(
     all_trades: list[dict] = []
     daily_equity: list[dict] = []
     ambiguous_bar_count = 0
+    # Realism Phase 7: signal-fade telemetry — would-have-exited events recorded
+    # under telemetry_only mode (the lot is NOT closed). Surfaced in the report.
+    all_fade_telemetry: list[Any] = []
     # Realism Phase 6: per-candidate execution-quality fill records, the
     # missing-quote reject count and per-(symbol, scan_ts) quote-coverage rows.
     all_fill_records: list[dict] = []
@@ -465,40 +548,44 @@ def run_backtest(
                         "quote_source": fr["quote_source"],
                     })
 
-        # Daily bars + exit evaluation. Realism Phase 5: open_positions is
-        # keyed by position_id, so a symbol may hold several lots. Each lot is
-        # evaluated independently against the symbol's daily bar and closed by
-        # position_id (closing one lot leaves the symbol's other lots open).
-        # The daily bar is fetched once per distinct symbol.
-        symbols_to_check = sorted({p.symbol for p in portfolio.open_positions.values()})
+        # Exit evaluation. Realism Phase 7: exits are driven PER LOT (not per
+        # symbol), closing by position_id. The minute path
+        # (drive_session_exits_minute) is used for current_code_parity /
+        # intended_realism; the daily-bar path (drive_session_exits_daily) is
+        # used ONLY for smoke_fixture so the smoke suite stays fast.
         closes_today: dict[str, float] = {}
-        day_bars_by_symbol: dict[str, dict] = {}
-        for sym in symbols_to_check:
-            day_bars = daily_bars_supplier(sym, session_date)
-            if day_bars is None or len(day_bars) == 0:
-                continue
-            row = day_bars.iloc[-1].to_dict()
-            closes_today[sym] = float(row.get("close", row.get("Close", 0.0)) or 0.0)
-            day_bars_by_symbol[sym] = row
-        # Evaluate exits per lot. Iterate a snapshot of the lots — closing a lot
-        # mutates open_positions mid-loop.
-        for pos in list(portfolio.open_positions.values()):
-            row = day_bars_by_symbol.get(pos.symbol)
-            if row is None:
-                continue
-            ev = evaluate_exits(
-                pos, bar=row, bar_date=session_date,
-                exit_cfg=(cfg_dict.get("exits") or {}),
-                same_bar_policy=(cfg_dict.get("exits") or {}).get("same_bar_policy", "stop_first"),
+        if sim_cfg.mode == "smoke_fixture":
+            exit_out = drive_session_exits_daily(
+                portfolio, session_date, cfg=cfg_dict,
+                daily_bars_supplier=daily_bars_supplier,
             )
-            if ev is not None:
-                if ev.ambiguous_bar_resolved:
-                    ambiguous_bar_count += 1
-                trade = portfolio.close_position_by_id(
-                    pos.position_id, exit_price=ev.exit_price,
-                    exit_reason=ev.exit_reason, exit_date=session_date,
-                )
-                all_trades.append(trade)
+            closes_today = exit_out.get("closes", {})
+        else:
+            session_fade_score_fn = _build_fade_score_fn(
+                cfg=cfg_dict, daily_cache=daily_cache, volume_curve=volume_curve,
+                minute_bars_supplier=minute_bars_supplier,
+                session_minute_supplier=session_minute_supplier,
+            )
+            exit_out = drive_session_exits_minute(
+                portfolio, session_date, cfg=cfg_dict,
+                session_minute_supplier=session_minute_supplier,
+                minute_bars_supplier=minute_bars_supplier,
+                quote_supplier=quote_supplier,
+                signal_score_fn=session_fade_score_fn,
+                cost_stress=(cfg_dict.get("backtest") or {}).get("cost_stress", "base"),
+                seed=int((cfg_dict.get("run") or {}).get("seed", 0)),
+            )
+            all_fade_telemetry.extend(exit_out.get("fade_telemetry", []))
+            # End-of-session mark-to-market for the still-open lots uses the
+            # symbol's last daily-bar close.
+            for sym in sorted({p.symbol for p in portfolio.open_positions.values()}):
+                day_bars = daily_bars_supplier(sym, session_date)
+                if day_bars is None or len(day_bars) == 0:
+                    continue
+                row = day_bars.iloc[-1].to_dict()
+                closes_today[sym] = float(row.get("close", row.get("Close", 0.0)) or 0.0)
+        ambiguous_bar_count += int(exit_out.get("ambiguous", 0))
+        all_trades.extend(exit_out.get("trades", []))
         portfolio.update_mtm(closes_today)
         for pos in portfolio.open_positions.values():
             all_positions.append({
@@ -693,6 +780,33 @@ def run_backtest(
         "metric": "historical_quote_coverage_pct", "value": round(quote_cov_pct, 4),
     })
     write_parquet(run_dir / "execution_quality.parquet", pd.DataFrame(eq_rows))
+
+    # Realism Phase 7: exit-lifecycle analysis artifact — exit-reason
+    # distribution, exit-slippage distribution and per-trade MFE/MAE. Written as
+    # exit_analysis.json (machine-readable) and surfaced in summary.json so the
+    # report renderer + downstream readers can find the distribution.
+    from ..reports.exit_analysis import build_exit_analysis
+
+    exit_analysis = build_exit_analysis(all_trades)
+    exit_analysis["signal_fade_telemetry_count"] = len(all_fade_telemetry)
+    exit_analysis["signal_fade_telemetry"] = [
+        {
+            "symbol": t.symbol, "position_id": t.position_id,
+            "eval_date": t.eval_date.isoformat(),
+            "eval_timestamp": t.eval_timestamp, "score": t.score,
+            "threshold_name": t.threshold_name,
+            "threshold_value": t.threshold_value,
+            "would_exit_reason": t.would_exit_reason,
+        }
+        for t in all_fade_telemetry
+    ]
+    atomic_write_json(run_dir / "exit_analysis.json", exit_analysis)
+    summary["exit_reason_distribution"] = exit_analysis["exit_reason_distribution"]["counts"]
+    summary["ambiguous_stop_wins"] = (
+        exit_analysis["exit_reason_distribution"]["ambiguous_stop_wins"]
+    )
+    summary["exit_slippage_bps"] = exit_analysis["exit_slippage_bps"]
+    summary["signal_fade_telemetry_count"] = len(all_fade_telemetry)
     atomic_write_json(run_dir / "summary.json", summary)
     report_lines = [
         "# Bowaka v2 Backtest Report (Phase 4 stub)",
@@ -757,6 +871,19 @@ def run_backtest(
         "- spread / quote-age / slippage distributions: see `execution_quality.parquet`",
         "",
     ]
+    # Realism Phase 7: exit-lifecycle analysis section — exit-reason
+    # distribution, exit-slippage distribution and per-trade MFE/MAE.
+    from ..reports.exit_analysis import render_exit_analysis_section
+
+    report_lines.append(render_exit_analysis_section(all_trades))
+    if all_fade_telemetry:
+        report_lines += [
+            "### Signal-fade telemetry (telemetry_only)",
+            "",
+            f"- would-have-exited events recorded (lot NOT closed): "
+            f"{len(all_fade_telemetry)}",
+            "",
+        ]
     (run_dir / "report.md").write_text("\n".join(report_lines), encoding="utf-8")
 
     # ---- Realism Phase 6: finalize-step quote-coverage gate ----------------

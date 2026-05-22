@@ -79,6 +79,16 @@ class SimulationConfig(_StrictBase):
     #: to pass the finalize-step quote-coverage gate. Below this, the run fails.
     #: Ignored in ``current_code_parity`` / ``smoke_fixture`` modes.
     min_quote_coverage_pct: float = Field(default=95.0, ge=0.0, le=100.0)
+    #: Realism Phase 7: when a single minute bar touches BOTH the stop and the
+    #: target the order in which an OCO bracket would have filled is genuinely
+    #: ambiguous (the minute bar has no sub-minute path). This axis resolves it:
+    #:   - ``conservative`` (realism default) — assume the STOP filled first.
+    #:   - ``optimistic`` — assume the TARGET filled first.
+    #:   - ``random_with_seed`` — a deterministic coin flip seeded on
+    #:     ``run.seed`` + the lot identity, so two runs of the same config agree.
+    same_minute_resolution: Literal[
+        "conservative", "optimistic", "random_with_seed"
+    ] = "conservative"
 
     @model_validator(mode="after")
     def _resolve_mode_coupled_defaults(self) -> "SimulationConfig":

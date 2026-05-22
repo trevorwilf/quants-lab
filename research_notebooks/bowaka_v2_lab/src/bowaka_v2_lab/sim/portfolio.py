@@ -58,6 +58,12 @@ class Position:
     link_id: Optional[str] = None
     entry_session: Optional[_dt.date] = None
     lot_index: int = 0
+    # Realism Phase 7 — the tz-aware UTC timestamp of the FILL minute. The
+    # per-lot minute-path exit lifecycle (``sim.exits.walk_lot_exit``) walks the
+    # minute bars from the bar AFTER this minute, so a lot can never exit on the
+    # bar it filled on. Legacy callers that omit it fall back to entry_date's
+    # session open (see ``Position.entry_minute_utc``).
+    entry_timestamp: Optional[str] = None
     # Realism Phase 6 — fill + bracket-attachment metadata. ``entry_price`` is
     # the *actual fill price*; ``stop_price`` / ``target_price`` are computed
     # from it (live ``bracket_pricing_mode: actual_fill``) once the fill lands,
@@ -84,6 +90,24 @@ class Position:
         if self.current_price is not None:
             return self.qty * self.current_price
         return self.qty * self.entry_price
+
+    def entry_minute_utc(self):
+        """The tz-aware UTC fill minute the Phase-7 exit walk starts after.
+
+        Uses :attr:`entry_timestamp` when set; otherwise falls back to the
+        09:30 ET regular open of :attr:`entry_date` (legacy callers / smoke
+        fixtures that never carried a sub-day fill time).
+        """
+        import pandas as _pd
+
+        if self.entry_timestamp:
+            ts = _pd.Timestamp(self.entry_timestamp)
+            return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+        open_et = _pd.Timestamp(
+            _dt.datetime.combine(self.entry_date, _dt.time(9, 30)),
+            tz="America/New_York",
+        )
+        return open_et.tz_convert("UTC")
 
 
 @dataclass
@@ -216,9 +240,20 @@ class Portfolio:
     # ---- closure ----------------------------------------------------------
 
     def _record_close(
-        self, pos: Position, *, exit_price: float, exit_reason: str, exit_date: _dt.date
+        self,
+        pos: Position,
+        *,
+        exit_price: float,
+        exit_reason: str,
+        exit_date: _dt.date,
+        exit_event: Optional["object"] = None,
     ) -> dict:
-        """Common closure bookkeeping for a single lot ``pos`` (already popped)."""
+        """Common closure bookkeeping for a single lot ``pos`` (already popped).
+
+        ``exit_event`` (a Phase-7 :class:`sim.exits.ExitEvent`) enriches the
+        trade record with the minute-path forensics — exit timestamp, MFE/MAE,
+        exit slippage and the halt flag — that the exit-analysis report reads.
+        """
         pnl = (exit_price - pos.entry_price) * pos.qty
         trade = {
             "symbol": pos.symbol,
@@ -231,13 +266,29 @@ class Portfolio:
             "pnl": pnl,
             "exit_reason": exit_reason,
             "candidate_event_id": pos.candidate_event_id,
+            # Phase 7 minute-path forensics (defaults when closed off a daily
+            # bar / a non-minute-path closer).
+            "exit_timestamp": getattr(exit_event, "exit_timestamp", None),
+            "ambiguous_bar_resolved": bool(
+                getattr(exit_event, "ambiguous_bar_resolved", False)
+            ),
+            "mfe_pct": float(getattr(exit_event, "mfe_pct", 0.0) or 0.0),
+            "mae_pct": float(getattr(exit_event, "mae_pct", 0.0) or 0.0),
+            "exit_slippage_bps": float(
+                getattr(exit_event, "exit_slippage_bps", 0.0) or 0.0
+            ),
+            "halted": bool(getattr(exit_event, "halted", False)),
         }
         self.closed_trades.append(trade)
         if self.state is not None:
             self.state.bankroll += pnl
             self.state.daily_realized_pnl += pnl
             is_loss = pnl < 0
-            if exit_reason in ("stop_loss", "trailing_stop"):
+            # Phase 7 minute-path reasons (``stop`` / ``gap_stop``) count as
+            # stop-outs alongside the legacy daily-bar reason names.
+            if exit_reason in (
+                "stop_loss", "trailing_stop", "stop", "gap_stop",
+            ):
                 self.state.stopouts_today += 1
                 if is_loss:
                     self.state.consecutive_stopouts += 1
@@ -253,16 +304,25 @@ class Portfolio:
         return trade
 
     def close_position_by_id(
-        self, position_id: str, *, exit_price: float, exit_reason: str, exit_date: _dt.date
+        self,
+        position_id: str,
+        *,
+        exit_price: float,
+        exit_reason: str,
+        exit_date: _dt.date,
+        exit_event: Optional["object"] = None,
     ) -> dict:
         """Close exactly one lot, identified by its ``position_id``.
 
         This is the canonical closer in the multi-lot model — closing one lot
-        of a symbol leaves the symbol's other lots open.
+        of a symbol leaves the symbol's other lots open. ``exit_event`` (a
+        Phase-7 :class:`sim.exits.ExitEvent`) carries the minute-path forensics
+        onto the trade record.
         """
         pos = self.open_positions.pop(position_id)
         return self._record_close(
-            pos, exit_price=exit_price, exit_reason=exit_reason, exit_date=exit_date
+            pos, exit_price=exit_price, exit_reason=exit_reason,
+            exit_date=exit_date, exit_event=exit_event,
         )
 
     def close_position(

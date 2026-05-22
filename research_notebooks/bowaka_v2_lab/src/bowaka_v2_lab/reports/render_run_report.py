@@ -81,6 +81,39 @@ def render_run_report(
     lines.append("- See `reports/mfe_mae.py` (called from notebooks).")
     lines.append("")
 
+    # Realism Phase 7: exit-lifecycle analysis. Rendered from exit_analysis.json
+    # (written by sim.backtester) when present.
+    lines.append("## Exit Analysis")
+    ea_path = rd / "exit_analysis.json"
+    if ea_path.is_file():
+        try:
+            ea = json.loads(ea_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            ea = {}
+        dist = (ea.get("exit_reason_distribution") or {})
+        counts = dist.get("counts") or {}
+        slip = ea.get("exit_slippage_bps") or {}
+        lines.append(f"- trades closed: {dist.get('n_trades', 0)}")
+        lines.append(f"- ambiguous_stop_wins: {dist.get('ambiguous_stop_wins', 0)}")
+        lines.append(
+            "- exit-reason counts: "
+            + ", ".join(f"{k}={v}" for k, v in counts.items())
+        )
+        lines.append(
+            f"- exit-slippage bps: mean={slip.get('mean', 0)} "
+            f"p95={slip.get('p95', 0)}"
+        )
+        lines.append(
+            f"- signal-fade telemetry events: "
+            f"{ea.get('signal_fade_telemetry_count', 0)}"
+        )
+    else:
+        lines.append(
+            "- Not available because: exit_analysis.json was not written for "
+            "this run."
+        )
+    lines.append("")
+
     lines.append("## Gate Funnel")
     lines.append("- See `gate_dump.parquet` and `reports/gate_funnel.py`.")
     lines.append("")
