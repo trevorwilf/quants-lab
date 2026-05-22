@@ -1,21 +1,33 @@
 """Real walk-forward Optuna optimization against the shared market-data lake.
 
-This replaces the smoke / toy objective. Each Optuna trial:
+Realism remediation Phase 9 rebuilds this runner on top of the realistic
+simulator. Each Optuna trial:
 
-1. samples a parameter set from :data:`search_space.SEARCH_SPACE_SPEC`;
+1. samples a parameter set from :data:`search_space.SEARCH_SPACE_SPEC` (with
+   per-study ``cfg.optuna.search_space_overrides`` applied);
 2. applies it to the config;
-3. runs a **real backtest** over every walk-forward *validation* window, using
-   data from the shared lake (``bowaka_common.marketdata``);
-4. scores each window with :func:`objective.fold_score`; the trial's objective
-   is the median fold score (:func:`objective.compute_objective`).
+3. runs a **real backtest** over every walk-forward *validation* window — PIT
+   universe (Phase 3), full intraday scan replay (Phase 4), multi-lot portfolio
+   (Phase 5), realistic fills + quotes (Phase 6), minute-path exits (Phase 7);
+4. scores each window from its ``report.json`` (Phase 8) with the realistic
+   :func:`objective.fold_score` — the drawdown penalty uses the DAILY
+   mark-to-market equity curve, not the closed-trade curve;
+5. the trial objective is the median fold score minus a cross-fold
+   metric-variance stability penalty (:func:`objective.compute_objective`).
 
 The final-holdout window is reserved at the tail and is **never read during
-tuning** — :class:`HoldoutGuard` raises if a fold would overlap it.
+tuning** — :class:`HoldoutGuard` raises if a fold would overlap it. It is scored
+separately and once via :func:`optuna.holdout.score_final_holdout`
+(CLI ``optuna --final-holdout``).
 
-Compute note: a real study is ``n_trials`` × ``n_folds`` real backtests. With the
-config defaults (2500 trials, ~20 folds) that is tens of thousands of backtests —
-a multi-day job. Lower ``optuna.n_trials``, set an explicit ``universe.symbols``,
-or widen the walk-forward step for a faster first run.
+A study-start :func:`preflight.run_preflight` refuses to run when the dataset
+cannot support a research-grade objective (DQ failure / low quote coverage /
+``smoke_fixture`` without ``--allow-smoke-optimization``).
+
+Compute note: a real study is ``n_trials`` x ``n_folds`` real backtests. With
+the config defaults (thousands of trials, ~20 folds) that is tens of thousands
+of backtests — a multi-day job. Lower ``optuna.n_trials``, set an explicit
+``universe.symbols``, or widen the walk-forward step for a faster first run.
 """
 from __future__ import annotations
 
@@ -25,6 +37,7 @@ import hashlib
 import json
 import logging
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Callable
@@ -44,8 +57,16 @@ from ..sim.schedule import scan_times_for_session
 from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
 from .dispatcher import OptunaStudy
 from .holdout_guard import HoldoutGuard
-from .objective import FoldResult, compute_objective
-from .search_space import suggest_params
+from .objective import (
+    DEFAULT_PENALTY_WEIGHTS,
+    FoldResult,
+    compute_objective,
+    fold_result_from_report,
+    fold_score,
+)
+from .preflight import probe_quote_coverage, run_preflight
+from .search_space import SEARCH_SPACE_VERSION, resolve_search_space, suggest_params
+from .stability import top_k_cluster_stability
 from .walkforward import build_walkforward_splits
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -63,6 +84,21 @@ def _log() -> logging.Logger:
         log.addHandler(handler)
         log.setLevel(logging.INFO)
     return log
+
+
+def _git_head() -> str:
+    """Short-lived ``git rev-parse HEAD`` for study lineage; ``"unknown"`` on failure."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=str(Path(__file__).resolve().parent),
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except Exception:  # noqa: BLE001 — lineage is best-effort, never fatal
+        pass
+    return "unknown"
 
 
 def _to_date(value: Any) -> _dt.date:
@@ -97,31 +133,28 @@ def _resolve_symbols(cfg: dict, md: dict, *, cap: int = 100) -> list[str]:
 def apply_trial_params(base_cfg: dict, params: dict[str, Any]) -> dict:
     """Return a deep copy of ``base_cfg`` with dotted trial params applied.
 
-    ``"signals.gap_pct_max": 0.1`` → ``cfg["signals"]["gap_pct_max"] = 0.1``.
+    Dotted keys nest to ANY depth, so the realistic search space's nested live
+    parameters all reach the right place::
+
+        "signals.gap_pct_max": 0.1
+            -> cfg["signals"]["gap_pct_max"] = 0.1
+        "exits.time_stop.exit_time": "15:45"
+            -> cfg["exits"]["time_stop"]["exit_time"] = "15:45"
+        "exits.signal_fade.score_thresholds.hard": 0.5
+            -> cfg["exits"]["signal_fade"]["score_thresholds"]["hard"] = 0.5
     """
     cfg = copy.deepcopy(base_cfg)
     for dotted, value in params.items():
-        section, _, key = dotted.partition(".")
-        if not key:
-            cfg[dotted] = value
-            continue
-        if not isinstance(cfg.get(section), dict):
-            cfg[section] = {}
-        cfg[section][key] = value
+        parts = dotted.split(".")
+        node: Any = cfg
+        for key in parts[:-1]:
+            child = node.get(key)
+            if not isinstance(child, dict):
+                child = {}
+                node[key] = child
+            node = child
+        node[parts[-1]] = value
     return cfg
-
-
-def _fold_result(fold_id: str, summary: dict) -> FoldResult:
-    return FoldResult(
-        fold_id=fold_id,
-        net_return=float(summary.get("net_return_pct", 0.0)),
-        max_drawdown=float(summary.get("max_drawdown_pct", 0.0)),
-        turnover=float(summary.get("turnover", 0.0)),
-        concentration=float(summary.get("concentration", 0.0)),
-        n_trades=int(summary.get("n_trades", 0)),
-        ambiguous_bar_count=int(summary.get("ambiguous_bar_count", 0)),
-        missing_quote_count=int(summary.get("missing_quote_count", 0)),
-    )
 
 
 def _run_fold_backtest(
@@ -133,8 +166,14 @@ def _run_fold_backtest(
     feed: str,
     symbols: list[str],
     paths: BowakaV2Paths,
+    return_report: bool = False,
 ) -> dict:
-    """Run one real backtest over a walk-forward validation window; return its summary.
+    """Run one real backtest over a walk-forward validation window.
+
+    Returns the run ``summary`` dict; when ``return_report`` is set the
+    substantive Phase-8 ``report.json`` document is attached under the
+    ``"_report"`` key (so the objective can use the DAILY mark-to-market
+    drawdown rather than the closed-trade ``summary.max_drawdown_pct``).
 
     Realism Phase 3: the walk-forward objective consumes the point-in-time
     universe built per session from the lake — never the synthetic fixture.
@@ -184,9 +223,116 @@ def _run_fold_backtest(
             paths=paths,
             run_dir=run_dir,
         )
-        return dict(result.summary)
+        summary = dict(result.summary)
+        if return_report:
+            # Realism Phase 8: read the substantive report.json before cleanup.
+            report_path = run_dir / "report.json"
+            if report_path.is_file():
+                try:
+                    summary["_report"] = json.loads(
+                        report_path.read_text(encoding="utf-8")
+                    )
+                except Exception:  # noqa: BLE001 — a corrupt report degrades to summary-only
+                    summary["_report"] = {}
+            else:
+                summary["_report"] = {}
+        return summary
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def _fold_result(fold_id: str, summary: dict) -> FoldResult:
+    """Build a realistic :class:`FoldResult` from a fold's run summary.
+
+    When the substantive ``report.json`` is attached (``summary["_report"]``)
+    the drawdown is taken from the DAILY mark-to-market equity curve. Without
+    it (a degraded fold) the closed-trade ``max_drawdown_pct`` is used as a
+    fallback so the trial still completes.
+    """
+    report = summary.get("_report")
+    if isinstance(report, dict) and report:
+        return fold_result_from_report(fold_id, report, summary)
+    # Fallback path — no report.json (e.g. a fold that produced no sessions).
+    return FoldResult(
+        fold_id=fold_id,
+        net_return=float(summary.get("net_return_pct", 0.0) or 0.0),
+        max_drawdown=float(summary.get("max_drawdown_pct", 0.0) or 0.0),
+        turnover=float(summary.get("turnover", 0.0) or 0.0),
+        concentration=float(summary.get("concentration", 0.0) or 0.0),
+        n_trades=int(summary.get("n_trades", 0) or 0),
+        ambiguous_bar_count=int(summary.get("ambiguous_bar_count", 0) or 0),
+        missing_quote_count=int(summary.get("missing_quote_count", 0) or 0),
+        worst_day_loss=0.0,
+        quote_coverage=float(summary.get("historical_quote_coverage_pct", 100.0) or 0.0) / 100.0,
+        fill_rate=float(summary.get("fill_rate", 1.0) if summary.get("fill_rate") is not None else 1.0),
+    )
+
+
+def _degraded_fold(fold_id: str) -> FoldResult:
+    """The worst-possible fold result — used when a fold's backtest raises, so
+    one bad fold can never lift a trial's objective."""
+    return FoldResult(
+        fold_id=fold_id, net_return=-1.0, max_drawdown=1.0,
+        turnover=0.0, concentration=0.0, n_trades=0,
+        worst_day_loss=1.0, quote_coverage=0.0, fill_rate=0.0,
+    )
+
+
+def _run_validation_folds(
+    trial_cfg: dict,
+    plan,
+    *,
+    lake_root: Any,
+    feed: str,
+    symbols: list[str],
+    paths: BowakaV2Paths,
+    holdout_guard: HoldoutGuard,
+    log: logging.Logger,
+) -> list[FoldResult]:
+    """Run a real backtest over every walk-forward validation window.
+
+    The single fold-execution path shared by the per-trial objective and the
+    best-trial neighbourhood robustness sweep. The :class:`HoldoutGuard` is
+    asserted per fold so tuning can never read the final-holdout window; a fold
+    that raises degrades to :func:`_degraded_fold` rather than aborting.
+    """
+    folds: list[FoldResult] = []
+    for i, split in enumerate(plan.splits):
+        holdout_guard.assert_can_read(split.val_start, split.val_end)
+        fold_id = f"f{i}_{split.val_start.isoformat()}"
+        try:
+            summary = _run_fold_backtest(
+                trial_cfg,
+                val_start=split.val_start, val_end=split.val_end,
+                lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
+                return_report=True,
+            )
+            folds.append(_fold_result(fold_id, summary))
+        except Exception as exc:  # noqa: BLE001 — one bad fold must not kill the trial
+            log.warning("fold %s failed: %s", fold_id, exc)
+            folds.append(_degraded_fold(fold_id))
+    return folds
+
+
+def _score_param_set(
+    base_cfg: dict,
+    params: dict[str, Any],
+    plan,
+    *,
+    lake_root: Any,
+    feed: str,
+    symbols: list[str],
+    paths: BowakaV2Paths,
+    holdout_guard: HoldoutGuard,
+    log: logging.Logger,
+) -> tuple[float, list[FoldResult]]:
+    """Run every validation fold for ``params``; return ``(objective, folds)``."""
+    folds = _run_validation_folds(
+        apply_trial_params(base_cfg, params), plan,
+        lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
+        holdout_guard=holdout_guard, log=log,
+    )
+    return compute_objective(folds).objective, folds
 
 
 def make_walkforward_objective(
@@ -199,41 +345,27 @@ def make_walkforward_objective(
     paths: BowakaV2Paths,
     holdout_guard: HoldoutGuard,
     log: logging.Logger,
+    search_space_overrides: dict[str, Any] | None = None,
 ) -> Callable[[Any], float]:
     """Build the Optuna objective: median fold score over real per-fold backtests."""
 
     def objective(trial: Any) -> float:
         try:
-            params = suggest_params(trial)
-            trial_cfg = apply_trial_params(base_cfg, params)
-            folds: list[FoldResult] = []
-            for i, split in enumerate(plan.splits):
-                # Causality: tuning must never read the final-holdout window.
-                holdout_guard.assert_can_read(split.val_start, split.val_end)
-                fold_id = f"f{i}_{split.val_start.isoformat()}"
-                try:
-                    summary = _run_fold_backtest(
-                        trial_cfg,
-                        val_start=split.val_start,
-                        val_end=split.val_end,
-                        lake_root=lake_root,
-                        feed=feed,
-                        symbols=symbols,
-                        paths=paths,
-                    )
-                    folds.append(_fold_result(fold_id, summary))
-                except Exception as exc:  # noqa: BLE001 — one bad fold must not kill the trial
-                    log.warning("trial %s fold %s failed: %s", trial.number, fold_id, exc)
-                    folds.append(
-                        FoldResult(
-                            fold_id=fold_id, net_return=-1.0, max_drawdown=1.0,
-                            turnover=0.0, concentration=0.0, n_trades=0,
-                            ambiguous_bar_count=0, missing_quote_count=0,
-                        )
-                    )
+            params = suggest_params(trial, overrides=search_space_overrides)
+            folds = _run_validation_folds(
+                apply_trial_params(base_cfg, params), plan,
+                lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
+                holdout_guard=holdout_guard, log=log,
+            )
             result = compute_objective(folds)
             trial.set_user_attr("fold_scores", result.fold_scores)
             trial.set_user_attr("n_folds", len(folds))
+            trial.set_user_attr("fold_variance", result.fold_variance)
+            trial.set_user_attr("median_fold_score", result.median_fold_score)
+            trial.set_user_attr("penalty_breakdown", result.penalty_breakdown)
+            trial.set_user_attr(
+                "fold_metrics", [{"fold_id": f.fold_id, **f.metrics} for f in folds]
+            )
             return result.objective
         except Exception as exc:  # noqa: BLE001 — one bad trial must not abort the study
             log.error("trial %s failed entirely: %s", getattr(trial, "number", "?"), exc)
@@ -244,6 +376,137 @@ def make_walkforward_objective(
 
 def _hash(payload: Any) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+# --------------------------------------------------------------------------
+# best-trial reporting (Phase 9, Task 5)
+# --------------------------------------------------------------------------
+def _neighbour_param_sets(
+    best_params: dict[str, Any],
+    spec: dict[str, tuple],
+    *,
+    n_neighbours: int = 5,
+    rel_step: float = 0.10,
+) -> list[dict[str, Any]]:
+    """Sample ``n_neighbours`` parameter sets around ``best_params``.
+
+    Each neighbour perturbs every numeric parameter by a deterministic
+    ``+/- rel_step`` fraction of its search range, clamped to the bounds.
+    Categorical / int parameters are nudged by one step. Deterministic so a
+    re-run of a study reports the same robustness summary.
+    """
+    import random
+
+    rng = random.Random(20260521)
+    neighbours: list[dict[str, Any]] = []
+    for _ in range(n_neighbours):
+        cand: dict[str, Any] = {}
+        for name, value in best_params.items():
+            entry = spec.get(name)
+            if entry is None:
+                cand[name] = value
+                continue
+            kind = entry[0]
+            if kind in ("uniform", "log_uniform"):
+                lo, hi = float(entry[1]), float(entry[2])
+                span = hi - lo
+                delta = rng.uniform(-rel_step, rel_step) * span
+                cand[name] = min(hi, max(lo, float(value) + delta))
+            elif kind == "int":
+                lo, hi = int(entry[1]), int(entry[2])
+                step = rng.choice([-1, 0, 1])
+                cand[name] = min(hi, max(lo, int(value) + step))
+            elif kind == "categorical":
+                choices = list(entry[1])
+                cand[name] = rng.choice(choices) if choices else value
+            else:
+                cand[name] = value
+        neighbours.append(cand)
+    return neighbours
+
+
+def build_best_trial_report(
+    best,
+    base_cfg: dict,
+    plan,
+    *,
+    lake_root: Any,
+    feed: str,
+    symbols: list[str],
+    paths: BowakaV2Paths,
+    holdout_guard: HoldoutGuard,
+    log: logging.Logger,
+    search_space_overrides: dict[str, Any] | None = None,
+    n_neighbours: int = 5,
+) -> dict[str, Any]:
+    """Build the best-trial report: fold-by-fold metrics + neighbourhood robustness.
+
+    Re-scores ``n_neighbours`` parameter sets sampled around the best params so
+    the report shows whether the best score sits on a robust plateau or a
+    fragile spike. The stability rank is the stdev of the best trial's fold
+    scores (lower = more stable).
+    """
+    spec = resolve_search_space(search_space_overrides)
+    fold_scores = list(best.user_attrs.get("fold_scores") or [])
+    fold_metrics = list(best.user_attrs.get("fold_metrics") or [])
+    fold_variance = best.user_attrs.get("fold_variance")
+    if fold_variance is None and len(fold_scores) > 1:
+        import statistics
+
+        fold_variance = float(statistics.stdev(fold_scores))
+
+    # Parameter-neighbourhood robustness: re-score 5 neighbours.
+    neighbours = _neighbour_param_sets(
+        dict(best.params), spec, n_neighbours=n_neighbours
+    )
+    neighbour_results: list[dict[str, Any]] = []
+    for idx, params in enumerate(neighbours):
+        try:
+            score, folds = _score_param_set(
+                base_cfg, params, plan,
+                lake_root=lake_root, feed=feed, symbols=symbols,
+                paths=paths, holdout_guard=holdout_guard, log=log,
+            )
+        except Exception as exc:  # noqa: BLE001 — a bad neighbour must not abort the report
+            log.warning("neighbour %d failed: %s", idx, exc)
+            score = _FAILED_TRIAL_SCORE
+        neighbour_results.append({"neighbour": idx, "params": params, "score": score})
+
+    valid_scores = [
+        r["score"] for r in neighbour_results if r["score"] > _FAILED_TRIAL_SCORE / 2
+    ]
+    best_value = best.value if best.value is not None else 0.0
+    robustness = {
+        "n_neighbours": len(neighbour_results),
+        "neighbour_scores": [r["score"] for r in neighbour_results],
+        "neighbour_score_min": min(valid_scores) if valid_scores else None,
+        "neighbour_score_max": max(valid_scores) if valid_scores else None,
+        "neighbour_score_mean": (
+            sum(valid_scores) / len(valid_scores) if valid_scores else None
+        ),
+        # The best score is robust when neighbours do not collapse far below it.
+        "best_vs_neighbour_mean_delta": (
+            best_value - (sum(valid_scores) / len(valid_scores))
+            if valid_scores else None
+        ),
+        "neighbours": neighbour_results,
+    }
+    return {
+        "best_trial_number": best.number,
+        "best_value": best.value,
+        "best_params": dict(best.params),
+        "fold_by_fold": {
+            "fold_scores": fold_scores,
+            "fold_metrics": fold_metrics,
+            "median_fold_score": best.user_attrs.get("median_fold_score"),
+            "penalty_breakdown": best.user_attrs.get("penalty_breakdown") or {},
+        },
+        "stability": {
+            "fold_score_variance": fold_variance,
+            "n_folds": len(fold_scores),
+        },
+        "robustness": robustness,
+    }
 
 
 def run_walkforward_study(
@@ -261,20 +524,24 @@ def run_walkforward_study(
     ``optuna`` section when given. ``n_startup_trials`` is the number of random-
     sampling trials run before TPE-guided search begins.
 
-    A config whose ``simulation.mode`` is ``smoke_fixture`` is **refused** —
-    deterministic synthetic data is not a research-grade objective — unless
-    ``allow_smoke`` is set (CLI ``--allow-smoke-optimization``).
+    A study-start preflight (:func:`preflight.run_preflight`) refuses the run
+    when realism prerequisites fail — a ``smoke_fixture`` config without
+    ``allow_smoke``, a failing required data-quality check, or quote coverage
+    below the configured threshold.
+
+    The final-holdout window is reserved at the tail; it is NEVER scored here.
+    Score it once, after tuning, via :func:`optuna.holdout.score_final_holdout`.
     """
     log = log or _log()
     cfg = load_config(config_path)
     sim_cfg = SimulationConfig.model_validate(cfg.get("simulation") or {})
+
+    # Fast-fail the smoke-mode refusal before any expensive plan building /
+    # dataset probing. The full preflight below re-asserts it (and the DQ /
+    # quote-coverage gates) so the study metadata records the complete result.
     if sim_cfg.mode == "smoke_fixture" and not allow_smoke:
-        raise RuntimeError(
-            "walk-forward optimization refused: simulation.mode is 'smoke_fixture'. "
-            "Optimizing against deterministic synthetic data produces a meaningless "
-            "objective. Use a research config (intended_realism / current_code_parity), "
-            "or pass --allow-smoke-optimization (CLI) / allow_smoke=True to override."
-        )
+        run_preflight(sim_mode=sim_cfg.mode, allow_smoke=allow_smoke)
+
     paths = BowakaV2Paths.from_config(cfg, repo_root=_REPO_ROOT)
     paths.assert_strategy_isolation()
 
@@ -282,6 +549,7 @@ def run_walkforward_study(
     wf = optuna_cfg.get("walkforward", {}) or {}
     bt = cfg.get("backtest", {}) or {}
     md = cfg.get("market_data", {}) or {}
+    search_space_overrides = dict(optuna_cfg.get("search_space_overrides") or {})
 
     plan = build_walkforward_splits(
         full_start=_to_date(bt["start_date"]),
@@ -301,42 +569,165 @@ def run_walkforward_study(
     symbols = _resolve_symbols(cfg, md)
     holdout_guard = HoldoutGuard(plan.final_holdout_start, plan.final_holdout_end)
 
+    # ---- study-start preflight (Phase 9, Task 3) --------------------------
+    # Build the dataset's data-quality report and probe quote coverage, then
+    # refuse the study if a realism prerequisite fails. This runs BEFORE any
+    # trial — a multi-hour study must not start against an un-usable dataset.
+    dq_report = None
+    quote_cov_pct = None
+    try:
+        from ..data.data_quality import build_data_quality_report
+        from ..data.lineage import build_dataset_lineage
+
+        # Probe the first validation window — representative + cheap.
+        first = plan.splits[0]
+        probe_sessions = _xnys_sessions(first.val_start, first.val_end)[:5]
+        minute_supplier, daily_supplier = make_lake_suppliers(
+            lake_root, feed=feed,
+            intraday_window_policy=resolve_intraday_window_policy(cfg),
+        )
+        lineage = build_dataset_lineage(
+            cfg=cfg, symbols=symbols,
+            start=probe_sessions[0] if probe_sessions else None,
+            end=probe_sessions[-1] if probe_sessions else None,
+            lab_config_hash=_hash({k: v for k, v in cfg.items() if k != "_source_path"}),
+        )
+        dq_report = build_data_quality_report(
+            cfg=cfg, lineage=lineage, requested_symbols=symbols,
+            sessions=probe_sessions, daily_bars_supplier=daily_supplier,
+            minute_bars_supplier=minute_supplier,
+            scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+        )
+        quote_supplier = make_quote_supplier(lake_root, feed=feed)
+        quote_cov_pct = probe_quote_coverage(
+            symbols=symbols, sessions=probe_sessions, quote_supplier=quote_supplier,
+            scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+        )
+    except Exception as exc:  # noqa: BLE001 — a probe failure must not silently skip preflight
+        log.warning("preflight probe degraded (%s); checks run on available signals", exc)
+
+    preflight = run_preflight(
+        sim_mode=sim_cfg.mode,
+        allow_smoke=allow_smoke,
+        dq_report=dq_report,
+        quote_coverage_pct=quote_cov_pct,
+        min_quote_coverage_pct=float(sim_cfg.min_quote_coverage_pct),
+    )
+    log.info("preflight passed: %d checks", len(preflight.checks))
+
     trials = int(n_trials if n_trials is not None else optuna_cfg.get("n_trials", 20))
     jobs = int(n_jobs if n_jobs is not None else optuna_cfg.get("n_jobs", 1))
     startup = int(
         n_startup_trials if n_startup_trials is not None else optuna_cfg.get("n_startup_trials", 10)
     )
+    seed = int((cfg.get("run") or {}).get("seed", 1337))
+    code_hash = _git_head()
+    lab_config_hash = _hash({k: v for k, v in cfg.items() if k != "_source_path"})
+    dataset_hash = _hash(
+        [symbols, feed, str(plan.splits[0].train_start), str(plan.splits[-1].val_end)]
+    )
 
     study = OptunaStudy(
         feed=feed,
         cost_stress=str(bt.get("cost_stress", "conservative")),
-        dataset_hash=_hash([symbols, feed, str(plan.splits[0].train_start), str(plan.splits[-1].val_end)]),
-        config_hash=_hash({k: v for k, v in cfg.items() if k != "_source_path"}),
+        dataset_hash=dataset_hash,
+        config_hash=lab_config_hash,
         storage_uri=optuna_cfg.get("storage") or None,
         n_trials=trials,
         n_jobs=jobs,
         n_startup_trials=startup,
     )
     study.create()
+
+    # ---- study metadata (Phase 9, Task 4) --------------------------------
+    fold_definitions = [
+        {
+            "fold_index": i,
+            "train_start": s.train_start.isoformat(),
+            "train_end": s.train_end.isoformat(),
+            "val_start": s.val_start.isoformat(),
+            "val_end": s.val_end.isoformat(),
+        }
+        for i, s in enumerate(plan.splits)
+    ]
+    holdout_definition = {
+        "final_holdout_start": plan.final_holdout_start.isoformat(),
+        "final_holdout_end": plan.final_holdout_end.isoformat(),
+    }
+    sampler = study.study.sampler
+    pruner = study.study.pruner
+    study_metadata = {
+        "dataset_hash": dataset_hash,
+        "lab_config_hash": lab_config_hash,
+        "code_hash": code_hash,
+        "seed": seed,
+        "sampler": type(sampler).__name__,
+        "sampler_config": {
+            "n_startup_trials": startup,
+            "multivariate": True,
+            "seed": 1337,
+        },
+        "pruner": type(pruner).__name__,
+        "fold_definitions": fold_definitions,
+        "holdout_definition": holdout_definition,
+        "search_space_version": SEARCH_SPACE_VERSION,
+        "simulation_mode": sim_cfg.mode,
+        "feed": feed,
+        "preflight": preflight.as_dict(),
+        "penalty_weights": vars(DEFAULT_PENALTY_WEIGHTS),
+        "search_space_overrides": search_space_overrides,
+    }
+    for key, value in study_metadata.items():
+        study.study.set_user_attr(key, value)
+
     log.info(
-        "walk-forward study %s: %d trials (%d random startup) x %d folds, %d symbols, feed=%s",
-        study.study.study_name, trials, startup, len(plan.splits), len(symbols), feed,
+        "walk-forward study %s: %d trials (%d random startup) x %d folds, %d symbols, "
+        "feed=%s, search_space_version=%d",
+        study.study.study_name, trials, startup, len(plan.splits), len(symbols),
+        feed, SEARCH_SPACE_VERSION,
     )
     objective = make_walkforward_objective(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
         paths=paths, holdout_guard=holdout_guard, log=log,
+        search_space_overrides=search_space_overrides,
     )
     study.optimize(objective)
 
     import optuna
 
     completed = [t for t in study.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-    best = max(completed, key=lambda t: t.value) if completed else None
+    # Explicit ranked list — never study.best_trial (a zero-completed study would raise).
+    ranked = sorted(
+        (t for t in completed if t.value is not None),
+        key=lambda t: t.value, reverse=True,
+    )
+    best = ranked[0] if ranked else None
+
+    # ---- best-trial reporting (Phase 9, Task 5) --------------------------
+    best_report: dict[str, Any] = {}
+    if best is not None:
+        try:
+            best_report = build_best_trial_report(
+                best, cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
+                paths=paths, holdout_guard=holdout_guard, log=log,
+                search_space_overrides=search_space_overrides,
+            )
+        except Exception as exc:  # noqa: BLE001 — reporting failure must not lose the study
+            log.warning("best-trial report failed: %s", exc)
+            best_report = {"error": str(exc)}
+
+    # Top-k parameter clustering across the best trials (stability rank input).
+    top_k = [dict(t.params) for t in ranked[:5]]
+    clustering = top_k_cluster_stability(top_k) if len(top_k) >= 2 else {
+        "stable": True, "max_cv": 0.0, "param_cvs": {},
+    }
+
     out = {
         "status": "ok",
         "study_name": study.study.study_name,
         "simulation_mode": sim_cfg.mode,
         "feed": feed,
+        "search_space_version": SEARCH_SPACE_VERSION,
         "n_trials_requested": trials,
         "n_trials_completed": len(completed),
         "n_startup_trials": startup,
@@ -346,8 +737,12 @@ def run_walkforward_study(
             plan.final_holdout_start.isoformat(),
             plan.final_holdout_end.isoformat(),
         ],
+        "final_holdout_scored": False,  # Phase 9: only `--final-holdout` scores it.
         "best_value": (best.value if best else None),
         "best_params": (dict(best.params) if best else {}),
+        "best_trial_report": best_report,
+        "top_k_clustering": clustering,
+        "study_metadata": study_metadata,
     }
     results_path = Path(paths.artifact_root) / "optuna" / f"{study.study.study_name}.json"
     results_path.parent.mkdir(parents=True, exist_ok=True)
@@ -356,3 +751,11 @@ def run_walkforward_study(
     log.info("walk-forward study done: %d/%d trials completed, best=%s",
              len(completed), trials, out["best_value"])
     return out
+
+
+__all__ = [
+    "apply_trial_params",
+    "make_walkforward_objective",
+    "build_best_trial_report",
+    "run_walkforward_study",
+]

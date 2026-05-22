@@ -121,6 +121,29 @@ def _cmd_import_actual_config(args: argparse.Namespace) -> int:
 
 
 def _cmd_optuna(args: argparse.Namespace) -> int:
+    """Run a walk-forward Optuna study, OR (``--final-holdout``) score the
+    untouched holdout once against a chosen parameter set.
+
+    ``--final-holdout`` is the ONLY sanctioned read of the holdout window: the
+    study itself never touches it (the HoldoutGuard raises if a tuning fold
+    would overlap it). The parameter set is taken from ``--params-json`` or, by
+    default, the ``best_params`` of ``--study-results``.
+    """
+    if getattr(args, "final_holdout", False):
+        from .optuna.holdout import _load_params, score_final_holdout
+
+        params = _load_params(
+            params_json=args.params_json,
+            study_results_json=args.study_results,
+        )
+        result = score_final_holdout(
+            args.config, params,
+            allow_smoke=args.allow_smoke_optimization,
+            out_path=args.out,
+        )
+        print(json.dumps(result, indent=2, default=str))
+        return 0
+
     from .optuna.walkforward_runner import run_walkforward_study
 
     result = run_walkforward_study(
@@ -174,7 +197,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="use the synthetic universe (smoke_fixture mode only)")
     rs.set_defaults(func=_cmd_replay_scanner)
 
-    opt = sub.add_parser("optuna", help="run a real walk-forward Optuna study against the lake")
+    opt = sub.add_parser(
+        "optuna",
+        help="run a walk-forward Optuna study, or score the final holdout",
+    )
     opt.add_argument("--config", required=True)
     opt.add_argument("--n-trials", type=int, default=None, help="override optuna.n_trials")
     opt.add_argument("--n-jobs", type=int, default=None, help="override optuna.n_jobs")
@@ -182,6 +208,19 @@ def build_parser() -> argparse.ArgumentParser:
                      help="override optuna.n_startup_trials (random trials before TPE)")
     opt.add_argument("--allow-smoke-optimization", action="store_true",
                      help="permit walk-forward optimization on a simulation.mode=smoke_fixture config")
+    # Phase 9: final-holdout scoring. Scores a chosen parameter set against the
+    # untouched holdout window exactly once and records the result.
+    opt.add_argument("--final-holdout", action="store_true",
+                     help="score the untouched final-holdout window ONCE against a "
+                          "fixed parameter set (the only sanctioned holdout read)")
+    opt.add_argument("--study-results", default=None,
+                     help="path to a study results JSON; --final-holdout scores its "
+                          "best_params against the holdout")
+    opt.add_argument("--params-json", default=None,
+                     help="path to a JSON parameter set for --final-holdout "
+                          "(overrides --study-results)")
+    opt.add_argument("--out", default=None,
+                     help="override the output path for the --final-holdout result JSON")
     opt.set_defaults(func=_cmd_optuna)
 
     iac = sub.add_parser(
