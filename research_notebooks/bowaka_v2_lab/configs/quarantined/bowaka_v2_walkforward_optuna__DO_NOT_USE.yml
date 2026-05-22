@@ -1,3 +1,5 @@
+# QUARANTINED 2026-05-22 — claims current_code_parity but materially changes execution/sizing/risk/exits. Not valid for Bowaka v2 optimization. See docs/audits/2026-05-22_realism_audit.md §P0-001.
+#
 # Bowaka v2 walk-forward Optuna config.
 #
 # simulation.mode: current_code_parity -- reproduces the live Bowaka v2 strategy

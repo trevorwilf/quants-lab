@@ -68,13 +68,35 @@ def _expand_env(node: Any) -> Any:
     return node
 
 
+def _assert_not_quarantined(cfg_path: Path) -> None:
+    """Refuse a config that lives under a ``quarantined/`` directory.
+
+    Quarantined configs (realism audit §P0-001) are unsafe to run — they claim a
+    ``simulation.mode`` they do not honor or diverge from the frozen contract.
+    The standard loader is the hard gate: a quarantined path can never reach the
+    backtester / Optuna runner / CLI. See ``configs/quarantined/README.md``.
+    """
+    parts = {p.lower() for p in cfg_path.resolve().parts}
+    if "quarantined" in parts:
+        raise ValueError(
+            f"refusing to load quarantined config {cfg_path}: it lives under a "
+            f"`quarantined/` directory. Quarantined configs are not valid for any "
+            f"backtest / optimization / promotion run — see "
+            f"configs/quarantined/README.md and "
+            f"docs/audits/2026-05-22_realism_audit.md §P0-001."
+        )
+
+
 def load_config(path: str | Path) -> dict[str, Any]:
     """Load and pre-process a v2 lab YAML config.
 
     Returns a plain ``dict`` with env vars expanded and unknown top-level keys rejected.
     Attaches the source path under ``_source_path`` for path-resolution and reporting.
+
+    Raises ``ValueError`` if the config lives under a ``quarantined/`` directory.
     """
     cfg_path = Path(path)
+    _assert_not_quarantined(cfg_path)
     raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"config at {cfg_path} did not parse to a mapping (got {type(raw).__name__})")

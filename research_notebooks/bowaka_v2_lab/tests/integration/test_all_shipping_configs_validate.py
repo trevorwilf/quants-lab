@@ -1,9 +1,9 @@
 """Every shipping bowaka_v2_*.yml config passes env-check.
 
-Realism Phase 1, Task D. Parametrized over ``configs/bowaka_v2_*.yml`` — the
-quarantine is lifted, so this now includes the restored walk-forward Optuna
-config and the generated intended-realism config. Each must
-``BowakaV2Config.model_validate`` and exit 0 from the ``env-check`` CLI.
+Parametrized over ``configs/bowaka_v2_*.yml`` (a *non-recursive* glob, so the
+quarantined ``configs/quarantined/`` tree is excluded — realism remediation 2
+Phase 0). Each shipping config must ``BowakaV2Config.model_validate`` and exit 0
+from the ``env-check`` CLI.
 """
 from __future__ import annotations
 
@@ -24,9 +24,10 @@ _CONFIGS = sorted((_LAB_ROOT / "configs").glob("bowaka_v2_*.yml"))
 def test_shipping_configs_discovered() -> None:
     names = {p.name for p in _CONFIGS}
     assert _CONFIGS, f"no bowaka_v2_*.yml configs under {_LAB_ROOT / 'configs'}"
-    # Phase 1 restored the walk-forward optuna config and ships the realism one.
-    assert "bowaka_v2_walkforward_optuna.yml" in names
+    # The realism-intended config ships; the walk-forward optuna config is
+    # quarantined (realism remediation 2 Phase 0) and must NOT be discovered.
     assert "bowaka_v2_intended_realism.yml" in names
+    assert "bowaka_v2_walkforward_optuna.yml" not in names
 
 
 @pytest.mark.parametrize("cfg_path", _CONFIGS, ids=[p.name for p in _CONFIGS])

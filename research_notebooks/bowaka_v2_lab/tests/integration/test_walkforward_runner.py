@@ -44,7 +44,7 @@ def test_run_walkforward_study_real_backtests(tmp_path, lab_root):
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1))
     cfg_path = write_test_config(
-        lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml",
+        lab_root / "configs" / "quarantined" / "bowaka_v2_walkforward_optuna__DO_NOT_USE.yml",
         tmp_path / "wf.yml",
         lake=lake, symbols=["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1), n_trials=2,
     )
@@ -64,7 +64,7 @@ def test_run_walkforward_study_respects_final_holdout(tmp_path, lab_root):
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1))
     cfg_path = write_test_config(
-        lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml",
+        lab_root / "configs" / "quarantined" / "bowaka_v2_walkforward_optuna__DO_NOT_USE.yml",
         tmp_path / "wf.yml",
         lake=lake, symbols=["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1), n_trials=1,
     )
@@ -80,7 +80,7 @@ def test_cli_optuna_command(tmp_path, lab_root):
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1))
     cfg_path = write_test_config(
-        lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml",
+        lab_root / "configs" / "quarantined" / "bowaka_v2_walkforward_optuna__DO_NOT_USE.yml",
         tmp_path / "wf_cli.yml",
         lake=lake, symbols=["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1), n_trials=2,
     )
@@ -93,7 +93,7 @@ def test_run_walkforward_study_configurable_startup_trials(tmp_path, lab_root):
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1))
     cfg_path = write_test_config(
-        lab_root / "configs" / "bowaka_v2_walkforward_optuna.yml",
+        lab_root / "configs" / "quarantined" / "bowaka_v2_walkforward_optuna__DO_NOT_USE.yml",
         tmp_path / "wf.yml",
         lake=lake, symbols=["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1), n_trials=3,
     )
