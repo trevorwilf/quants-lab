@@ -507,6 +507,11 @@ class StrategyConsumer:
             parent_order_id=parent.parent_order_id,
             link_id=parent.parent_order_id,
             entry_session=entry_date,
+            # Realism Phase 7 — the fill minute the per-lot minute-path exit
+            # walk starts AFTER. Taken from the candidate's scan timestamp (the
+            # marketable-limit fill lands within the order-lifetime window, so
+            # the scan minute is the conservative fill-minute anchor).
+            entry_timestamp=str(ts_pts) if ts_pts else None,
             fill_source=quote.source,
             fill_slippage_bps=fill.slippage_bps_total,
             fill_is_partial=fill.is_partial,

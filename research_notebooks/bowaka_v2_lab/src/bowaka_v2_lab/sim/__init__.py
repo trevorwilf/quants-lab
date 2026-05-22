@@ -12,7 +12,14 @@ from .quote_model import (
     synthesize_zero_spread_quote,
 )
 from .cost_model import COST_STRESS_LEVELS, slippage_bps
-from .exits import ExitEvent, evaluate_exits, trading_days_since
+from .exits import (
+    ExitEvent,
+    FadeTelemetry,
+    evaluate_exits,
+    max_hold_exit_session,
+    trading_days_since,
+    walk_lot_exit,
+)
 from .ambiguity import resolve_same_bar
 from .risk_gates import RiskGateResult, evaluate_risk_gates
 from .strategy_consumer import StrategyConsumer
@@ -33,7 +40,8 @@ __all__ = [
     "QuoteSnapshot", "QuoteResolution", "get_quote", "resolve_quote",
     "synthesize_quote", "synthesize_zero_spread_quote", "synthesize_calibrated_quote",
     "COST_STRESS_LEVELS", "slippage_bps",
-    "ExitEvent", "evaluate_exits", "trading_days_since",
+    "ExitEvent", "FadeTelemetry", "evaluate_exits", "trading_days_since",
+    "walk_lot_exit", "max_hold_exit_session",
     "resolve_same_bar",
     "RiskGateResult", "evaluate_risk_gates",
     "StrategyConsumer",
