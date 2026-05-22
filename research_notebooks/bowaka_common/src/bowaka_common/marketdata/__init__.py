@@ -13,12 +13,14 @@ from .catalog import available_symbols, dataset_hash, date_coverage
 from .runner import load_backfill_config, resolve_end_date, run_configured_backfill
 from .store import (
     MarketDataStore,
+    QuoteRow,
     default_market_data_root,
     resolve_market_data_root,
 )
 
 __all__ = [
     "MarketDataStore",
+    "QuoteRow",
     "resolve_market_data_root",
     "default_market_data_root",
     "available_symbols",
