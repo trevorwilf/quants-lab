@@ -428,3 +428,115 @@ def replay_scanner_command(
         "run_dir": str(target),
         "summary": summary,
     }
+
+
+# --------------------------------------------------------------------------
+# dq-report (realism remediation 2 Phase 3, audit §P0-010)
+# --------------------------------------------------------------------------
+def dq_report_command(
+    config_path: str | Path,
+    *,
+    start: str | None = None,
+    end: str | None = None,
+    out_path: str | Path | None = None,
+) -> dict:
+    """Run the full multi-level data-quality stack for a config and persist it.
+
+    Builds the dataset lineage and the five-level DQ report
+    (:func:`bowaka_v2_lab.data.data_quality.build_data_quality_report`) for the
+    config's universe over ``[start, end]`` (defaulting to the config's
+    ``backtest`` window), writes
+    ``artifacts/data_quality_report_<config_stem>.json``, and reports whether
+    any *required* check fails for the config's ``simulation.mode``.
+
+    The returned dict carries ``required_failure`` — a non-empty string when the
+    run would fail closed. The CLI maps that to a non-zero exit code.
+    """
+    from .data.data_quality import build_data_quality_report, evaluate_startup_dq
+    from .data.lineage import build_dataset_lineage
+    from .config.hashing import canonical_strategy_hash
+
+    cfg, validated, paths = _load(config_path)
+    md = cfg.get("market_data", {}) or {}
+    feed = str(md.get("feed", "iex"))
+    sim_mode = validated.simulation.mode
+
+    bt = cfg.get("backtest", {}) or {}
+    start_d = _to_date(start or bt.get("start_date"), default=_dt.date.today())
+    end_d = _to_date(end or bt.get("end_date"), default=start_d)
+    sessions = _xnys_sessions(start_d, end_d)
+    if not sessions:
+        sessions = [start_d]
+
+    symbols = _resolve_symbols(cfg, md, cap=100)
+
+    config_stem = Path(cfg.get("_source_path") or config_path).stem
+    out = (
+        Path(out_path)
+        if out_path
+        else Path(paths.artifact_root) / f"data_quality_report_{config_stem}.json"
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    lake_backed = _uses_lake(cfg)
+    if lake_backed:
+        root = md.get("shared_root")
+        minute_supplier, daily_supplier = make_lake_suppliers(root, feed=feed)
+        store = _lake_store(md)
+
+        def session_minute_supplier(symbol: str, session_date: Any):
+            """The FULL regular-session minute frame for the session checks."""
+            d = _to_date(session_date)
+            open_utc = (pd.Timestamp(d, tz="America/New_York") + pd.Timedelta(hours=9, minutes=30)).tz_convert("UTC")
+            close_utc = (pd.Timestamp(d, tz="America/New_York") + pd.Timedelta(hours=16)).tz_convert("UTC")
+            return store.minute_bars(symbol, open_utc, close_utc, feed=feed)
+
+        daily_cache = {
+            s: build_daily_cache_from_lake(root, symbols, s, feed=feed) for s in sessions
+        }
+    else:
+        minute_supplier, daily_supplier = _synthetic_suppliers()
+        session_minute_supplier = None
+        daily_cache = None
+
+    lineage = build_dataset_lineage(
+        cfg={k: v for k, v in cfg.items() if k != "_source_path"},
+        symbols=symbols,
+        start=start_d,
+        end=end_d,
+        lab_config_hash=canonical_strategy_hash(cfg),
+    )
+    report = build_data_quality_report(
+        cfg={k: v for k, v in cfg.items() if k != "_source_path"},
+        lineage=lineage,
+        requested_symbols=symbols,
+        sessions=sessions,
+        daily_bars_supplier=daily_supplier,
+        minute_bars_supplier=minute_supplier,
+        scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+        daily_cache_by_session=daily_cache,
+        session_minute_supplier=session_minute_supplier,
+    )
+    import json as _json
+
+    out.write_text(_json.dumps(report, indent=2, sort_keys=True, default=str), encoding="utf-8")
+
+    required_failure = evaluate_startup_dq(report, simulation_mode=sim_mode)
+    return {
+        "status": "ok" if required_failure is None else "dq_failure",
+        "command": "dq-report",
+        "config_path": str(config_path),
+        "simulation_mode": sim_mode,
+        "feed": feed,
+        "start": start_d.isoformat(),
+        "end": end_d.isoformat(),
+        "sessions": len(sessions),
+        "symbols": len(symbols),
+        "report_path": str(out),
+        "regime": report.get("regime"),
+        "passed": report.get("passed"),
+        "failed": report.get("failed"),
+        "warned": report.get("warned"),
+        "required_failures": report.get("required_failures"),
+        "required_failure": required_failure,
+    }

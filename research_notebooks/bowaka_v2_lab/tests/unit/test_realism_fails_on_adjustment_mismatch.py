@@ -171,13 +171,20 @@ def test_smoke_run_not_failed_by_adjustment_mismatch(tmp_path):
     assert rm.get("startup_dq_failure") is None
 
 
-def test_realism_run_clears_dq_gate_when_adjustment_not_required(tmp_path):
-    """A raw lake clears the DQ gate for realism mode when adjustment is not required.
+def test_realism_run_clears_adjustment_gate_when_adjustment_not_required(tmp_path):
+    """The ``adjustment_mismatch`` gate passes when the config does not require adjustment.
 
-    The minimal test config does not match the frozen live contract, so the run
-    still aborts — but at the *config-parity* gate, which runs after the DQ gate.
-    Proving the abort is parity (not ``adjustment_mismatch``) proves the DQ gate
-    passed the run through. The DQ report records ``adjustment_mismatch: pass``.
+    Realism remediation 2 Phase 3 (audit §P0-010) added the multi-level DQ
+    required checks (``halt_data_unavailable_when_required``,
+    ``session_minute_count_violation``, etc.). The minimal test lake here has no
+    ``statuses/`` partitions and only a one-hour minute frame, so an
+    ``intended_realism`` run now (correctly) fails closed on the new required
+    checks — incomplete-data realism runs fail closed by design. This test
+    therefore narrows its assertion to the *adjustment-mismatch* check: with
+    ``require_adjusted=False`` the adjustment gate passes, even though the run
+    overall still aborts on the deeper DQ checks. The DQ report records
+    ``adjustment_mismatch: pass`` regardless of whether the run aborts on a
+    different required check downstream.
     """
     lake = tmp_path / "lake"
     symbol, session = "AAA", dt.date(2024, 9, 4)
@@ -188,11 +195,9 @@ def test_realism_run_clears_dq_gate_when_adjustment_not_required(tmp_path):
         result = _run(tmp_path, cfg, lake, symbol, session, "run_ok")
         run_dir = result.run_dir
     except RuntimeError as exc:
-        # The run cleared the DQ gate; any abort here is the config-parity gate,
-        # never a data-quality failure.
-        assert "data-quality" not in str(exc)
+        # The run is aborted by the new multi-level required checks; the
+        # *adjustment* gate itself is not the cause.
         assert "adjustment_mismatch" not in str(exc)
-        assert "coverage_missing" not in str(exc)
         run_dir = tmp_path / "run_ok"
 
     dq = json.loads((run_dir / "data_quality_report.json").read_text())

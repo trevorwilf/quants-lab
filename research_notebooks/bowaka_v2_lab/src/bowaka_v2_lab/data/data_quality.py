@@ -68,6 +68,21 @@ _REQUIRED_CHECK_NAMES: frozenset[str] = frozenset(
         "quotes_required_but_absent",
         # Realism Phase 6 — finalize-step historical-quote-coverage gate.
         "quote_coverage",
+        # Realism remediation 2 Phase 3 — multi-level DQ required checks
+        # (audit §P0-010). Ingestion-level OHLC / schema / timestamp defects, the
+        # deeper session / replay coverage checks, the feature-leakage check, and
+        # the halt-status availability gate all gate an intended_realism run.
+        "ingestion_schema",
+        "ingestion_timestamps_sorted",
+        "ingestion_duplicate_timestamps",
+        "ingestion_ohlc_violation",
+        "ingestion_nonpositive_price",
+        "coverage_missing_late_session",
+        "coverage_missing_exit_path",
+        "session_minute_count_violation",
+        "intraday_gap",
+        "feature_leakage",
+        "halt_data_unavailable_when_required",
     }
 )
 
@@ -645,12 +660,21 @@ def build_data_quality_report(
     daily_bars_supplier,
     minute_bars_supplier,
     scan_times_per_session,
+    daily_cache_by_session: Optional[Mapping[_dt.date, Any]] = None,
+    session_minute_supplier=None,
 ) -> dict[str, Any]:
     """Build the full ``data_quality_report.json`` document for a run.
 
     ``lineage`` is the dict returned by :func:`bowaka_v2_lab.data.lineage.build_dataset_lineage`.
-    Lake-backed runs get audit + coverage + adjustment + quote checks; synthetic
-    runs get the labelled :func:`synthetic_data_quality_report`.
+    Lake-backed runs get audit + coverage + adjustment + quote checks plus the
+    five multi-level DQ check sets (realism remediation 2 Phase 3, audit
+    §P0-010); synthetic runs get the labelled :func:`synthetic_data_quality_report`.
+
+    ``daily_cache_by_session`` (the per-session daily-feature cache) drives the
+    feature-leakage check; ``session_minute_supplier(symbol, session)`` (the
+    full regular-session minute frame) drives the session-level checks. Both are
+    optional — when absent the dependent levels degrade to a clean ``pass``
+    rather than failing.
     """
     feed = str((cfg.get("market_data", {}) or {}).get("feed", "iex"))
     regime = str(lineage.get("regime", "synthetic"))
@@ -745,7 +769,181 @@ def build_data_quality_report(
         )
     )
 
+    # --- multi-level DQ checks (realism remediation 2 Phase 3, audit §P0-010) ---
+    checks.extend(
+        _build_multi_level_checks(
+            cfg=cfg,
+            lineage=lineage,
+            requested_symbols=symbols,
+            sessions=list(sessions),
+            daily_bars_supplier=daily_bars_supplier,
+            minute_bars_supplier=minute_bars_supplier,
+            session_minute_supplier=session_minute_supplier,
+            scan_times_per_session=scan_times_per_session,
+            daily_cache_by_session=daily_cache_by_session,
+            lake_root=lake_root,
+            lake_adjustment_policy=lake_adjustment_policy,
+        )
+    )
+
     return assemble_report(checks=checks, regime="lake", feed=feed, notes="")
+
+
+def _build_multi_level_checks(
+    *,
+    cfg: Mapping[str, Any],
+    lineage: Mapping[str, Any],
+    requested_symbols: list[str],
+    sessions: list[_dt.date],
+    daily_bars_supplier,
+    minute_bars_supplier,
+    session_minute_supplier,
+    scan_times_per_session,
+    daily_cache_by_session: Optional[Mapping[_dt.date, Any]],
+    lake_root: Optional[Path],
+    lake_adjustment_policy: str,
+) -> list[dict[str, Any]]:
+    """Append the five multi-level DQ check sets to a lake-backed run.
+
+    Ingestion / session / replay / feature / quote-status. Never raises — a
+    supplier or calendar error inside any level is contained so the rest of the
+    report is still produced.
+    """
+    from .dq_levels import (
+        build_feature_checks,
+        build_ingestion_checks,
+        build_quote_status_checks,
+        build_replay_checks,
+        build_session_checks,
+        status_partitions_available,
+    )
+
+    md = cfg.get("market_data", {}) or {}
+    sim = cfg.get("simulation", {}) or {}
+    exits = cfg.get("exits", {}) or {}
+    execution = cfg.get("execution", {}) or {}
+    sim_mode = str(sim.get("mode", "intended_realism"))
+    out: list[dict[str, Any]] = []
+
+    # --- Level 1: ingestion — over each symbol's daily bars ---
+    daily_frames: dict[str, pd.DataFrame] = {}
+    for sym in requested_symbols:
+        frames: list[pd.DataFrame] = []
+        for session in sessions:
+            try:
+                d = daily_bars_supplier(sym, session)
+            except Exception:  # noqa: BLE001
+                d = None
+            if d is not None and len(d) > 0:
+                frames.append(d)
+        if frames:
+            try:
+                daily_frames[sym] = pd.concat(frames, ignore_index=True).drop_duplicates(
+                    subset=["timestamp"] if "timestamp" in frames[0].columns else None
+                )
+            except Exception:  # noqa: BLE001
+                daily_frames[sym] = frames[0]
+    try:
+        out.extend(build_ingestion_checks(bar_frames=daily_frames))
+    except Exception as exc:  # noqa: BLE001 — a level error must not lose the report
+        out.append(
+            _check("ingestion_level_error", "warn", 1, None,
+                   "(ingestion-level probe)", {"detail": f"ingestion checks skipped: {exc}"})
+        )
+
+    # --- Level 2: session — over per-(symbol, session) minute frames ---
+    minute_frames: dict[tuple[str, _dt.date], pd.DataFrame] = {}
+    for session in sessions:
+        for sym in requested_symbols:
+            frame = None
+            if session_minute_supplier is not None:
+                try:
+                    frame = session_minute_supplier(sym, session)
+                except Exception:  # noqa: BLE001
+                    frame = None
+            if frame is None or len(frame) == 0:
+                # Fall back to probing the minute supplier at the session close.
+                try:
+                    probe_ts = pd.Timestamp(session, tz="America/New_York") + pd.Timedelta(
+                        hours=16
+                    )
+                    frame = minute_bars_supplier(sym, probe_ts.tz_convert("UTC"))
+                except Exception:  # noqa: BLE001
+                    frame = None
+            if frame is not None and len(frame) > 0:
+                minute_frames[(sym, session)] = frame
+    try:
+        out.extend(build_session_checks(minute_frames_by_session=minute_frames))
+    except Exception as exc:  # noqa: BLE001
+        out.append(
+            _check("session_level_error", "warn", 1, None,
+                   "(session-level probe)", {"detail": f"session checks skipped: {exc}"})
+        )
+
+    # --- Level 3: replay — late-session + exit-path coverage ---
+    max_hold_days = int(exits.get("max_hold_days", 3) or 3)
+    max_quote_age = float(
+        md.get("max_quote_age_seconds", execution.get("max_quote_age_seconds", 15)) or 15
+    )
+    try:
+        out.extend(
+            build_replay_checks(
+                requested_symbols=requested_symbols,
+                sessions=sessions,
+                minute_bars_supplier=minute_bars_supplier,
+                scan_times_per_session=scan_times_per_session,
+                max_hold_days=max_hold_days,
+                quote_coverage_rows=None,
+                max_quote_age_seconds=max_quote_age,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        out.append(
+            _check("replay_level_error", "warn", 1, None,
+                   "(replay-level probe)", {"detail": f"replay checks skipped: {exc}"})
+        )
+
+    # --- Level 4: feature — leakage + split-awareness ---
+    from .lineage import quotes_partitions_available as _quotes_avail  # noqa: F401
+
+    corp_actions_available = False
+    if lake_root is not None:
+        ca_root = lake_root / _layout.DS_CORPORATE_ACTIONS
+        corp_actions_available = ca_root.is_dir() and any(ca_root.rglob("*.parquet"))
+    try:
+        out.extend(
+            build_feature_checks(
+                daily_cache_by_session=daily_cache_by_session or {},
+                require_adjusted_daily_bars=bool(md.get("require_adjusted_daily_bars", False)),
+                lake_adjustment=lake_adjustment_policy,
+                corporate_actions_available=corp_actions_available,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        out.append(
+            _check("feature_level_error", "warn", 1, None,
+                   "(feature-level probe)", {"detail": f"feature checks skipped: {exc}"})
+        )
+
+    # --- Level 5: quote / status — distributions + halt gate ---
+    statuses_ok = status_partitions_available(lake_root)
+    halt_gate_enabled = bool((execution.get("halt_gate") or {}).get("enabled", True))
+    try:
+        out.extend(
+            build_quote_status_checks(
+                quote_coverage_rows=None,
+                status_partitions_available=statuses_ok,
+                halt_gate_enabled=halt_gate_enabled,
+                simulation_mode=sim_mode,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        out.append(
+            _check("quote_status_level_error", "warn", 1, None,
+                   "(quote/status-level probe)", {"detail": f"quote/status checks skipped: {exc}"})
+        )
+
+    return out
 
 
 __all__ = [
@@ -762,4 +960,5 @@ __all__ = [
     "synthetic_data_quality_report",
     "assemble_report",
     "evaluate_startup_dq",
+    "_REQUIRED_CHECK_NAMES",
 ]

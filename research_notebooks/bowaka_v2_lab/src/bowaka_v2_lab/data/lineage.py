@@ -290,8 +290,150 @@ def _assets_snapshot_id(lake_root: Path) -> str:
     return snaps[-1].name.split("=", 1)[1]
 
 
+# --------------------------------------------------------------------------
+# Content-addressed dataset hash (realism remediation 2 Phase 3, audit §P1-005)
+# --------------------------------------------------------------------------
+#: Process-local cache: ``parquet path -> (mtime_ns, size, footer_hash_hex)``.
+#: A parquet's footer hash is re-derived only when its mtime / size changes, so
+#: a study that hashes the same lake many times pays the read cost once.
+_FOOTER_HASH_CACHE: dict[str, tuple[int, int, str]] = {}
+
+
+def _parquet_footer_hash(path: Path) -> str:
+    """SHA-256 of a parquet file's footer (schema + per-row-group metadata).
+
+    The footer captures the schema and every row group's statistics / byte
+    offsets — it changes whenever the payload changes, but is far cheaper to
+    hash than the whole file. Cached by ``(mtime_ns, size)``; an unreadable
+    parquet hashes to a stable ``"unreadable:<size>"`` token rather than raising.
+    """
+    try:
+        st = path.stat()
+    except OSError:
+        return "missing"
+    key = str(path)
+    cached = _FOOTER_HASH_CACHE.get(key)
+    if cached is not None and cached[0] == st.st_mtime_ns and cached[1] == st.st_size:
+        return cached[2]
+    footer_hex: str
+    try:
+        import pyarrow.parquet as pq
+
+        md = pq.read_metadata(path)
+        # Build a deterministic footer fingerprint from schema field-name+
+        # field-type pairs (avoid ``str(md.schema)`` — pyarrow's __repr__ leaks
+        # the object's memory address) plus per-row-group byte sizes + per-
+        # column compressed sizes. This is stable across processes and gives a
+        # content-aware fingerprint without depending on private pyarrow APIs.
+        try:
+            arrow_schema = md.schema.to_arrow_schema()
+            schema_fp = "|".join(f"{f.name}:{str(f.type)}" for f in arrow_schema)
+        except Exception:  # noqa: BLE001 — schema introspection failure
+            schema_fp = f"num_columns={md.num_columns}"
+        parts: list[str] = [schema_fp, str(md.num_rows), str(md.num_row_groups)]
+        for rg in range(md.num_row_groups):
+            rgm = md.row_group(rg)
+            parts.append(str(rgm.total_byte_size))
+            for col in range(rgm.num_columns):
+                cm = rgm.column(col)
+                # Mix in column statistics (min/max/null_count) so a one-cell
+                # payload edit changes the footer hash even when the compressed
+                # column size is identical.
+                stats = getattr(cm, "statistics", None)
+                stats_fp = ""
+                if stats is not None:
+                    try:
+                        stats_fp = (
+                            f"min={stats.min!r}|max={stats.max!r}|"
+                            f"nulls={stats.null_count}|distinct={stats.distinct_count}"
+                        )
+                    except Exception:  # noqa: BLE001 — stats may be partially populated
+                        stats_fp = ""
+                parts.append(
+                    f"{cm.path_in_schema}:{cm.total_compressed_size}:{stats_fp}"
+                )
+        footer_bytes = "|".join(parts).encode("utf-8")
+        footer_hex = _sha256_hex(footer_bytes)
+    except Exception:  # noqa: BLE001 — pyarrow missing / corrupt parquet
+        footer_hex = f"unreadable:{st.st_size}"
+    _FOOTER_HASH_CACHE[key] = (st.st_mtime_ns, st.st_size, footer_hex)
+    return footer_hex
+
+
+def _all_lake_parquet_paths(lake_root: Path) -> list[Path]:
+    """Every ``*.parquet`` under ``bars/`` / ``quotes/`` / ``corporate_actions/``.
+
+    Sorted by relative POSIX path so the list is mount-location independent.
+    Ingestion-metadata parquet (``_ingestion/audits/*``) is included — the audit
+    parquet is part of the dataset's content lineage.
+    """
+    out: list[Path] = []
+    for sub in (_layout.DS_BARS, _layout.DS_QUOTES, _layout.DS_CORPORATE_ACTIONS):
+        root = lake_root / sub
+        if root.is_dir():
+            out.extend(root.rglob("*.parquet"))
+    audits = _layout.ingestion_dir(lake_root) / "audits"
+    if audits.is_dir():
+        out.extend(audits.rglob("*.parquet"))
+    return sorted(out, key=lambda p: p.relative_to(lake_root).as_posix())
+
+
+def content_addressed_dataset_hash(
+    *,
+    lake_root: Path,
+    config_hash: str,
+    code_manifest_hash: str,
+    adjustment_policy: Optional[str] = None,
+) -> dict[str, Any]:
+    """Content-addressed dataset hash over a real lake (audit §P1-005).
+
+    SHA-256 over a canonical JSON object combining:
+
+    - the lake ``_ingestion/manifest.json`` in canonical form,
+    - the sorted list of every ``bars`` / ``quotes`` / ``corporate_actions`` /
+      audit parquet relative path,
+    - each parquet file's *footer* hash (schema + row-group metadata),
+    - the asset snapshot id,
+    - the adjustment policy,
+    - the config hash,
+    - the code-manifest hash.
+
+    Editing one parquet byte changes that file's footer hash and therefore the
+    dataset hash; re-running with identical inputs reproduces it byte-for-byte
+    (footer hashes are cached by ``mtime + size`` to avoid re-reading).
+
+    Returns ``{dataset_hash, components}`` — ``components`` is the pre-hash
+    object, surfaced for forensics.
+    """
+    manifest = load_lake_manifest(lake_root) or {}
+    parquet_paths = _all_lake_parquet_paths(lake_root)
+    rel_paths = [p.relative_to(lake_root).as_posix() for p in parquet_paths]
+    footer_hashes = {
+        p.relative_to(lake_root).as_posix(): _parquet_footer_hash(p) for p in parquet_paths
+    }
+    adjustment = (
+        str(adjustment_policy)
+        if adjustment_policy is not None
+        else lake_adjustment(manifest)
+    )
+    components: dict[str, Any] = {
+        "manifest_canonical": json.dumps(manifest, sort_keys=True, separators=(",", ":"), default=str),
+        "parquet_partition_paths": rel_paths,
+        "parquet_footer_hashes": footer_hashes,
+        "asset_snapshot_id": _assets_snapshot_id(lake_root),
+        "adjustment_policy": adjustment,
+        "config_hash": str(config_hash),
+        "code_manifest_hash": str(code_manifest_hash),
+    }
+    return {
+        "dataset_hash": _sha256_of_obj(components),
+        "components": components,
+    }
+
+
 __all__ = [
     "build_dataset_lineage",
+    "content_addressed_dataset_hash",
     "load_lake_manifest",
     "resolve_lake_root",
     "uses_lake",

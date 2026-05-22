@@ -14,6 +14,9 @@ The five commands above are config-driven: with a research config
 with the smoke / fixture config they use deterministic synthetic data.
 - ``config-parity`` — diff a config vs the frozen contract; non-zero exit on an
   undeclared divergence (realism remediation 2 Phase 0).
+- ``dq-report`` — run the multi-level data-quality stack for a config; non-zero
+  exit when a required check fails for the config's mode (realism remediation 2
+  Phase 3).
 - ``promotion-gate`` — checklist + bundler (Phase 9).
 - ``reconcile`` — paper-vs-lab reconciliation (Phase 10, scaffolding only).
 """
@@ -173,6 +176,22 @@ def _cmd_config_parity(args: argparse.Namespace) -> int:
     return 0 if not undeclared else 1
 
 
+def _cmd_dq_report(args: argparse.Namespace) -> int:
+    """Run the full multi-level data-quality stack for a config.
+
+    Writes ``artifacts/data_quality_report_<config_stem>.json`` and exits
+    non-zero when any *required* check fails for the config's
+    ``simulation.mode`` (realism remediation 2 Phase 3, audit §P0-010).
+    """
+    from .cli_runners import dq_report_command
+
+    result = dq_report_command(
+        args.config, start=args.start, end=args.end, out_path=args.out
+    )
+    print(json.dumps(result, indent=2, sort_keys=True, default=str))
+    return 0 if result.get("required_failure") is None else 1
+
+
 def _cmd_optuna(args: argparse.Namespace) -> int:
     """Run a walk-forward Optuna study, OR (``--final-holdout``) score the
     untouched holdout once against a chosen parameter set.
@@ -283,6 +302,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cp.add_argument("--config", required=True, help="path to a v2 lab YAML config")
     cp.set_defaults(func=_cmd_config_parity)
+
+    dq = sub.add_parser(
+        "dq-report",
+        help="run the multi-level data-quality stack for a config; exit "
+             "non-zero if a required check fails for the config's mode",
+    )
+    dq.add_argument("--config", required=True, help="path to a v2 lab YAML config")
+    dq.add_argument("--start", default=None,
+                    help="start date (YYYY-MM-DD); defaults to backtest.start_date")
+    dq.add_argument("--end", default=None,
+                    help="end date (YYYY-MM-DD); defaults to backtest.end_date")
+    dq.add_argument("--out", default=None,
+                    help="override the data_quality_report_<stem>.json output path")
+    dq.set_defaults(func=_cmd_dq_report)
 
     iac = sub.add_parser(
         "import-actual-config",

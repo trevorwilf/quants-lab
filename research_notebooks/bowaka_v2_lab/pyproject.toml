@@ -74,6 +74,7 @@ markers = [
     "parity: actual-contract parity test (tests/parity)",
     "unit: fast unit test (tests/unit)",
     "notebook: notebook end-to-end execution test",
+    "synthetic_fallback: depends on the synthetic IEX subset (real lake unavailable)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
