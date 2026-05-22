@@ -1,0 +1,31 @@
+{
+  "adjustment": "raw",
+  "audit_run_id": "audit_2026-05-21T000000Z_iex_subset_fixture",
+  "counts": {
+    "audit_rows": 7,
+    "daily_symbols": 7,
+    "minute_symbols": 7,
+    "symbols": 7
+  },
+  "dataset_hashes": {
+    "lake": "sha256:982f2ae988e8edf5e227df0a8be6335d5a148e10566e918eddb69796e8469979"
+  },
+  "end_date": "2026-04-30",
+  "feed": "iex",
+  "fixture": "bowaka_v2_lab IEX subset (realism remediation 2 Phase 3)",
+  "generated_at": "2026-05-22T21:46:32.322560+00:00",
+  "source": "real IEX shared market-data lake ($MARKET_DATA_ROOT)",
+  "split_adjustment_applied": false,
+  "split_symbol": "POET",
+  "start_date": "2026-03-01",
+  "symbols": [
+    "AAL",
+    "NOK",
+    "UAMY",
+    "HTZ",
+    "CABA",
+    "VERI",
+    "POET"
+  ],
+  "synthetic_fallback": false
+}

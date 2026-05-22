@@ -366,6 +366,11 @@ def run_backtest(
         daily_bars_supplier=daily_bars_supplier,
         minute_bars_supplier=minute_bars_supplier,
         scan_times_per_session=scan_times_per_session,
+        # Realism remediation 2 Phase 3 — the daily-feature cache feeds the
+        # feature-leakage check; the full-session minute supplier feeds the
+        # session-level minute-count / gap / stale checks.
+        daily_cache_by_session=daily_cache_by_session,
+        session_minute_supplier=session_minute_supplier,
     )
     atomic_write_json(run_dir / "data_quality_report.json", data_quality_report)
     startup_dq_failure = evaluate_startup_dq(

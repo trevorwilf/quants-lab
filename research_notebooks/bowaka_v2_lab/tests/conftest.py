@@ -37,6 +37,44 @@ if _REPO_ROOT is not None:
                 os.environ.setdefault(k, v)
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register the ``--lake-source`` option (realism remediation 2 Phase 3).
+
+    Governs how :func:`tests.fixtures.loader.load_iex_subset` resolves an IEX
+    fixture lake:
+
+    - ``committed`` — the in-repo real-IEX parquet subset (default for CI).
+    - ``lake`` — a fresh subset pulled from the full shared lake at
+      ``$MARKET_DATA_ROOT`` (preferred when the real lake is mounted).
+    - ``auto`` — committed if present, else ``lake``, else synthetic.
+    """
+    parser.addoption(
+        "--lake-source",
+        action="store",
+        default="auto",
+        choices=("committed", "lake", "auto"),
+        help="how IEX-subset tests resolve their lake: committed | lake | auto",
+    )
+
+
+@pytest.fixture(scope="session")
+def lake_source(request: pytest.FixtureRequest) -> str:
+    """The ``--lake-source`` CLI value (``committed`` | ``lake`` | ``auto``)."""
+    return str(request.config.getoption("--lake-source"))
+
+
+@pytest.fixture
+def iex_subset(lake_source: str, tmp_path: Path):
+    """The resolved IEX fixture subset for a test.
+
+    Honours ``--lake-source``. For ``--lake-source lake`` a fresh subset is
+    pulled from the full shared lake into the test's ``tmp_path``.
+    """
+    from tests.fixtures.loader import load_iex_subset
+
+    return load_iex_subset(lake_source=lake_source, tmp_path=tmp_path)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _test_session_banner() -> None:
     """Log the worker PID once per session and ensure the JUnit output dir exists.

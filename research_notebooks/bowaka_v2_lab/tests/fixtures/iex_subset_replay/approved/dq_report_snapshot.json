@@ -1,0 +1,510 @@
+{
+  "adjustment_gating_failures": [],
+  "checks": [
+    {
+      "count": 0,
+      "evidence": {
+        "lake_adjustment": "raw",
+        "require_adjusted_daily_bars": false
+      },
+      "name": "adjustment_mismatch",
+      "source_file": "manifest.json",
+      "status": "pass",
+      "threshold": {
+        "require_adjusted_daily_bars": false
+      }
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "audited_symbols": 7,
+        "offending_symbols": 0,
+        "per_symbol": {}
+      },
+      "name": "audit_duplicate_sessions",
+      "source_file": "audit_2026-05-21T000000Z_iex_subset_fixture.parquet",
+      "status": "pass",
+      "threshold": 0
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "audited_symbols": 7,
+        "offending_symbols": 0,
+        "per_symbol": {}
+      },
+      "name": "audit_large_gap_flags",
+      "source_file": "audit_2026-05-21T000000Z_iex_subset_fixture.parquet",
+      "status": "pass",
+      "threshold": 0
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "audited_symbols": 7,
+        "offending_symbols": 0,
+        "per_symbol": {}
+      },
+      "name": "audit_missing_sessions",
+      "source_file": "audit_2026-05-21T000000Z_iex_subset_fixture.parquet",
+      "status": "pass",
+      "threshold": 0
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "audited_symbols": 7,
+        "offending_symbols": 0,
+        "per_symbol": {}
+      },
+      "name": "audit_ohlc_violations",
+      "source_file": "audit_2026-05-21T000000Z_iex_subset_fixture.parquet",
+      "status": "pass",
+      "threshold": 0
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "audited_symbols": 7,
+        "failed_symbols": []
+      },
+      "name": "audit_passed_research_audit",
+      "source_file": "audit_2026-05-21T000000Z_iex_subset_fixture.parquet",
+      "status": "pass",
+      "threshold": 0
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "audited_symbols": 7,
+        "offending_symbols": 0,
+        "per_symbol": {}
+      },
+      "name": "audit_zero_volume_sessions",
+      "source_file": "audit_2026-05-21T000000Z_iex_subset_fixture.parquet",
+      "status": "pass",
+      "threshold": 0
+    },
+    {
+      "count": 3,
+      "evidence": {
+        "expected_pairs": 21,
+        "missing_daily": [],
+        "missing_fraction": 0.142857,
+        "missing_minute": [
+          "HTZ@2026-04-02",
+          "VERI@2026-04-02",
+          "CABA@2026-04-06"
+        ],
+        "missing_pairs": 3
+      },
+      "name": "coverage_missing",
+      "source_file": "(per-run coverage probe)",
+      "status": "fail",
+      "threshold": {
+        "expected_pairs": 21,
+        "fail_fraction": 0.01
+      }
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "missing": 0,
+        "missing_examples": [],
+        "missing_fraction": 0.0,
+        "probes": 21
+      },
+      "name": "coverage_missing_exit_path",
+      "source_file": "(replay-level probe)",
+      "status": "pass",
+      "threshold": {
+        "fail_fraction": 0.05,
+        "probes": 21
+      }
+    },
+    {
+      "count": 2,
+      "evidence": {
+        "missing": 2,
+        "missing_examples": [
+          "HTZ@2026-04-02T13:46",
+          "VERI@2026-04-02T13:46"
+        ],
+        "missing_fraction": 0.011905,
+        "probes": 168
+      },
+      "name": "coverage_missing_late_session",
+      "source_file": "(replay-level probe)",
+      "status": "warn",
+      "threshold": {
+        "fail_fraction": 0.05,
+        "probes": 168
+      }
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "caches_probed": 3,
+        "leaking_sessions": []
+      },
+      "name": "feature_leakage",
+      "source_file": "(feature-level probe)",
+      "status": "pass",
+      "threshold": {
+        "rule": "daily cache must contain only sessions strictly before the scan session"
+      }
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "corporate_actions_available": true,
+        "lake_adjustment": "raw"
+      },
+      "name": "feature_split_unaware",
+      "source_file": "(feature-level probe)",
+      "status": "pass",
+      "threshold": {
+        "require_adjusted_daily_bars": false
+      }
+    },
+    {
+      "count": 1,
+      "evidence": {
+        "detail": "the strategy's halt gate is enabled but the lake has no statuses/ partitions \u2014 halts / LULD pauses cannot be modelled; current-code parity tolerates this (live code fails open)",
+        "halt_gate_enabled": true,
+        "simulation_mode": "current_code_parity",
+        "status_partitions_available": false
+      },
+      "name": "halt_data_unavailable_when_required",
+      "source_file": "status-level probe)",
+      "status": "warn",
+      "threshold": {
+        "halt_gate_enabled": true
+      }
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "offending_symbols": [],
+        "per_symbol": {}
+      },
+      "name": "ingestion_duplicate_timestamps",
+      "source_file": "(ingestion-level probe)",
+      "status": "pass",
+      "threshold": 0
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "offending_symbols": [],
+        "per_symbol": {}
+      },
+      "name": "ingestion_nonpositive_price",
+      "source_file": "(ingestion-level probe)",
+      "status": "pass",
+      "threshold": 0
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "offending_symbols": [],
+        "per_symbol": {}
+      },
+      "name": "ingestion_ohlc_violation",
+      "source_file": "(ingestion-level probe)",
+      "status": "pass",
+      "threshold": 0
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "offending_symbols": [],
+        "per_symbol": {}
+      },
+      "name": "ingestion_schema",
+      "source_file": "(ingestion-level probe)",
+      "status": "pass",
+      "threshold": [
+        "close",
+        "high",
+        "low",
+        "open",
+        "timestamp",
+        "volume"
+      ]
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "offending_symbols": [],
+        "per_symbol": {}
+      },
+      "name": "ingestion_timestamps_sorted",
+      "source_file": "(ingestion-level probe)",
+      "status": "pass",
+      "threshold": "monotonic_increasing"
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "offending_symbols": [],
+        "per_symbol": {}
+      },
+      "name": "ingestion_volume_anomaly",
+      "source_file": "(ingestion-level probe)",
+      "status": "pass",
+      "threshold": {
+        "sigma": 3.0,
+        "window": 20
+      }
+    },
+    {
+      "count": 12,
+      "evidence": {
+        "gap_sessions": [
+          {
+            "gap_count": 3,
+            "max_gap_minutes": 10.0,
+            "session": "2026-04-02",
+            "severe_gap_count": 0,
+            "symbol": "HTZ"
+          },
+          {
+            "gap_count": 11,
+            "max_gap_minutes": 8.0,
+            "session": "2026-04-02",
+            "severe_gap_count": 0,
+            "symbol": "CABA"
+          },
+          {
+            "gap_count": 27,
+            "max_gap_minutes": 27.0,
+            "session": "2026-04-02",
+            "severe_gap_count": 0,
+            "symbol": "VERI"
+          },
+          {
+            "gap_count": 3,
+            "max_gap_minutes": 9.0,
+            "session": "2026-04-02",
+            "severe_gap_count": 0,
+            "symbol": "POET"
+          },
+          {
+            "gap_count": 1,
+            "max_gap_minutes": 7.0,
+            "session": "2026-04-06",
+            "severe_gap_count": 0,
+            "symbol": "HTZ"
+          },
+          {
+            "gap_count": 17,
+            "max_gap_minutes": 24.0,
+            "session": "2026-04-06",
+            "severe_gap_count": 0,
+            "symbol": "CABA"
+          },
+          {
+            "gap_count": 14,
+            "max_gap_minutes": 13.0,
+            "session": "2026-04-06",
+            "severe_gap_count": 0,
+            "symbol": "VERI"
+          },
+          {
+            "gap_count": 4,
+            "max_gap_minutes": 9.0,
+            "session": "2026-04-06",
+            "severe_gap_count": 0,
+            "symbol": "POET"
+          },
+          {
+            "gap_count": 1,
+            "max_gap_minutes": 7.0,
+            "session": "2026-04-07",
+            "severe_gap_count": 0,
+            "symbol": "NOK"
+          },
+          {
+            "gap_count": 21,
+            "max_gap_minutes": 18.0,
+            "session": "2026-04-07",
+            "severe_gap_count": 0,
+            "symbol": "CABA"
+          },
+          {
+            "gap_count": 14,
+            "max_gap_minutes": 11.0,
+            "session": "2026-04-07",
+            "severe_gap_count": 0,
+            "symbol": "VERI"
+          },
+          {
+            "gap_count": 3,
+            "max_gap_minutes": 7.0,
+            "session": "2026-04-07",
+            "severe_gap_count": 0,
+            "symbol": "POET"
+          }
+        ],
+        "sessions_probed": 21,
+        "sessions_with_gap": 12,
+        "sessions_with_severe_gap": 0,
+        "severe_gap_fraction": 0.0
+      },
+      "name": "intraday_gap",
+      "source_file": "(session-level probe)",
+      "status": "warn",
+      "threshold": {
+        "fail_fraction": 0.5,
+        "flag_gap_minutes": 5,
+        "severe_gap_minutes": 30
+      }
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "detail": "no per-candidate quote rows to summarise",
+        "n": 0,
+        "unit": "seconds"
+      },
+      "name": "quote_age_distribution",
+      "source_file": "status-level probe)",
+      "status": "pass",
+      "threshold": null
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "detail": "no per-candidate quote rows to summarise",
+        "n": 0,
+        "unit": "bps"
+      },
+      "name": "quote_spread_distribution",
+      "source_file": "status-level probe)",
+      "status": "pass",
+      "threshold": null
+    },
+    {
+      "count": 1,
+      "evidence": {
+        "quotes_partitions_available": false
+      },
+      "name": "quotes_partitions_available",
+      "source_file": " probe)",
+      "status": "warn",
+      "threshold": null
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "candidates_with_quote": 0,
+        "stale_quote_candidates": 0
+      },
+      "name": "replay_quote_age_violation",
+      "source_file": "(replay-level probe)",
+      "status": "pass",
+      "threshold": {
+        "max_quote_age_seconds": 15.0
+      }
+    },
+    {
+      "count": 7,
+      "evidence": {
+        "sessions_probed": 21,
+        "short_fraction": 0.333333,
+        "short_sessions": [
+          {
+            "expected": 390,
+            "observed": 185,
+            "session": "2026-04-02",
+            "symbol": "CABA"
+          },
+          {
+            "expected": 390,
+            "observed": 105,
+            "session": "2026-04-02",
+            "symbol": "VERI"
+          },
+          {
+            "expected": 390,
+            "observed": 123,
+            "session": "2026-04-06",
+            "symbol": "CABA"
+          },
+          {
+            "expected": 390,
+            "observed": 173,
+            "session": "2026-04-06",
+            "symbol": "VERI"
+          },
+          {
+            "expected": 390,
+            "observed": 246,
+            "session": "2026-04-06",
+            "symbol": "POET"
+          },
+          {
+            "expected": 390,
+            "observed": 133,
+            "session": "2026-04-07",
+            "symbol": "CABA"
+          },
+          {
+            "expected": 390,
+            "observed": 146,
+            "session": "2026-04-07",
+            "symbol": "VERI"
+          }
+        ]
+      },
+      "name": "session_minute_count_violation",
+      "source_file": "(session-level probe)",
+      "status": "warn",
+      "threshold": {
+        "early_close": 210,
+        "fail_fraction": 0.8,
+        "regular": 390
+      }
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "sessions_probed": 21,
+        "stale_sessions": []
+      },
+      "name": "session_stale_segment",
+      "source_file": "(session-level probe)",
+      "status": "pass",
+      "threshold": {
+        "stale_minutes": 15
+      }
+    },
+    {
+      "count": 0,
+      "evidence": {
+        "lake_adjustment": "raw",
+        "require_split_adjustment": false,
+        "split_adjustment_applied": false,
+        "split_adjustment_applied_source": "manifest.split_adjustment_applied"
+      },
+      "name": "split_adjustment_mismatch",
+      "source_file": "manifest.json",
+      "status": "pass",
+      "threshold": {
+        "require_split_adjustment": false
+      }
+    }
+  ],
+  "failed": 1,
+  "feed": "iex",
+  "notes": "",
+  "passed": 21,
+  "per_symbol_failures": {},
+  "regime": "lake",
+  "required_failures": [
+    "coverage_missing"
+  ],
+  "schema_version": 2,
+  "warned": 5
+}
