@@ -86,6 +86,10 @@ def write_walkforward_test_config(
     raw["backtest"]["end_date"] = end.isoformat()
     raw["market_data"]["shared_root"] = str(lake)
     raw["market_data"]["feed"] = "iex"  # pin to match build_tiny_lake's feed
+    # The tiny lake is synthetic test data -> pin smoke_fixture so these tests
+    # are insulated from the shipping config's simulation.mode. Callers pass
+    # allow_smoke=True / --allow-smoke-optimization to clear the smoke gate.
+    raw["simulation"] = {"mode": "smoke_fixture"}
     raw.setdefault("universe", {})["symbols"] = list(symbols)
     raw["optuna"]["n_trials"] = n_trials
     raw["optuna"]["n_jobs"] = 1

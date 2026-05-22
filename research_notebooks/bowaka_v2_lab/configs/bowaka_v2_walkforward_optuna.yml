@@ -1,14 +1,20 @@
 # Bowaka v2 walk-forward Optuna config.
-# Phase 9 of the realism remediation rebuilds the search space; this file
-# establishes the structure. feed: iex -> simulation.mode is smoke_fixture
-# (IEX is partial-tape, plumbing-only); `optuna` refuses it unless
-# --allow-smoke-optimization is passed.
+#
+# simulation.mode: current_code_parity -- reproduces the live Bowaka v2 strategy
+# as it actually runs (the live config is feed: iex, paper). The walk-forward
+# study optimizes parameters against the real IEX market-data lake.
+#
+# Caveat: IEX is partial-tape coverage -- RVOL / range-expansion / projected
+# full-day RVOL are biased low for names that route flow off-IEX. These results
+# tune the live IEX paper setup; they are NOT a SIP-validated strategy, and
+# promotion stays capped at backtesting_only. For research-grade tuning,
+# backfill a SIP lake and switch to feed: sip + simulation.mode: intended_realism.
 
 strategy_id: bowaka_v2
 strategy_version: "0.1.0"
 
 simulation:
-  mode: smoke_fixture
+  mode: current_code_parity
 
 market_data:
   feed: iex
@@ -30,8 +36,8 @@ session:
 universe:
   asset_classes: [operating_equity]
   min_price: 1.0
-  max_price: 1000.0
-  min_adv_dollars: 2000000
+  max_price: 20.0
+  min_adv_dollars: 250000
   exclude_pattern_class: true
 
 scanner:
@@ -41,6 +47,22 @@ scanner:
 
 signals:
   allow_unknown_instrument_class_for_research: false
+  # Live IEX signal-gate thresholds — current_code_parity reproduces live.
+  rvol_so_far_min: 0.7
+  projected_full_day_rvol_min: 0.5
+  prior_atr_pct_min: 0.06
+  range_expansion_so_far_min: 0.5
+  close_location_so_far_min: 0.60
+  ema_distance_min: -0.05
+  ema_slope_min: -0.05
+  price_min: 1.0
+  price_max: 20.0
+  avg_dollar_volume_min: 250000
+  rvol_so_far_max: 8.0
+  projected_full_day_rvol_max: 8.0
+  range_expansion_so_far_max: 2.50
+  gap_pct_max: 0.25
+  current_return_pct_max: 0.50
 
 execution:
   order_type: marketable_limit
@@ -69,7 +91,7 @@ exits:
   signal_fade_mode: telemetry_only
 
 backtest:
-  start_date: "2024-01-01"
+  start_date: "2024-05-01"
   end_date: "2026-05-15"
   cost_stress: conservative
   entry_delay_minutes: 0

@@ -9,8 +9,18 @@ REFUSES the study — raising :class:`PreflightError` — when:
 
 1. ``simulation.mode == smoke_fixture`` and ``allow_smoke`` is not set
    (deterministic synthetic data is not a research objective);
-2. the dataset's data-quality report has a failing *required* check;
-3. historical quote coverage is below the configured threshold.
+2. the run is ``intended_realism`` and the dataset's data-quality report has a
+   failing *required* check;
+3. the run is ``intended_realism`` and historical quote coverage is below the
+   configured threshold.
+
+Checks 2 and 3 gate **only ``intended_realism``** runs — mirroring the
+data-quality contract (``data_quality.py``: "Only ``intended_realism`` runs are
+gated; ``smoke_fixture`` and ``current_code_parity`` runs surface the same
+report but are never failed by it"). For a ``current_code_parity`` study a
+failing required DQ check or low quote coverage is recorded as a ``warn`` — it
+is surfaced in the study metadata but does not refuse the run, because parity
+mode reproduces the live code (which uses the zero-spread quote fallback).
 
 The checks are skipped (with a recorded ``skipped`` status) when they cannot
 apply — e.g. quote coverage is not meaningful for a ``smoke_fixture`` run that
@@ -31,7 +41,7 @@ class PreflightError(RuntimeError):
 @dataclass
 class PreflightCheck:
     name: str
-    status: str  # "pass" | "fail" | "skipped"
+    status: str  # "pass" | "fail" | "warn" | "skipped"
     detail: str
     evidence: dict[str, Any] = field(default_factory=dict)
 
@@ -127,19 +137,33 @@ def _check_data_quality(
             evidence={"regime": regime, "simulation_mode": sim_mode},
         )
     if required_failures:
+        evidence = {
+            "regime": regime,
+            "failed": failed,
+            "required_failures": sorted(required_failures),
+        }
+        # The data-quality contract gates ONLY intended_realism runs;
+        # current_code_parity surfaces the same report but is never failed by it.
+        if sim_mode == "intended_realism":
+            return PreflightCheck(
+                name="data_quality",
+                status="fail",
+                detail=(
+                    f"the dataset's data-quality report has {len(required_failures)} "
+                    f"failing required check(s): {sorted(required_failures)} — the lake "
+                    f"cannot support a research-grade optimization"
+                ),
+                evidence=evidence,
+            )
         return PreflightCheck(
             name="data_quality",
-            status="fail",
+            status="warn",
             detail=(
-                f"the dataset's data-quality report has {len(required_failures)} "
-                f"failing required check(s): {sorted(required_failures)} — the lake "
-                f"cannot support a research-grade optimization"
+                f"simulation.mode={sim_mode!r} is not data-quality-gated; the report "
+                f"has {len(required_failures)} failing required check(s): "
+                f"{sorted(required_failures)} — surfaced as a warning, study permitted"
             ),
-            evidence={
-                "regime": regime,
-                "failed": failed,
-                "required_failures": sorted(required_failures),
-            },
+            evidence=evidence,
         )
     return PreflightCheck(
         name="data_quality",
@@ -180,18 +204,33 @@ def _check_quote_coverage(
         )
     coverage = float(quote_coverage_pct)
     if coverage < float(min_quote_coverage_pct):
+        evidence = {
+            "historical_quote_coverage_pct": round(coverage, 4),
+            "min_quote_coverage_pct": float(min_quote_coverage_pct),
+        }
+        # Only intended_realism requires real historical quotes; current_code_parity
+        # uses the zero-spread quote fallback (the live code's own behavior), so low
+        # coverage is a surfaced warning, not a refusal.
+        if sim_mode == "intended_realism":
+            return PreflightCheck(
+                name="quote_coverage",
+                status="fail",
+                detail=(
+                    f"historical quote coverage {coverage:.2f}% is below the required "
+                    f"{float(min_quote_coverage_pct):.2f}% — the lake has insufficient "
+                    f"historical quotes for a research-grade optimization"
+                ),
+                evidence=evidence,
+            )
         return PreflightCheck(
             name="quote_coverage",
-            status="fail",
+            status="warn",
             detail=(
-                f"historical quote coverage {coverage:.2f}% is below the required "
-                f"{float(min_quote_coverage_pct):.2f}% — the lake has insufficient "
-                f"historical quotes for a research-grade optimization"
+                f"historical quote coverage {coverage:.2f}% is below "
+                f"{float(min_quote_coverage_pct):.2f}%, but simulation.mode={sim_mode!r} "
+                f"uses the quote fallback — surfaced as a warning, study permitted"
             ),
-            evidence={
-                "historical_quote_coverage_pct": round(coverage, 4),
-                "min_quote_coverage_pct": float(min_quote_coverage_pct),
-            },
+            evidence=evidence,
         )
     return PreflightCheck(
         name="quote_coverage",

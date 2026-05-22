@@ -27,7 +27,7 @@ def test_papermill_execute_notebook_10(tmp_path: Path, lab_root: Path) -> None:
     pm.execute_notebook(
         str(_NB),
         str(out),
-        parameters={"CONFIG_PATH": str(cfg_path), "N_TRIALS": 2, "ALLOW_SMOKE": True},
+        parameters={"CONFIG_PATH": str(cfg_path), "N_TRIALS": 2, "FEED": "synthetic"},
         cwd=str(lab_root),
         kernel_name="python3",
         execution_timeout=600,

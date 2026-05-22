@@ -103,3 +103,18 @@ def test_probe_quote_coverage_none_supplier_returns_none() -> None:
     )
     cov = next(c for c in result.checks if c.name == "quote_coverage")
     assert cov.status == "skipped"
+
+
+def test_preflight_does_not_refuse_current_code_parity_on_low_coverage() -> None:
+    """current_code_parity uses the zero-spread quote fallback — low historical
+    quote coverage is a surfaced warning, not a refusal."""
+    result = run_preflight(
+        sim_mode="current_code_parity",
+        allow_smoke=False,
+        dq_report=_clean_dq(),
+        quote_coverage_pct=10.0,
+        min_quote_coverage_pct=95.0,
+    )
+    assert result.passed is True
+    cov = next(c for c in result.checks if c.name == "quote_coverage")
+    assert cov.status == "warn"

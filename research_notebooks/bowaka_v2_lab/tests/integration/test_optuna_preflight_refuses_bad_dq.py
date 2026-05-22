@@ -80,3 +80,20 @@ def test_preflight_passes_on_a_clean_dq_report() -> None:
     assert result.passed is True
     dq_check = next(c for c in result.checks if c.name == "data_quality")
     assert dq_check.status == "pass"
+
+
+def test_preflight_does_not_refuse_current_code_parity_on_failing_dq() -> None:
+    """current_code_parity is not DQ-gated — a failing required check warns, not fails.
+
+    Mirrors the data_quality.py contract: only intended_realism is gated.
+    """
+    result = run_preflight(
+        sim_mode="current_code_parity",
+        allow_smoke=False,
+        dq_report=_failing_dq_report(),
+        quote_coverage_pct=100.0,
+    )
+    assert result.passed is True
+    dq_check = next(c for c in result.checks if c.name == "data_quality")
+    assert dq_check.status == "warn"
+    assert "coverage_missing" in dq_check.evidence["required_failures"]
