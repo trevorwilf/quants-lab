@@ -52,10 +52,10 @@ exits:
     enabled: true
     exit_time: '15:45'
 market_data:
-  allow_non_sip_for_research_only: false
+  allow_non_sip_for_research_only: true
   assume_naive_timezone: false
   daily_bar_source: alpaca
-  feed: sip
+  feed: iex
   max_bar_age_seconds: 90
   max_quote_age_seconds: 15
   minute_bar_source: alpaca

@@ -32,7 +32,12 @@ REFERENCE_DIR = Path(__file__).resolve().parents[3] / "reference"
 ACTUAL_CONTRACT_PATH = REFERENCE_DIR / "actual_bowaka_v2_contract.yaml"
 
 #: Live-config sections pinned verbatim into the contract (audit §11 Phase 0).
+#: ``data`` added in realism remediation 2 Phase 1 (audit §P0-005): the live
+#: ``data:`` block carries ``require_adjusted_daily_bars`` /
+#: ``require_split_adjustment`` / ``max_bar_age_seconds`` / ``max_quote_age_seconds``,
+#: which the contract->config mapper threads into ``market_data.*``.
 CONTRACT_SECTIONS: tuple[str, ...] = (
+    "data",
     "session",
     "universe",
     "historical_features",
@@ -45,7 +50,8 @@ CONTRACT_SECTIONS: tuple[str, ...] = (
     "exits",
 )
 #: Contract schema version — bump whenever :data:`CONTRACT_SECTIONS` changes.
-CONTRACT_SCHEMA_VERSION = 1
+#: v2: realism remediation 2 Phase 1 added the ``data`` section.
+CONTRACT_SCHEMA_VERSION = 2
 
 #: Basename of the live strategy config.
 _LIVE_CONFIG_NAME = "bowaka_v2_config.yaml"

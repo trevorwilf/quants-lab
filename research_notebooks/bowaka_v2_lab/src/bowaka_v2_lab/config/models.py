@@ -108,10 +108,22 @@ class MarketDataConfig(_StrictBase):
     daily_bar_source: str = "alpaca"
     quote_source: str = "alpaca"
     assume_naive_timezone: bool = False
-    # Realism Phase 2: when True, a run whose lake declares ``adjustment: raw``
-    # (corporate actions not applied to daily bars) fails the data-quality gate
-    # in ``intended_realism`` mode. Default False — the current lake is raw.
-    require_adjusted_daily_bars: bool = False
+    # Realism Phase 2 / remediation-2 Phase 1: when True, a run whose lake
+    # declares ``adjustment: raw`` (corporate actions not applied to daily bars)
+    # fails the data-quality gate. The live contract sets this ``true``
+    # (``data.require_adjusted_daily_bars``). The field defaults to ``None`` so a
+    # ``BowakaV2Config`` cross-field validator can require it to be set
+    # *explicitly* for ``intended_realism`` / ``current_code_parity`` configs
+    # (an unset value there is a config defect); ``smoke_fixture`` configs keep
+    # the historical ``False`` default. After validation it is always concrete.
+    require_adjusted_daily_bars: Optional[bool] = None
+    # Realism remediation-2 Phase 1: the live contract requires split-adjusted
+    # daily bars (``data.require_split_adjustment``). When True a run whose lake
+    # has not applied split adjustments fails the data-quality gate.
+    require_split_adjustment: bool = False
+    # Realism remediation-2 Phase 1: maximum quote age (seconds) tolerated by the
+    # quote gate; mirrors the live contract ``data.max_quote_age_seconds``.
+    max_quote_age_seconds: int = Field(default=15, ge=0)
     # Optional override of the shared market-data lake root. None -> resolve
     # MARKET_DATA_ROOT / the in-repo default. NOT routed through BowakaV2Paths,
     # so assert_strategy_isolation() keeps governing only lab-owned paths.
@@ -399,4 +411,34 @@ class BowakaV2Config(_StrictBase):
                     f"signal gate to be set; missing: {sorted(missing)}. Set them, "
                     f"or set simulation.allow_research_relaxed: true for a research run."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _resolve_require_adjusted_daily_bars(self) -> "BowakaV2Config":
+        """Enforce / resolve ``market_data.require_adjusted_daily_bars``.
+
+        The field defaults to ``None`` (unset). The live contract requires
+        adjusted daily bars (``data.require_adjusted_daily_bars: true``), so a
+        real-mode config that omits the flag would silently allow raw daily
+        baselines — a config defect.
+
+        - ``intended_realism`` / ``current_code_parity`` — the flag MUST be set
+          explicitly (by the loader / the contract->config mapper). Unset raises.
+        - ``smoke_fixture`` — synthetic plumbing data; an unset flag resolves to
+          the historical ``False`` default.
+
+        After validation ``require_adjusted_daily_bars`` is always a concrete
+        ``bool``, so the data-quality layer / run manifest never see ``None``.
+        """
+        if self.market_data.require_adjusted_daily_bars is None:
+            if self.simulation.mode in ("intended_realism", "current_code_parity"):
+                raise ValueError(
+                    f"simulation.mode={self.simulation.mode!r} requires "
+                    f"market_data.require_adjusted_daily_bars to be set explicitly "
+                    f"(the live contract sets data.require_adjusted_daily_bars: true). "
+                    f"Generate the config with `bowaka-v2-lab import-actual-config`, "
+                    f"or set the field explicitly in the YAML."
+                )
+            # smoke_fixture — resolve the unset flag to the historical default.
+            self.market_data.require_adjusted_daily_bars = False
         return self

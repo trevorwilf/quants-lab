@@ -161,6 +161,23 @@ def lake_adjustment(lake_manifest: Optional[Mapping[str, Any]]) -> str:
     return _layout.DEFAULT_ADJUSTMENT  # "raw"
 
 
+def lake_split_adjustment_applied(
+    lake_manifest: Optional[Mapping[str, Any]],
+) -> Optional[bool]:
+    """Whether the lake applied split adjustments, per its manifest.
+
+    Realism remediation 2 Phase 1 — reads the optional manifest
+    ``split_adjustment_applied`` flag (extends the dataset-manifest schema).
+    Returns ``None`` when the manifest omits the flag, so the caller can fall
+    back to inferring it from the adjustment policy.
+    """
+    if lake_manifest:
+        v = lake_manifest.get("split_adjustment_applied")
+        if v is not None:
+            return bool(v)
+    return None
+
+
 def _lake_manifest_hash(lake_manifest: Optional[Mapping[str, Any]]) -> str:
     """The lake's own content hash from ``dataset_hashes.lake``; ``"none"`` if absent."""
     if not lake_manifest:
@@ -281,5 +298,6 @@ __all__ = [
     "symbol_universe_hash",
     "lake_provider",
     "lake_adjustment",
+    "lake_split_adjustment_applied",
     "quotes_partitions_available",
 ]

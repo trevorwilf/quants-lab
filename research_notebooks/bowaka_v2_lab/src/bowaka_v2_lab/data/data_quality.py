@@ -64,9 +64,23 @@ _REQUIRED_CHECK_NAMES: frozenset[str] = frozenset(
         "audit_passed_research_audit",
         "coverage_missing",
         "adjustment_mismatch",
+        "split_adjustment_mismatch",
         "quotes_required_but_absent",
         # Realism Phase 6 — finalize-step historical-quote-coverage gate.
         "quote_coverage",
+    }
+)
+
+#: Adjustment-enforcement checks (realism remediation 2 Phase 1, audit §P0-005).
+#: Unlike the rest of :data:`_REQUIRED_CHECK_NAMES` — which gate only
+#: ``intended_realism`` — these gate ANY non-smoke run: a ``current_code_parity``
+#: run against a raw lake whose config requires adjusted daily bars must also
+#: fail closed (raw daily baselines silently corrupt RVOL / ATR / EMA / split
+#: gates). ``smoke_fixture`` runs are still never gated by data quality.
+_ADJUSTMENT_GATING_CHECK_NAMES: frozenset[str] = frozenset(
+    {
+        "adjustment_mismatch",
+        "split_adjustment_mismatch",
     }
 )
 
@@ -312,6 +326,14 @@ def build_adjustment_check(
     require adjustment the check is informational (``pass``).
     """
     mismatch = bool(require_adjusted) and str(lake_adjustment) == "raw"
+    detail = None
+    if mismatch:
+        detail = (
+            "config requires adjusted daily bars "
+            "(market_data.require_adjusted_daily_bars=true) but the lake declares "
+            "adjustment=raw — raw daily baselines silently corrupt RVOL / ATR / "
+            "EMA / split-sensitive price gates"
+        )
     return _check(
         name="adjustment_mismatch",
         status="fail" if mismatch else "pass",
@@ -321,6 +343,58 @@ def build_adjustment_check(
         evidence={
             "lake_adjustment": str(lake_adjustment),
             "require_adjusted_daily_bars": bool(require_adjusted),
+            **({"detail": detail} if detail else {}),
+        },
+    )
+
+
+def build_split_adjustment_check(
+    *,
+    require_split_adjustment: bool,
+    split_adjustment_applied: Optional[bool],
+    lake_adjustment: str,
+    source_file: str,
+) -> dict[str, Any]:
+    """Check the lake's split-adjustment state against ``require_split_adjustment``.
+
+    Realism remediation 2 Phase 1 (audit §P0-005). A config that requires
+    split-adjusted daily bars produces ``split_adjustment_mismatch: fail`` (a
+    required, adjustment-gating check) when the lake has NOT applied split
+    adjustments. The lake's split-adjustment state is read from the manifest's
+    ``split_adjustment_applied`` flag; when that flag is absent it is inferred
+    from the adjustment policy (``split_adjusted`` / ``adjusted`` -> applied,
+    ``raw`` -> not applied). If the config does not require split adjustment the
+    check is informational (``pass``).
+    """
+    require = bool(require_split_adjustment)
+    if split_adjustment_applied is None:
+        # Infer from the adjustment policy when the manifest omits the flag.
+        applied = str(lake_adjustment) in ("split_adjusted", "adjusted")
+        applied_source = f"inferred from adjustment={lake_adjustment!r}"
+    else:
+        applied = bool(split_adjustment_applied)
+        applied_source = "manifest.split_adjustment_applied"
+    mismatch = require and not applied
+    detail = None
+    if mismatch:
+        detail = (
+            "config requires split-adjusted daily bars "
+            "(market_data.require_split_adjustment=true) but the lake has not "
+            "applied split adjustments — splits / reverse-splits in microcaps "
+            "produce invalid price / ATR / gap / RVOL features"
+        )
+    return _check(
+        name="split_adjustment_mismatch",
+        status="fail" if mismatch else "pass",
+        count=1 if mismatch else 0,
+        threshold={"require_split_adjustment": require},
+        source_file=source_file,
+        evidence={
+            "lake_adjustment": str(lake_adjustment),
+            "require_split_adjustment": require,
+            "split_adjustment_applied": applied,
+            "split_adjustment_applied_source": applied_source,
+            **({"detail": detail} if detail else {}),
         },
     )
 
@@ -494,6 +568,13 @@ def assemble_report(
         for c in checks
         if c["status"] == "fail" and c["name"] in _REQUIRED_CHECK_NAMES
     ]
+    # Adjustment-enforcement failures gate ANY non-smoke run (audit §P0-005);
+    # the rest of required_failures gate only intended_realism.
+    adjustment_gating_failures = [
+        c["name"]
+        for c in checks
+        if c["status"] == "fail" and c["name"] in _ADJUSTMENT_GATING_CHECK_NAMES
+    ]
     return {
         "schema_version": DATA_QUALITY_SCHEMA_VERSION,
         "regime": regime,
@@ -504,6 +585,7 @@ def assemble_report(
         "checks": checks,
         "per_symbol_failures": {k: sorted(set(v)) for k, v in sorted(per_symbol_failures.items())},
         "required_failures": sorted(set(required_failures)),
+        "adjustment_gating_failures": sorted(set(adjustment_gating_failures)),
         "notes": notes,
     }
 
@@ -512,18 +594,35 @@ def evaluate_startup_dq(report: Mapping[str, Any], *, simulation_mode: str) -> O
     """Decide whether a run must fail closed on data quality.
 
     Returns ``None`` when the run may proceed, or a human-readable rejection
-    reason string when it must not. Only ``intended_realism`` runs are gated:
-    ``smoke_fixture`` and ``current_code_parity`` runs always return ``None``.
+    reason string when it must not. The gate is mode-tiered:
+
+    - ``intended_realism`` — gated on EVERY required check (audit / coverage /
+      adjustment / quote).
+    - ``current_code_parity`` — gated ONLY on the adjustment-enforcement checks
+      (``adjustment_mismatch`` / ``split_adjustment_mismatch``): a parity run
+      against a raw lake whose config requires adjusted daily bars must still
+      fail closed (audit §P0-005). Other DQ failures are tolerated — parity mode
+      reproduces the live code warts and all.
+    - ``smoke_fixture`` — never gated by data quality.
+
+    See :data:`_ADJUSTMENT_GATING_CHECK_NAMES`.
     """
-    if simulation_mode != "intended_realism":
+    if simulation_mode == "smoke_fixture":
         return None
-    required_failures = list(report.get("required_failures") or [])
-    if not required_failures:
+    if simulation_mode == "intended_realism":
+        gating_failures = list(report.get("required_failures") or [])
+    elif simulation_mode == "current_code_parity":
+        gating_failures = list(report.get("adjustment_gating_failures") or [])
+    else:
+        # Unknown mode — fail closed on the adjustment-enforcement checks only,
+        # which is the most conservative interpretation that still runs.
+        gating_failures = list(report.get("adjustment_gating_failures") or [])
+    if not gating_failures:
         return None
-    # Compose a precise reason from each failing required check.
+    # Compose a precise reason from each failing gating check.
     by_name = {c["name"]: c for c in report.get("checks", [])}
     details: list[str] = []
-    for name in required_failures:
+    for name in gating_failures:
         c = by_name.get(name, {})
         evidence = c.get("evidence") or {}
         detail = evidence.get("detail")
@@ -532,7 +631,7 @@ def evaluate_startup_dq(report: Mapping[str, Any], *, simulation_mode: str) -> O
         else:
             details.append(f"{name}: count={c.get('count')}")
     return (
-        f"intended_realism run aborted: {len(required_failures)} required "
+        f"{simulation_mode} run aborted: {len(gating_failures)} required "
         f"data-quality check(s) failed: " + "; ".join(details)
     )
 
@@ -605,16 +704,31 @@ def build_data_quality_report(
     )
 
     # --- adjustment / corporate actions ---
+    from .lineage import lake_split_adjustment_applied
+
     require_adjusted = bool(md.get("require_adjusted_daily_bars", False))
+    require_split = bool(md.get("require_split_adjustment", False))
+    lake_adjustment_policy = str(lineage.get("adjustment", "raw"))
+    manifest_source = (
+        _layout.ingestion_manifest_path(lake_root).name
+        if lake_root is not None
+        else "(lake manifest)"
+    )
     checks.append(
         build_adjustment_check(
             require_adjusted=require_adjusted,
-            lake_adjustment=str(lineage.get("adjustment", "raw")),
-            source_file=(
-                _layout.ingestion_manifest_path(lake_root).name
-                if lake_root is not None
-                else "(lake manifest)"
+            lake_adjustment=lake_adjustment_policy,
+            source_file=manifest_source,
+        )
+    )
+    checks.append(
+        build_split_adjustment_check(
+            require_split_adjustment=require_split,
+            split_adjustment_applied=lake_split_adjustment_applied(
+                lineage.get("lake_manifest")
             ),
+            lake_adjustment=lake_adjustment_policy,
+            source_file=manifest_source,
         )
     )
 
@@ -640,6 +754,7 @@ __all__ = [
     "build_audit_checks",
     "build_coverage_check",
     "build_adjustment_check",
+    "build_split_adjustment_check",
     "build_quote_check",
     "build_quote_coverage_check",
     "historical_quote_coverage_pct",
