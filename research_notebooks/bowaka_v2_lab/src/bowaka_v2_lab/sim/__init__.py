@@ -1,6 +1,6 @@
 """bowaka_v2 simulator — event-driven historical backtester."""
 from .backtester import BacktestResult, run_backtest
-from .portfolio import Portfolio, PortfolioState, Position
+from .portfolio import Portfolio, PortfolioState, Position, new_position_id
 from .orders import ChildOrder, OrderPlan, ParentOrder, OrderStatus, OrderSide
 from .quote_model import QuoteSnapshot, get_quote, synthesize_quote
 from .cost_model import COST_STRESS_LEVELS, slippage_bps
@@ -13,7 +13,7 @@ from .fills import FillResult, simulate_fill
 
 __all__ = [
     "run_backtest", "BacktestResult",
-    "Portfolio", "PortfolioState", "Position",
+    "Portfolio", "PortfolioState", "Position", "new_position_id",
     "ChildOrder", "OrderPlan", "ParentOrder", "OrderStatus", "OrderSide",
     "QuoteSnapshot", "get_quote", "synthesize_quote",
     "COST_STRESS_LEVELS", "slippage_bps",

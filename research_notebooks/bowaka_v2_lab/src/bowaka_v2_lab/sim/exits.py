@@ -31,6 +31,10 @@ class ExitEvent:
     exit_price: float
     exit_reason: str
     ambiguous_bar_resolved: bool = False
+    # Realism Phase 5 — the specific lot this exit closes. open_positions is
+    # keyed by position_id, so a symbol may hold several lots; callers close
+    # the exact lot via Portfolio.close_position_by_id(position_id, ...).
+    position_id: Optional[str] = None
 
 
 def trading_days_since(start: _dt.date, end: _dt.date, *, calendar: str = "XNYS") -> int:
@@ -70,21 +74,23 @@ def evaluate_exits(
     stop_hit = low <= stop_price
     target_hit = high >= target_price
     ambiguous = stop_hit and target_hit
-    resolved = False
+    pid = pos.position_id
     if ambiguous:
         winner = resolve_same_bar(same_bar_policy)
         if winner == "stop":
-            return ExitEvent(pos.symbol, bar_date, stop_price, "stop_loss", ambiguous_bar_resolved=True)
+            return ExitEvent(pos.symbol, bar_date, stop_price, "stop_loss",
+                             ambiguous_bar_resolved=True, position_id=pid)
         else:
-            return ExitEvent(pos.symbol, bar_date, target_price, "take_profit", ambiguous_bar_resolved=True)
+            return ExitEvent(pos.symbol, bar_date, target_price, "take_profit",
+                             ambiguous_bar_resolved=True, position_id=pid)
     if stop_hit:
-        return ExitEvent(pos.symbol, bar_date, stop_price, "stop_loss")
+        return ExitEvent(pos.symbol, bar_date, stop_price, "stop_loss", position_id=pid)
     if target_hit:
-        return ExitEvent(pos.symbol, bar_date, target_price, "take_profit")
+        return ExitEvent(pos.symbol, bar_date, target_price, "take_profit", position_id=pid)
 
     # Time stop.
     days_held = trading_days_since(pos.entry_date, bar_date)
     if days_held >= pos.max_hold_days:
-        return ExitEvent(pos.symbol, bar_date, close, "time_stop")
+        return ExitEvent(pos.symbol, bar_date, close, "time_stop", position_id=pid)
 
     return None

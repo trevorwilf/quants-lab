@@ -134,6 +134,9 @@ CANONICAL_REJECTION_REASONS: frozenset[str] = frozenset({
     "instrument_ineligible",
     "halt_or_pending_review",
     "same_symbol_already_entered_today",
+    # Realism Phase 5 — multi-lot portfolio gates.
+    "same_symbol_entries_per_day",
+    "max_lots_per_symbol",
     "symbol_cooldown",
     "daily_entry_cap",
     "max_concurrent_positions",
@@ -150,6 +153,25 @@ CANONICAL_REJECTION_REASONS: frozenset[str] = frozenset({
 
 
 ACCEPTED_REASON: str = "all_gates_passed"
+
+
+# ---- terminal decision schema (Realism Phase 5) ----------------------
+#: The full set of terminal ``decision`` values an entry-decision record can
+#: carry. ``accepted`` / ``rejected`` are the long-standing pair; Phase 5 adds
+#: the lifecycle states a candidate can resolve to once broker submission is
+#: modelled. Reconciliation downstream maps every candidate to exactly one of
+#: these.
+TERMINAL_DECISIONS: frozenset[str] = frozenset({
+    "accepted",          # gates passed and (pre_submit) order placed, or
+                         # (post_submit) broker confirmed accept/fill
+    "rejected",          # filtered by a gate before submission
+    "submitted_pending", # post_submit only — gates passed, awaiting broker
+    "filled",            # broker reported a complete fill
+    "partial_fill",      # broker reported a partial fill
+    "broker_reject",     # broker refused an order that passed all gates
+    "expired",           # the signal expired before it could be acted on
+    "canceled",          # the working order was canceled before fill
+})
 
 
 # ---- validators ------------------------------------------------------
@@ -217,15 +239,20 @@ def validate_entry_decision(d: dict) -> tuple[bool, list[str]]:
         )
     decision = d.get("decision")
     reason = d.get("reason")
-    if decision not in ("accepted", "rejected"):
+    # Realism Phase 5: ``decision`` may be any terminal decision. ``accepted``
+    # carries the canonical accepted reason; ``rejected`` / ``broker_reject``
+    # carry a canonical rejection reason; the lifecycle states
+    # (submitted_pending / filled / partial_fill / expired / canceled) are
+    # not constrained on ``reason`` here.
+    if decision not in TERMINAL_DECISIONS:
         problems.append(
-            f"decision must be 'accepted' or 'rejected', got {decision!r}"
+            f"decision must be one of {sorted(TERMINAL_DECISIONS)}, got {decision!r}"
         )
     elif decision == "accepted" and reason != ACCEPTED_REASON:
         problems.append(
             f"accepted decisions must carry reason={ACCEPTED_REASON!r}, got {reason!r}"
         )
-    elif decision == "rejected" and reason not in CANONICAL_REJECTION_REASONS:
+    elif decision in ("rejected", "broker_reject") and reason not in CANONICAL_REJECTION_REASONS:
         problems.append(
             f"reason {reason!r} is not in CANONICAL_REJECTION_REASONS"
         )

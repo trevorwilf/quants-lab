@@ -1,4 +1,14 @@
-"""Submit-failure path emits decision rejected with reason=broker_reject."""
+"""Submit-failure path emits a canonical decision with reason=broker_reject.
+
+Realism Phase 5: this cfg carries no ``simulation`` block, so the simulation
+mode resolves to ``smoke_fixture`` → ``accepted_event_sequencing == "pre_submit"``.
+Under pre_submit sequencing the consumer emits ``accepted`` the moment the gates
+pass, then a follow-up canonical ``broker_reject`` when the broker refuses the
+order — so the decision stream is ``[accepted, broker_reject]``. The load-bearing
+guarantees verified here: a canonical broker_reject record is emitted, and a
+broker reject creates NO position. (The exact event ORDERING per sequencing mode
+has dedicated coverage in test_decision_sequencing_{pre,post}_submit.py.)
+"""
 from __future__ import annotations
 
 import datetime as _dt
@@ -44,9 +54,10 @@ def test_broker_reject_path_emits_canonical_decision() -> None:
         },
     )
     result = consumer.consume(_candidate(), decision_ts=pd.Timestamp("2024-09-04 13:30:01", tz="UTC"))
-    assert len(result.decisions) == 1
-    dec = result.decisions[0]
-    assert dec["decision"] == "rejected"
+    # pre_submit sequencing: accepted emitted before submit, then broker_reject.
+    assert len(result.decisions) == 2
+    assert result.decisions[0]["decision"] == "accepted"
+    dec = result.decisions[-1]
     assert dec["reason"] == "broker_reject"
     assert "broker_status" in dec
     assert "raw_response_summary" in dec

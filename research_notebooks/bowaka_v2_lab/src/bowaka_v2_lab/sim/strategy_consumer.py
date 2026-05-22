@@ -3,9 +3,23 @@
 §15 remediations applied:
 - Reads ``signal_strength`` from ``features.signal_strength`` (§15.2 P1 fix —
   archive read from a top-level key that didn't exist).
-- Emits ENTRY decision AFTER broker confirm; on reject emits a canonical
-  ``broker_reject`` record via ``schemas.decisions.build_broker_reject_record``
-  (§15.1 P0).
+- Emits a canonical ``broker_reject`` record via
+  ``schemas.decisions.build_broker_reject_record`` (§15.1 P0).
+
+Realism remediation Phase 5:
+
+- Multi-lot per symbol. A symbol with open lots is NOT blocked from re-entry.
+  ``same_symbol_entries_per_day`` (default 1) is enforced against the
+  portfolio's per-session ``entered_symbols_today`` set, and
+  ``risk.max_lots_per_symbol`` against ``portfolio.lots_for_symbol(symbol)``.
+- ``accepted_event_sequencing`` controls the temporal ORDER of decision events:
+  - ``pre_submit`` (parity / smoke): emit ``decision: accepted`` immediately
+    after the gates pass, BEFORE broker submission. On broker reject emit a
+    follow-up canonical ``broker_reject`` record. No position is created.
+  - ``post_submit`` (realism): emit ``decision: submitted_pending`` after the
+    gates pass; emit ``decision: accepted`` only after the broker confirms;
+    ``broker_reject`` on reject.
+  A broker reject NEVER creates a position, in either mode.
 """
 from __future__ import annotations
 
@@ -13,10 +27,12 @@ import datetime as _dt
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
+from ..config.models import SimulationConfig
 from ..schemas.decisions import (
     build_accepted_entry_decision,
     build_broker_reject_record,
     build_rejected_entry_decision,
+    build_submitted_pending_decision,
 )
 from .broker import SimulatedBroker
 from .orders import OrderPlan, OrderSide, OrderStatus, ParentOrder
@@ -79,6 +95,15 @@ class StrategyConsumer:
         self._portfolio = portfolio
         self._broker = broker
         self._cfg = cfg
+        # Resolve the simulation contract once. ``accepted_event_sequencing``
+        # is mode-coupled (pre_submit for parity/smoke, post_submit for
+        # realism) but a config may pin it explicitly.
+        self._sim_cfg = SimulationConfig.model_validate(cfg.get("simulation") or {})
+
+    @property
+    def accepted_event_sequencing(self) -> str:
+        """Resolved event-ordering policy — ``pre_submit`` or ``post_submit``."""
+        return self._sim_cfg.accepted_event_sequencing or "pre_submit"
 
     def consume(
         self,
@@ -97,6 +122,7 @@ class StrategyConsumer:
         risk_cfg = cfg.get("risk") or {}
         exits_cfg = cfg.get("exits") or {}
         market_data_cfg = cfg.get("market_data") or {}
+        symbol = candidate_event["symbol"]
 
         # Reject low signal strength early.
         min_signal_strength = float(
@@ -114,7 +140,7 @@ class StrategyConsumer:
         # Build the quote (historical or synthetic).
         last_price = float((candidate_event.get("forming_session_bar") or {}).get("last_price") or 0.0)
         quote: QuoteSnapshot = get_quote(
-            symbol=candidate_event["symbol"], at=decision_ts,
+            symbol=symbol, at=decision_ts,
             last_price=last_price, historical_quote=historical_quote,
             stress_level=cfg.get("backtest", {}).get("cost_stress", "conservative"),
         )
@@ -142,6 +168,49 @@ class StrategyConsumer:
             ))
             return result
 
+        # Multi-lot portfolio gates (Realism Phase 5). A symbol with open lots
+        # is NOT blocked from re-entry: instead `same_symbol_entries_per_day`
+        # caps how many entries it may take in a single session, and
+        # `max_lots_per_symbol` caps how many concurrent lots it may hold.
+        portfolio_state = self._portfolio.state
+        entered_today = (
+            portfolio_state.entered_symbols_today if portfolio_state is not None else set()
+        )
+        same_symbol_per_day = int(risk_cfg.get("same_symbol_entries_per_day", 1))
+        # `entered_symbols_today` records each symbol opened this session. With a
+        # cap of 1 (the live default) a symbol already in the set is rejected;
+        # for caps > 1, count this session's lots for the symbol.
+        if same_symbol_per_day <= 1:
+            already_entered_today = symbol in entered_today
+        else:
+            session_date = portfolio_state.session_date if portfolio_state else None
+            lots_today = sum(
+                1
+                for p in self._portfolio.positions_for_symbol(symbol)
+                if p.entry_session == session_date
+            )
+            already_entered_today = lots_today >= same_symbol_per_day
+        if already_entered_today:
+            result.decisions.append(build_rejected_entry_decision(
+                candidate_event=candidate_event,
+                decision_ts=decision_ts,
+                entry_trigger=execution_cfg.get("order_type", "marketable_limit"),
+                reason="same_symbol_entries_per_day",
+                quote=quote.__dict__,
+            ))
+            return result
+
+        max_lots = int(risk_cfg.get("max_lots_per_symbol", 1))
+        if self._portfolio.lots_for_symbol(symbol) >= max_lots:
+            result.decisions.append(build_rejected_entry_decision(
+                candidate_event=candidate_event,
+                decision_ts=decision_ts,
+                entry_trigger=execution_cfg.get("order_type", "marketable_limit"),
+                reason="max_lots_per_symbol",
+                quote=quote.__dict__,
+            ))
+            return result
+
         # Sizing (equal-slice by default; see compute_target_notional).
         target_notional = compute_target_notional(sizing_cfg)
         candidate_adv = float(
@@ -153,6 +222,7 @@ class StrategyConsumer:
             risk_cfg=risk_cfg, sizing_cfg=sizing_cfg,
             candidate_adv=candidate_adv,
             target_notional=target_notional,
+            symbol=symbol,
         )
         if not gate.accepted:
             result.decisions.append(build_rejected_entry_decision(
@@ -196,14 +266,11 @@ class StrategyConsumer:
         )
         parent = ParentOrder(
             parent_order_id=ParentOrder.make_id(),
-            symbol=candidate_event["symbol"],
+            symbol=symbol,
             plan=plan,
             candidate_event_id=candidate_event["event_id"],
             created_at=str(decision_ts),
         )
-        # Submit to broker AFTER all gates pass.
-        submit_result = self._broker.submit(parent)
-        result.parent_orders.append(parent)
 
         order_plan_dict = {
             "side": plan.side.value, "order_style": plan.order_style,
@@ -222,34 +289,82 @@ class StrategyConsumer:
             "adv_participation_frac": gate.adv_participation_frac,
         }
 
-        # §15.1 P0: broker_reject emits canonical decision.
-        if submit_result.status == OrderStatus.REJECTED:
-            result.decisions.append(build_broker_reject_record(
+        # ---- accepted_event_sequencing (Realism Phase 5) ------------------
+        # `pre_submit` (parity / smoke): emit `accepted` immediately, BEFORE
+        # broker submission. `post_submit` (realism): emit `submitted_pending`
+        # first, then `accepted` only after the broker confirms. In BOTH modes a
+        # broker reject emits a canonical `broker_reject` and creates NO
+        # position — only the temporal order of events differs.
+        sequencing = self.accepted_event_sequencing
+
+        if sequencing == "pre_submit":
+            # Decision is final the moment the gates pass — emit `accepted` now.
+            result.decisions.append(build_accepted_entry_decision(
                 candidate_event=candidate_event,
                 decision_ts=decision_ts,
-                broker_status="rejected",
-                raw_response_summary=submit_result.raw_response,
-                order_plan=order_plan_dict,
+                entry_trigger=plan.order_style,
                 quote=quote.__dict__,
                 risk_snapshot=risk_snapshot_dict,
+                order_plan=order_plan_dict,
             ))
-            return result
+            submit_result = self._broker.submit(parent)
+            result.parent_orders.append(parent)
+            if submit_result.status == OrderStatus.REJECTED:
+                # Follow-up canonical broker_reject; no position created.
+                result.decisions.append(build_broker_reject_record(
+                    candidate_event=candidate_event,
+                    decision_ts=decision_ts,
+                    broker_status="rejected",
+                    raw_response_summary=submit_result.raw_response,
+                    order_plan=order_plan_dict,
+                    quote=quote.__dict__,
+                    risk_snapshot=risk_snapshot_dict,
+                ))
+                return result
+        else:  # post_submit
+            # Gates passed but the order is still in flight — emit
+            # `submitted_pending`, then submit.
+            result.decisions.append(build_submitted_pending_decision(
+                candidate_event=candidate_event,
+                decision_ts=decision_ts,
+                entry_trigger=plan.order_style,
+                quote=quote.__dict__,
+                risk_snapshot=risk_snapshot_dict,
+                order_plan=order_plan_dict,
+            ))
+            submit_result = self._broker.submit(parent)
+            result.parent_orders.append(parent)
+            if submit_result.status == OrderStatus.REJECTED:
+                result.decisions.append(build_broker_reject_record(
+                    candidate_event=candidate_event,
+                    decision_ts=decision_ts,
+                    broker_status="rejected",
+                    raw_response_summary=submit_result.raw_response,
+                    order_plan=order_plan_dict,
+                    quote=quote.__dict__,
+                    risk_snapshot=risk_snapshot_dict,
+                ))
+                return result
+            # Broker confirmed — only now emit `accepted`.
+            result.decisions.append(build_accepted_entry_decision(
+                candidate_event=candidate_event,
+                decision_ts=decision_ts,
+                entry_trigger=plan.order_style,
+                quote=quote.__dict__,
+                risk_snapshot=risk_snapshot_dict,
+                order_plan=order_plan_dict,
+            ))
 
-        # Submit succeeded → emit ACCEPTED.
-        result.decisions.append(build_accepted_entry_decision(
-            candidate_event=candidate_event,
-            decision_ts=decision_ts,
-            entry_trigger=plan.order_style,
-            quote=quote.__dict__,
-            risk_snapshot=risk_snapshot_dict,
-            order_plan=order_plan_dict,
-        ))
-
-        # Add the position (entry price = quote.ask for buy marketable-limit).
+        # Broker accepted (both modes reach here only on a non-reject). Add the
+        # position lot (entry price = quote.ask for a buy marketable-limit).
         ts_pts = candidate_event.get("scan_timestamp", str(decision_ts))
-        entry_date = _dt.datetime.fromisoformat(ts_pts.replace("Z", "+00:00")).date() if isinstance(ts_pts, str) else _dt.date.today()
+        entry_date = (
+            _dt.datetime.fromisoformat(ts_pts.replace("Z", "+00:00")).date()
+            if isinstance(ts_pts, str)
+            else _dt.date.today()
+        )
         position = Position(
-            symbol=candidate_event["symbol"],
+            symbol=symbol,
             entry_date=entry_date,
             entry_price=quote.ask,
             qty=qty,
@@ -258,6 +373,9 @@ class StrategyConsumer:
             max_hold_days=plan.max_hold_days,
             candidate_event_id=candidate_event["event_id"],
             current_price=quote.ask,
+            parent_order_id=parent.parent_order_id,
+            link_id=parent.parent_order_id,
+            entry_session=entry_date,
         )
         self._portfolio.add_position(position)
         result.new_positions.append(position)

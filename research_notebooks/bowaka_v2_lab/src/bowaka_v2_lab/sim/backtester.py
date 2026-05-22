@@ -361,8 +361,14 @@ def run_backtest(
         # Realism Phase 4: the scanner dedup memory (cooldown, per-day entry
         # count, in-play pool) is *per session* — a fresh state dict each
         # session so a symbol's cooldown / day-cap never leaks across days.
+        # Realism Phase 5: open_positions is keyed by position_id, so the
+        # scanner's per-session entered-symbols memory is the SET OF SYMBOLS
+        # across all open lots — fresh each session (begin_session already
+        # recomputed portfolio.state.entered_symbols_today from this session's
+        # lots; the scanner memory starts empty so prior-day lots never block
+        # a new-session re-entry through the scanner dedup path).
         state: dict[str, Any] = {
-            "entered_symbols_today": sorted(portfolio.open_positions.keys()),
+            "entered_symbols_today": [],
             "in_play_pool": {},
             "symbol_last_emit_ts": {},
             "entries_per_symbol_today": {},
@@ -430,17 +436,26 @@ def run_backtest(
                             "notional": (cr.new_positions[0].entry_price * po.plan.qty) if cr.new_positions else None,
                         })
 
-        # Daily bars + exit evaluation.
-        symbols_to_check = list(portfolio.open_positions.keys())
+        # Daily bars + exit evaluation. Realism Phase 5: open_positions is
+        # keyed by position_id, so a symbol may hold several lots. Each lot is
+        # evaluated independently against the symbol's daily bar and closed by
+        # position_id (closing one lot leaves the symbol's other lots open).
+        # The daily bar is fetched once per distinct symbol.
+        symbols_to_check = sorted({p.symbol for p in portfolio.open_positions.values()})
         closes_today: dict[str, float] = {}
+        day_bars_by_symbol: dict[str, dict] = {}
         for sym in symbols_to_check:
             day_bars = daily_bars_supplier(sym, session_date)
             if day_bars is None or len(day_bars) == 0:
                 continue
             row = day_bars.iloc[-1].to_dict()
             closes_today[sym] = float(row.get("close", row.get("Close", 0.0)) or 0.0)
-            pos = portfolio.open_positions.get(sym)
-            if pos is None:
+            day_bars_by_symbol[sym] = row
+        # Evaluate exits per lot. Iterate a snapshot of the lots — closing a lot
+        # mutates open_positions mid-loop.
+        for pos in list(portfolio.open_positions.values()):
+            row = day_bars_by_symbol.get(pos.symbol)
+            if row is None:
                 continue
             ev = evaluate_exits(
                 pos, bar=row, bar_date=session_date,
@@ -450,16 +465,17 @@ def run_backtest(
             if ev is not None:
                 if ev.ambiguous_bar_resolved:
                     ambiguous_bar_count += 1
-                trade = portfolio.close_position(
-                    sym, exit_price=ev.exit_price, exit_reason=ev.exit_reason,
-                    exit_date=session_date,
+                trade = portfolio.close_position_by_id(
+                    pos.position_id, exit_price=ev.exit_price,
+                    exit_reason=ev.exit_reason, exit_date=session_date,
                 )
                 all_trades.append(trade)
         portfolio.update_mtm(closes_today)
-        for sym, pos in portfolio.open_positions.items():
+        for pos in portfolio.open_positions.values():
             all_positions.append({
                 "session_date": session_date.isoformat(),
-                "symbol": sym, "qty": pos.qty,
+                "symbol": pos.symbol, "qty": pos.qty,
+                "position_id": pos.position_id,
                 "entry_price": pos.entry_price,
                 "current_price": pos.current_price,
                 "unrealized_pnl": pos.unrealized_pnl,
