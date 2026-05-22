@@ -208,7 +208,8 @@ def run_backtest(
     daily_cache_by_session: Mapping[_dt.date, pd.DataFrame],
     minute_bars_supplier: Callable[[str, Any], pd.DataFrame | None],
     daily_bars_supplier: Callable[[str, _dt.date], pd.DataFrame | None],
-    quote_supplier: Optional[Callable[[str, Any], Optional[dict]]] = None,
+    quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    forward_minute_supplier: Optional[Callable[[str, Any], pd.DataFrame | None]] = None,
     volume_curve: Optional[pd.DataFrame] = None,
     initial_bankroll: float = 100_000.0,
     paths: Optional[BowakaV2Paths] = None,
@@ -349,6 +350,11 @@ def run_backtest(
     all_trades: list[dict] = []
     daily_equity: list[dict] = []
     ambiguous_bar_count = 0
+    # Realism Phase 6: per-candidate execution-quality fill records, the
+    # missing-quote reject count and per-(symbol, scan_ts) quote-coverage rows.
+    all_fill_records: list[dict] = []
+    missing_quote_count = 0
+    quote_coverage_rows: list[dict] = []
     # Realism Phase 4: per-session scan-count + funnel summary for the run
     # manifest. Records the cadence the calendar-aware scheduler produced and
     # the accept / reject breakdown for each session.
@@ -400,9 +406,13 @@ def run_backtest(
                 volume_curve=volume_curve, state=state, scan_ts=scan_ts,
                 bars_supplier=minute_bars_supplier, consumer=consumer,
                 quote_supplier=quote_supplier,
+                forward_minute_supplier=forward_minute_supplier,
             )
             all_candidate_events.extend(scan_result.emitted)
             all_gate_dump.extend(scan_result.gate_dump)
+            # Realism Phase 6: per-(symbol, scan_ts) quote-coverage rows built by
+            # run_one_scan — drives historical_quote_coverage_pct.
+            quote_coverage_rows.extend(scan_result.quote_coverage)
             # Realism Phase 4: roll the per-session scan-count summary.
             sess_count["actual_scans"] += 1
             sess_count["candidate_count"] += len(scan_result.emitted)
@@ -416,6 +426,11 @@ def run_backtest(
                 sess_count["accepted_count"] += sum(
                     1 for d in cr.decisions if d.get("decision") == "accepted"
                 )
+                # Realism Phase 6: collect the consumer's per-candidate fill
+                # records + missing-quote rejects for the execution-quality
+                # report.
+                all_fill_records.extend(cr.fills)
+                missing_quote_count += cr.missing_quote_count
                 for po in cr.parent_orders:
                     all_orders.append({
                         "parent_order_id": po.parent_order_id,
@@ -424,17 +439,31 @@ def run_backtest(
                         "order_style": po.plan.order_style,
                         "qty": po.plan.qty,
                         "status": po.status.value,
+                        "filled_qty": po.filled_qty,
+                        "avg_fill_price": po.avg_fill_price,
                         "created_at": po.created_at,
                         "candidate_event_id": po.candidate_event_id,
                     })
-                    if po.status.value == "accepted":
-                        all_fills.append({
-                            "parent_order_id": po.parent_order_id,
-                            "symbol": po.symbol,
-                            "filled_qty": po.plan.qty,
-                            "avg_fill_price": cr.new_positions[0].entry_price if cr.new_positions else None,
-                            "notional": (cr.new_positions[0].entry_price * po.plan.qty) if cr.new_positions else None,
-                        })
+                # Realism Phase 6: fills.parquet rows come from the *actual*
+                # fill records — one per candidate that reached the fill stage,
+                # whether the fill landed or failed (timeout / partial-below-min).
+                for fr in cr.fills:
+                    all_fills.append({
+                        "parent_order_id": fr["parent_order_id"],
+                        "symbol": fr["symbol"],
+                        "order_style": fr["order_style"],
+                        "filled": fr["filled"],
+                        "filled_qty": fr["filled_qty"],
+                        "requested_qty": fr["requested_qty"],
+                        "avg_fill_price": fr["avg_fill_price"] if fr["filled"] else None,
+                        "notional": fr["notional"] if fr["filled"] else None,
+                        "slippage_bps": fr["slippage_bps"],
+                        "is_partial": fr["is_partial"],
+                        "reason": fr["reason"],
+                        "commission": fr["commission"],
+                        "regulatory_fees": fr["regulatory_fees"],
+                        "quote_source": fr["quote_source"],
+                    })
 
         # Daily bars + exit evaluation. Realism Phase 5: open_positions is
         # keyed by position_id, so a symbol may hold several lots. Each lot is
@@ -531,6 +560,26 @@ def run_backtest(
         run_id=run_id,
         strategy_version=str(cfg_dict.get("strategy_version", "0.1.0")),
     )
+    # Realism Phase 6: surface execution-quality counters in the summary so the
+    # walk-forward objective (FoldResult.missing_quote_count) and reports can
+    # read them.
+    from ..data.data_quality import build_quote_coverage_check, historical_quote_coverage_pct
+
+    _filled_fills = [f for f in all_fill_records if f.get("filled")]
+    _partials = [f for f in _filled_fills if f.get("is_partial")]
+    quote_cov_pct = historical_quote_coverage_pct(quote_coverage_rows)
+    summary["missing_quote_count"] = missing_quote_count
+    summary["fills_count"] = len(_filled_fills)
+    summary["partial_fill_count"] = len(_partials)
+    summary["fill_rate"] = (
+        len(_filled_fills) / len(all_fill_records) if all_fill_records else 0.0
+    )
+    summary["historical_quote_coverage_pct"] = round(quote_cov_pct, 4)
+    summary["fees_paid_total"] = round(
+        sum(float(f.get("commission", 0.0) or 0.0)
+            + float(f.get("regulatory_fees", 0.0) or 0.0) for f in _filled_fills),
+        6,
+    )
 
     # Code & dataset manifests.
     code_paths = code_paths_for_manifest or [paths.lab_root / "src"]
@@ -625,10 +674,25 @@ def run_backtest(
                   pd.DataFrame(all_trades) if all_trades else pd.DataFrame({"symbol": []}))
     write_parquet(run_dir / "daily_equity.parquet",
                   pd.DataFrame(daily_equity) if daily_equity else pd.DataFrame({"session_date": []}))
-    write_parquet(run_dir / "execution_quality.parquet", pd.DataFrame({
-        "metric": ["broker_reject_rate", "ambiguous_bar_count"],
-        "value": [broker_reject_count / max(1, len(all_decisions)), ambiguous_bar_count],
-    }))
+    # Realism Phase 6: execution_quality.parquet — spread / quote-age / slippage
+    # distributions, fill + partial-fill rates, missing-quote count, liquidity
+    # participation, fees paid and the quote source mix. Built from the
+    # per-candidate fill records; the legacy broker-reject / ambiguous-bar
+    # counters are appended so existing readers still find them.
+    from ..reports.execution_quality import build_execution_quality_rows
+
+    eq_rows = build_execution_quality_rows(
+        all_fill_records, missing_quote_count=missing_quote_count
+    )
+    eq_rows.append({
+        "metric": "broker_reject_rate",
+        "value": broker_reject_count / max(1, len(all_decisions)),
+    })
+    eq_rows.append({"metric": "ambiguous_bar_count", "value": float(ambiguous_bar_count)})
+    eq_rows.append({
+        "metric": "historical_quote_coverage_pct", "value": round(quote_cov_pct, 4),
+    })
+    write_parquet(run_dir / "execution_quality.parquet", pd.DataFrame(eq_rows))
     atomic_write_json(run_dir / "summary.json", summary)
     report_lines = [
         "# Bowaka v2 Backtest Report (Phase 4 stub)",
@@ -677,7 +741,58 @@ def run_backtest(
         "- per-session scan counts: see `run_manifest.json['scan_counts']`",
         "",
     ]
+    # Realism Phase 6: execution-quality report section.
+    report_lines += [
+        "## Execution quality (Phase 6)",
+        "",
+        f"- quote_fallback_policy: `{sim_cfg.quote_fallback_policy}`",
+        f"- cost_stress: `{(cfg_dict.get('backtest') or {}).get('cost_stress', 'conservative')}`",
+        f"- orders reaching fill stage: {len(all_fill_records)}",
+        f"- fills landed: {summary['fills_count']} "
+        f"(fill rate {summary['fill_rate']:.2%})",
+        f"- partial fills: {summary['partial_fill_count']}",
+        f"- missing-quote rejects: {missing_quote_count}",
+        f"- historical quote coverage: {quote_cov_pct:.2f}%",
+        f"- fees paid (commission + regulatory): {summary['fees_paid_total']}",
+        "- spread / quote-age / slippage distributions: see `execution_quality.parquet`",
+        "",
+    ]
     (run_dir / "report.md").write_text("\n".join(report_lines), encoding="utf-8")
+
+    # ---- Realism Phase 6: finalize-step quote-coverage gate ----------------
+    # In intended_realism mode the run FAILS at finalize when the fraction of
+    # (symbol, scan_ts) pairs backed by a historical quote is below
+    # simulation.min_quote_coverage_pct. The coverage check is appended to the
+    # already-written data_quality_report.json so the failure is recorded; the
+    # run manifest's startup_dq_failure stays None (this is a finalize failure,
+    # distinct from the startup gate).
+    quote_cov_check = build_quote_coverage_check(
+        quote_coverage_rows=quote_coverage_rows,
+        min_quote_coverage_pct=sim_cfg.min_quote_coverage_pct,
+        simulation_mode=sim_cfg.mode,
+    )
+    try:
+        _dq_doc = json.loads((run_dir / "data_quality_report.json").read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — defensive; the report was written above
+        _dq_doc = {"checks": []}
+    _dq_doc.setdefault("checks", []).append(quote_cov_check)
+    if quote_cov_check["status"] == "fail":
+        _dq_doc["failed"] = int(_dq_doc.get("failed", 0)) + 1
+        _req = list(_dq_doc.get("required_failures") or [])
+        if "quote_coverage" not in _req:
+            _req.append("quote_coverage")
+        _dq_doc["required_failures"] = sorted(set(_req))
+    elif quote_cov_check["status"] == "warn":
+        _dq_doc["warned"] = int(_dq_doc.get("warned", 0)) + 1
+    else:
+        _dq_doc["passed"] = int(_dq_doc.get("passed", 0)) + 1
+    atomic_write_json(run_dir / "data_quality_report.json", _dq_doc)
+    if sim_cfg.mode == "intended_realism" and quote_cov_check["status"] == "fail":
+        raise RuntimeError(
+            "intended_realism run aborted at finalize: "
+            + str(quote_cov_check["evidence"].get("detail", "quote_coverage failed"))
+        )
+
     return BacktestResult(
         run_id=run_id, run_dir=run_dir, summary=summary,
         trades=all_trades, decisions=all_decisions,

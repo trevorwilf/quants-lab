@@ -58,6 +58,20 @@ class Position:
     link_id: Optional[str] = None
     entry_session: Optional[_dt.date] = None
     lot_index: int = 0
+    # Realism Phase 6 — fill + bracket-attachment metadata. ``entry_price`` is
+    # the *actual fill price*; ``stop_price`` / ``target_price`` are computed
+    # from it (live ``bracket_pricing_mode: actual_fill``) once the fill lands,
+    # so the brackets attach AFTER the fill, never off the raw signal price.
+    fill_source: Optional[str] = None          # quote source the fill used
+    fill_slippage_bps: float = 0.0
+    fill_is_partial: bool = False
+    fill_commission: float = 0.0
+    fill_regulatory_fees: float = 0.0
+    fill_liquidity_participation: float = 0.0
+    stop_price: Optional[float] = None
+    target_price: Optional[float] = None
+    bracket_pricing_mode: str = "actual_fill"
+    bracket_attached: bool = False
 
     def __post_init__(self) -> None:
         # Default entry_session to entry_date so legacy callers that omit it

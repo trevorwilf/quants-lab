@@ -8,14 +8,37 @@ from __future__ import annotations
 
 import datetime as _dt
 import os
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 
 from . import layout as _layout
 
 _BAR_COLUMNS = ["symbol", "timestamp", "open", "high", "low", "close", "volume"]
+
+
+# --------------------------------------------------------------------------
+# Quote row
+# --------------------------------------------------------------------------
+@dataclass
+class QuoteRow:
+    """A single NBBO quote observation returned by :meth:`MarketDataStore.quotes_at_or_before`.
+
+    ``source`` is ``"historical"`` for a quote read from the lake's ``quotes/``
+    partitions. The value ``"synthetic"`` is reserved for callers that construct
+    a fabricated quote — the store itself never returns a synthetic ``QuoteRow``.
+    """
+
+    bid: float
+    ask: float
+    bid_size: float
+    ask_size: float
+    mid: float
+    spread_pct: float
+    quote_age_seconds: float
+    source: str = "historical"
 
 
 # --------------------------------------------------------------------------
@@ -212,6 +235,68 @@ class MarketDataStore:
         if "timestamp" in df.columns:
             df = df[(df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)]
         return df.sort_values("timestamp").reset_index(drop=True) if "timestamp" in df.columns else df
+
+    def quotes_at_or_before(
+        self,
+        symbol: str,
+        ts: Any,
+        *,
+        max_age_seconds: float = 60.0,
+        feed: str = "iex",
+    ) -> Optional[QuoteRow]:
+        """The latest historical quote for ``symbol`` at or before ``ts``.
+
+        Reads the lake's ``quotes/`` partition for the (symbol, month) covering
+        ``ts``. Returns the most recent quote whose timestamp is ``<= ts`` and no
+        older than ``max_age_seconds``, as a :class:`QuoteRow` with
+        ``source="historical"``.
+
+        Returns ``None`` when:
+
+        - the quote partition is absent (the normal case on the current lake,
+          which has no quote-ingestion stage), or
+        - no quote in the partition is at-or-before ``ts``, or
+        - the newest at-or-before quote is older than ``max_age_seconds``.
+        """
+        target = _to_utc_ts(ts)
+        path = _layout.quotes_path(
+            self.root, symbol, target.year, target.month, vendor=self.vendor, feed=feed
+        )
+        if not path.is_file():
+            return None
+        try:
+            df = pd.read_parquet(path)
+        except Exception:  # noqa: BLE001 — an unreadable partition is "no quote"
+            return None
+        if df.empty or "timestamp" not in df.columns:
+            return None
+        df = _normalise_bars(df)
+        df = df[df["timestamp"] <= target]
+        if df.empty:
+            return None
+        row = df.sort_values("timestamp").iloc[-1]
+        age = (target - row["timestamp"]).total_seconds()
+        if age > float(max_age_seconds):
+            return None
+        bid = float(row.get("bid", 0.0) or 0.0)
+        ask = float(row.get("ask", 0.0) or 0.0)
+        bid_size = float(row.get("bid_size", 0.0) or 0.0)
+        ask_size = float(row.get("ask_size", 0.0) or 0.0)
+        mid = float(row["mid"]) if "mid" in row and pd.notna(row["mid"]) else (bid + ask) / 2.0
+        if "spread_pct" in row and pd.notna(row["spread_pct"]):
+            spread_pct = float(row["spread_pct"])
+        else:
+            spread_pct = ((ask - bid) / mid) if mid > 0 else 0.0
+        return QuoteRow(
+            bid=bid,
+            ask=ask,
+            bid_size=bid_size,
+            ask_size=ask_size,
+            mid=mid,
+            spread_pct=spread_pct,
+            quote_age_seconds=max(0.0, age),
+            source="historical",
+        )
 
     # -- corporate actions -------------------------------------------------
     def corporate_actions(self, symbol: str, start: Any, end: Any) -> pd.DataFrame:

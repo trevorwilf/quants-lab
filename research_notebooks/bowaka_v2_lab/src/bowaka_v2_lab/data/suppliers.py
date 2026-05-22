@@ -139,6 +139,74 @@ def make_lake_suppliers(
     return minute_bars_supplier, daily_bars_supplier
 
 
+def make_forward_minute_supplier(
+    shared_root: str | Path | None = None,
+    *,
+    feed: str = "iex",
+    vendor: str = "alpaca",
+    window_minutes: int = 5,
+) -> Callable[[str, Any], pd.DataFrame]:
+    """Return a supplier of the minute bars **forward** from a timestamp.
+
+    Realism Phase 6. ``forward_minute_supplier(symbol, ts)`` returns the minute
+    bars in ``[ts, ts + window_minutes]`` — the order-lifetime path a
+    marketable-limit fill walks to decide whether the quote chased past its
+    limit before the timeout. (The ordinary minute supplier only ever returns
+    bars *up to* a cutoff, so a separate forward reader is needed.)
+    """
+    store = _as_store(shared_root, vendor=vendor)
+
+    def forward_minute_supplier(symbol: str, ts: Any) -> pd.DataFrame:
+        start = pd.Timestamp(ts)
+        start = start.tz_localize("UTC") if start.tzinfo is None else start.tz_convert("UTC")
+        end = start + pd.Timedelta(minutes=int(window_minutes))
+        return store.minute_bars(symbol, start, end, feed=feed)
+
+    return forward_minute_supplier
+
+
+def make_quote_supplier(
+    shared_root: str | Path | None = None,
+    *,
+    feed: str = "iex",
+    vendor: str = "alpaca",
+    default_max_age_seconds: float = 60.0,
+) -> Callable[..., Any]:
+    """Return a ``quote_supplier`` reading historical quotes from the shared lake.
+
+    Realism Phase 6. The returned callable has signature
+    ``quote_supplier(symbol, ts, max_age_seconds=None) -> Optional[dict]`` — it
+    queries :meth:`MarketDataStore.quotes_at_or_before` and maps the resulting
+    :class:`bowaka_common.marketdata.QuoteRow` to the dict shape the
+    ``StrategyConsumer`` consumes as ``historical_quote``.
+
+    On the current lake — which has **no ``quotes/`` partitions** (there is no
+    quote-ingestion stage) — every call returns ``None``, so the lab's synthetic
+    fallback (per ``quote_fallback_policy``) covers every non-realism path and a
+    realism run correctly fails the quote-coverage gate.
+    """
+    store = _as_store(shared_root, vendor=vendor)
+
+    def quote_supplier(symbol: str, ts: Any, max_age_seconds: Any = None):
+        age = float(max_age_seconds) if max_age_seconds is not None else float(default_max_age_seconds)
+        row = store.quotes_at_or_before(symbol, ts, max_age_seconds=age, feed=feed)
+        if row is None:
+            return None
+        return {
+            "bid": row.bid,
+            "ask": row.ask,
+            "bid_size": row.bid_size,
+            "ask_size": row.ask_size,
+            "mid": row.mid,
+            "spread_pct": row.spread_pct,
+            "quote_timestamp": str(pd.Timestamp(ts)),
+            "quote_age_seconds": row.quote_age_seconds,
+            "source": row.source,
+        }
+
+    return quote_supplier
+
+
 def build_daily_cache_from_lake(
     store_or_root: Any,
     symbols: Iterable[str],

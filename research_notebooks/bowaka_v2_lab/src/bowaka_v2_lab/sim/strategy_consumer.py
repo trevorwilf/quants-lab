@@ -24,6 +24,7 @@ Realism remediation Phase 5:
 from __future__ import annotations
 
 import datetime as _dt
+import random
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
@@ -35,9 +36,14 @@ from ..schemas.decisions import (
     build_submitted_pending_decision,
 )
 from .broker import SimulatedBroker
+from .fills import (
+    FillResult,
+    simulate_market_fill,
+    simulate_marketable_limit_fill,
+)
 from .orders import OrderPlan, OrderSide, OrderStatus, ParentOrder
 from .portfolio import Portfolio, Position
-from .quote_model import QuoteSnapshot, get_quote
+from .quote_model import QuoteResolution, QuoteSnapshot, resolve_quote
 from .risk_gates import RiskGateResult, evaluate_risk_gates
 
 
@@ -46,6 +52,11 @@ class StrategyConsumerResult:
     decisions: list[dict] = field(default_factory=list)
     new_positions: list[Position] = field(default_factory=list)
     parent_orders: list[ParentOrder] = field(default_factory=list)
+    #: Realism Phase 6 — per-candidate execution-quality records (one per
+    #: position created, plus a counter of missing-quote rejects). Consumed by
+    #: the backtester to build ``execution_quality.parquet``.
+    fills: list[dict] = field(default_factory=list)
+    missing_quote_count: int = 0
 
 
 def compute_target_notional(sizing_cfg: Mapping[str, Any]) -> float:
@@ -111,7 +122,15 @@ class StrategyConsumer:
         *,
         decision_ts: Any,
         historical_quote: Optional[dict] = None,
+        forward_minute_bars: Optional[Any] = None,
     ) -> StrategyConsumerResult:
+        """Consume one candidate event and emit decision(s) / a position.
+
+        ``historical_quote`` is the real quote from the quote supplier (``None``
+        when the lake has none for this symbol/ts). ``forward_minute_bars`` is
+        the minute path forward from ``scan_ts`` — the order lifetime a
+        marketable-limit fill walks to detect a timeout (Phase 6).
+        """
         result = StrategyConsumerResult()
         cfg = self._cfg
         feats = candidate_event.get("features", {}) or {}
@@ -123,6 +142,7 @@ class StrategyConsumer:
         exits_cfg = cfg.get("exits") or {}
         market_data_cfg = cfg.get("market_data") or {}
         symbol = candidate_event["symbol"]
+        cost_stress = str((cfg.get("backtest") or {}).get("cost_stress", "conservative"))
 
         # Reject low signal strength early.
         min_signal_strength = float(
@@ -137,17 +157,43 @@ class StrategyConsumer:
             ))
             return result
 
-        # Build the quote (historical or synthetic).
+        # Build the quote — historical when available, else fall back per
+        # ``simulation.quote_fallback_policy`` (Phase 6).
         last_price = float((candidate_event.get("forming_session_bar") or {}).get("last_price") or 0.0)
-        quote: QuoteSnapshot = get_quote(
+        candidate_adv_for_quote = float(
+            (candidate_event.get("prior_daily_baselines") or {}).get("avg_dollar_volume_20d") or 0.0
+        ) or 5_000_000.0
+        volatility_pct = float(
+            (candidate_event.get("prior_daily_baselines") or {}).get("prior_atr_pct") or 0.0
+        ) or 0.02
+        max_quote_age = int(execution_cfg.get("max_quote_age_seconds", 5))
+        # Deterministic RNG seeded on (symbol, scan_ts) so synthetic quote ages
+        # are reproducible run-to-run.
+        rng = random.Random(hash((symbol, str(candidate_event.get("scan_timestamp", decision_ts)))))
+        resolution: QuoteResolution = resolve_quote(
             symbol=symbol, at=decision_ts,
-            last_price=last_price, historical_quote=historical_quote,
-            stress_level=cfg.get("backtest", {}).get("cost_stress", "conservative"),
+            signal_price=last_price or 1.0,
+            historical_quote=historical_quote,
+            quote_fallback_policy=self._sim_cfg.quote_fallback_policy or "zero_spread",
+            adv_dollars=candidate_adv_for_quote,
+            volatility_pct=volatility_pct,
+            max_quote_age_seconds=max_quote_age,
+            stress_level=cost_stress,
         )
+        # ``require_real`` with no historical quote — reject the candidate.
+        if resolution.missing_quote or resolution.quote is None:
+            result.missing_quote_count += 1
+            result.decisions.append(build_rejected_entry_decision(
+                candidate_event=candidate_event,
+                decision_ts=decision_ts,
+                entry_trigger=execution_cfg.get("order_type", "marketable_limit"),
+                reason="missing_quote",
+            ))
+            return result
+        quote: QuoteSnapshot = resolution.quote
 
         # Spread / age checks.
         max_spread_bps = int(execution_cfg.get("max_spread_bps", 50))
-        max_quote_age = int(execution_cfg.get("max_quote_age_seconds", 5))
         spread_bps = quote.spread_pct * 10_000.0
         if spread_bps > max_spread_bps:
             result.decisions.append(build_rejected_entry_decision(
@@ -355,28 +401,124 @@ class StrategyConsumer:
                 order_plan=order_plan_dict,
             ))
 
-        # Broker accepted (both modes reach here only on a non-reject). Add the
-        # position lot (entry price = quote.ask for a buy marketable-limit).
+        # ---- Fill simulation (Realism Phase 6) ----------------------------
+        # The broker accepted; now SIMULATE THE FILL. The position's entry price
+        # is the actual fill price (quote.ask + slippage for a market order, or
+        # the marketable-limit price), NOT the raw quote.ask. A fill may fail —
+        # a marketable-limit timeout, or a partial below min_order_notional — in
+        # which case NO position is created.
         ts_pts = candidate_event.get("scan_timestamp", str(decision_ts))
         entry_date = (
             _dt.datetime.fromisoformat(ts_pts.replace("Z", "+00:00")).date()
             if isinstance(ts_pts, str)
             else _dt.date.today()
         )
+        # Liquidity proxy — a small fraction of the candidate's prior ADV,
+        # expressed in shares. With no ADV the order is unconstrained.
+        liquidity_proxy_shares: Optional[float] = None
+        if candidate_adv > 0 and quote.ask > 0:
+            adv_shares = candidate_adv / quote.ask
+            liquidity_cap_frac = float(execution_cfg.get("liquidity_proxy_adv_frac", 0.05))
+            liquidity_proxy_shares = adv_shares * liquidity_cap_frac
+        min_order_notional = float(sizing_cfg.get("min_order_notional", 0.0))
+        commission_per_share = float(execution_cfg.get("commission_per_share", 0.0))
+        regulatory_fee_bps = float(execution_cfg.get("regulatory_fee_bps", 0.0))
+
+        if plan.order_style == "market":
+            fill: FillResult = simulate_market_fill(
+                side="buy", requested_qty=qty, quote=quote,
+                liquidity_proxy_shares=liquidity_proxy_shares,
+                cost_stress=cost_stress,
+                adv_participation_frac=gate.adv_participation_frac,
+                min_order_notional=min_order_notional,
+                commission_per_share=commission_per_share,
+                regulatory_fee_bps=regulatory_fee_bps,
+            )
+        else:  # marketable_limit (and "limit" — treated as marketable_limit here)
+            fill = simulate_marketable_limit_fill(
+                side="buy", requested_qty=qty, quote=quote,
+                marketable_limit_slippage_pct=float(
+                    execution_cfg.get("marketable_limit_slippage_pct",
+                                      execution_cfg.get("limit_offset_bps", 5) / 10_000.0)
+                ),
+                marketable_limit_timeout_seconds=int(
+                    execution_cfg.get("marketable_limit_timeout_seconds", 30)
+                ),
+                minute_bars=forward_minute_bars,
+                scan_ts=ts_pts,
+                liquidity_proxy_shares=liquidity_proxy_shares,
+                cost_stress=cost_stress,
+                adv_participation_frac=gate.adv_participation_frac,
+                min_order_notional=min_order_notional,
+                commission_per_share=commission_per_share,
+                regulatory_fee_bps=regulatory_fee_bps,
+            )
+
+        # Record the fill outcome (filled or not) for the execution-quality
+        # report. ``quote_source`` distinguishes real vs synthetic quotes.
+        fill_record = {
+            "parent_order_id": parent.parent_order_id,
+            "symbol": symbol,
+            "order_style": fill.order_style,
+            "filled": fill.filled,
+            "filled_qty": fill.filled_qty,
+            "requested_qty": qty,
+            "avg_fill_price": fill.avg_fill_price,
+            "notional": fill.notional,
+            "slippage_bps": fill.slippage_bps_total,
+            "is_partial": fill.is_partial,
+            "reason": fill.reason,
+            "commission": fill.commission,
+            "regulatory_fees": fill.regulatory_fees,
+            "total_fees": fill.total_fees,
+            "liquidity_participation_frac": fill.liquidity_participation_frac,
+            "quote_source": quote.source,
+            "quote_spread_pct": quote.spread_pct,
+            "quote_age_seconds": quote.quote_age_seconds,
+            "cost_stress": cost_stress,
+        }
+        result.fills.append(fill_record)
+        parent.filled_qty = fill.filled_qty
+        parent.avg_fill_price = fill.avg_fill_price if fill.filled else None
+
+        if not fill.filled:
+            # No executable fill (timeout / partial-below-min / no liquidity).
+            # The order was accepted by the broker but produced no position.
+            parent.status = OrderStatus.CANCELED
+            return result
+
+        # ---- Brackets from the ACTUAL FILL (live bracket_pricing_mode:
+        # actual_fill). stop_price / target_price are computed off the fill
+        # price, never the signal price, and attach AFTER the fill.
+        fill_price = fill.avg_fill_price
+        stop_price = round(fill_price * (1.0 - plan.stop_pct), 4)
+        target_price = round(fill_price * (1.0 + plan.target_pct), 4)
+
         position = Position(
             symbol=symbol,
             entry_date=entry_date,
-            entry_price=quote.ask,
-            qty=qty,
+            entry_price=fill_price,
+            qty=fill.filled_qty,
             stop_pct=plan.stop_pct,
             target_pct=plan.target_pct,
             max_hold_days=plan.max_hold_days,
             candidate_event_id=candidate_event["event_id"],
-            current_price=quote.ask,
+            current_price=fill_price,
             parent_order_id=parent.parent_order_id,
             link_id=parent.parent_order_id,
             entry_session=entry_date,
+            fill_source=quote.source,
+            fill_slippage_bps=fill.slippage_bps_total,
+            fill_is_partial=fill.is_partial,
+            fill_commission=fill.commission,
+            fill_regulatory_fees=fill.regulatory_fees,
+            fill_liquidity_participation=fill.liquidity_participation_frac,
+            stop_price=stop_price,
+            target_price=target_price,
+            bracket_pricing_mode="actual_fill",
+            bracket_attached=True,
         )
+        parent.status = OrderStatus.FILLED if not fill.is_partial else OrderStatus.PARTIALLY_FILLED
         self._portfolio.add_position(position)
         result.new_positions.append(position)
         return result
