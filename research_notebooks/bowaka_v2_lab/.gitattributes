@@ -6,3 +6,7 @@
 # Windows checkout rewrites LF -> CRLF and the round-trip test fails.
 *.yml  text eol=lf
 *.yaml text eol=lf
+
+# Shell scripts are executed inside the ql-jupyter Linux container; CRLF line
+# endings break the shebang / `set -u` parsing there. Keep them LF on all OSes.
+*.sh   text eol=lf
