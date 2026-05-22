@@ -13,6 +13,7 @@ The five commands above are config-driven: with a research config
 (``market_data.*_source: alpaca``) they read the shared market-data lake;
 with the smoke / fixture config they use deterministic synthetic data.
 - ``promotion-gate`` — checklist + bundler (Phase 9).
+- ``reconcile`` — paper-vs-lab reconciliation (Phase 10, scaffolding only).
 """
 from __future__ import annotations
 
@@ -239,6 +240,24 @@ def build_parser() -> argparse.ArgumentParser:
                      help="override artifacts/ root; defaults to research_notebooks/bowaka_v2_lab/artifacts")
     pg.set_defaults(func=_cmd_promotion_gate)
 
+    rec = sub.add_parser(
+        "reconcile",
+        help="paper-vs-lab reconciliation (Phase 10 — scaffolding only)",
+    )
+    rec.add_argument("--paper-logs-root", default=None,
+                     help="directory of paper-trading session logs; falls back to "
+                          "$BOWAKA_V2_PAPER_LOGS_ROOT, then reconcile.paper_logs_root "
+                          "in --config. Absent everywhere -> a scaffolding-only "
+                          "report is written and the command exits 0.")
+    rec.add_argument("--session-date", required=True,
+                     help="the paper trading session to reconcile (YYYY-MM-DD)")
+    rec.add_argument("--config", default=None,
+                     help="v2 lab config; the lab is replayed in current_code_parity "
+                          "mode. Required to run a real reconciliation.")
+    rec.add_argument("--out", default=None,
+                     help="output directory for reconciliation_report.{md,json}")
+    rec.set_defaults(func=_cmd_reconcile)
+
     return p
 
 
@@ -286,6 +305,102 @@ def _cmd_promotion_gate(args: argparse.Namespace) -> int:
     }
     print(json.dumps(out, indent=2, sort_keys=True))
     return 0 if (out["p0_passed"] and bundle_status == "ok") else 1
+
+
+def _cmd_reconcile(args: argparse.Namespace) -> int:
+    """Paper-vs-lab reconciliation (Phase 10 — scaffolding only).
+
+    Resolves the paper-log directory from ``--paper-logs-root``, then
+    ``$BOWAKA_V2_PAPER_LOGS_ROOT``, then (if a config is given)
+    ``reconcile.paper_logs_root``. When NO paper logs are resolved the command
+    writes a scaffolding-only ``reconciliation_report.{md,json}`` and exits 0
+    with a clear message — it never fabricates paper data (the Phase-10
+    operator constraint). When paper logs ARE resolved and a config is given,
+    it replays the session against the lab in ``current_code_parity`` mode.
+    """
+    from .reconcile.replay import replay_paper_session
+    from .reconcile.report import build_reconcile_report, render_realism_reconciliation_report
+
+    out_dir = Path(args.out) if args.out else (
+        Path(__file__).resolve().parents[4]
+        / "research_notebooks" / "bowaka_v2_lab" / "artifacts" / "reconcile"
+        / args.session_date
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def _emit_scaffold(reason: str, note: str, **extra: object) -> int:
+        """Write a scaffolding-only report, print the JSON summary, exit 0.
+
+        Routes through ``build_reconcile_report`` with no rows so the report
+        carries the standard section set and the scaffolding-only calibration
+        advice (it never fabricates paper data — Phase-10 operator constraint).
+        """
+        render_realism_reconciliation_report(
+            build_reconcile_report(
+                args.session_date, [], scaffolding_only=True, note=note
+            ),
+            out_dir=out_dir,
+        )
+        print(json.dumps({
+            "status": "ok", "command": "reconcile", "scaffolding_only": True,
+            "reason": reason, "session_date": args.session_date,
+            "out_dir": str(out_dir), **extra,
+        }, indent=2, sort_keys=True))
+        return 0
+
+    # Resolve the paper-logs root: flag > env var > config.
+    paper_logs_root = args.paper_logs_root or os.environ.get("BOWAKA_V2_PAPER_LOGS_ROOT")
+    if not paper_logs_root and args.config:
+        try:
+            cfg = load_config(args.config)
+            paper_logs_root = ((cfg.get("reconcile") or {}).get("paper_logs_root")) or None
+        except Exception:  # noqa: BLE001 — a bad config must not crash the scaffold path
+            paper_logs_root = None
+
+    if not paper_logs_root:
+        # No paper logs anywhere — never fabricate paper data (Phase-10
+        # operator constraint); write a scaffolding-only report and exit 0.
+        return _emit_scaffold(
+            reason="no paper logs provided",
+            note="no paper logs provided (--paper-logs-root absent, "
+                 "$BOWAKA_V2_PAPER_LOGS_ROOT unset); wrote a scaffolding-only "
+                 "report. Supply a paper-log directory to run a real "
+                 "paper-vs-lab reconciliation.",
+        )
+
+    if not args.config:
+        # Paper logs given but no config — the lab cannot be replayed without one.
+        return _emit_scaffold(
+            reason="paper logs present but no --config",
+            note=f"paper logs at {paper_logs_root} but no --config given; the "
+                 "lab cannot be replayed without a config. Pass --config to run "
+                 "the paper-vs-lab reconciliation.",
+            paper_logs_root=str(paper_logs_root),
+        )
+
+    # Full path — replay the paper session against the lab and reconcile.
+    replay = replay_paper_session(
+        args.session_date, paper_logs_root, args.config,
+        run_dir=(out_dir / "lab_run"),
+    )
+    report = build_reconcile_report(
+        replay.session_date, replay.rows,
+        scaffolding_only=replay.scaffolding_only, note=replay.note,
+    )
+    render_realism_reconciliation_report(report, out_dir=out_dir)
+    print(json.dumps({
+        "status": "ok",
+        "command": "reconcile",
+        "scaffolding_only": replay.scaffolding_only,
+        "session_date": replay.session_date,
+        "paper_logs_root": str(paper_logs_root),
+        "lab_run_dir": replay.lab_run_dir,
+        "n_paper_candidates": replay.n_paper_candidates,
+        "n_lab_candidates": replay.n_lab_candidates,
+        "n_rows": len(replay.rows),
+        "out_dir": str(out_dir),
+    }, indent=2, sort_keys=True))
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
