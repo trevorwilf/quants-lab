@@ -7,7 +7,13 @@ from .mfe_mae import mfe_mae_per_trade
 from .cost_stress import cost_stress_compare
 from .delay_sensitivity import delay_sensitivity_grid
 from .data_quality_section import render_data_quality_section
-from .render_run_report import render_run_report, SUITABILITY_TIERS
+from .render_run_report import (
+    render_run_report,
+    write_run_report,
+    build_report,
+    SUITABILITY_TIERS,
+    REPORT_SECTIONS,
+)
 
 __all__ = [
     "gate_funnel_by_date_symbol", "top_failure_reasons",
@@ -18,5 +24,6 @@ __all__ = [
     "cost_stress_compare",
     "delay_sensitivity_grid",
     "render_data_quality_section",
-    "render_run_report", "SUITABILITY_TIERS",
+    "render_run_report", "write_run_report", "build_report",
+    "SUITABILITY_TIERS", "REPORT_SECTIONS",
 ]

@@ -55,7 +55,8 @@ def test_run_manifest_has_lineage_hashes(tmp_path: Path, lab_root: Path) -> None
 def test_report_header_lists_mode_and_lineage(tmp_path: Path, lab_root: Path) -> None:
     run_dir = _smoke_run(tmp_path, lab_root)
     report = (run_dir / "report.md").read_text(encoding="utf-8")
-    assert "## Run Header" in report
+    # Phase 8: the substantive renderer's header section is "## Header".
+    assert "## Header" in report
     assert "simulation.mode" in report
     assert "smoke_fixture" in report
     assert "lab_config_hash" in report

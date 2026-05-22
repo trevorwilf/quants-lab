@@ -81,7 +81,17 @@ def test_iex_run_promotes_to_research_only(tmp_path: Path) -> None:
     assert payload["bundle_status"] == "ok"
 
 
-def test_sip_run_promotes_to_backtesting_only(tmp_path: Path) -> None:
+def test_sip_run_promotes_to_research_only_on_thin_synthetic_evidence(tmp_path: Path) -> None:
+    """A thin synthetic SIP smoke run is research_only under the Phase-8 gate.
+
+    Pre-Phase-8 the checklist only checked file existence, so a SIP run reached
+    ``backtesting_only``. Phase 8's content-inspecting checklist correctly fails
+    this run: it produces too few closed trades for ``qr.09_min_trade_count``
+    (default 30) and any other content check the thin synthetic fixture cannot
+    satisfy — so ``decide_suitability`` drops it to ``research_only``. This is
+    the intended Phase-8 behaviour: the gate fails on missing realism evidence,
+    not just on missing files.
+    """
     result = _wire_run(tmp_path, feed="sip")
     artifacts_root = tmp_path / "research_notebooks" / "bowaka_v2_lab" / "artifacts"
     proc = subprocess.run(
@@ -90,5 +100,10 @@ def test_sip_run_promotes_to_backtesting_only(tmp_path: Path) -> None:
         capture_output=True, text=True,
     )
     payload = json.loads(proc.stdout)
-    # SIP run: backtesting_only since no walkforward holdout / paper-recon evidence.
-    assert payload["tier"] == "backtesting_only"
+    assert payload["tier"] == "research_only"
+    # The content checks must be the reason — qr.09 (min trade count) fails on
+    # this thin synthetic run.
+    assert "qr.09_min_trade_count" in payload["p0_failures"]
+    # Every checklist result still carries structured evidence (Phase 8 Task 4).
+    for item_id, res in payload["checklist_results"].items():
+        assert isinstance(res["evidence"], dict), item_id

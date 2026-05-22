@@ -1,4 +1,4 @@
-"""Each callable returns (status, evidence)."""
+"""Each callable returns (status, evidence) — evidence is a dict (Phase 8 Task 4)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,4 +19,5 @@ def test_shape_on_empty_run_dir(tmp_path: Path) -> None:
             assert isinstance(result, tuple) and len(result) == 2, name
             status, evidence = result
             assert status in ("pass", "fail", "unknown"), f"{name}: bad status {status}"
-            assert isinstance(evidence, str)
+            # Realism Phase 8 Task 4: every check records structured evidence.
+            assert isinstance(evidence, dict), f"{name}: evidence must be a dict"
