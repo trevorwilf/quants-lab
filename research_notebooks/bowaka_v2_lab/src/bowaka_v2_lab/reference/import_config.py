@@ -105,6 +105,28 @@ _CONFIG_HEADER = """\
 # ------------------------------------------------------------------
 """
 
+#: Extra header block appended to ``--purpose optuna`` configs. Documents the
+#: walk-forward sizing rationale (lake range, fold count, user spec) so the
+#: operator reading the YAML understands why these values were chosen and the
+#: path to raising train_months as the lake accrues additional sessions.
+_OPTUNA_HEADER_SUFFIX = """\
+#
+# Walk-forward sizing rationale (2026-05-23 IEX lake snapshot)
+# ------------------------------------------------------------------
+# Lake range: 2023-11-27 -> 2026-05-20 (~29.8 months of IEX daily bars).
+# User-supplied spec (2026-05-23 conversation):
+#   - final_holdout_months = 5  (fixed).
+#   - train_months >= 18        (minimum); 24 is the operator's example.
+#   - holdout end = lake max    (as close to the current date as the
+#                                data set will allow).
+# Shipped values: train=21, val=1, final_holdout=5 -> 3 walk-forward
+# folds, every fold using only real lake data (no empty-day padding).
+# train=24 would need >=30 lake months (we have 29.8) and produce 0
+# folds today; raise train_months toward 24 as the lake accrues data
+# and regenerate via ``import-actual-config --purpose optuna``.
+# ------------------------------------------------------------------
+"""
+
 
 def build_config_from_contract(
     contract: dict[str, Any],
@@ -235,14 +257,17 @@ def build_config_from_contract(
         },
     }
     if purpose == "optuna":
-        # Realism remediation 2 Phase 11 — walk-forward needs a date range that
-        # fits ``train_months + val_months + final_holdout_months`` (the default
-        # 6+1+1 = 8 months). The single-backtest 4-month range produces zero
-        # splits and a ValueError; widen for the optuna purpose to give the
-        # walk-forward planner multiple validation windows out of the box.
+        # Realism remediation 2 Phase 12 — walk-forward sizing locked to the
+        # user spec (2026-05-23): final_holdout_months=5, train_months>=18,
+        # holdout end = lake max date. Dates derived from the current IEX
+        # lake snapshot (2023-11-27 -> 2026-05-20, ~29.8 months); train=21
+        # fits 3 clean walk-forward folds inside (rolling_budget=~23.8m,
+        # 3*val_step + train + final_holdout = 3 + 21 + 5 = 29 <= 29.8).
+        # See _OPTUNA_HEADER_SUFFIX for the full rationale (rendered into
+        # the YAML so the operator can read it without grepping the source).
         cfg["backtest"] = {
-            "start_date": "2024-01-01",
-            "end_date": "2025-12-31",
+            "start_date": "2023-11-27",
+            "end_date": "2026-05-20",
             "cost_stress": "conservative",
             "entry_delay_minutes": 0,
         }
@@ -257,20 +282,23 @@ def build_config_from_contract(
             "study_name_prefix": f"bowaka_v2_actual_{feed}_{mode}",
             "cost_stress": "conservative",
             "walkforward": {
-                "train_months": 6,
+                "train_months": 21,
                 "val_months": 1,
-                "final_holdout_months": 1,
+                "final_holdout_months": 5,
             },
             "search_space_overrides": {},
         }
     return cfg
 
 
-def render_config_yaml(cfg: dict[str, Any]) -> str:
-    """Deterministic YAML text for a config dict (constant header + sorted body).
+def render_config_yaml(cfg: dict[str, Any], *, purpose: str = "backtest") -> str:
+    """Deterministic YAML text for a config dict (header + optional suffix + sorted body).
 
-    The body is always sorted-key YAML and the header is filename-agnostic, so
-    re-running ``import-actual-config`` is byte-identical.
+    The body is always sorted-key YAML and both header pieces are
+    filename-agnostic, so re-running ``import-actual-config`` is byte-identical.
+    ``purpose="optuna"`` appends :data:`_OPTUNA_HEADER_SUFFIX` (walk-forward
+    sizing rationale) so the rendered YAML documents why the train/val/holdout
+    values were chosen against the current lake snapshot.
     """
     body = yaml.safe_dump(
         cfg,
@@ -279,7 +307,8 @@ def render_config_yaml(cfg: dict[str, Any]) -> str:
         allow_unicode=True,
         width=1000,
     )
-    return _CONFIG_HEADER + body
+    header = _CONFIG_HEADER + (_OPTUNA_HEADER_SUFFIX if purpose == "optuna" else "")
+    return header + body
 
 
 def build_sip_tightened_sidecar_rows(contract: dict[str, Any]) -> list[dict[str, Any]]:
@@ -344,7 +373,7 @@ def import_actual_config(
     BowakaV2Config.model_validate(dict(cfg))
     dest = Path(out_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(render_config_yaml(cfg), encoding="utf-8")
+    dest.write_text(render_config_yaml(cfg, purpose=purpose), encoding="utf-8")
     if feed_thresholds == "sip_tightened":
         sidecar = dest.with_name(f"{dest.stem}.parity_sidecar.yaml")
         sidecar.write_text(
