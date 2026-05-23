@@ -71,6 +71,17 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 # --- Real run -----------------------------------------------------------------
+# Auto-detect a python interpreter that has pytest. Honors $PYTHON when set;
+# otherwise tries the ql-jupyter container's quants-lab env, then $PATH python.
+# Phase-11 fix: a bare $PATH ``python`` in the container is the dependency-free
+# base conda; only the quants-lab env has pytest/pyarrow/optuna.
+if [ -z "${PYTHON:-}" ]; then
+  for _cand in /opt/conda/envs/quants-lab/bin/python python3 python; do
+    if command -v "$_cand" >/dev/null 2>&1 && "$_cand" -m pytest --version >/dev/null 2>&1; then
+      PYTHON="$_cand"; break
+    fi
+  done
+fi
 PYTHON="${PYTHON:-python}"
 export PYTHONPATH="src:../bowaka_common/src${PYTHONPATH:+:$PYTHONPATH}"
 

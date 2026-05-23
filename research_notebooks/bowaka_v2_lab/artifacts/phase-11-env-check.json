@@ -1,0 +1,15 @@
+{
+  "phase": "11",
+  "date": "2026-05-23",
+  "tool": "bowaka_v2_lab.cli env-check",
+  "results": [
+    {"config": "configs/bowaka_v2_actual_iex_current_code.yml",         "exit": 0, "status": "ok"},
+    {"config": "configs/bowaka_v2_actual_iex_intended_realism.yml",     "exit": 0, "status": "ok"},
+    {"config": "configs/bowaka_v2_actual_sip_intended_realism.yml",     "exit": 0, "status": "ok"},
+    {"config": "configs/bowaka_v2_actual_iex_current_code_optuna.yml",  "exit": 0, "status": "ok"},
+    {"config": "configs/bowaka_v2_actual_iex_intended_realism_optuna.yml", "exit": 0, "status": "ok"},
+    {"config": "configs/bowaka_v2_actual_sip_intended_realism_optuna.yml", "exit": 0, "status": "ok"},
+    {"config": "configs/bowaka_v2_backtest_smoke.yml",                  "exit": 0, "status": "ok"}
+  ],
+  "summary": {"total": 7, "passed": 7, "failed": 0}
+}

@@ -235,6 +235,17 @@ def build_config_from_contract(
         },
     }
     if purpose == "optuna":
+        # Realism remediation 2 Phase 11 — walk-forward needs a date range that
+        # fits ``train_months + val_months + final_holdout_months`` (the default
+        # 6+1+1 = 8 months). The single-backtest 4-month range produces zero
+        # splits and a ValueError; widen for the optuna purpose to give the
+        # walk-forward planner multiple validation windows out of the box.
+        cfg["backtest"] = {
+            "start_date": "2024-01-01",
+            "end_date": "2025-12-31",
+            "cost_stress": "conservative",
+            "entry_delay_minutes": 0,
+        }
         # Realism remediation 2 Phase 8 — walk-forward study scaffolding. The
         # commit-shipped optuna configs carry conservative defaults the runner
         # honours; the operator overrides per-study via --n-trials / --n-jobs.
