@@ -40,6 +40,15 @@ class ResolvedWalkforwardConfig:
     mode: str          # intended_realism | current_code_parity | smoke_fixture
     allow_smoke: bool  # True iff mode == smoke_fixture
     reason: str        # human-readable explanation of the choice
+    # Realism remediation 2 Phase 8 (audit §P0-011): notebook 10's autoconfig
+    # picks current_code_parity when the lake has IEX bars / SIP bars without
+    # quotes; Optuna refuses that mode without an explicit opt-in. These two
+    # flags surface the auto-pick's intent to ``run_walkforward_study`` so the
+    # notebook does not have to manually thread them. ``tier`` is always
+    # ``research_only`` for an auto-picked current_code_parity (the mechanical
+    # cap from :mod:`promotion.suitability`); explicitly None for other modes.
+    allow_current_code_parity_study: bool = False
+    tier: Optional[str] = None
 
 
 def resolve_lake_root(shared_root: Optional[str] = None) -> Path:
@@ -163,6 +172,12 @@ def resolve_walkforward_config(
         mode=mode,
         allow_smoke=(mode == "smoke_fixture"),
         reason=reason,
+        # Realism remediation 2 Phase 8 — auto-opt-in for current_code_parity
+        # so notebook 10 doesn't have to manually pass the flag when the lake
+        # forces parity mode (IEX-only / SIP-bars-no-quotes). The mechanical
+        # cap remains research_only.
+        allow_current_code_parity_study=(mode == "current_code_parity"),
+        tier=("research_only" if mode == "current_code_parity" else None),
     )
 
 

@@ -121,6 +121,7 @@ def _cmd_import_actual_config(args: argparse.Namespace) -> int:
         feed=args.feed,
         mode=args.mode,
         feed_thresholds=args.feed_thresholds,
+        purpose=args.purpose,
     )
     payload = {
         "status": "ok",
@@ -129,6 +130,7 @@ def _cmd_import_actual_config(args: argparse.Namespace) -> int:
         "feed": args.feed,
         "mode": args.mode,
         "feed_thresholds": args.feed_thresholds,
+        "purpose": args.purpose,
     }
     if args.feed_thresholds == "sip_tightened":
         payload["parity_sidecar"] = str(
@@ -218,10 +220,21 @@ def _cmd_optuna(args: argparse.Namespace) -> int:
 
     from .optuna.walkforward_runner import run_walkforward_study
 
+    # Realism remediation 2 Phase 8 — Optuna's n_startup_trials IS the random-
+    # search baseline (the first N trials are pure random samples before TPE
+    # kicks in). The CLI exposes both names for clarity.
+    n_startup = args.n_startup_trials
+    if n_startup is None and getattr(args, "random_search_trials", None) is not None:
+        n_startup = args.random_search_trials
+
     result = run_walkforward_study(
         args.config, n_trials=args.n_trials, n_jobs=args.n_jobs,
-        n_startup_trials=args.n_startup_trials,
+        n_startup_trials=n_startup,
         allow_smoke=args.allow_smoke_optimization,
+        allow_current_code_parity_study=getattr(
+            args, "allow_current_code_parity_study", False),
+        tier=getattr(args, "tier", None),
+        incumbent_trial=getattr(args, "incumbent_trial", False),
     )
     print(json.dumps(result, indent=2, default=str))
     return 0
@@ -280,6 +293,23 @@ def build_parser() -> argparse.ArgumentParser:
                      help="override optuna.n_startup_trials (random trials before TPE)")
     opt.add_argument("--allow-smoke-optimization", action="store_true",
                      help="permit walk-forward optimization on a simulation.mode=smoke_fixture config")
+    # Realism remediation 2 Phase 8 (audit §P0-011): current_code_parity opt-in.
+    opt.add_argument("--allow-current-code-parity-study", action="store_true",
+                     help="explicitly opt in to running an Optuna study against a "
+                          "simulation.mode=current_code_parity config (paper-"
+                          "reconciliation-only; requires --tier research_only)")
+    opt.add_argument("--tier", default=None,
+                     choices=["research_only", "backtesting_only",
+                              "paper_candidate", "live_candidate"],
+                     help="declare the study's suitability tier explicitly "
+                          "(current_code_parity studies require research_only)")
+    opt.add_argument("--incumbent-trial", action="store_true",
+                     help="pin trial 0 to the actual-contract parameter set (the "
+                          "incumbent baseline) so the optimizer's best is judged "
+                          "against the live config")
+    opt.add_argument("--random-search-trials", type=int, default=None,
+                     help="alias for --n-startup-trials: pure-random trials before "
+                          "TPE-guided search begins (Optuna's n_startup_trials)")
     # Phase 9: final-holdout scoring. Scores a chosen parameter set against the
     # untouched holdout window exactly once and records the result.
     opt.add_argument("--final-holdout", action="store_true",
@@ -333,6 +363,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="signal thresholds: 'actual' copies the contract "
                           "(IEX-relaxed) verbatim; 'sip_tightened' overlays the "
                           "audit's SIP-intended thresholds + writes a parity sidecar")
+    iac.add_argument("--purpose", default="backtest",
+                     choices=["backtest", "optuna"],
+                     help="config purpose: 'backtest' is a one-shot run; 'optuna' "
+                          "emits a walk-forward study config (adds optuna: block + "
+                          "run.kind: optuna) per realism remediation 2 Phase 8")
     iac.set_defaults(func=_cmd_import_actual_config)
 
     pg = sub.add_parser("promotion-gate", help="run promotion checklist + bundler (Phase 9)")

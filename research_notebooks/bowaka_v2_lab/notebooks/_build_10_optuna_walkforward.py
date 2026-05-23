@@ -57,8 +57,16 @@ def main() -> None:
         {"type": "code", "source": (
             "import json\n"
             "from bowaka_v2_lab.optuna.walkforward_runner import run_walkforward_study\n"
-            "result = run_walkforward_study(resolved.path, n_trials=N_TRIALS,\n"
-            "  n_startup_trials=N_STARTUP_TRIALS, allow_smoke=resolved.allow_smoke)\n"
+            "# Realism remediation 2 Phase 8 (audit §P0-011): current_code_parity\n"
+            "# studies require an explicit opt-in. ResolvedWalkforwardConfig\n"
+            "# carries the auto-opt-in flags when the lake forces parity mode\n"
+            "# (IEX-only / SIP-bars-no-quotes); the mechanical cap is research_only.\n"
+            "result = run_walkforward_study(\n"
+            "  resolved.path, n_trials=N_TRIALS,\n"
+            "  n_startup_trials=N_STARTUP_TRIALS, allow_smoke=resolved.allow_smoke,\n"
+            "  allow_current_code_parity_study=resolved.allow_current_code_parity_study,\n"
+            "  tier=resolved.tier,\n"
+            ")\n"
             "print(json.dumps(result, indent=2, default=str))\n"
         )},
     ])

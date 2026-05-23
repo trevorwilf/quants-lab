@@ -33,6 +33,151 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+# --------------------------------------------------------------------------
+# Realism remediation 2 Phase 8 (audit §P1-008) — unit consistency.
+#
+# Every term in the objective MUST be in DECIMAL RETURNS (``0.03`` = 3%) — not
+# in PERCENT (``3.0`` = 3%). Mixed units silently swap which penalty dominates
+# the objective by two orders of magnitude. ``MetricUnits`` is a Pydantic guard
+# that validates incoming fold metrics and raises ``MetricUnitsError`` on a
+# value that is plainly in the wrong units.
+# --------------------------------------------------------------------------
+class MetricUnitsError(ValueError):
+    """Raised when a fold metric is in the wrong units (percent vs decimal)."""
+
+
+#: Maximum plausible decimal value for a fold-level RETURN — `>2.0` (200%) is a
+#: dead giveaway that the metric is in percent (e.g. ``3.0`` for ``3%`` instead
+#: of ``0.03``). A walk-forward fold returning 200%+ in a single quarter is not
+#: a credible research result; it almost always indicates a units bug.
+_RETURN_DECIMAL_MAX = 2.0
+#: Maximum plausible decimal value for a fold-level DRAWDOWN / LOSS — these are
+#: always in ``[0, 1]``; ``>1.5`` is a percent-vs-decimal mix-up.
+_LOSS_DECIMAL_MAX = 1.5
+#: Decimal-coverage fields are always in ``[0, 1]``; ``>1.5`` is a percent input.
+_COVERAGE_DECIMAL_MAX = 1.5
+
+
+class MetricUnits(BaseModel):
+    """Pydantic guard for per-fold metrics passed to the objective.
+
+    Every metric is REQUIRED to be in decimal returns (e.g. ``0.03`` for 3%,
+    ``0.85`` for an 85% fill rate). The validators below reject values that are
+    plainly in percent units — they raise :class:`MetricUnitsError` with the
+    offending field name and a one-line "you probably meant" hint.
+
+    Range checks are done in :py:meth:`_validate_unit_ranges` (not via Pydantic
+    ``Field(ge=..., le=...)``) so every failure routes through
+    :class:`MetricUnitsError` rather than the generic Pydantic ValidationError.
+    """
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=False)
+
+    net_return: float = Field(..., description="Decimal return, e.g. 0.03 for +3%")
+    max_drawdown: float = Field(...,
+                                description="Daily MTM max drawdown fraction, [0, 1]")
+    worst_day_loss: float = Field(...,
+                                  description="Worst single-day fractional loss, [0, 1]")
+    quote_coverage: float = Field(...,
+                                  description="Fraction of (sym, scan_ts) with a real quote, [0, 1]")
+    fill_rate: float = Field(...,
+                             description="Fraction of orders that filled, [0, 1]")
+    turnover: float = Field(0.0)
+    concentration: float = Field(0.0)
+    n_trades: int = Field(0)
+    missing_quote_count: int = Field(0)
+    ambiguous_bar_count: int = Field(0)
+
+    @classmethod
+    def build(cls, **kwargs: Any) -> "MetricUnits":
+        """Construct + validate, re-raising any Pydantic ValidationError as MetricUnitsError.
+
+        Tests and the runtime path call this rather than the raw constructor so
+        every failure routes through :class:`MetricUnitsError` — the audit
+        §P1-008 contract requires a single error type for downstream catching.
+        """
+        try:
+            return cls(**kwargs)
+        except MetricUnitsError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — Pydantic ValidationError -> MetricUnitsError
+            raise MetricUnitsError(str(exc)) from exc
+
+    @model_validator(mode="after")
+    def _validate_unit_ranges(self) -> "MetricUnits":
+        # net_return: decimal returns; |v| > _RETURN_DECIMAL_MAX means percent.
+        if not math.isfinite(self.net_return):
+            raise MetricUnitsError(f"net_return must be finite, got {self.net_return!r}")
+        if abs(self.net_return) > _RETURN_DECIMAL_MAX:
+            raise MetricUnitsError(
+                f"net_return={self.net_return!r} is out of the decimal-return "
+                f"range (|v| > {_RETURN_DECIMAL_MAX}). The objective expects "
+                f"decimal returns (0.03 = 3%), not percent (3.0 = 3%). "
+                f"Convert with /100."
+            )
+        if self.max_drawdown < 0.0 or self.max_drawdown > _LOSS_DECIMAL_MAX:
+            raise MetricUnitsError(
+                f"max_drawdown={self.max_drawdown!r} out of [0, 1] — looks like "
+                f"a percent (e.g. 8.0 instead of 0.08)."
+            )
+        if self.worst_day_loss < 0.0 or self.worst_day_loss > _LOSS_DECIMAL_MAX:
+            raise MetricUnitsError(
+                f"worst_day_loss={self.worst_day_loss!r} out of [0, 1] — looks "
+                f"like a percent."
+            )
+        if self.quote_coverage < 0.0 or self.quote_coverage > _COVERAGE_DECIMAL_MAX:
+            raise MetricUnitsError(
+                f"quote_coverage={self.quote_coverage!r} out of [0, 1] — looks "
+                f"like a percent (e.g. 95.0 instead of 0.95)."
+            )
+        if self.fill_rate < 0.0 or self.fill_rate > _COVERAGE_DECIMAL_MAX:
+            raise MetricUnitsError(
+                f"fill_rate={self.fill_rate!r} out of [0, 1] — looks like a "
+                f"percent (e.g. 95.0 instead of 0.95)."
+            )
+        if self.turnover < 0.0:
+            raise MetricUnitsError(f"turnover={self.turnover!r} must be >= 0")
+        if self.concentration < 0.0 or self.concentration > 1.0:
+            raise MetricUnitsError(
+                f"concentration={self.concentration!r} out of [0, 1]"
+            )
+        if self.n_trades < 0:
+            raise MetricUnitsError(f"n_trades={self.n_trades!r} must be >= 0")
+        if self.missing_quote_count < 0:
+            raise MetricUnitsError(
+                f"missing_quote_count={self.missing_quote_count!r} must be >= 0"
+            )
+        if self.ambiguous_bar_count < 0:
+            raise MetricUnitsError(
+                f"ambiguous_bar_count={self.ambiguous_bar_count!r} must be >= 0"
+            )
+        return self
+
+
+def validate_metric_units(fold: "FoldResult") -> "FoldResult":
+    """Validate a :class:`FoldResult`'s metric units. Returns ``fold`` unchanged.
+
+    Realism remediation 2 Phase 8 (audit §P1-008): every term must be in decimal
+    returns; raises :class:`MetricUnitsError` if any term is in the wrong units.
+    Called by :func:`compute_objective` so every study run is unit-validated.
+    """
+    MetricUnits.build(
+        net_return=fold.net_return,
+        max_drawdown=fold.max_drawdown,
+        worst_day_loss=fold.worst_day_loss,
+        quote_coverage=fold.quote_coverage,
+        fill_rate=fold.fill_rate,
+        turnover=fold.turnover,
+        concentration=fold.concentration,
+        n_trades=fold.n_trades,
+        missing_quote_count=fold.missing_quote_count,
+        ambiguous_bar_count=fold.ambiguous_bar_count,
+    )
+    return fold
+
 
 # --------------------------------------------------------------------------
 # Penalty weights. Tunable research priors — bumping them is a methodology
@@ -91,6 +236,12 @@ class ObjectiveResult:
     fold_scores: list[float]
     penalty_breakdown: dict[str, float]
     fold_variance: float
+    #: Realism remediation 2 Phase 8 (audit §P1-008) — every term's contribution
+    #: to the final objective. ``median_net_return`` is the positive driver; the
+    #: rest are penalties (subtracted). The keys mirror ``fold_penalties()`` plus
+    #: ``median_net_return`` and ``fold_variance``. Verifiable invariant:
+    #: ``median_net_return - sum(<the penalty terms>) - fold_variance ≈ objective``.
+    objective_terms: dict[str, float] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------
@@ -252,20 +403,32 @@ def fold_score(
 
 
 def compute_objective(
-    folds: Iterable[FoldResult], *, weights: PenaltyWeights = DEFAULT_PENALTY_WEIGHTS
+    folds: Iterable[FoldResult],
+    *,
+    weights: PenaltyWeights = DEFAULT_PENALTY_WEIGHTS,
+    validate_units: bool = True,
 ) -> ObjectiveResult:
     """Median fold score minus a cross-fold metric-variance stability penalty.
 
     The variance penalty is the stdev of the per-fold scores scaled by
     ``weights.fold_variance`` — a strategy that scores wildly differently
     fold-to-fold is unstable and is penalized even if its median is high.
+
+    Realism remediation 2 Phase 8 (audit §P1-008): every per-fold metric is
+    validated through :class:`MetricUnits` (decimal returns only); raises
+    :class:`MetricUnitsError` on a mixed-units fold. Pass ``validate_units=False``
+    only when the caller has already validated (e.g. fixture-driven unit tests
+    that exercise edge cases the strict validator would reject).
     """
     fold_list = list(folds)
     if not fold_list:
         return ObjectiveResult(
             objective=0.0, median_fold_score=0.0, fold_scores=[],
-            penalty_breakdown={}, fold_variance=0.0,
+            penalty_breakdown={}, fold_variance=0.0, objective_terms={},
         )
+    if validate_units:
+        for f in fold_list:
+            validate_metric_units(f)
     scores = [fold_score(f, weights=weights) for f in fold_list]
     med = float(statistics.median(scores))
     variance = float(statistics.stdev(scores)) if len(scores) > 1 else 0.0
@@ -282,12 +445,28 @@ def compute_objective(
     objective = med - var_penalty
     if not math.isfinite(objective):
         objective = -1.0e9
+
+    # Realism remediation 2 Phase 8 (audit §P1-008) — explicit term breakdown.
+    # The keys are: ``median_net_return`` (positive driver) + every penalty key
+    # from ``fold_penalties()`` (subtracted) + ``fold_variance`` (subtracted).
+    # A consumer can verify median_net_return - sum(penalty keys) - fold_variance
+    # ≈ objective up to median-vs-mean rounding (we report the mean penalty
+    # across folds, not the per-fold median, so this is an inspectable
+    # decomposition, not an exact equality).
+    median_net_return = float(statistics.median([f.net_return for f in fold_list]))
+    objective_terms: dict[str, float] = {"median_net_return": median_net_return}
+    for k, v in agg.items():
+        objective_terms[k] = float(v)
+    objective_terms["objective"] = float(objective)
+    objective_terms["median_fold_score"] = float(med)
+
     return ObjectiveResult(
         objective=objective,
         median_fold_score=med,
         fold_scores=scores,
         penalty_breakdown=agg,
         fold_variance=variance,
+        objective_terms=objective_terms,
     )
 
 
@@ -296,6 +475,9 @@ __all__ = [
     "DEFAULT_PENALTY_WEIGHTS",
     "FoldResult",
     "ObjectiveResult",
+    "MetricUnits",
+    "MetricUnitsError",
+    "validate_metric_units",
     "mark_to_market_drawdown",
     "worst_day_loss",
     "fold_result_from_report",

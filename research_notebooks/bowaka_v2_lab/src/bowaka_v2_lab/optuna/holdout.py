@@ -19,7 +19,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ..config import BowakaV2Paths, SimulationConfig, load_config
-from .objective import FoldResult, compute_objective, fold_score
+from .objective import (
+    FoldResult,
+    compute_objective,
+    fold_result_from_report,
+    fold_score,
+)
 from .holdout_guard import HoldoutGuard
 from .walkforward import build_walkforward_splits
 
@@ -100,6 +105,10 @@ def score_final_holdout(
         "scoring final holdout %s..%s with %d params, %d symbols, feed=%s",
         plan.final_holdout_start, plan.final_holdout_end, len(params), len(symbols), feed,
     )
+    # Realism remediation 2 Phase 8 (audit §P1-004): the holdout MUST be scored
+    # against the same substantive metrics the validation folds use — daily MTM
+    # drawdown, worst-day loss, quote coverage, fill rate, missing-quote counts.
+    # Pass return_report=True and build the FoldResult identically to validation.
     summary = _run_fold_backtest(
         holdout_cfg,
         val_start=plan.final_holdout_start,
@@ -108,25 +117,29 @@ def score_final_holdout(
         feed=feed,
         symbols=symbols,
         paths=paths,
+        return_report=True,
     )
     guard.exit_final_eval()
 
-    fold = FoldResult(
-        fold_id=f"holdout_{plan.final_holdout_start.isoformat()}",
-        net_return=float(summary.get("net_return_pct", 0.0) or 0.0),
-        max_drawdown=float(summary.get("max_drawdown_pct", 0.0) or 0.0),
-        turnover=float(summary.get("turnover", 0.0) or 0.0),
-        concentration=float(summary.get("concentration", 0.0) or 0.0),
-        n_trades=int(summary.get("n_trades", 0) or 0),
-        ambiguous_bar_count=int(summary.get("ambiguous_bar_count", 0) or 0),
-        missing_quote_count=int(summary.get("missing_quote_count", 0) or 0),
-        worst_day_loss=0.0,
-        quote_coverage=float(summary.get("historical_quote_coverage_pct", 100.0) or 0.0) / 100.0,
-        fill_rate=float(summary.get("fill_rate", 1.0) if summary.get("fill_rate") is not None else 1.0),
-    )
+    fold_id = f"holdout_{plan.final_holdout_start.isoformat()}"
+    report = summary.get("_report") if isinstance(summary, dict) else None
+    if not isinstance(report, dict) or not report:
+        # Fail closed (audit §P1-004): the holdout is the ONLY honest out-of-
+        # sample number; a missing/corrupt report cannot be silently degraded.
+        raise RuntimeError(
+            f"final-holdout scoring failed: report.json missing or empty for "
+            f"holdout window {plan.final_holdout_start}..{plan.final_holdout_end}. "
+            "The holdout MUST be scored on the same substantive metrics as "
+            "validation folds (audit §P1-004). Re-run with a config / lake "
+            "that produces a valid report."
+        )
+    fold = fold_result_from_report(fold_id, report, summary)
     score = fold_score(fold)
     objective = compute_objective([fold])
 
+    # Strip the report (huge / not for the small holdout JSON) but keep the
+    # rest of summary alongside the richer fold metrics for downstream tooling.
+    holdout_summary = {k: v for k, v in summary.items() if k != "_report"}
     result = {
         "status": "ok",
         "kind": "final_holdout",
@@ -139,15 +152,19 @@ def score_final_holdout(
         "params": dict(params),
         "holdout_score": score,
         "holdout_objective": objective.objective,
+        # Realism remediation 2 Phase 8 (audit §P1-004) — surface the same
+        # metrics validation folds carry, including the DAILY MTM drawdown and
+        # worst-day loss from the report's daily equity curve.
         "holdout_metrics": {
             "net_return_pct": fold.net_return,
-            "max_drawdown_pct": fold.max_drawdown,
+            "mtm_max_drawdown_pct": fold.max_drawdown,
+            "worst_day_loss_pct": fold.worst_day_loss,
             "n_trades": fold.n_trades,
             "fill_rate": fold.fill_rate,
             "historical_quote_coverage_pct": fold.quote_coverage * 100.0,
             "missing_quote_count": fold.missing_quote_count,
         },
-        "holdout_summary": summary,
+        "holdout_summary": holdout_summary,
     }
 
     if out_path is None:
