@@ -83,6 +83,10 @@ _REQUIRED_CHECK_NAMES: frozenset[str] = frozenset(
         "intraday_gap",
         "feature_leakage",
         "halt_data_unavailable_when_required",
+        # Realism remediation 2 Phase 10 — SIP migration scaffolding (audit
+        # §11 Phase 9). A ``feed: sip`` config against a SIP-less lake fails
+        # closed; ``feed: iex`` runs never check SIP partitions (no regression).
+        "sip_data_absent",
     }
 )
 
@@ -525,6 +529,88 @@ def build_quote_coverage_check(
 
 
 # --------------------------------------------------------------------------
+# SIP data availability (realism remediation 2 Phase 10, audit §11 Phase 9)
+# --------------------------------------------------------------------------
+def build_sip_data_check(
+    *,
+    feed: str,
+    sip_partitions_present: Optional[bool],
+    source_file: str = "(lake SIP partition probe)",
+) -> dict[str, Any]:
+    """Probe SIP-partition presence for ``feed: sip`` configs.
+
+    Realism remediation 2 Phase 10 (audit §11 Phase 9). The SIP ingestion
+    stage has not run yet, so a ``feed: sip`` config against the current lake
+    must fail closed in ``intended_realism`` mode rather than silently
+    degrading. ``feed: iex`` runs never invoke this check.
+
+    Emits:
+
+    - ``sip_data_present: pass`` when the lake carries SIP partitions, or the
+      feed is not SIP (the check is non-applicable);
+    - ``sip_data_absent: fail`` (a required check) when ``feed: sip`` and no
+      SIP partitions exist. The check is keyed under
+      ``sip_data_absent`` so it appears in ``_REQUIRED_CHECK_NAMES`` and
+      fails an ``intended_realism`` run closed.
+
+    ``sip_partitions_present`` may be ``None`` (the lake-root probe failed);
+    in that case the check is recorded as ``warn`` rather than fail — DQ
+    should never crash because of an environment issue with the lake.
+    """
+    if str(feed or "").lower() != "sip":
+        return _check(
+            name="sip_data_present",
+            status="pass",
+            count=0,
+            threshold=None,
+            source_file=source_file,
+            evidence={"feed": feed, "detail": "non-SIP feed; SIP probe not applicable"},
+        )
+    if sip_partitions_present is None:
+        return _check(
+            name="sip_data_present",
+            status="warn",
+            count=0,
+            threshold=None,
+            source_file=source_file,
+            evidence={
+                "feed": feed,
+                "detail": (
+                    "could not probe SIP partition presence (lake root not provided "
+                    "or probe failed) — gate skipped"
+                ),
+            },
+        )
+    if sip_partitions_present:
+        return _check(
+            name="sip_data_present",
+            status="pass",
+            count=0,
+            threshold=None,
+            source_file=source_file,
+            evidence={"feed": feed, "sip_partitions_present": True},
+        )
+    return _check(
+        name="sip_data_absent",
+        status="fail",
+        count=1,
+        threshold={"feed": "sip"},
+        source_file=source_file,
+        evidence={
+            "feed": feed,
+            "sip_partitions_present": False,
+            "detail": (
+                "market_data.feed='sip' but the lake has no SIP partitions "
+                "(bars/quotes). The SIP ingestion stage has not run; ingest "
+                "the SIP feed or use feed='iex' (research-only). See "
+                "docs/data_lake_layout.md."
+            ),
+            "remediation_pointer": "docs/data_lake_layout.md",
+        },
+    )
+
+
+# --------------------------------------------------------------------------
 # Synthetic regime
 # --------------------------------------------------------------------------
 def synthetic_data_quality_report(*, feed: str, note: str = "") -> dict[str, Any]:
@@ -769,6 +855,26 @@ def build_data_quality_report(
         )
     )
 
+    # --- SIP partition presence (realism remediation 2 Phase 10, audit §11 Phase 9) ---
+    # When the config asks for SIP, refuse a SIP-less lake. The check emits
+    # ``sip_data_present: pass`` for non-SIP feeds (no IEX regression) and
+    # ``sip_data_absent: fail`` (a required check) for ``feed: sip`` against a
+    # lake whose SIP ingestion has not run.
+    sip_partitions_present: Optional[bool] = None
+    if lake_root is not None and str(feed).lower() == "sip":
+        try:
+            from bowaka_common.marketdata.layout import sip_partitions_available
+
+            sip_partitions_present = sip_partitions_available(lake_root)
+        except Exception:  # noqa: BLE001 — probe failure leaves the check as a warn
+            sip_partitions_present = None
+    checks.append(
+        build_sip_data_check(
+            feed=feed,
+            sip_partitions_present=sip_partitions_present,
+        )
+    )
+
     # --- multi-level DQ checks (realism remediation 2 Phase 3, audit §P0-010) ---
     checks.extend(
         _build_multi_level_checks(
@@ -955,6 +1061,7 @@ __all__ = [
     "build_split_adjustment_check",
     "build_quote_check",
     "build_quote_coverage_check",
+    "build_sip_data_check",
     "historical_quote_coverage_pct",
     "find_latest_audit",
     "synthetic_data_quality_report",

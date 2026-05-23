@@ -963,6 +963,11 @@ def run_walkforward_study(
         dq_report=dq_report,
         quote_coverage_pct=quote_cov_pct,
         min_quote_coverage_pct=float(sim_cfg.min_quote_coverage_pct),
+        # Realism remediation 2 Phase 10 / audit §11 Phase 9 — when the config
+        # asks for SIP, gate on lake SIP-partition presence; no regression for
+        # the IEX path (the SIP check is a no-op for any non-SIP feed).
+        feed=feed,
+        lake_root=Path(lake_root) if lake_root else None,
     )
     log.info("preflight passed: %d checks", len(preflight.checks))
 
@@ -1115,6 +1120,15 @@ def run_walkforward_study(
     suitability_tier = tier_for_simulation_contract(simulation_contract)
     if feed == "iex" and suitability_tier != "research_only":
         suitability_tier = "research_only"
+    # Realism remediation 2 Phase 10 (audit §P1-010) — IEX is partial-tape;
+    # every IEX artifact carries ``feed_caveat: partial_tape_features`` AND a
+    # ``partial_tape: true`` flag. Both fields are surfaced as study user_attrs
+    # by ``OptunaStudy.create`` (above); we also persist them here in
+    # ``study_metadata`` so they appear in the study results JSON.
+    from ..promotion.suitability import feed_caveat_for as _feed_caveat_for
+
+    feed_caveat = _feed_caveat_for(feed)
+    partial_tape = (str(feed).lower() == "iex")
     study_metadata = {
         "dataset_hash": dataset_hash,
         "lab_config_hash": lab_config_hash,
@@ -1134,10 +1148,13 @@ def run_walkforward_study(
         "simulation_contract": simulation_contract,
         "suitability_tier": suitability_tier,
         "feed": feed,
+        "partial_tape": partial_tape,
         "preflight": preflight.as_dict(),
         "penalty_weights": vars(DEFAULT_PENALTY_WEIGHTS),
         "search_space_overrides": search_space_overrides,
     }
+    if feed_caveat is not None:
+        study_metadata["feed_caveat"] = feed_caveat
     for key, value in study_metadata.items():
         study.study.set_user_attr(key, value)
 
@@ -1241,6 +1258,11 @@ def run_walkforward_study(
         "simulation_contract": simulation_contract,
         "suitability_tier": suitability_tier,
         "feed": feed,
+        # Realism remediation 2 Phase 10 (audit §P1-010): IEX caveat + partial-
+        # tape flag surfaced at the top level so downstream tooling can refuse
+        # SIP-portable claims on IEX studies without re-deriving feed semantics.
+        "partial_tape": partial_tape,
+        **({"feed_caveat": feed_caveat} if feed_caveat is not None else {}),
         "search_space_version": SEARCH_SPACE_VERSION,
         "n_trials_requested": trials,
         "n_trials_completed": len(completed),
@@ -1347,6 +1369,12 @@ def run_walkforward_study(
         "simulation_contract": simulation_contract,
         "suitability_tier": suitability_tier,
         "feed": feed,
+        # Realism remediation 2 Phase 10 (audit §P1-010): the IEX caveat
+        # travels with the promotion artifact so a downstream review can't
+        # promote an IEX result without explicitly accepting the partial-tape
+        # warning. ``feed_caveat`` is only emitted when one applies (today, IEX).
+        "partial_tape": partial_tape,
+        **({"feed_caveat": feed_caveat} if feed_caveat is not None else {}),
         "dataset_hash": dataset_hash,
         "config_hash": lab_config_hash,
         "code_hash": code_hash,

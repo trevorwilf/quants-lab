@@ -9,15 +9,100 @@ HARD CAP per [Report §1.2, §21]: any of these conditions caps the tier at
 This is mechanical: the promotion code in this lab can NEVER claim higher than
 ``backtesting_only`` because SIP walk-forward + paper-vs-sim reconciliation are
 explicit prerequisites for higher tiers and the lab does not produce both.
+
+Realism remediation 2 Phase 10 (audit §P1-010): IEX is a partial-tape feed.
+Any artifact with ``feed: iex`` therefore carries TWO labels — the existing
+``suitability_tier: research_only`` and a new ``feed_caveat:
+partial_tape_features`` field — to make it unambiguous that RVOL_so_far,
+projected_full_day_rvol, range_expansion_so_far and ADV on IEX are IEX-
+specific and not portable to SIP. Any attempt to set
+``suitability_tier`` above ``research_only`` on a ``feed: iex`` study now
+raises :class:`IEXPromotionBlocked`.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Mapping, Optional
 
 SUITABILITY_TIERS = ("research_only", "backtesting_only", "paper_candidate", "live_candidate")
 SuitabilityTier = Literal["research_only", "backtesting_only", "paper_candidate", "live_candidate"]
+
+#: Ordered tiers — index reflects rank (research_only = 0; live_candidate = 3).
+#: Used by :func:`assert_not_above_research_only_for_iex` to refuse any IEX
+#: promotion above ``research_only``.
+_TIER_RANK: dict[str, int] = {
+    "research_only": 0,
+    "backtesting_only": 1,
+    "paper_candidate": 2,
+    "live_candidate": 3,
+}
+
+#: Mechanical caveat label attached to every IEX artifact (audit §P1-010).
+#: The label is consumed by :func:`feed_caveat_for` and surfaced in the run
+#: report's IEX banner; downstream tooling can filter on it.
+FEED_CAVEAT_PARTIAL_TAPE = "partial_tape_features"
+
+
+class IEXPromotionBlocked(RuntimeError):
+    """Raised when promotion code tries to advance a ``feed: iex`` artifact above
+    ``research_only`` (realism remediation 2 Phase 10 / audit §P1-010).
+
+    IEX is partial-tape; RVOL / range-expansion / ADV computed on IEX are NOT
+    consolidated. Promoting an IEX result past ``research_only`` would
+    silently treat IEX-specific parameters as SIP-portable — exactly the
+    failure mode the audit calls out. The block is mechanical: code that
+    raises this exception has tried to do something the lab explicitly
+    forbids.
+    """
+
+
+def feed_caveat_for(feed: Optional[str]) -> Optional[str]:
+    """Return the caveat label for ``feed`` (or ``None`` when there is no caveat).
+
+    Today only IEX carries a caveat (``partial_tape_features``); SIP and other
+    feeds return ``None``. Realism remediation 2 Phase 10 (audit §P1-010).
+    """
+    if str(feed or "").lower() == "iex":
+        return FEED_CAVEAT_PARTIAL_TAPE
+    return None
+
+
+def assert_not_above_research_only_for_iex(
+    *,
+    feed: Optional[str],
+    proposed_tier: str,
+    context: str = "",
+) -> None:
+    """Refuse a ``feed: iex`` artifact whose proposed tier exceeds ``research_only``.
+
+    Raises :class:`IEXPromotionBlocked` when ``feed == "iex"`` and
+    ``proposed_tier`` ranks above ``research_only``. ``context`` is an
+    optional human-readable label for the artifact (e.g. the study name) so
+    the exception message points the operator at the right run.
+
+    Used by every code path that *writes* a tier onto an IEX artifact —
+    `decide_suitability` (this module), `OptunaStudy.mark_promotion_eligible`,
+    and the walk-forward runner. The cap rule itself (Phase 1) still applies;
+    this assertion is the explicit refusal that turns an accidental override
+    into an immediate, well-labeled error.
+    """
+    if str(feed or "").lower() != "iex":
+        return
+    if proposed_tier not in _TIER_RANK:
+        # An unknown tier name is not an IEX-specific defect; let the caller
+        # decide how to handle it. Return without raising so callers can use
+        # this gate uniformly without pre-validating the tier string.
+        return
+    if _TIER_RANK[proposed_tier] > _TIER_RANK["research_only"]:
+        suffix = f" ({context})" if context else ""
+        raise IEXPromotionBlocked(
+            f"refusing to set suitability_tier={proposed_tier!r} on a feed='iex' "
+            f"artifact{suffix}: IEX is partial-tape (RVOL / range-expansion / ADV "
+            f"are IEX-specific and NOT consolidated). The IEX cap is "
+            f"'research_only'; rerun on the SIP feed and produce paper-recon "
+            f"evidence to advance. See docs/audits/2026-05-22_realism_audit.md §P1-010."
+        )
 
 #: The three simulation contracts a run/study can declare (realism remediation 2
 #: Phase 0). The contract is exactly ``simulation.mode`` — it names *which
@@ -148,3 +233,52 @@ def decide_suitability(run_dir: Path, checklist_results: dict | None = None) -> 
     # Even with both evidence types, this lab's mechanical verdict caps at
     # backtesting_only — promoting requires an out-of-band operator decision per §21.
     return "backtesting_only"
+
+
+def build_suitability_artifact(
+    *,
+    feed: Optional[str],
+    simulation_contract: Optional[str] = None,
+    tier: Optional[str] = None,
+) -> dict[str, object]:
+    """Build the mechanical suitability + feed-caveat envelope for an artifact.
+
+    Returns a dict carrying ``suitability_tier``, ``feed``, and (when applicable)
+    ``feed_caveat: 'partial_tape_features'``. Realism remediation 2 Phase 10
+    (audit §P1-010): every run / study artifact carries this envelope so
+    downstream consumers (reports, paper-recon, promotion) can read the IEX
+    caveat without re-deriving it.
+
+    Raises :class:`IEXPromotionBlocked` when the caller *explicitly* passes a
+    ``tier`` above ``research_only`` on a ``feed: iex`` artifact. A
+    contract-default tier above ``research_only`` (e.g. the ``intended_realism``
+    default of ``backtesting_only``) is silently clamped to ``research_only``
+    on IEX — that is the mechanical IEX cap, not a caller mistake.
+    """
+    out: dict[str, object] = {"feed": feed}
+    is_iex = str(feed or "").lower() == "iex"
+    # An explicit caller-supplied tier above research_only on IEX is the only
+    # case that raises: the caller is asking for something the lab forbids.
+    if is_iex and tier is not None:
+        assert_not_above_research_only_for_iex(
+            feed=feed, proposed_tier=str(tier),
+            context=f"simulation_contract={simulation_contract!r}",
+        )
+    # Resolve the tier: explicit > contract default > research_only.
+    if tier is not None:
+        resolved_tier = str(tier)
+    elif simulation_contract is not None and simulation_contract in _CONTRACT_TIER_CAP:
+        resolved_tier = _CONTRACT_TIER_CAP[simulation_contract]
+    else:
+        resolved_tier = "research_only"
+    # IEX cap — research_only mechanically. A contract default above the cap is
+    # clamped (no raise); a caller's explicit override raised above.
+    if is_iex:
+        resolved_tier = "research_only"
+    out["suitability_tier"] = resolved_tier
+    caveat = feed_caveat_for(feed)
+    if caveat is not None:
+        out["feed_caveat"] = caveat
+    if simulation_contract is not None:
+        out["simulation_contract"] = simulation_contract
+    return out

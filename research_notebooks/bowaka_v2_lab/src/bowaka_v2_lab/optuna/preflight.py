@@ -12,7 +12,9 @@ REFUSES the study — raising :class:`PreflightError` — when:
 2. the run is ``intended_realism`` and the dataset's data-quality report has a
    failing *required* check;
 3. the run is ``intended_realism`` and historical quote coverage is below the
-   configured threshold.
+   configured threshold;
+4. ``market_data.feed == "sip"`` and the lake has no SIP partitions (realism
+   remediation 2 Phase 10 / audit §11 Phase 9).
 
 Checks 2 and 3 gate **only ``intended_realism``** runs — mirroring the
 data-quality contract (``data_quality.py``: "Only ``intended_realism`` runs are
@@ -21,6 +23,13 @@ report but are never failed by it"). For a ``current_code_parity`` study a
 failing required DQ check or low quote coverage is recorded as a ``warn`` — it
 is surfaced in the study metadata but does not refuse the run, because parity
 mode reproduces the live code (which uses the zero-spread quote fallback).
+
+Check 4 fires only for ``feed: sip``; an ``feed: iex`` run never inspects SIP
+partitions, so there is no regression for the IEX path. It gates
+``intended_realism`` (fail closed) and surfaces a warning on
+``current_code_parity`` — parity mode against a SIP feed is a paper-recon
+plumbing setup; SIP-less SIP partitions are still a defect there but not a
+hard refusal.
 
 The checks are skipped (with a recorded ``skipped`` status) when they cannot
 apply — e.g. quote coverage is not meaningful for a ``smoke_fixture`` run that
@@ -32,6 +41,10 @@ import datetime as _dt
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
+
+#: Pointer to the canonical data-lake layout doc; surfaced in every SIP-data
+#: refusal so the operator knows exactly which partitions are missing.
+_DATA_LAKE_LAYOUT_DOC = "docs/data_lake_layout.md"
 
 
 class PreflightError(RuntimeError):
@@ -246,6 +259,93 @@ def _check_quote_coverage(
     )
 
 
+def _check_sip_data(
+    *,
+    feed: Optional[str],
+    sim_mode: str,
+    lake_root: Optional[Path] = None,
+    sip_partitions_present: Optional[bool] = None,
+) -> PreflightCheck:
+    """Refuse a ``feed: sip`` study when the lake has no SIP partitions.
+
+    Realism remediation 2 Phase 10 (audit §11 Phase 9). When the config's
+    ``market_data.feed`` is ``"sip"``, the lake must carry at least one SIP
+    bars / quotes partition; otherwise the run silently degrades to whatever
+    fall-back the data layer produces. The check is skipped (``pass``) for
+    ``feed: iex`` and other non-SIP feeds — there is no regression for IEX.
+
+    ``sip_partitions_present`` is the probed result (``True``/``False``);
+    when ``None`` the check probes ``lake_root`` via
+    :func:`bowaka_common.marketdata.layout.sip_partitions_available`. If
+    neither is provided the check is ``skipped`` — the caller can still launch
+    the study but the SIP-data gate did not run.
+    """
+    if str(feed or "").lower() != "sip":
+        return PreflightCheck(
+            name="sip_data_present",
+            status="pass",
+            detail=f"market_data.feed={feed!r} is not SIP — SIP-data gate not applicable",
+            evidence={"feed": feed},
+        )
+    present = sip_partitions_present
+    if present is None and lake_root is not None:
+        try:
+            from bowaka_common.marketdata.layout import sip_partitions_available
+
+            present = sip_partitions_available(lake_root)
+        except Exception:  # noqa: BLE001 — probe failure leaves the result unknown
+            present = None
+    if present is None:
+        return PreflightCheck(
+            name="sip_data_present",
+            status="skipped",
+            detail=(
+                "could not probe SIP partition presence — supply lake_root or "
+                "sip_partitions_present to the preflight, or check the lake by hand"
+            ),
+            evidence={"feed": feed},
+        )
+    if present:
+        return PreflightCheck(
+            name="sip_data_present",
+            status="pass",
+            detail="lake carries SIP partitions for the requested feed",
+            evidence={"feed": feed, "sip_partitions_present": True},
+        )
+    # SIP feed but the lake has no SIP data. The required ``intended_realism``
+    # gate is hard-fail; ``current_code_parity`` surfaces a warning (the audit
+    # §11 Phase 9 view: a parity SIP run is plumbing, not research, so the
+    # missing SIP data is a defect but not yet a refusal).
+    evidence = {
+        "feed": feed,
+        "sip_partitions_present": False,
+        "lake_root": str(lake_root) if lake_root else None,
+        "remediation_pointer": _DATA_LAKE_LAYOUT_DOC,
+    }
+    if sim_mode == "intended_realism":
+        return PreflightCheck(
+            name="sip_data_absent",
+            status="fail",
+            detail=(
+                "market_data.feed='sip' but the lake has no SIP partitions — "
+                "the SIP ingestion stage has not run. The intended-realism "
+                "contract requires real SIP bars + SIP quotes; ingest the SIP "
+                f"feed or use feed='iex' (research-only). See {_DATA_LAKE_LAYOUT_DOC}."
+            ),
+            evidence=evidence,
+        )
+    return PreflightCheck(
+        name="sip_data_absent",
+        status="warn",
+        detail=(
+            f"market_data.feed='sip' but the lake has no SIP partitions; "
+            f"simulation.mode={sim_mode!r} surfaces this as a warning, not a refusal. "
+            f"See {_DATA_LAKE_LAYOUT_DOC}."
+        ),
+        evidence=evidence,
+    )
+
+
 def run_preflight(
     *,
     sim_mode: str,
@@ -253,6 +353,9 @@ def run_preflight(
     dq_report: Optional[Mapping[str, Any]] = None,
     quote_coverage_pct: Optional[float] = None,
     min_quote_coverage_pct: float = DEFAULT_MIN_QUOTE_COVERAGE_PCT,
+    feed: Optional[str] = None,
+    lake_root: Optional[Path] = None,
+    sip_partitions_present: Optional[bool] = None,
     raise_on_fail: bool = True,
 ) -> PreflightResult:
     """Run every study-start preflight check.
@@ -262,6 +365,12 @@ def run_preflight(
     ``quote_coverage_pct`` is the measured historical-quote coverage percentage,
     when known. Either may be ``None`` — the corresponding check is then
     ``skipped`` rather than failed.
+
+    ``feed`` is the run's ``market_data.feed`` value; when set to ``"sip"`` the
+    SIP-data gate runs (realism remediation 2 Phase 10 / audit §11 Phase 9).
+    ``lake_root`` is the lake root used by the SIP probe; alternatively the
+    caller can pass ``sip_partitions_present`` directly. Other feed values
+    (``"iex"`` etc.) skip the gate — no regression for the IEX path.
 
     Raises :class:`PreflightError` (when ``raise_on_fail``) if any check fails.
     """
@@ -273,6 +382,12 @@ def run_preflight(
             min_quote_coverage_pct=min_quote_coverage_pct,
             sim_mode=sim_mode,
             allow_smoke=allow_smoke,
+        ),
+        _check_sip_data(
+            feed=feed,
+            sim_mode=sim_mode,
+            lake_root=lake_root,
+            sip_partitions_present=sip_partitions_present,
         ),
     ]
     result = PreflightResult(
@@ -448,6 +563,8 @@ def _probe_fold(
         dq_report=dq_report,
         quote_coverage_pct=quote_cov_pct,
         min_quote_coverage_pct=float(min_quote_coverage_pct),
+        feed=feed,
+        lake_root=lake_root,
         raise_on_fail=False,
     )
     # Rename the checks so the caller can attribute them to this fold; preserve
@@ -522,4 +639,5 @@ __all__ = [
     "run_preflight",
     "run_full_fold_preflight",
     "probe_quote_coverage",
+    "_check_sip_data",
 ]
