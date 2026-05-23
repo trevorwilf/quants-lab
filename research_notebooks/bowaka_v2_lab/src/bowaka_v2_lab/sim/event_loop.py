@@ -56,12 +56,19 @@ class EventType(IntEnum):
     collision — lower wins. EOD_MARK is last (highest int) so all other events
     at 16:00 close drain before the daily snapshot. PROTECTION_CHECK is highest
     priority among polls (it can release a slot used by the very next SCAN).
+
+    Realism remediation 2 Phase 5 adds ``PARENT_FILL_TIMEOUT`` (audit P0-006).
+    It fires at ``submit_ts + marketable_limit_timeout_seconds`` and, if the
+    parent order has not filled by then, transitions the order to a no-fill.
+    Priority sits between PARENT_FILL and PARENT_ACK so a real fill at the same
+    timestamp wins over the timeout.
     """
 
     PROTECTION_CHECK = 10
     OCO_ATTACH_ATTEMPT = 15
     CHILD_FILL = 20
     PARENT_FILL = 25
+    PARENT_FILL_TIMEOUT = 27
     PARENT_ACK = 30
     MINUTE_BAR = 35
     QUOTE = 40
@@ -330,6 +337,7 @@ def run_one_scan(
     consumer: StrategyConsumer,
     quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
     forward_minute_supplier: Optional[Callable[[str, Any], pd.DataFrame | None]] = None,
+    status_supplier: Optional[Callable[..., Optional[dict]]] = None,
 ) -> tuple[ScanResult, list[StrategyConsumerResult]]:
     """Run one scan tick and consume each emitted candidate.
 
@@ -337,7 +345,9 @@ def run_one_scan(
     :mod:`sim.backtester` still calls it. ``quote_supplier`` resolves the
     historical quote per candidate (Phase 6). ``forward_minute_supplier``
     returns the minute path forward from ``scan_ts`` so a marketable-limit fill
-    can detect a timeout.
+    can detect a timeout. ``status_supplier(symbol, ts) -> dict|None`` returns
+    venue-status data for the audit P0-009 halt gate; ``None`` is fail-open under
+    ``current_code_parity`` and a hard reject under ``intended_realism``.
     """
     scan_result = evaluate_one_scan(
         cfg=cfg, universe_snapshot=universe_snapshot, daily_cache=daily_cache,
@@ -363,7 +373,8 @@ def run_one_scan(
         })
         fwd = forward_minute_supplier(ev["symbol"], scan_ts) if forward_minute_supplier else None
         cr = consumer.consume(
-            ev, decision_ts=scan_ts, historical_quote=q, forward_minute_bars=fwd
+            ev, decision_ts=scan_ts, historical_quote=q, forward_minute_bars=fwd,
+            status_supplier=status_supplier,
         )
         consumer_results.append(cr)
     return scan_result, consumer_results

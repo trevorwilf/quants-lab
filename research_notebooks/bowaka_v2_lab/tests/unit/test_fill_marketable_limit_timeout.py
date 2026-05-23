@@ -65,8 +65,12 @@ def test_marketable_limit_fills_when_quote_stays_within_limit():
     )
     assert fill.filled is True
     assert fill.filled_qty == 100
-    # Fills at the marketable-limit price.
-    assert fill.avg_fill_price == round(100.0 * 1.005, 4)
+    # Realism remediation 2 Phase 5 (audit P0-006): T2 fills at the ask when
+    # ``ask_size >= qty`` (not at the full limit price). The quote here has
+    # ``ask_size=10_000 >= qty=100`` so the whole order takes at the ask.
+    assert fill.avg_fill_price == 100.0
+    assert fill.slippage_vs_ask_bps == 0.0
+    assert fill.execution_tier in ("T1_TOP_OF_BOOK", "T2_QUOTES_AND_VOLUME")
 
 
 def test_marketable_limit_fills_when_no_forward_bars_supplied():

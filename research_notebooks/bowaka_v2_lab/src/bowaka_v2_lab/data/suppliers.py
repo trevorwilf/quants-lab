@@ -192,6 +192,10 @@ def make_quote_supplier(
         row = store.quotes_at_or_before(symbol, ts, max_age_seconds=age, feed=feed)
         if row is None:
             return None
+        # Audit P1-002 fix: record the row's actual UTC timestamp, not the
+        # request timestamp. Quote age + spread analytics need the real quote
+        # time. Fall back to the request ts only if the store omitted the field.
+        row_ts = row.timestamp if row.timestamp is not None else pd.Timestamp(ts)
         return {
             "bid": row.bid,
             "ask": row.ask,
@@ -199,7 +203,7 @@ def make_quote_supplier(
             "ask_size": row.ask_size,
             "mid": row.mid,
             "spread_pct": row.spread_pct,
-            "quote_timestamp": str(pd.Timestamp(ts)),
+            "quote_timestamp": str(row_ts),
             "quote_age_seconds": row.quote_age_seconds,
             "source": row.source,
         }

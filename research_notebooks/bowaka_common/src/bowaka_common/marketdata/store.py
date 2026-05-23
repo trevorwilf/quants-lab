@@ -29,6 +29,10 @@ class QuoteRow:
     ``source`` is ``"historical"`` for a quote read from the lake's ``quotes/``
     partitions. The value ``"synthetic"`` is reserved for callers that construct
     a fabricated quote — the store itself never returns a synthetic ``QuoteRow``.
+
+    ``timestamp`` is the row's actual UTC timestamp from the quote partition, so
+    callers can record the true quote time (not the request time). Added for
+    realism remediation 2 Phase 5 (audit P1-002).
     """
 
     bid: float
@@ -39,6 +43,7 @@ class QuoteRow:
     spread_pct: float
     quote_age_seconds: float
     source: str = "historical"
+    timestamp: Optional[pd.Timestamp] = None
 
 
 # --------------------------------------------------------------------------
@@ -287,6 +292,13 @@ class MarketDataStore:
             spread_pct = float(row["spread_pct"])
         else:
             spread_pct = ((ask - bid) / mid) if mid > 0 else 0.0
+        # The row's actual UTC timestamp (audit P1-002). Consumers record this
+        # so quote-age telemetry reflects the real quote time, not the request.
+        row_ts = pd.Timestamp(row["timestamp"])
+        if row_ts.tzinfo is None:
+            row_ts = row_ts.tz_localize("UTC")
+        else:
+            row_ts = row_ts.tz_convert("UTC")
         return QuoteRow(
             bid=bid,
             ask=ask,
@@ -296,6 +308,7 @@ class MarketDataStore:
             spread_pct=spread_pct,
             quote_age_seconds=max(0.0, age),
             source="historical",
+            timestamp=row_ts,
         )
 
     # -- corporate actions -------------------------------------------------
