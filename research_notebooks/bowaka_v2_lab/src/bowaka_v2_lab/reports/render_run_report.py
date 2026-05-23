@@ -380,12 +380,36 @@ def build_report(
                 "candidate_count": s.get("candidate_count", 0),
                 "accepted_count": s.get("accepted_count", 0),
                 "gate_rejection_breakdown": s.get("gate_rejection_breakdown") or {},
+                # Realism remediation 2 Phase 7 (audit P1-003) — BOTH
+                # per-symbol counters surfaced side-by-side.
+                "signal_emits_per_symbol_today": s.get("signal_emits_per_symbol_today") or {},
+                "entries_per_symbol_today": s.get("entries_per_symbol_today") or {},
             })
         md += _md_table(
             ["session_date", "expected_scans", "actual_scans", "candidates", "accepted"],
             rows,
         )
         md += [""]
+        # Realism remediation 2 Phase 7 (audit P1-003) — per-symbol counters,
+        # ONE row per (session, symbol), showing the scanner-dedup emit count
+        # AND the portfolio PARENT_FILL entry count side-by-side.
+        emits_rows: list[list[Any]] = []
+        for sd in sorted(scan_counts):
+            s = scan_counts[sd]
+            emits = (s.get("signal_emits_per_symbol_today") or {})
+            entries = (s.get("entries_per_symbol_today") or {})
+            for sym in sorted(set(emits) | set(entries)):
+                emits_rows.append([
+                    sd, sym, int(emits.get(sym, 0)), int(entries.get(sym, 0)),
+                ])
+        if emits_rows:
+            md += ["### Per-symbol emit vs entry counters (Realism rem-2 Phase 7)", ""]
+            md += _md_table(
+                ["session_date", "symbol",
+                 "signal_emits_per_symbol_today", "entries_per_symbol_today"],
+                emits_rows,
+            )
+            md += [""]
         rpt["scan_replay"] = {
             "available": True,
             "totals": {
@@ -393,6 +417,14 @@ def build_report(
                 "candidate_events": total_candidates, "accepted": total_accepted,
             },
             "sessions": sess_json,
+            # Realism remediation 2 Phase 7 (audit P1-003) — flat per-(session,
+            # symbol) rows for consumers that want to diff the two counters.
+            "per_symbol_counters": [
+                {"session_date": sd, "symbol": sym,
+                 "signal_emits_per_symbol_today": emits,
+                 "entries_per_symbol_today": entries}
+                for sd, sym, emits, entries in emits_rows
+            ],
         }
 
     # ===== 5. gate funnel ==================================================

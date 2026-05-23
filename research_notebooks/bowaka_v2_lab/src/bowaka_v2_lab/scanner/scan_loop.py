@@ -111,9 +111,17 @@ def evaluate_one_scan(
     ``state`` carries cross-scan dedup memory: ``entered_symbols_today``
     (symbols with an open position — never re-emitted), ``symbol_last_emit_ts``
     (UTC ISO of each symbol's last emitted candidate, for the cooldown gate) and
-    ``entries_per_symbol_today`` (per-symbol emitted-candidate counter, for the
-    ``same_symbol_entries_per_day`` cap). The caller threads one ``state`` dict
-    through every scan of a session and resets it per session.
+    ``signal_emits_per_symbol_today`` (per-symbol emitted-candidate counter, for
+    the ``same_symbol_entries_per_day`` scanner-dedup cap). The caller threads
+    one ``state`` dict through every scan of a session and resets it per session.
+
+    Realism remediation 2 Phase 7 (audit P1-003) renamed the emit counter from
+    ``entries_per_symbol_today`` → ``signal_emits_per_symbol_today``. The legacy
+    ``entries_per_symbol_today`` key is now driven by the ``Portfolio`` on
+    ``PARENT_FILL`` (lots opened today, per symbol) — risk gates that care about
+    actual entries should read it from the portfolio state, not from the scanner
+    dedup memory. For one-release back-compat the scanner accepts an existing
+    ``entries_per_symbol_today`` dict in ``state`` and migrates it.
     """
     scanner_cfg = cfg.get("scanner") or {}
     signals_cfg = cfg.get("signals") or {}
@@ -143,7 +151,18 @@ def evaluate_one_scan(
 
     entered = set(state.get("entered_symbols_today") or [])
     symbol_last_emit_ts: dict[str, str] = state.setdefault("symbol_last_emit_ts", {})
-    entries_per_symbol: dict[str, int] = state.setdefault("entries_per_symbol_today", {})
+    # Realism remediation 2 Phase 7 (audit P1-003): the scanner-dedup counter
+    # is ``signal_emits_per_symbol_today`` (incremented on emission). The legacy
+    # ``entries_per_symbol_today`` key is now reserved for portfolio entries
+    # (PARENT_FILL) and tracked by the Portfolio. For one-release back-compat
+    # the scanner migrates any pre-Phase-7 ``entries_per_symbol_today`` value.
+    if "signal_emits_per_symbol_today" not in state:
+        legacy = state.get("entries_per_symbol_today")
+        if isinstance(legacy, dict) and legacy:
+            state["signal_emits_per_symbol_today"] = dict(legacy)
+        else:
+            state["signal_emits_per_symbol_today"] = {}
+    signal_emits_per_symbol: dict[str, int] = state["signal_emits_per_symbol_today"]
     universe_meta_by_sym = {
         s["symbol"]: s for s in universe_snapshot.get("symbols", [])
     }
@@ -198,11 +217,15 @@ def evaluate_one_scan(
             result.gate_dump.append(_skip(symbol, ScanSkipReason.ALREADY_ENTERED_TODAY))
             continue
 
-        # Realism Phase 4 — same_symbol_entries_per_day cap.
-        if entries_per_symbol.get(symbol, 0) >= same_symbol_day_cap > 0:
+        # Realism Phase 4 + remediation 2 Phase 7 — same_symbol_entries_per_day
+        # cap is keyed on the EMIT counter (scanner-dedup), per audit P1-003.
+        # The accepted/filled entry count lives on Portfolio.state.
+        if signal_emits_per_symbol.get(symbol, 0) >= same_symbol_day_cap > 0:
             result.gate_dump.append(_skip(
                 symbol, ScanSkipReason.SAME_SYMBOL_DAY_CAP,
-                entries_today=int(entries_per_symbol.get(symbol, 0)),
+                signal_emits_today=int(signal_emits_per_symbol.get(symbol, 0)),
+                # Back-compat alias of the prior dump-row key:
+                entries_today=int(signal_emits_per_symbol.get(symbol, 0)),
                 same_symbol_entries_per_day=same_symbol_day_cap,
             ))
             continue
@@ -333,9 +356,13 @@ def evaluate_one_scan(
                 "signal_expiry_ts": ev["signal_expiry_timestamp"],
                 "last_signal_strength": ev["features"]["signal_strength"],
             }
-            # Realism Phase 4 — record emit for cooldown + per-day cap.
+            # Realism Phase 4 + remediation 2 Phase 7 — record emit for cooldown
+            # + per-day emit cap. The portfolio entry counter (PARENT_FILL) is
+            # NOT touched here; it is maintained on Portfolio.state via
+            # add_position. Per audit P1-003 the scanner-dedup view (emits) and
+            # the risk-gate view (filled entries) must be distinct.
             symbol_last_emit_ts[ev["symbol"]] = scan_iso
-            entries_per_symbol[ev["symbol"]] = entries_per_symbol.get(ev["symbol"], 0) + 1
+            signal_emits_per_symbol[ev["symbol"]] = signal_emits_per_symbol.get(ev["symbol"], 0) + 1
         else:
             # Passed gates but capped by max_entries_per_scan.
             row["rejection_reason"] = ScanSkipReason.MAX_ENTRIES_CAP.value

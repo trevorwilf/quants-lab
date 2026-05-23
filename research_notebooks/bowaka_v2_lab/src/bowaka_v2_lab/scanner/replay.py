@@ -50,11 +50,13 @@ def replay_scanner(
     # Realism Phase 4: scanner dedup memory (cooldown, per-day entry count,
     # in-play pool) is per session. Replay is a single-session call, so one
     # state dict spanning the supplied scan timestamps is correct.
+    # Realism remediation 2 Phase 7 (audit P1-003): emit counter renamed
+    # ``entries_per_symbol_today`` → ``signal_emits_per_symbol_today``.
     state: dict[str, Any] = {
         "entered_symbols_today": [],
         "in_play_pool": {},
         "symbol_last_emit_ts": {},
-        "entries_per_symbol_today": {},
+        "signal_emits_per_symbol_today": {},
     }
     all_events: list[dict[str, Any]] = []
     all_dump: list[dict[str, Any]] = []

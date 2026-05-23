@@ -33,13 +33,30 @@ The daily-bar evaluator :func:`evaluate_exits` is retained for the
 
 ``trading_days_since`` uses ``exchange-calendars`` XNYS sessions, NOT
 ``pd.bdate_range`` (§15.2 P1 — bdate_range ignores US market holidays).
+
+Realism Remediation 2 Phase 7 (audit P0-008). The legacy code treated
+``initial_mode: telemetry_then_active_after_validation`` as immediately active.
+That is wrong: the phrase implies the mode STARTS in telemetry and only flips
+to active after a validation activation step. Phase 7 introduces the
+``activation_state`` field (``telemetry`` | ``active``) which can be set:
+
+* explicitly in config (``exits.signal_fade.activation_state: active``), or
+* by dropping a validation activation artifact at
+  ``artifacts/promotion/signal_fade_activation_<feed>.json`` containing
+  ``{timestamp, dataset_hash, code_hash, operator_signature, ...}``.
+
+Until ONE of those two activations is present, ``telemetry_then_active_after_validation``
+behaves as telemetry-only — would-have-exited events are recorded, the lot is
+not closed via CHILD_FILL.
 """
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import random
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from pathlib import Path
+from typing import Any, Callable, Mapping, Optional
 
 import pandas as pd
 
@@ -216,6 +233,89 @@ def _parse_hhmm(value: Any, default: str = _DEFAULT_EXIT_TIME) -> _dt.time:
     )
 
 
+def _activation_artifact_dir(artifact_root: Optional[Any]) -> Path:
+    """The directory the signal-fade activation artifact lives in.
+
+    Default is ``<cwd>/artifacts/promotion``; callers can override by passing
+    ``exits.signal_fade.activation_artifact_dir`` (typically wired from
+    ``BowakaV2Paths.artifact_root / "promotion"``).
+    """
+    if artifact_root is None:
+        return Path.cwd() / "artifacts" / "promotion"
+    return Path(artifact_root)
+
+
+def _activation_artifact_present(
+    feed: str, *, artifact_dir: Path
+) -> bool:
+    """``True`` iff a validation activation artifact for ``feed`` is on disk.
+
+    Per Phase 7 (audit P0-008) the artifact at
+    ``<dir>/signal_fade_activation_<feed>.json`` is the documented activation
+    handshake: until it lands, ``telemetry_then_active_after_validation`` MUST
+    stay in telemetry mode. The artifact body is required to be a JSON object
+    (a bare list / scalar is rejected); the operator-signature / dataset-hash /
+    code-hash / timestamp keys are *recorded* for the audit trail but only the
+    file's *presence and parseability* drives activation here — the gating on
+    field content is a downstream operator-policy concern.
+    """
+    feed_key = str(feed or "").strip().lower() or "default"
+    path = artifact_dir / f"signal_fade_activation_{feed_key}.json"
+    if not path.exists():
+        return False
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(body, dict)
+
+
+def resolve_signal_fade_active(
+    fade_cfg: Mapping[str, Any] | dict | None,
+    *,
+    feed: Optional[str] = None,
+    artifact_dir: Optional[Path] = None,
+) -> tuple[bool, str, str]:
+    """Resolve the live ``(fade_active, fade_mode, activation_state)`` triple.
+
+    Phase 7 audit P0-008 — this is the single source of truth for the rule:
+
+    * ``fade_mode == "active"`` → always active.
+    * ``fade_mode == "telemetry_then_active_after_validation"`` → active ONLY
+      when ``activation_state == "active"`` OR a validation activation artifact
+      is present on disk.
+    * any other mode (``telemetry_only`` / unknown) → telemetry; never active.
+    """
+    cfg = dict(fade_cfg or {})
+    fade_mode = str(cfg.get("initial_mode", cfg.get("signal_fade_mode", "telemetry_only")))
+    raw_state = str(cfg.get("activation_state") or "").strip().lower()
+    # Default activation state for the after-validation mode is telemetry.
+    if not raw_state:
+        activation_state = (
+            "telemetry"
+            if fade_mode == "telemetry_then_active_after_validation"
+            else ""  # not applicable
+        )
+    else:
+        activation_state = raw_state
+
+    if fade_mode == "active":
+        return True, fade_mode, activation_state
+
+    if fade_mode == "telemetry_then_active_after_validation":
+        if activation_state == "active":
+            return True, fade_mode, activation_state
+        # Check for a validation activation artifact.
+        artifact_root = cfg.get("activation_artifact_dir")
+        adir = artifact_dir if artifact_dir is not None else _activation_artifact_dir(artifact_root)
+        if _activation_artifact_present(feed or "default", artifact_dir=adir):
+            return True, fade_mode, "active"
+        return False, fade_mode, activation_state or "telemetry"
+
+    # telemetry_only and any unknown mode → telemetry, never active.
+    return False, fade_mode, activation_state or "telemetry"
+
+
 def _resolve_same_minute(
     resolution: str, *, seed_key: str
 ) -> str:
@@ -286,6 +386,9 @@ def walk_lot_exit(
     seed: int = 0,
     fade_telemetry_out: Optional[list] = None,
     until_ts: Optional[pd.Timestamp] = None,
+    feed: Optional[str] = None,
+    activation_artifact_dir: Optional[Path] = None,
+    status_supplier: Optional[Callable[..., Optional[dict]]] = None,
 ) -> Optional[ExitEvent]:
     """Walk one lot's minute path and return the earliest exit, or ``None``.
 
@@ -320,6 +423,21 @@ def walk_lot_exit(
         return ``None`` (NO max-hold fallback). The event-driven dispatcher uses
         this to evaluate intraday exits in chronological windows so a same-day
         stop is realized before the next SCAN runs.
+    feed:
+        Realism remediation 2 Phase 7 — the data feed (``iex`` / ``sip`` / etc.)
+        looked up for the per-feed signal-fade activation artifact at
+        ``<activation_artifact_dir>/signal_fade_activation_<feed>.json``.
+    activation_artifact_dir:
+        Realism remediation 2 Phase 7 — directory the signal-fade activation
+        artifact lives in (default ``<cwd>/artifacts/promotion``). Typically
+        wired by callers from ``BowakaV2Paths.artifact_root / "promotion"``.
+    status_supplier:
+        Realism remediation 2 Phase 7 (Task 3 robustness): venue-status supplier
+        ``fn(symbol, ts) -> dict | None``. When the supplier reports
+        ``status in {halted, pending_review, luld_pause}`` for the bar minute,
+        bracket / time-stop / fade exits are DEFERRED to the first non-halted
+        minute. If the lot reaches max-hold or the bars run out while still
+        halted, a fallback ``halt_max_hold`` / ``halt_resume_exit`` is emitted.
     """
     if minute_bars is None or len(minute_bars) == 0:
         return None
@@ -342,13 +460,33 @@ def walk_lot_exit(
 
     fade_cfg = cfg.get("signal_fade") or {}
     fade_enabled = bool(fade_cfg.get("enabled", False)) and signal_score_fn is not None
-    fade_mode = str(
-        fade_cfg.get("initial_mode", cfg.get("signal_fade_mode", "telemetry_only"))
+    # Realism remediation 2 Phase 7 (audit P0-008): resolve fade_active via the
+    # documented activation handshake — NOT a naive ``mode in {active, telemetry_then_active_after_validation}``
+    # check. ``telemetry_then_active_after_validation`` stays in telemetry mode
+    # until either explicit ``activation_state: active`` config OR a validation
+    # activation artifact at ``<activation_artifact_dir>/signal_fade_activation_<feed>.json``.
+    fade_active, fade_mode, fade_activation_state = resolve_signal_fade_active(
+        fade_cfg, feed=feed, artifact_dir=activation_artifact_dir,
     )
-    fade_active = fade_mode in ("active", "telemetry_then_active_after_validation")
     fade_clock = _parse_hhmm(fade_cfg.get("eval_time"), _DEFAULT_EXIT_TIME)
     fade_thresholds = dict(fade_cfg.get("score_thresholds") or _DEFAULT_FADE_THRESHOLDS)
     fade_exit_on = tuple(fade_cfg.get("exit_on") or _DEFAULT_FADE_EXIT_ON)
+
+    # Realism remediation 2 Phase 7 (Task 3 robustness): per-exit-config
+    # ``exits.same_minute_tie`` (``stop_first`` default → stop wins; ``target_first``
+    # → target wins). Mapped to the existing ``simulation.same_minute_resolution``
+    # values so the engine has a single code path. ``exits.same_minute_tie``
+    # OVERRIDES ``same_minute_resolution`` when both are set, because the
+    # exit-config-level setting is the more specific lever.
+    same_minute_tie = cfg.get("same_minute_tie")
+    if same_minute_tie:
+        tie = str(same_minute_tie).strip().lower()
+        if tie == "stop_first":
+            same_minute_resolution = "conservative"
+        elif tie == "target_first":
+            same_minute_resolution = "optimistic"
+        elif tie in ("conservative", "optimistic", "random_with_seed"):
+            same_minute_resolution = tie
 
     is_severe = str(cost_stress) == "severe"
     state = _LotPathState()
@@ -410,6 +548,22 @@ def walk_lot_exit(
                 pos, bar_date, px, "halt_resume_exit", ts,
                 state, entry_price, halted=True,
             )
+
+        # Realism remediation 2 Phase 7 Task 3: a venue-status halt at this
+        # minute defers ALL exit evaluation. The bar is skipped (a bracket
+        # cannot fill while halted) so the next non-halted minute drives the
+        # exit. ``halted`` / ``pending_review`` / ``luld_pause`` all defer.
+        if status_supplier is not None:
+            try:
+                status = status_supplier(pos.symbol, ts)
+            except Exception:  # noqa: BLE001 — supplier failure is "no data"
+                status = None
+            if isinstance(status, dict):
+                status_val = str(status.get("status") or "").strip().lower()
+                if status_val in ("halted", "pending_review", "luld_pause"):
+                    state.halt_seen = True
+                    # mark this minute as halted for forensics + skip the bar
+                    continue
 
         # ---- gap-through (Task 2) ----------------------------------------
         # The minute OPEN is already through a bracket → fill at the open.

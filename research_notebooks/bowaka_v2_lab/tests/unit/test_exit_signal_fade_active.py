@@ -10,12 +10,16 @@ from bowaka_v2_lab.sim.exits import walk_lot_exit
 from bowaka_v2_lab.sim.portfolio import Position
 
 # Frozen-contract signal_fade block — the live initial_mode is
-# "telemetry_then_active_after_validation", which acts ACTIVE in the lab.
+# "telemetry_then_active_after_validation". Realism remediation 2 Phase 7
+# (audit P0-008) requires an explicit activation handshake before fade fires
+# real exits; this fixture sets ``activation_state: active`` to model the
+# post-validation state used by these tests.
 _FADE_CFG_ACTIVE = {
     "time_stop": {"enabled": False},
     "signal_fade": {
         "enabled": True,
         "initial_mode": "telemetry_then_active_after_validation",
+        "activation_state": "active",
         "eval_time": "15:45",
         "score_thresholds": {"soft": 0.34, "hard": 0.50, "critical": 0.67},
         "exit_on": ["hard", "critical"],
