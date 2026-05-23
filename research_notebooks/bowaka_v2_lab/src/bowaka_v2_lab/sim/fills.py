@@ -531,6 +531,7 @@ def simulate_marketable_limit_fill(
     minute_volume_participation_frac: float = 0.10,
     has_nbbo_depth: bool = False,
     has_calibration_artifact: bool = False,
+    slippage_calibrator: Optional[Any] = None,
 ) -> FillResult:
     """Simulate a **marketable_limit** parent-order fill — tiered model.
 
@@ -542,7 +543,8 @@ def simulate_marketable_limit_fill(
     - T2 (T1 + minute volume): T1 plus a participation cap of
       ``minute_volume_participation_frac * minute_dollar_volume`` (default 10%).
     - T3 (NBBO/depth): scaffolded for Phase 10 — falls back to T2 for now.
-    - T4 (calibrated): scaffolded for Phase 9 — falls back to T2 for now.
+    - T4 (calibrated): paper-residual shift applied on top of the T2 fill,
+      sourced from ``slippage_calibrator`` (realism remediation 2 Phase 9).
 
     ``marketable_limit_timeout_seconds`` is honoured at **seconds resolution**.
     The event-driven backtester also schedules a :data:`PARENT_FILL_TIMEOUT`
@@ -635,6 +637,64 @@ def simulate_marketable_limit_fill(
                 execution_tier=tier.value,
                 slippage_vs_mid_bps=fill.slippage_vs_mid_bps,
                 slippage_vs_ask_bps=fill.slippage_vs_ask_bps,
+                fill_time_seconds=fill.fill_time_seconds,
+            )
+    # Realism remediation 2 Phase 9 — T4 calibrated residual shift.
+    #
+    # When a slippage calibrator artifact is supplied for the T4 tier, look up
+    # the per-(spread, ADV, volatility) bin residual (in bps) and apply it as
+    # a paper-WORSE-than-sim adjustment to the modelled fill price. T4 is the
+    # ONLY tier that consumes the calibrator; T0-T3 ignore it entirely. The
+    # call is opt-in: it requires both ``has_calibration_artifact=True`` AND
+    # a fitted artifact passed via ``slippage_calibrator``.
+    if (
+        tier == ExecutionTier.T4_CALIBRATED
+        and slippage_calibrator is not None
+        and fill.filled
+    ):
+        try:
+            from ..reconcile.slippage_residuals import calibrator_lookup_bps
+        except Exception:  # noqa: BLE001 — calibrator is optional
+            calibrator_lookup_bps = None  # type: ignore[assignment]
+        if calibrator_lookup_bps is not None:
+            spread_bps = None
+            if quote.bid and quote.ask and quote.mid:
+                spread_bps = ((quote.ask - quote.bid) / quote.mid) * 10_000.0
+            residual_bps = calibrator_lookup_bps(
+                slippage_calibrator,
+                spread_bps=spread_bps,
+                adv_shares=float(liquidity_proxy_shares or 0.0) or None,
+                volatility=None,
+            )
+            side_l = side.lower()
+            # Positive residual = paper worse than sim. For a buy, that means
+            # a HIGHER fill price than the sim modelled; for a sell, a LOWER one.
+            sign = 1.0 if side_l == "buy" else -1.0
+            shift = sign * (residual_bps / 10_000.0)
+            new_price = round(fill.avg_fill_price * (1.0 + shift), 4)
+            new_notional = round(fill.filled_qty * new_price, 4)
+            commission, regulatory = _fees(
+                new_notional, commission_per_share=commission_per_share,
+                qty=fill.filled_qty, regulatory_bps=regulatory_fee_bps,
+            )
+            slip_vs_mid = round(
+                _bps_signed(float(quote.mid or quote.ask), new_price, side=side_l), 4
+            )
+            slip_vs_ask = round(
+                _bps_signed(float(quote.ask), new_price, side=side_l), 4
+            )
+            fill = FillResult(
+                filled=True, filled_qty=fill.filled_qty,
+                avg_fill_price=new_price,
+                slippage_bps_total=round(abs(slip_vs_mid), 4),
+                notional=new_notional,
+                commission=commission, regulatory_fees=regulatory,
+                is_partial=fill.is_partial, reason=fill.reason,
+                order_style="marketable_limit",
+                liquidity_participation_frac=fill.liquidity_participation_frac,
+                execution_tier=tier.value,
+                slippage_vs_mid_bps=slip_vs_mid,
+                slippage_vs_ask_bps=slip_vs_ask,
                 fill_time_seconds=fill.fill_time_seconds,
             )
     return fill

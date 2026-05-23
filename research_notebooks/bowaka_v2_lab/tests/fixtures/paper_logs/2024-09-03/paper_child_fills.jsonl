@@ -1,0 +1,1 @@
+{"parent_order_id": "po_paper_CCC_002", "candidate_event_id": "bowaka_v2:2024-09-03:CCC:2024-09-03T14:00:00Z", "session_date": "2024-09-03", "symbol": "CCC", "timestamp": "2024-09-03T14:55:00Z", "child_order_id": "co_paper_CCC_002_SL", "child_kind": "stop", "filled_qty": 120, "avg_fill_price": 8.39, "fill_timestamp": "2024-09-03T14:55:00Z"}
