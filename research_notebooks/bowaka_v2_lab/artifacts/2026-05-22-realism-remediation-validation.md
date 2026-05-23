@@ -106,6 +106,45 @@ Operator-required backfills before any promotion above `research_only`:
 
 Promotion to `paper_candidate` or `live_candidate` is gated by human-operator review of this validation report, plus signed validation artifacts for SIP-validated walk-forward and paper-vs-sim reconciliation.
 
-## 7. Bottom line
+## 7. Post-merge Phase 12 — Walk-forward sizing hotfix (2026-05-23)
+
+Operator hit `ValueError: walk-forward plan has no splits` running notebook 10 against the Phase-11 default. Two root causes:
+
+1. **Wrong base config.** Notebook 10's hardcoded `CONFIG_PATH` pointed at `bowaka_v2_intended_realism.yml` — a single-window backtest config with no `optuna.walkforward` block and a 4-month date range. `resolve_walkforward_config` only adapts `market_data.feed` and `simulation.mode`, so the narrow dates passed through verbatim.
+2. **Phase-11 walk-forward sizing was a placeholder.** Phase 11 widened only the optuna `backtest` dates (`2024-01-01..2025-12-31`) and kept the prior `train=6, val=1, holdout=1` defaults. The operator's real spec is `train_months ≥ 18` (24 example), `final_holdout_months = 5`, `holdout end = lake max date`.
+
+### Fix
+
+- **Generator (`reference/import_config.py`):** `--purpose optuna` now emits `backtest.start_date='2023-11-27'`, `backtest.end_date='2026-05-20'` (the current IEX lake's min/max daily-bar dates) and `walkforward = {train_months: 21, val_months: 1, final_holdout_months: 5}`. `train_months=21` is the largest value that fits a clean ≥1-fold plan in the current ~29.8-month lake; the produced plan has **3 walk-forward folds**, every fold using only real data (no empty-day padding). A new `_OPTUNA_HEADER_SUFFIX` renders the sizing rationale directly into every optuna-purpose YAML so the operator can read it without grepping the source.
+- **Notebook 10 builder (`notebooks/_build_10_optuna_walkforward.py`):** `CONFIG_PATH` default flipped from `bowaka_v2_intended_realism.yml` to `bowaka_v2_actual_iex_current_code_optuna.yml` (the walk-forward-purpose contract-parity config matching today's IEX-only lake). `FEED='auto'` is a no-op against this base today and auto-upgrades `simulation.mode` to `intended_realism` the moment SIP bars+quotes land in the lake.
+
+### Regenerated artifacts
+
+The three Phase-8 optuna configs were regenerated from the updated generator and remain byte-stable (`test_three_generated_configs_byte_stable.py` parametrized matrix passes — both committed copy and re-run output match):
+
+- `configs/bowaka_v2_actual_iex_current_code_optuna.yml`
+- `configs/bowaka_v2_actual_iex_intended_realism_optuna.yml`
+- `configs/bowaka_v2_actual_sip_intended_realism_optuna.yml`
+
+Notebook 10 regenerated from the updated builder.
+
+### New regression tests
+
+- `tests/parity/test_optuna_configs_meet_walkforward_user_spec.py` (15 cases, parametrized over the three optuna configs):
+  - `walkforward.train_months >= 18` (operator-spec minimum)
+  - `walkforward.final_holdout_months == 5` (operator-spec fixed)
+  - `walkforward.val_months >= 1`
+  - `backtest.end_date == '2026-05-20'` (lake max date)
+  - `build_walkforward_splits(...)` from the config produces ≥1 split
+- `tests/parity/test_notebook_10_default_config_is_walkforward_optuna.py` (3 cases):
+  - Builder source's `CONFIG_PATH` ends with `bowaka_v2_actual_iex_current_code_optuna.yml`
+  - Generated notebook's `CONFIG_PATH` cell ends with the same value
+  - Generated notebook's `CONFIG_PATH` always ends with `_optuna.yml` (defense in depth — never default to a single-window backtest config)
+
+### Suitability cap (unchanged)
+
+The Phase 12 hotfix only changes the walk-forward window sizing and the notebook 10 default config; nothing about feed grade, simulation mode, or the IEX caveat changes. Artifacts produced by notebook 10 against the current lake stay capped at `research_only` (IEX + `current_code_parity`). The cap is mechanically derived from the rendered config, not from the date range, so this hotfix has no effect on it.
+
+## 8. Bottom line
 
 A realism-mode backtest now either runs end-to-end against the real data and produces a substantive, non-stub report, or **fails closed with a precise startup reason** — never a silent stub or a quietly-degraded result. The simulator is event-driven (intraday risk feeds back into later same-day entries), exit / fill / OCO / signal-fade lifecycles match the live contract or correctly fail closed when data is absent, and Bayesian optimization runs only on contract-parity configs with the explicit opt-in. Strategy tuning at validation grade is unblocked the moment a SIP + quotes + halt-status lake is available.

@@ -17,14 +17,29 @@
 # come from the contract's data: block. Phase 1's config-parity diff
 # (config_diff_vs_actual_bowaka_v2.yaml) is checked against this file.
 # ------------------------------------------------------------------
+#
+# Walk-forward sizing rationale (2026-05-23 IEX lake snapshot)
+# ------------------------------------------------------------------
+# Lake range: 2023-11-27 -> 2026-05-20 (~29.8 months of IEX daily bars).
+# User-supplied spec (2026-05-23 conversation):
+#   - final_holdout_months = 5  (fixed).
+#   - train_months >= 18        (minimum); 24 is the operator's example.
+#   - holdout end = lake max    (as close to the current date as the
+#                                data set will allow).
+# Shipped values: train=21, val=1, final_holdout=5 -> 3 walk-forward
+# folds, every fold using only real lake data (no empty-day padding).
+# train=24 would need >=30 lake months (we have 29.8) and produce 0
+# folds today; raise train_months toward 24 as the lake accrues data
+# and regenerate via ``import-actual-config --purpose optuna``.
+# ------------------------------------------------------------------
 artifacts:
   write_jsonl: true
   write_parquet: true
 backtest:
   cost_stress: conservative
-  end_date: '2025-12-31'
+  end_date: '2026-05-20'
   entry_delay_minutes: 0
-  start_date: '2024-01-01'
+  start_date: '2023-11-27'
 execution:
   limit_offset_bps: 50
   max_quote_age_seconds: 15
@@ -71,8 +86,8 @@ optuna:
   storage: ${OPTUNA_STORAGE:-sqlite:///research_notebooks/bowaka_v2_lab/artifacts/optuna/local.db}
   study_name_prefix: bowaka_v2_actual_iex_intended_realism
   walkforward:
-    final_holdout_months: 1
-    train_months: 6
+    final_holdout_months: 5
+    train_months: 21
     val_months: 1
 paths:
   artifact_root: research_notebooks/bowaka_v2_lab/artifacts
