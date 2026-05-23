@@ -285,6 +285,7 @@ def walk_lot_exit(
     signal_score_fn: Optional[Callable[[Position, pd.Timestamp], Optional[float]]] = None,
     seed: int = 0,
     fade_telemetry_out: Optional[list] = None,
+    until_ts: Optional[pd.Timestamp] = None,
 ) -> Optional[ExitEvent]:
     """Walk one lot's minute path and return the earliest exit, or ``None``.
 
@@ -313,6 +314,12 @@ def walk_lot_exit(
     fade_telemetry_out:
         When supplied, ``telemetry_only`` would-have-exited events are appended
         here as :class:`FadeTelemetry` (the lot is NOT closed in that mode).
+    until_ts:
+        Realism remediation 2 Phase 4: when supplied, walk the path only up to
+        and including this UTC timestamp; if no exit fires within the window,
+        return ``None`` (NO max-hold fallback). The event-driven dispatcher uses
+        this to evaluate intraday exits in chronological windows so a same-day
+        stop is realized before the next SCAN runs.
     """
     if minute_bars is None or len(minute_bars) == 0:
         return None
@@ -359,10 +366,23 @@ def walk_lot_exit(
     if ts_col is not None:
         df = df.sort_values(ts_col)
 
+    # Realism remediation 2 Phase 4: when the caller supplies ``until_ts`` the
+    # walk is bounded — bars whose ``ts > until_ts`` are skipped entirely so the
+    # lot can be re-evaluated in the next time window.
+    until_ts_utc: Optional[pd.Timestamp] = None
+    if until_ts is not None:
+        until_ts_utc = pd.Timestamp(until_ts)
+        if until_ts_utc.tzinfo is None:
+            until_ts_utc = until_ts_utc.tz_localize("UTC")
+        else:
+            until_ts_utc = until_ts_utc.tz_convert("UTC")
+
     for _, bar in df.iterrows():
         ts = _bar_ts(bar)
         if ts is None or ts <= fill_minute:
             continue  # never exit on (or before) the fill minute
+        if until_ts_utc is not None and ts > until_ts_utc:
+            break  # past the caller's window — leave the lot open
         bar_date = ts.tz_convert("America/New_York").date()
         if bar_date > exit_session:
             break  # past the max-hold horizon — handled below as a fallback
@@ -502,7 +522,11 @@ def walk_lot_exit(
     # Walked the whole supplied path with no exit. Fall back to a max-hold exit
     # on the last bar that is on/before the exit session (the supplier may stop
     # short of 15:59 in a short fixture; the lot must still close by the
-    # trading-day horizon).
+    # trading-day horizon). Skipped when the caller bounded the walk with
+    # ``until_ts`` — there a lot that survived the window stays open for the
+    # next dispatch tick.
+    if until_ts_utc is not None:
+        return None
     last_in_window = None
     for _, bar in df.iterrows():
         ts = _bar_ts(bar)

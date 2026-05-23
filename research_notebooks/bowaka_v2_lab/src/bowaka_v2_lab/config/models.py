@@ -89,6 +89,17 @@ class SimulationConfig(_StrictBase):
     same_minute_resolution: Literal[
         "conservative", "optimistic", "random_with_seed"
     ] = "conservative"
+    #: Realism remediation 2 Phase 4 — decoupled poll cadences (audit P1-009).
+    #: The live strategy has ``loop_interval_seconds: 5`` (the strategy poll
+    #: loop) and ``scan_interval_seconds: 60`` (the scanner). These four fields
+    #: let a config drive PROTECTION_CHECK / FILL_POLL / TIME_STOP_CHECK at
+    #: independent cadences from the SCAN cadence. ``None`` (the default) falls
+    #: back to :class:`sim.event_loop.CadenceConfig`'s field defaults, which in
+    #: turn read ``session.loop_interval_seconds`` for the protection/fill poll
+    #: and ``session.scan_interval_seconds`` for the scan.
+    protection_poll_interval_seconds: Optional[int] = Field(default=None, ge=1)
+    fill_poll_interval_seconds: Optional[int] = Field(default=None, ge=1)
+    time_stop_check_interval_seconds: Optional[int] = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _resolve_mode_coupled_defaults(self) -> "SimulationConfig":
