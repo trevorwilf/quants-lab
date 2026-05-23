@@ -63,6 +63,7 @@ REPORT_SECTIONS: tuple[str, ...] = (
     "execution_quality",
     "portfolio_and_risk",
     "trade_performance",
+    "protection_lifecycle",
     "exit_analysis",
     "regime_analysis",
     "config_diff_and_lineage",
@@ -554,6 +555,36 @@ def build_report(
     rpt["trade_performance"] = {
         "metrics": [{"metric": k, "value": v} for k, v in tp_rows],
         "n_closed_trades": int(len(trades_frame)) if trades_frame is not None else 0,
+    }
+
+    # ===== 9.5 protection lifecycle (realism rem-2 Phase 6) =================
+    # OCO / protected-position metrics surfaced by the protection state
+    # machine. Empty-zero rows in a clean run are not a stub; they prove the
+    # protection lifecycle ran and never tripped.
+    protection_summary = (summary.get("protection") or {}) if summary else {}
+    md += ["## Protection Lifecycle (Realism rem-2 Phase 6)", ""]
+    protection_rows = [
+        ["max_unprotected_seconds_observed",
+         protection_summary.get("max_unprotected_seconds_observed", 0.0)],
+        ["oco_attach_attempts_count",
+         protection_summary.get("oco_attach_attempts_count", 0)],
+        ["oco_attach_failure_count",
+         protection_summary.get("oco_attach_failure_count", 0)],
+        ["fallback_stop_count",
+         protection_summary.get("fallback_stop_count", 0)],
+        ["flatten_unprotected_count",
+         protection_summary.get("flatten_unprotected_count", 0)],
+        ["entries_blocked_by_protection_count",
+         protection_summary.get("entries_blocked_by_protection_count", 0)],
+        ["total_unprotected_seconds_across_lots",
+         protection_summary.get("total_unprotected_seconds_across_lots", 0.0)],
+        ["unprotected_violation_count",
+         protection_summary.get("unprotected_violation_count", 0)],
+    ]
+    md += _md_table(["metric", "value"], protection_rows)
+    md += [""]
+    rpt["protection_lifecycle"] = {
+        "metrics": [{"metric": k, "value": v} for k, v in protection_rows],
     }
 
     # ===== 10. exit analysis ===============================================

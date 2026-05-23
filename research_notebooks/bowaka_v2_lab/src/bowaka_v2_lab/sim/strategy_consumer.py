@@ -43,7 +43,7 @@ from .fills import (
     simulate_marketable_limit_fill,
 )
 from .orders import OrderPlan, OrderSide, OrderStatus, ParentOrder
-from .portfolio import Portfolio, Position
+from .portfolio import Portfolio, Position, ProtectionState
 from .quote_model import QuoteResolution, QuoteSnapshot, resolve_quote
 from .risk_gates import RiskGateResult, evaluate_risk_gates
 
@@ -607,6 +607,27 @@ class StrategyConsumer:
         stop_price = round(fill_price * (1.0 - plan.stop_pct), 4)
         target_price = round(fill_price * (1.0 + plan.target_pct), 4)
 
+        # Realism remediation 2 Phase 6 (audit P0-007) — the pre-Phase-6
+        # consumer created a Position with ``bracket_attached=True`` immediately
+        # after the synchronous fill simulation, masking the unprotected
+        # interval the live strategy spends between PARENT_FILL and OCO_ATTACH.
+        #
+        # Phase 6 wires the explicit lifecycle:
+        #   * Realism / parity modes — the position is created in
+        #     :attr:`ProtectionState.PARENT_FILLED`; the backtester's event
+        #     dispatcher then calls :meth:`ProtectionStateMachine.on_parent_fill`
+        #     to schedule the OCO attach attempt and the protection sweep.
+        #     The lot is "unprotected" until the attach succeeds.
+        #   * Smoke mode — the daily-bar exit driver does NOT walk the event
+        #     loop, so the legacy "instant-attached" behavior is preserved.
+        #     The position is created directly in
+        #     :attr:`ProtectionState.PROTECTED` so the daily exit walker still
+        #     treats the lot as live-bracketed.
+        sim_mode = str(self._sim_cfg.mode)
+        if sim_mode == "smoke_fixture":
+            initial_state = ProtectionState.PROTECTED
+        else:
+            initial_state = ProtectionState.PARENT_FILLED
         position = Position(
             symbol=symbol,
             entry_date=entry_date,
@@ -634,7 +655,13 @@ class StrategyConsumer:
             stop_price=stop_price,
             target_price=target_price,
             bracket_pricing_mode="actual_fill",
-            bracket_attached=True,
+            protection_state=initial_state,
+            # The fill timestamp seeds the protection state machine's
+            # unprotected-interval clock. The realism / parity event loop
+            # uses this as PARENT_FILL_TS via :meth:`on_parent_fill`.
+            parent_fill_ts=(
+                str(ts_pts) if ts_pts else None
+            ) if initial_state == ProtectionState.PARENT_FILLED else None,
         )
         parent.status = OrderStatus.FILLED if not fill.is_partial else OrderStatus.PARTIALLY_FILLED
         self._portfolio.add_position(position)

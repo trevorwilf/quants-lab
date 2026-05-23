@@ -100,6 +100,23 @@ class SimulationConfig(_StrictBase):
     protection_poll_interval_seconds: Optional[int] = Field(default=None, ge=1)
     fill_poll_interval_seconds: Optional[int] = Field(default=None, ge=1)
     time_stop_check_interval_seconds: Optional[int] = Field(default=None, ge=1)
+    #: Realism remediation 2 Phase 6 (audit P0-007) — optional OCO / protected-
+    #: position lifecycle stress injection used by the protection-acceptance
+    #: tests. ``"none"`` (default) is the live happy path; other values
+    #: simulate attach failures (``"oco_attach_fail_once"`` /
+    #: ``"oco_attach_fail_always"``) or a delayed / halted attach
+    #: (``"delayed_attach"`` / ``"halt_during_unprotected"``). The resolved
+    #: :class:`sim.protection.ProtectionConfig` consumes the value via
+    #: :meth:`ProtectionConfig.from_cfg`.
+    protection_stress: Optional[
+        Literal[
+            "none",
+            "oco_attach_fail_once",
+            "oco_attach_fail_always",
+            "delayed_attach",
+            "halt_during_unprotected",
+        ]
+    ] = None
 
     @model_validator(mode="after")
     def _resolve_mode_coupled_defaults(self) -> "SimulationConfig":
