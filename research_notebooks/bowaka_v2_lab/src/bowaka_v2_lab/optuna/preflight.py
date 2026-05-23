@@ -331,11 +331,195 @@ def probe_quote_coverage(
     return 100.0 * present / probed
 
 
+# --------------------------------------------------------------------------
+# Full per-fold preflight (realism remediation 2 Phase 8 / audit §P1-006).
+#
+# The cheap study-start preflight above probes only the first validation
+# window's first few sessions; that is fine as a fast early warning but is not
+# enough to launch a multi-hour study with confidence. The full preflight
+# evaluates EVERY validation / holdout window once at study start so a fold
+# missing required daily/minute/quote/exit-path coverage blocks the run before
+# any trial costs are paid.
+#
+# Cached by ``(dataset_hash, fold_window, config_hash)``: a study that pays the
+# preflight cost for a (lake, config) pair never pays it again for the same
+# fold even across re-runs in the same process.
+# --------------------------------------------------------------------------
+#: Process-local cache: ``(dataset_hash, fold_id, config_hash) -> PreflightResult``.
+_FULL_FOLD_PREFLIGHT_CACHE: dict[tuple[str, str, str], "PreflightResult"] = {}
+
+
+@dataclass
+class FoldWindow:
+    """A single (validation / holdout) window probed by the full per-fold preflight."""
+
+    fold_id: str               # ``"val_<start>"`` / ``"holdout_<start>"``
+    kind: str                  # ``"validation"`` | ``"holdout"``
+    start: _dt.date
+    end: _dt.date
+
+
+def _probe_fold(
+    *,
+    cfg: Mapping[str, Any],
+    fold: FoldWindow,
+    symbols: list[str],
+    lake_root: Any,
+    feed: str,
+    scan_times_per_session: Callable[[_dt.date], list[Any]],
+    min_quote_coverage_pct: float,
+) -> "PreflightResult":
+    """Build a DQ report + probe quote coverage for ``fold`` and run preflight."""
+    # Local imports avoid a circular import — these modules consume optuna
+    # symbols at module load.
+    from ..data.data_quality import build_data_quality_report
+    from ..data.lineage import build_dataset_lineage
+    from ..data.suppliers import (
+        make_lake_suppliers,
+        make_quote_supplier,
+        resolve_intraday_window_policy,
+    )
+
+    # Bound the per-fold session probe so a very long fold doesn't blow up
+    # the preflight cost — the cheap preflight already probed the first 5
+    # sessions; the goal here is to PROVE coverage across every fold, not
+    # to be exhaustive.
+    import pandas as _pd
+    try:
+        import exchange_calendars as _xcals  # noqa: F401
+        cal = _xcals.get_calendar("XNYS")
+        sessions = [_pd.Timestamp(s).date() for s in cal.sessions_in_range(
+            _pd.Timestamp(fold.start), _pd.Timestamp(fold.end)
+        )]
+    except Exception:  # noqa: BLE001 — calendar load failure must not crash preflight
+        sessions = []
+    if not sessions:
+        return PreflightResult(
+            passed=True,
+            checks=[PreflightCheck(
+                name=f"fold:{fold.fold_id}",
+                status="skipped",
+                detail=f"fold {fold.fold_id} has no XNYS sessions in [{fold.start}, {fold.end}]",
+                evidence={"kind": fold.kind, "start": fold.start.isoformat(), "end": fold.end.isoformat()},
+            )],
+        )
+
+    sim_mode = ((cfg.get("simulation") or {}).get("mode") or "smoke_fixture")
+    md = cfg.get("market_data") or {}
+    try:
+        minute_supplier, daily_supplier = make_lake_suppliers(
+            lake_root, feed=feed,
+            intraday_window_policy=resolve_intraday_window_policy(cfg),
+        )
+        lineage = build_dataset_lineage(
+            cfg=cfg, symbols=symbols,
+            start=sessions[0], end=sessions[-1],
+            lab_config_hash="full_fold_preflight",
+        )
+        dq_report = build_data_quality_report(
+            cfg=cfg, lineage=lineage, requested_symbols=symbols,
+            sessions=sessions, daily_bars_supplier=daily_supplier,
+            minute_bars_supplier=minute_supplier,
+            scan_times_per_session=scan_times_per_session,
+        )
+    except Exception as exc:  # noqa: BLE001 — DQ probe failure surfaces as a fold-skipped warning
+        return PreflightResult(
+            passed=True,
+            checks=[PreflightCheck(
+                name=f"fold:{fold.fold_id}",
+                status="skipped",
+                detail=f"fold {fold.fold_id} DQ probe failed: {exc}",
+                evidence={"kind": fold.kind, "exception": str(exc)},
+            )],
+        )
+    quote_cov_pct: Optional[float] = None
+    try:
+        quote_supplier = make_quote_supplier(lake_root, feed=feed)
+        quote_cov_pct = probe_quote_coverage(
+            symbols=symbols, sessions=sessions, quote_supplier=quote_supplier,
+            scan_times_per_session=scan_times_per_session, max_probe=200,
+        )
+    except Exception as exc:  # noqa: BLE001 — quote probe failure leaves quote_cov_pct None
+        quote_cov_pct = None
+
+    result = run_preflight(
+        sim_mode=str(sim_mode),
+        allow_smoke=(str(sim_mode) == "smoke_fixture"),
+        dq_report=dq_report,
+        quote_coverage_pct=quote_cov_pct,
+        min_quote_coverage_pct=float(min_quote_coverage_pct),
+        raise_on_fail=False,
+    )
+    # Rename the checks so the caller can attribute them to this fold; preserve
+    # statuses, detail strings, and evidence verbatim.
+    relabeled: list[PreflightCheck] = []
+    for c in result.checks:
+        relabeled.append(PreflightCheck(
+            name=f"fold:{fold.fold_id}:{c.name}",
+            status=c.status, detail=c.detail,
+            evidence={**c.evidence, "kind": fold.kind,
+                      "start": fold.start.isoformat(), "end": fold.end.isoformat()},
+        ))
+    return PreflightResult(passed=result.passed, checks=relabeled)
+
+
+def run_full_fold_preflight(
+    *,
+    cfg: Mapping[str, Any],
+    folds: list[FoldWindow],
+    symbols: list[str],
+    lake_root: Any,
+    feed: str,
+    dataset_hash: str,
+    config_hash: str,
+    scan_times_per_session: Callable[[_dt.date], list[Any]],
+    min_quote_coverage_pct: float,
+    raise_on_fail: bool = True,
+) -> "PreflightResult":
+    """Run preflight against EVERY validation + holdout window (audit §P1-006).
+
+    Cached by ``(dataset_hash, fold_id, config_hash)``: re-running with identical
+    inputs is free. Raises :class:`PreflightError` (when ``raise_on_fail``) when
+    any fold fails its preflight.
+    """
+    aggregated: list[PreflightCheck] = []
+    all_passed = True
+    for fold in folds:
+        cache_key = (str(dataset_hash), fold.fold_id, str(config_hash))
+        cached = _FULL_FOLD_PREFLIGHT_CACHE.get(cache_key)
+        if cached is None:
+            cached = _probe_fold(
+                cfg=cfg, fold=fold, symbols=symbols, lake_root=lake_root,
+                feed=feed, scan_times_per_session=scan_times_per_session,
+                min_quote_coverage_pct=min_quote_coverage_pct,
+            )
+            _FULL_FOLD_PREFLIGHT_CACHE[cache_key] = cached
+        if not cached.passed:
+            all_passed = False
+        aggregated.extend(cached.checks)
+    result = PreflightResult(passed=all_passed, checks=aggregated)
+    if raise_on_fail and not result.passed:
+        failures = [c for c in aggregated if c.status == "fail"]
+        reasons = "; ".join(f"[{c.name}] {c.detail}" for c in failures)
+        raise PreflightError(
+            f"optuna study refused by full per-fold preflight: "
+            f"{len(failures)} fold(s) failed required check(s): {reasons}"
+        )
+    return result
+
+
+def _clear_full_fold_preflight_cache() -> None:
+    """Test hook: clear the per-fold preflight cache (used by per-fold tests)."""
+    _FULL_FOLD_PREFLIGHT_CACHE.clear()
+
+
 __all__ = [
     "PreflightError",
     "PreflightCheck",
     "PreflightResult",
+    "FoldWindow",
     "DEFAULT_MIN_QUOTE_COVERAGE_PCT",
     "run_preflight",
+    "run_full_fold_preflight",
     "probe_quote_coverage",
 ]

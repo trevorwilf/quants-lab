@@ -16,7 +16,9 @@ from bowaka_v2_lab import reference
 
 _LAB_ROOT = Path(__file__).resolve().parents[2]
 
-#: (committed filename, generator flags) for each of the three named configs.
+#: (committed filename, generator flags) for each of the three Phase-1 backtest
+#: configs and the three Phase-8 Optuna configs. ``--purpose backtest`` is the
+#: default (omitted) for Phase 1; Phase 8 adds ``--purpose optuna``.
 _GENERATED_CONFIGS: tuple[tuple[str, list[str]], ...] = (
     (
         "bowaka_v2_actual_iex_current_code.yml",
@@ -29,6 +31,23 @@ _GENERATED_CONFIGS: tuple[tuple[str, list[str]], ...] = (
     (
         "bowaka_v2_actual_sip_intended_realism.yml",
         ["--feed", "sip", "--mode", "intended_realism", "--feed-thresholds", "actual"],
+    ),
+    # Realism remediation 2 Phase 8 — the three Optuna configs replacing the
+    # quarantined ``bowaka_v2_walkforward_optuna.yml``.
+    (
+        "bowaka_v2_actual_iex_current_code_optuna.yml",
+        ["--feed", "iex", "--mode", "current_code_parity",
+         "--feed-thresholds", "actual", "--purpose", "optuna"],
+    ),
+    (
+        "bowaka_v2_actual_iex_intended_realism_optuna.yml",
+        ["--feed", "iex", "--mode", "intended_realism",
+         "--feed-thresholds", "actual", "--purpose", "optuna"],
+    ),
+    (
+        "bowaka_v2_actual_sip_intended_realism_optuna.yml",
+        ["--feed", "sip", "--mode", "intended_realism",
+         "--feed-thresholds", "actual", "--purpose", "optuna"],
     ),
 )
 

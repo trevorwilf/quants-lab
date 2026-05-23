@@ -63,6 +63,11 @@ FEED_THRESHOLD_MODES: tuple[str, ...] = ("actual", "sip_tightened")
 #: Valid ``simulation.mode`` values the mapper emits.
 CONFIG_MODES: tuple[str, ...] = ("intended_realism", "current_code_parity")
 
+#: Valid ``--purpose`` values for ``import-actual-config`` (realism remediation 2
+#: Phase 8). ``backtest`` emits a one-shot backtest config; ``optuna`` adds an
+#: ``optuna:`` block + sets ``run.kind: optuna`` for a walk-forward study.
+CONFIG_PURPOSES: tuple[str, ...] = ("backtest", "optuna")
+
 #: The audit's documented SIP-intended signal thresholds (audit §3.3 / §6.1).
 #: ``--feed-thresholds sip_tightened`` overlays these on the contract's
 #: (IEX-relaxed) thresholds and declares each as a ``scoped`` parity diff.
@@ -107,6 +112,7 @@ def build_config_from_contract(
     feed: str = "sip",
     mode: str = "intended_realism",
     feed_thresholds: str = "actual",
+    purpose: str = "backtest",
 ) -> dict[str, Any]:
     """Map a frozen contract dict to a lab ``BowakaV2Config`` dict.
 
@@ -115,6 +121,9 @@ def build_config_from_contract(
     ``simulation.mode`` (``intended_realism`` or ``current_code_parity``).
     ``feed_thresholds`` is ``actual`` (contract thresholds verbatim) or
     ``sip_tightened`` (the audit's documented SIP-intended thresholds overlaid).
+    ``purpose`` is ``backtest`` (one-shot run) or ``optuna`` (adds an ``optuna:``
+    block + ``run.kind: optuna`` for a walk-forward study — realism remediation 2
+    Phase 8).
     """
     if feed not in ("sip", "iex"):
         raise ValueError(f"feed must be 'sip' or 'iex', got {feed!r}")
@@ -124,6 +133,8 @@ def build_config_from_contract(
         raise ValueError(
             f"feed_thresholds must be one of {FEED_THRESHOLD_MODES}, got {feed_thresholds!r}"
         )
+    if purpose not in CONFIG_PURPOSES:
+        raise ValueError(f"purpose must be one of {CONFIG_PURPOSES}, got {purpose!r}")
     c_data = dict(contract.get("data") or {})
     c_session = dict(contract.get("session") or {})
     c_universe = dict(contract.get("universe") or {})
@@ -216,13 +227,31 @@ def build_config_from_contract(
             "entry_delay_minutes": 0,
         },
         "artifacts": {"write_parquet": True, "write_jsonl": True},
-        "run": {"kind": "backtest", "seed": 1337},
+        "run": {"kind": ("optuna" if purpose == "optuna" else "backtest"), "seed": 1337},
         "paths": {
             "lab_root": "research_notebooks/bowaka_v2_lab",
             "data_root": "research_notebooks/bowaka_v2_lab/data",
             "artifact_root": "research_notebooks/bowaka_v2_lab/artifacts",
         },
     }
+    if purpose == "optuna":
+        # Realism remediation 2 Phase 8 — walk-forward study scaffolding. The
+        # commit-shipped optuna configs carry conservative defaults the runner
+        # honours; the operator overrides per-study via --n-trials / --n-jobs.
+        cfg["optuna"] = {
+            "storage": "${OPTUNA_STORAGE:-sqlite:///research_notebooks/bowaka_v2_lab/artifacts/optuna/local.db}",
+            "n_trials": 200,
+            "n_jobs": 1,
+            "n_startup_trials": 25,
+            "study_name_prefix": f"bowaka_v2_actual_{feed}_{mode}",
+            "cost_stress": "conservative",
+            "walkforward": {
+                "train_months": 6,
+                "val_months": 1,
+                "final_holdout_months": 1,
+            },
+            "search_space_overrides": {},
+        }
     return cfg
 
 
@@ -280,6 +309,7 @@ def import_actual_config(
     feed: str = "sip",
     mode: str = "intended_realism",
     feed_thresholds: str = "actual",
+    purpose: str = "backtest",
     contract: dict[str, Any] | None = None,
 ) -> Path:
     """Generate a config from the frozen contract. Returns the written path.
@@ -287,14 +317,17 @@ def import_actual_config(
     Validates the mapped dict with :class:`BowakaV2Config` before writing, so a
     mapping defect surfaces immediately. When ``feed_thresholds=="sip_tightened"``
     a ``<config-stem>.parity_sidecar.yaml`` declaring the threshold diffs is
-    written alongside the config.
+    written alongside the config. ``purpose="optuna"`` emits a walk-forward study
+    config (adds an ``optuna:`` block + ``run.kind: optuna``) — realism
+    remediation 2 Phase 8.
     """
     from . import load_actual_contract
 
     if contract is None:
         contract = load_actual_contract()
     cfg = build_config_from_contract(
-        contract, feed=feed, mode=mode, feed_thresholds=feed_thresholds
+        contract, feed=feed, mode=mode, feed_thresholds=feed_thresholds,
+        purpose=purpose,
     )
     # Fail fast on a mapping defect.
     BowakaV2Config.model_validate(dict(cfg))
@@ -314,6 +347,7 @@ __all__ = [
     "SIGNAL_THRESHOLD_KEYS",
     "FEED_THRESHOLD_MODES",
     "CONFIG_MODES",
+    "CONFIG_PURPOSES",
     "SIP_TIGHTENED_THRESHOLDS",
     "build_config_from_contract",
     "build_sip_tightened_sidecar_rows",

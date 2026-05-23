@@ -37,10 +37,11 @@ import hashlib
 import json
 import logging
 import shutil
+import statistics
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Optional
 
 import pandas as pd
 
@@ -106,6 +107,30 @@ class OptunaParityError(RuntimeError):
     """Raised when an Optuna config diverges from the frozen contract undeclared."""
 
 
+class CurrentCodeParityStudyRefused(RuntimeError):
+    """Raised when an Optuna study against ``current_code_parity`` runs without the
+    explicit ``--allow-current-code-parity-study --tier research_only`` opt-in.
+
+    Realism remediation 2 Phase 8 (audit §P0-011). Bayesian optimization on a
+    config that reproduces the live code's *warts* (zero-spread quote fallback,
+    no halt gate) optimizes the simulator's artifacts, not the strategy's edge.
+    The gate forces the operator to explicitly acknowledge this is a paper-
+    reconciliation study, not a parameter recommendation.
+    """
+
+
+class IntendedRealismDataInsufficient(RuntimeError):
+    """Raised when an ``intended_realism`` Optuna study would run against a lake
+    that does not meet the realism prerequisites (real quote coverage,
+    adjusted/split-adjusted daily bars).
+
+    Realism remediation 2 Phase 8 (audit §P0-011). Optimizing on
+    ``intended_realism`` against a lake without the data the contract needs would
+    silently fall back to synthetic quotes / unadjusted bars — exactly the
+    failure mode the audit calls out.
+    """
+
+
 def assert_optuna_config_parity(cfg: Mapping[str, Any]) -> None:
     """Refuse an Optuna study whose config diverges from the contract undeclared.
 
@@ -149,6 +174,108 @@ def assert_optuna_config_parity(cfg: Mapping[str, Any]) -> None:
             f"lab_value / reason / risk_classification). "
             f"See docs/audits/2026-05-22_realism_audit.md §P0-001."
         )
+
+
+_AUDIT_PTR = "docs/audits/2026-05-22_realism_audit.md §P0-011"
+
+
+def assert_simulation_contract_admissible(
+    cfg: Mapping[str, Any],
+    *,
+    allow_current_code_parity_study: bool,
+    tier: str | None,
+) -> None:
+    """Refuse a study whose simulation contract is not admissible (audit §P0-011).
+
+    Realism remediation 2 Phase 8 — the contract-cap rule is mechanical:
+
+    - ``current_code_parity`` is refused unless the operator passes
+      ``--allow-current-code-parity-study --tier research_only`` (CLI) /
+      ``allow_current_code_parity_study=True, tier="research_only"`` (in-process).
+    - ``intended_realism`` and ``smoke_fixture`` are admissible at this gate (the
+      ``intended_realism`` data-prerequisite gate runs separately, after dataset
+      probing in :func:`run_walkforward_study`).
+
+    Raises :class:`CurrentCodeParityStudyRefused` with a pointer to the audit
+    section. Never lowers the cap on a properly-opted-in study — that cap is
+    enforced by :func:`tier_for_simulation_contract` (Phase 0).
+    """
+    sim = cfg.get("simulation") or {}
+    mode = sim.get("mode") if isinstance(sim, dict) else None
+    if mode != "current_code_parity":
+        return
+    if allow_current_code_parity_study and str(tier) == "research_only":
+        return
+    raise CurrentCodeParityStudyRefused(
+        "Optuna study refused: simulation.mode is 'current_code_parity'. "
+        "Bayesian optimization on the live-code-with-warts contract is "
+        "paper-reconciliation-only — pass --allow-current-code-parity-study "
+        "--tier research_only (CLI) or "
+        "allow_current_code_parity_study=True, tier='research_only' "
+        f"(in-process) to opt in explicitly. See {_AUDIT_PTR}."
+    )
+
+
+def assert_intended_realism_data_prerequisites(
+    cfg: Mapping[str, Any],
+    *,
+    dq_report: Optional[Mapping[str, Any]],
+    quote_coverage_pct: Optional[float],
+    min_quote_coverage_pct: float,
+) -> None:
+    """Refuse an ``intended_realism`` study when the lake cannot support it.
+
+    Realism remediation 2 Phase 8 (audit §P0-011) — three mechanical prereqs:
+
+    1. ``market_data.require_adjusted_daily_bars`` is ``True`` in the config
+       (the contract value; without it the DQ stack cannot fail closed on raw
+       daily bars).
+    2. Coverage gates pass — the dataset's DQ report has no failing required
+       check (the existing :func:`preflight.run_preflight` already gates this for
+       ``intended_realism``; this gate makes the refusal explicit + early).
+    3. Real historical quote coverage is at or above the threshold (default
+       95%); below it the realism simulator falls back to a degraded quote model.
+
+    A ``None`` DQ report / quote-coverage measurement does NOT fail this gate —
+    the cheaper preflight already records a ``skipped`` check and the new
+    per-fold preflight (Task 5) gates it for real before any trial runs. This
+    gate is the hard early-fail when we *have* measured the lake and it is
+    insufficient. Raises :class:`IntendedRealismDataInsufficient`.
+    """
+    sim = cfg.get("simulation") or {}
+    mode = sim.get("mode") if isinstance(sim, dict) else None
+    if mode != "intended_realism":
+        return
+    md = cfg.get("market_data") or {}
+    require_adjusted = bool(md.get("require_adjusted_daily_bars", False))
+    if not require_adjusted:
+        raise IntendedRealismDataInsufficient(
+            "Optuna study refused: simulation.mode is 'intended_realism' but "
+            "market_data.require_adjusted_daily_bars is not True. The intended-"
+            "realism contract requires adjusted daily bars (see actual contract "
+            "data.require_adjusted_daily_bars). Set the field to True (the "
+            "import-actual-config mapper does this by default) or use "
+            f"current_code_parity instead. See {_AUDIT_PTR}."
+        )
+    if dq_report is not None:
+        required_failures = list(dq_report.get("required_failures") or [])
+        if required_failures:
+            raise IntendedRealismDataInsufficient(
+                "Optuna study refused: simulation.mode is 'intended_realism' but "
+                f"the dataset's data-quality report has {len(required_failures)} "
+                f"failing required check(s): {sorted(required_failures)}. The lake "
+                "cannot support a research-grade optimization. Fix the lake or use "
+                f"current_code_parity. See {_AUDIT_PTR}."
+            )
+    if quote_coverage_pct is not None:
+        if float(quote_coverage_pct) < float(min_quote_coverage_pct):
+            raise IntendedRealismDataInsufficient(
+                "Optuna study refused: simulation.mode is 'intended_realism' but "
+                f"real historical quote coverage is {float(quote_coverage_pct):.2f}% "
+                f", below the required {float(min_quote_coverage_pct):.2f}%. "
+                "Backfill SIP / NBBO quotes for the requested universe or use "
+                f"current_code_parity. See {_AUDIT_PTR}."
+            )
 
 
 def _to_date(value: Any) -> _dt.date:
@@ -407,12 +534,33 @@ def make_walkforward_objective(
     holdout_guard: HoldoutGuard,
     log: logging.Logger,
     search_space_overrides: dict[str, Any] | None = None,
+    incumbent_params: Optional[Mapping[str, Any]] = None,
+    dataset_hash: Optional[str] = None,
+    config_hash: Optional[str] = None,
+    code_hash: Optional[str] = None,
 ) -> Callable[[Any], float]:
-    """Build the Optuna objective: median fold score over real per-fold backtests."""
+    """Build the Optuna objective: median fold score over real per-fold backtests.
+
+    Realism remediation 2 Phase 8: ``incumbent_params``, when supplied, pins
+    trial 0 to that parameter set (the ``--incumbent-trial`` flag reads it from
+    the frozen contract). ``dataset_hash`` / ``config_hash`` / ``code_hash`` are
+    persisted as per-trial user_attrs so a study's lineage is queryable on the
+    Optuna side (audit §P1-005).
+    """
 
     def objective(trial: Any) -> float:
         try:
-            params = suggest_params(trial, overrides=search_space_overrides)
+            # Realism remediation 2 Phase 8 (incumbent baseline): trial 0 with
+            # incumbent_params runs the actual-contract parameter set verbatim
+            # so the optimizer's best can be compared against the live config.
+            if incumbent_params and getattr(trial, "number", -1) == 0:
+                params = _suggest_incumbent_params(
+                    trial, incumbent_params,
+                    overrides=search_space_overrides,
+                )
+                trial.set_user_attr("incumbent_trial", True)
+            else:
+                params = suggest_params(trial, overrides=search_space_overrides)
             folds = _run_validation_folds(
                 apply_trial_params(base_cfg, params), plan,
                 lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
@@ -424,15 +572,131 @@ def make_walkforward_objective(
             trial.set_user_attr("fold_variance", result.fold_variance)
             trial.set_user_attr("median_fold_score", result.median_fold_score)
             trial.set_user_attr("penalty_breakdown", result.penalty_breakdown)
+            # Realism remediation 2 Phase 8 (audit §P1-008) — explicit term
+            # breakdown for every trial; downstream tooling can read the
+            # contribution of every objective term.
+            trial.set_user_attr("objective_terms", result.objective_terms)
             trial.set_user_attr(
                 "fold_metrics", [{"fold_id": f.fold_id, **f.metrics} for f in folds]
             )
+            # Realism remediation 2 Phase 8 (audit §P1-005) — per-trial lineage.
+            if dataset_hash is not None:
+                trial.set_user_attr("dataset_hash", dataset_hash)
+            if config_hash is not None:
+                trial.set_user_attr("config_hash", config_hash)
+            if code_hash is not None:
+                trial.set_user_attr("code_hash", code_hash)
             return result.objective
         except Exception as exc:  # noqa: BLE001 — one bad trial must not abort the study
             log.error("trial %s failed entirely: %s", getattr(trial, "number", "?"), exc)
             return _FAILED_TRIAL_SCORE
 
     return objective
+
+
+def _suggest_incumbent_params(
+    trial: Any,
+    incumbent_params: Mapping[str, Any],
+    *,
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Pin every search-space parameter to its incumbent value for trial 0.
+
+    Calls ``trial.suggest_*`` for every name in the resolved search space so
+    Optuna records the incumbent params in the trial (otherwise Optuna would
+    not know about them). Each suggestion is constrained to the incumbent
+    value: ``suggest_float`` low/high collapsed to the value, ``suggest_int``
+    likewise, ``suggest_categorical`` with a singleton choice. Out-of-range
+    incumbents are clamped to the search-space bounds so the suggest call
+    succeeds (the incumbent is the live config; clamping is rare and reported
+    via trial.user_attrs["incumbent_clamped"]).
+    """
+    from .search_space import resolve_search_space
+
+    spec = resolve_search_space(overrides)
+    out: dict[str, Any] = {}
+    clamped: dict[str, dict[str, Any]] = {}
+    for name, entry in spec.items():
+        if name not in incumbent_params:
+            # Fall back to a regular suggestion for any param the incumbent
+            # doesn't declare — the optimizer can still sample it.
+            kind = entry[0]
+            if kind == "uniform":
+                out[name] = trial.suggest_float(name, entry[1], entry[2])
+            elif kind == "int":
+                out[name] = trial.suggest_int(name, entry[1], entry[2])
+            elif kind == "log_uniform":
+                out[name] = trial.suggest_float(name, entry[1], entry[2], log=True)
+            elif kind == "categorical":
+                out[name] = trial.suggest_categorical(name, list(entry[1]))
+            continue
+        target = incumbent_params[name]
+        kind = entry[0]
+        if kind == "uniform" or kind == "log_uniform":
+            lo, hi = float(entry[1]), float(entry[2])
+            clamped_val = float(min(hi, max(lo, float(target))))
+            if clamped_val != float(target):
+                clamped[name] = {"target": target, "clamped": clamped_val, "range": [lo, hi]}
+            # Optuna requires lo < hi to make a "fixed" suggestion;
+            # use suggest_float with the exact range and let TPE record the value.
+            # We can't pin to a single point; instead pass a tiny range around it.
+            eps = max(abs(clamped_val) * 1e-9, 1e-12)
+            lo_p = max(lo, clamped_val - eps)
+            hi_p = min(hi, clamped_val + eps)
+            if hi_p <= lo_p:
+                hi_p = lo_p + eps  # safety
+            log_flag = (kind == "log_uniform")
+            if log_flag and (lo_p <= 0 or hi_p <= 0):
+                # log_uniform requires strictly positive; fall back to non-log
+                log_flag = False
+            out[name] = trial.suggest_float(name, lo_p, hi_p, log=log_flag)
+        elif kind == "int":
+            lo, hi = int(entry[1]), int(entry[2])
+            clamped_val = int(min(hi, max(lo, int(target))))
+            if clamped_val != int(target):
+                clamped[name] = {"target": target, "clamped": clamped_val, "range": [lo, hi]}
+            out[name] = trial.suggest_int(name, clamped_val, clamped_val)
+        elif kind == "categorical":
+            choices = list(entry[1])
+            chosen = target if target in choices else (choices[0] if choices else target)
+            if chosen != target:
+                clamped[name] = {"target": target, "clamped": chosen, "choices": choices}
+            out[name] = trial.suggest_categorical(name, [chosen])
+        else:
+            out[name] = target
+    if clamped:
+        trial.set_user_attr("incumbent_clamped", clamped)
+    return out
+
+
+def _incumbent_baseline_params() -> dict[str, Any]:
+    """Read the actual-contract parameter set used as trial 0 (the incumbent).
+
+    Reads the frozen contract via :mod:`bowaka_v2_lab.reference` and projects
+    every search-space key to the equivalent contract value (dotted-path lookup).
+    A parameter not present in the contract (e.g. a lab-only knob) is omitted
+    from the returned dict — the optimizer will sample it normally for trial 0.
+    """
+    from ..reference import contract_available, load_actual_contract
+    from .search_space import SEARCH_SPACE_SPEC
+
+    if not contract_available():
+        return {}
+    contract = load_actual_contract()
+    out: dict[str, Any] = {}
+    for name in SEARCH_SPACE_SPEC:
+        parts = name.split(".")
+        node: Any = contract
+        ok = True
+        for p in parts:
+            if isinstance(node, dict) and p in node:
+                node = node[p]
+            else:
+                ok = False
+                break
+        if ok and node is not None:
+            out[name] = node
+    return out
 
 
 def _hash(payload: Any) -> str:
@@ -577,6 +841,9 @@ def run_walkforward_study(
     n_jobs: int | None = None,
     n_startup_trials: int | None = None,
     allow_smoke: bool = False,
+    allow_current_code_parity_study: bool = False,
+    tier: str | None = None,
+    incumbent_trial: bool = False,
     log: logging.Logger | None = None,
 ) -> dict:
     """Run a real walk-forward Optuna study driven entirely by the config.
@@ -584,6 +851,15 @@ def run_walkforward_study(
     ``n_trials`` / ``n_jobs`` / ``n_startup_trials`` override the config's
     ``optuna`` section when given. ``n_startup_trials`` is the number of random-
     sampling trials run before TPE-guided search begins.
+
+    ``allow_current_code_parity_study`` + ``tier="research_only"`` together are
+    the explicit opt-in required to run an Optuna study against a
+    ``current_code_parity`` config (realism remediation 2 Phase 8 / audit
+    §P0-011). The mechanical suitability cap (Phase 0) remains in effect.
+
+    ``incumbent_trial=True`` pins trial 0 to the actual-contract parameter set
+    (read via :func:`_incumbent_baseline_params` from the frozen contract) so
+    every study has a baseline against which the optimizer's best is judged.
 
     A study-start preflight (:func:`preflight.run_preflight`) refuses the run
     when realism prerequisites fail — a ``smoke_fixture`` config without
@@ -600,6 +876,15 @@ def run_walkforward_study(
     # Realism remediation 2 Phase 0: refuse to start a study whose config
     # diverges from the frozen contract without a declared parity sidecar.
     assert_optuna_config_parity(cfg)
+
+    # Realism remediation 2 Phase 8 (audit §P0-011): refuse current_code_parity
+    # studies unless explicitly opted in. Chains AFTER the parity gate so a
+    # divergent config still raises OptunaParityError first.
+    assert_simulation_contract_admissible(
+        cfg,
+        allow_current_code_parity_study=allow_current_code_parity_study,
+        tier=tier,
+    )
 
     # Fast-fail the smoke-mode refusal before any expensive plan building /
     # dataset probing. The full preflight below re-asserts it (and the DQ /
@@ -681,6 +966,16 @@ def run_walkforward_study(
     )
     log.info("preflight passed: %d checks", len(preflight.checks))
 
+    # Realism remediation 2 Phase 8 (audit §P0-011): the explicit
+    # intended_realism data-prerequisite gate. Run after the cheaper preflight
+    # so its evidence is on hand; raises before any (expensive) trial.
+    assert_intended_realism_data_prerequisites(
+        cfg,
+        dq_report=dq_report,
+        quote_coverage_pct=quote_cov_pct,
+        min_quote_coverage_pct=float(sim_cfg.min_quote_coverage_pct),
+    )
+
     # Report the ACTUAL per-fold trading universe — the daily point-in-time set
     # each fold builds, NOT the capped preflight-probe sample. A representative
     # single-session count; the eligible set changes day to day.
@@ -708,9 +1003,81 @@ def run_walkforward_study(
     seed = int((cfg.get("run") or {}).get("seed", 1337))
     code_hash = _git_head()
     lab_config_hash = _hash({k: v for k, v in cfg.items() if k != "_source_path"})
-    dataset_hash = _hash(
-        [symbols, feed, str(plan.splits[0].train_start), str(plan.splits[-1].val_end)]
-    )
+    # Realism remediation 2 Phase 8 (audit §P1-005): the dataset hash is now
+    # content-addressed when a real lake is available — SHA-256 over the lake
+    # manifest, every bars/quotes/CA parquet's footer hash, asset snapshot id,
+    # adjustment policy, config hash, and code hash. Editing one parquet byte
+    # changes the dataset hash. A lake-less / synthetic run falls back to the
+    # legacy logical hash (still stable, but obviously not content-addressed).
+    dataset_hash_components: dict[str, Any] | None = None
+    try:
+        from ..data.lineage import (
+            content_addressed_dataset_hash,
+            resolve_lake_root,
+            uses_lake,
+        )
+
+        if uses_lake(cfg):
+            _lake = resolve_lake_root(cfg)
+            if _lake.is_dir():
+                ca = content_addressed_dataset_hash(
+                    lake_root=_lake,
+                    config_hash=lab_config_hash,
+                    code_manifest_hash=code_hash,
+                )
+                dataset_hash = str(ca["dataset_hash"])
+                dataset_hash_components = ca["components"]
+            else:
+                dataset_hash = _hash(
+                    [symbols, feed, str(plan.splits[0].train_start),
+                     str(plan.splits[-1].val_end), lab_config_hash, code_hash]
+                )
+        else:
+            dataset_hash = _hash(
+                [symbols, feed, str(plan.splits[0].train_start),
+                 str(plan.splits[-1].val_end), lab_config_hash, code_hash]
+            )
+    except Exception as exc:  # noqa: BLE001 — content-addressed hashing must never crash a study
+        log.warning("content-addressed dataset hash failed (%s); falling back to logical hash", exc)
+        dataset_hash = _hash(
+            [symbols, feed, str(plan.splits[0].train_start),
+             str(plan.splits[-1].val_end), lab_config_hash, code_hash]
+        )
+
+    # Realism remediation 2 Phase 8 (audit §P1-006) — full per-fold preflight.
+    # Probe EVERY validation + holdout window once (cached by (dataset_hash,
+    # fold_window, config_hash)) so a fold missing required daily/minute/quote
+    # /exit-path coverage blocks the run before any trial costs are paid. Only
+    # gates intended_realism — current_code_parity / smoke_fixture are not data
+    # -prerequisite-failure-modes (the cheap preflight already records warnings).
+    full_fold_preflight_result: Optional[Any] = None
+    if sim_cfg.mode == "intended_realism":
+        from .preflight import FoldWindow, run_full_fold_preflight
+
+        fold_windows = [
+            FoldWindow(
+                fold_id=f"val_{s.val_start.isoformat()}",
+                kind="validation",
+                start=s.val_start, end=s.val_end,
+            )
+            for s in plan.splits
+        ] + [
+            FoldWindow(
+                fold_id=f"holdout_{plan.final_holdout_start.isoformat()}",
+                kind="holdout",
+                start=plan.final_holdout_start, end=plan.final_holdout_end,
+            )
+        ]
+        full_fold_preflight_result = run_full_fold_preflight(
+            cfg=cfg, folds=fold_windows, symbols=symbols, lake_root=lake_root,
+            feed=feed, dataset_hash=dataset_hash, config_hash=lab_config_hash,
+            scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+            min_quote_coverage_pct=float(sim_cfg.min_quote_coverage_pct),
+        )
+        log.info(
+            "full per-fold preflight passed: %d folds, %d checks",
+            len(fold_windows), len(full_fold_preflight_result.checks),
+        )
 
     study = OptunaStudy(
         feed=feed,
@@ -787,10 +1154,27 @@ def run_walkforward_study(
         ),
         len(symbols),
     )
+    # Realism remediation 2 Phase 8 — incumbent baseline. When opted in,
+    # trial 0 is pinned to the actual-contract parameter set (read from the
+    # frozen contract).
+    incumbent_params: Optional[dict[str, Any]] = None
+    if incumbent_trial:
+        incumbent_params = _incumbent_baseline_params()
+        if incumbent_params:
+            log.info("incumbent baseline: trial 0 pinned to %d contract params",
+                     len(incumbent_params))
+        else:
+            log.warning("incumbent baseline requested but no contract available; "
+                        "trial 0 will be a regular TPE-startup sample")
+
     objective = make_walkforward_objective(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
         paths=paths, holdout_guard=holdout_guard, log=log,
         search_space_overrides=search_space_overrides,
+        incumbent_params=incumbent_params,
+        dataset_hash=dataset_hash,
+        config_hash=lab_config_hash,
+        code_hash=code_hash,
     )
     study.optimize(objective)
 
@@ -803,6 +1187,32 @@ def run_walkforward_study(
         key=lambda t: t.value, reverse=True,
     )
     best = ranked[0] if ranked else None
+    # Realism remediation 2 Phase 8 — overridden selection: median fold score
+    # minus a stability penalty (std across folds, scaled by
+    # ``DEFAULT_PENALTY_WEIGHTS.fold_variance``). The trial's recorded
+    # ``value`` is already this number by construction; this branch keeps the
+    # name in the artifact even if the objective formula changes in the future.
+    def _median_minus_stability(t) -> float:
+        med = t.user_attrs.get("median_fold_score")
+        var = t.user_attrs.get("fold_variance")
+        if med is None:
+            return float(t.value) if t.value is not None else _FAILED_TRIAL_SCORE
+        v = float(med)
+        if var is not None:
+            v -= float(DEFAULT_PENALTY_WEIGHTS.fold_variance) * float(var)
+        return v
+
+    ranked_by_median_minus_stability = sorted(
+        completed, key=_median_minus_stability, reverse=True,
+    )
+    best_by_median_minus_stability = (
+        ranked_by_median_minus_stability[0]
+        if ranked_by_median_minus_stability else None
+    )
+    incumbent_baseline_trial = next(
+        (t for t in completed if t.user_attrs.get("incumbent_trial") is True),
+        None,
+    )
 
     # ---- best-trial reporting (Phase 9, Task 5) --------------------------
     best_report: dict[str, Any] = {}
@@ -854,10 +1264,118 @@ def run_walkforward_study(
         "final_holdout_scored": False,  # Phase 9: only `--final-holdout` scores it.
         "best_value": (best.value if best else None),
         "best_params": (dict(best.params) if best else {}),
+        # Realism remediation 2 Phase 8 — the overridden median-minus-stability
+        # best, kept alongside Optuna's best_trial for reference. They normally
+        # agree (the objective IS median-minus-stability); they diverge only if
+        # the objective formula is ever changed without updating this selector.
+        "best_by_median_minus_stability": (
+            {
+                "trial_number": best_by_median_minus_stability.number,
+                "value": best_by_median_minus_stability.value,
+                "params": dict(best_by_median_minus_stability.params),
+                "median_fold_score": best_by_median_minus_stability.user_attrs.get(
+                    "median_fold_score"
+                ),
+                "fold_variance": best_by_median_minus_stability.user_attrs.get(
+                    "fold_variance"
+                ),
+            }
+            if best_by_median_minus_stability is not None else None
+        ),
         "best_trial_report": best_report,
         "top_k_clustering": clustering,
         "study_metadata": study_metadata,
     }
+    # Realism remediation 2 Phase 8 (audit §P0-001 / §P0-011 / §P1-005) —
+    # promotion_evidence.json: the gating artifact for any operator decision to
+    # promote the study's parameter set. Carries the simulation contract, the
+    # mechanical suitability tier, dataset/config/code hashes, fold dispersion,
+    # the worst fold, parameter stability, and a comparison to the incumbent
+    # baseline (if trial 0 was the incumbent). NEVER raises the tier above the
+    # contract cap — that is enforced by ``tier_for_simulation_contract``.
+    fold_scores = list((best.user_attrs.get("fold_scores") if best else []) or [])
+    fold_metrics_list = list((best.user_attrs.get("fold_metrics") if best else []) or [])
+    worst_fold: dict | None = None
+    if fold_metrics_list:
+        # Worst = lowest net_return (the principal metric); ties broken by id.
+        try:
+            worst_fold = min(
+                fold_metrics_list,
+                key=lambda f: float(f.get("net_return_pct", 0.0) or 0.0),
+            )
+        except Exception:  # noqa: BLE001 — worst-fold extraction is best-effort
+            worst_fold = None
+    fold_dispersion: dict[str, Any] = {}
+    if fold_scores:
+        try:
+            fold_dispersion = {
+                "n_folds": len(fold_scores),
+                "min": float(min(fold_scores)),
+                "median": float(statistics.median(fold_scores)) if (
+                    len(fold_scores) >= 1) else None,
+                "max": float(max(fold_scores)),
+                "stdev": (
+                    float(statistics.stdev(fold_scores))
+                    if len(fold_scores) > 1 else 0.0
+                ),
+            }
+        except Exception:  # noqa: BLE001 — dispersion is best-effort
+            fold_dispersion = {"n_folds": len(fold_scores)}
+    incumbent_comparison: dict[str, Any] | None = None
+    if incumbent_baseline_trial is not None:
+        incumbent_comparison = {
+            "incumbent_trial_number": incumbent_baseline_trial.number,
+            "incumbent_value": incumbent_baseline_trial.value,
+            "incumbent_median_fold_score": incumbent_baseline_trial.user_attrs.get(
+                "median_fold_score"
+            ),
+            "incumbent_params": dict(incumbent_baseline_trial.params),
+            "incumbent_clamped": incumbent_baseline_trial.user_attrs.get(
+                "incumbent_clamped", {}
+            ),
+            "best_vs_incumbent_delta": (
+                (float(best.value) - float(incumbent_baseline_trial.value))
+                if best is not None
+                   and best.value is not None
+                   and incumbent_baseline_trial.value is not None
+                else None
+            ),
+        }
+    promotion_evidence: dict[str, Any] = {
+        "schema_version": 1,
+        "study_name": study.study.study_name,
+        "simulation_contract": simulation_contract,
+        "suitability_tier": suitability_tier,
+        "feed": feed,
+        "dataset_hash": dataset_hash,
+        "config_hash": lab_config_hash,
+        "code_hash": code_hash,
+        "best_trial_number": (best.number if best is not None else None),
+        "best_value": (best.value if best is not None else None),
+        "best_params": (dict(best.params) if best is not None else {}),
+        "fold_dispersion": fold_dispersion,
+        "worst_fold": worst_fold,
+        "parameter_stability": clustering,
+        "incumbent_comparison": incumbent_comparison,
+        # The audit-required "is this a parameter-recommendation study?" answer.
+        # By construction (Phase 0): current_code_parity is paper-reconciliation
+        # only; intended_realism on IEX is research_only; only SIP + paper-recon
+        # evidence (gated elsewhere) ever raises the cap.
+        "is_parameter_recommendation_study": (
+            simulation_contract == "intended_realism"
+            and suitability_tier in ("backtesting_only", "paper_candidate", "live_candidate")
+        ),
+    }
+    promo_dir = Path(paths.artifact_root) / "optuna" / study.study.study_name
+    promo_dir.mkdir(parents=True, exist_ok=True)
+    promo_path = promo_dir / "promotion_evidence.json"
+    promo_path.write_text(
+        json.dumps(promotion_evidence, indent=2, sort_keys=True, default=str),
+        encoding="utf-8",
+    )
+    out["promotion_evidence_path"] = str(promo_path)
+    out["promotion_evidence"] = promotion_evidence
+
     results_path = Path(paths.artifact_root) / "optuna" / f"{study.study.study_name}.json"
     results_path.parent.mkdir(parents=True, exist_ok=True)
     results_path.write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
@@ -873,5 +1391,10 @@ __all__ = [
     "build_best_trial_report",
     "run_walkforward_study",
     "assert_optuna_config_parity",
+    "assert_simulation_contract_admissible",
+    "assert_intended_realism_data_prerequisites",
     "OptunaParityError",
+    "CurrentCodeParityStudyRefused",
+    "IntendedRealismDataInsufficient",
+    "_incumbent_baseline_params",
 ]
