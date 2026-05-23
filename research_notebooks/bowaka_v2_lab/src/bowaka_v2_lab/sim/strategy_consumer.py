@@ -24,6 +24,7 @@ Realism remediation Phase 5:
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import random
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
@@ -116,6 +117,73 @@ class StrategyConsumer:
         """Resolved event-ordering policy — ``pre_submit`` or ``post_submit``."""
         return self._sim_cfg.accepted_event_sequencing or "pre_submit"
 
+    def on_parent_ack(
+        self,
+        *,
+        candidate_event: dict,
+        decision_ts: Any,
+        quote: QuoteSnapshot,
+        execution_cfg: Mapping[str, Any],
+        status_supplier: Optional[Any] = None,
+    ) -> Optional[str]:
+        """Evaluate the PARENT_ACK-stage gates: price-chase + halt (audit P0-009).
+
+        Returns ``None`` on accept, or a canonical reject reason string when one
+        of the gates fires:
+
+        - ``price_chase_band`` — the resting quote mid is too far above (or below)
+          the signal-emission price; the strategy refuses to chase a runaway.
+        - ``halt_or_pending_review`` — the venue-status supplier reports the
+          symbol as halted / pending-review / luld_pause.
+        - ``halt_data_unavailable`` — ``intended_realism`` only: the supplier
+          returned ``None`` and halts cannot be modelled. ``current_code_parity``
+          warns + treats as active (matches live fail-open behaviour).
+
+        These gates are **non-tunable** — they are excluded from
+        :mod:`optuna.search_space.EXCLUDED_PARAMETERS`. Phase 4 introduced the
+        PARENT_ACK event as the canonical evaluation point; in the synchronous
+        ``consume()`` flow this method is invoked inline between the spread/age
+        check and the risk-gate evaluation.
+        """
+        # ---- price-chase gate (audit P0-009) ----
+        price_chase = (execution_cfg.get("price_chase_gate") or {})
+        if price_chase.get("enabled", True):
+            sig = float(
+                (candidate_event.get("forming_session_bar") or {}).get("last_price") or 0.0
+            )
+            if sig > 0:
+                mid = (quote.bid + quote.ask) / 2.0
+                upper = sig * (1.0 + float(price_chase.get("max_pct_above_signal_price", 0.10)))
+                lower = sig * (1.0 + float(price_chase.get("min_pct_below_signal_price", -0.03)))
+                if mid > upper or mid < lower:
+                    return "price_chase_band"
+
+        # ---- halt gate (audit P0-009) ----
+        # Only evaluate when a status supplier is wired AND the halt gate is
+        # explicitly enabled. The startup DQ check
+        # ``halt_data_unavailable_when_required`` already fails the run closed
+        # under ``intended_realism`` when the lake has no status partitions; the
+        # runtime gate is the per-candidate refinement: if a supplier IS wired
+        # but returns ``None`` for this candidate, ``intended_realism`` rejects
+        # with ``halt_data_unavailable`` (audit acceptance) and
+        # ``current_code_parity`` warns + fails-open (matches the live wart).
+        halt_cfg = (execution_cfg.get("halt_gate") or {})
+        if halt_cfg.get("enabled", False) and status_supplier is not None:
+            status = None
+            try:
+                status = status_supplier(candidate_event["symbol"], decision_ts)
+            except Exception:  # noqa: BLE001 — supplier failure is "no data"
+                status = None
+            if status is None:
+                if self._sim_cfg.mode == "intended_realism":
+                    return "halt_data_unavailable"
+                # current_code_parity / smoke_fixture: fail-open silently.
+            else:
+                state = str(status.get("status") or "active").lower()
+                if state in ("halted", "pending_review", "luld_pause"):
+                    return "halt_or_pending_review"
+        return None
+
     def consume(
         self,
         candidate_event: dict,
@@ -123,6 +191,7 @@ class StrategyConsumer:
         decision_ts: Any,
         historical_quote: Optional[dict] = None,
         forward_minute_bars: Optional[Any] = None,
+        status_supplier: Optional[Any] = None,
     ) -> StrategyConsumerResult:
         """Consume one candidate event and emit decision(s) / a position.
 
@@ -130,6 +199,8 @@ class StrategyConsumer:
         when the lake has none for this symbol/ts). ``forward_minute_bars`` is
         the minute path forward from ``scan_ts`` — the order lifetime a
         marketable-limit fill walks to detect a timeout (Phase 6).
+        ``status_supplier(symbol, ts)`` returns a venue-status dict or ``None``;
+        used by :meth:`on_parent_ack` for the audit P0-009 halt gate.
         """
         result = StrategyConsumerResult()
         cfg = self._cfg
@@ -167,9 +238,16 @@ class StrategyConsumer:
             (candidate_event.get("prior_daily_baselines") or {}).get("prior_atr_pct") or 0.0
         ) or 0.02
         max_quote_age = int(execution_cfg.get("max_quote_age_seconds", 5))
-        # Deterministic RNG seeded on (symbol, scan_ts) so synthetic quote ages
-        # are reproducible run-to-run.
-        rng = random.Random(hash((symbol, str(candidate_event.get("scan_timestamp", decision_ts)))))
+        # Deterministic RNG seeded on (run_seed, symbol, scan_ts) — audit P1-001.
+        # Python's built-in ``hash()`` is process-salted (PYTHONHASHSEED), so the
+        # pre-fix code produced different synthetic quote ages between processes.
+        # A SHA-256 of the seed material is stable across processes / runs.
+        run_seed = int((cfg.get("run") or {}).get("seed", 0))
+        seed_material = (
+            f"{run_seed}|{symbol}|{candidate_event.get('scan_timestamp', decision_ts)}"
+        )
+        seed_int = int(hashlib.sha256(seed_material.encode()).hexdigest()[:16], 16)
+        rng = random.Random(seed_int)
         resolution: QuoteResolution = resolve_quote(
             symbol=symbol, at=decision_ts,
             signal_price=last_price or 1.0,
@@ -179,6 +257,7 @@ class StrategyConsumer:
             volatility_pct=volatility_pct,
             max_quote_age_seconds=max_quote_age,
             stress_level=cost_stress,
+            rng=rng,
         )
         # ``require_real`` with no historical quote — reject the candidate.
         if resolution.missing_quote or resolution.quote is None:
@@ -210,6 +289,29 @@ class StrategyConsumer:
                 decision_ts=decision_ts,
                 entry_trigger=execution_cfg.get("order_type", "marketable_limit"),
                 reason="quote_stale",
+                quote=quote.__dict__,
+            ))
+            return result
+
+        # ---- PARENT_ACK-stage gates (price-chase + halt) — audit P0-009 ----
+        # Non-tunable strategy logic; evaluated AFTER the quote checks but
+        # BEFORE the risk gates so a price-chase or halt-reject doesn't burn a
+        # daily-entry counter. In the Phase 4 event-driven flow these gates run
+        # at the PARENT_ACK event; the synchronous consume() path invokes them
+        # via on_parent_ack() inline here.
+        ack_reject = self.on_parent_ack(
+            candidate_event=candidate_event,
+            decision_ts=decision_ts,
+            quote=quote,
+            execution_cfg=execution_cfg,
+            status_supplier=status_supplier,
+        )
+        if ack_reject is not None:
+            result.decisions.append(build_rejected_entry_decision(
+                candidate_event=candidate_event,
+                decision_ts=decision_ts,
+                entry_trigger=execution_cfg.get("order_type", "marketable_limit"),
+                reason=ack_reject,
                 quote=quote.__dict__,
             ))
             return result
@@ -452,10 +554,17 @@ class StrategyConsumer:
                 min_order_notional=min_order_notional,
                 commission_per_share=commission_per_share,
                 regulatory_fee_bps=regulatory_fee_bps,
+                # Realism remediation 2 Phase 5 (audit P0-006) — tier auto-
+                # detected from the quote source; intended_realism rejects T0.
+                simulation_mode=self._sim_cfg.mode,
+                minute_volume_participation_frac=float(
+                    execution_cfg.get("minute_volume_participation_frac", 0.10)
+                ),
             )
 
         # Record the fill outcome (filled or not) for the execution-quality
-        # report. ``quote_source`` distinguishes real vs synthetic quotes.
+        # report. ``quote_source`` distinguishes real vs synthetic quotes;
+        # ``execution_tier`` records which P0-006 tier modeled the fill.
         fill_record = {
             "parent_order_id": parent.parent_order_id,
             "symbol": symbol,
@@ -466,12 +575,16 @@ class StrategyConsumer:
             "avg_fill_price": fill.avg_fill_price,
             "notional": fill.notional,
             "slippage_bps": fill.slippage_bps_total,
+            "slippage_vs_mid_bps": fill.slippage_vs_mid_bps,
+            "slippage_vs_ask_bps": fill.slippage_vs_ask_bps,
             "is_partial": fill.is_partial,
             "reason": fill.reason,
             "commission": fill.commission,
             "regulatory_fees": fill.regulatory_fees,
             "total_fees": fill.total_fees,
             "liquidity_participation_frac": fill.liquidity_participation_frac,
+            "execution_tier": fill.execution_tier,
+            "fill_time_seconds": fill.fill_time_seconds,
             "quote_source": quote.source,
             "quote_spread_pct": quote.spread_pct,
             "quote_age_seconds": quote.quote_age_seconds,

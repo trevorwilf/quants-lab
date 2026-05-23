@@ -251,6 +251,29 @@ positions` is honored only as a legacy fallback when `sizing` omits the key.
 
 ---
 
+## 8. Halt-gate fail-open when status data is unavailable (Realism remediation 2 Phase 5)
+
+**Lab flag:** `simulation.mode` selects the policy in
+`sim/strategy_consumer.StrategyConsumer.on_parent_ack()`.
+**Live ref:** `bowaka_v2_strategy.py:421-430` (`_halt_gate`).
+
+The live `_halt_gate` checks a per-candidate status field; if no status feed is
+configured or it returns `None`, the gate **passes** — the live code fails open
+when status data is unavailable. The lab's `intended_realism` mode treats the
+absence of status data as a hard reject (`halt_data_unavailable`) to match the
+audit P0-009 acceptance criterion; `current_code_parity` retains the live
+fail-open behavior with a warning. The startup DQ check
+`halt_data_unavailable_when_required` already gates `intended_realism` runs
+when the lake has no `statuses/` partitions at all.
+
+| Mode                  | No status data → behavior                                   |
+|-----------------------|--------------------------------------------------------------|
+| `current_code_parity` | fail-open silently; warn at startup (live wart)              |
+| `intended_realism`    | reject candidate with `halt_data_unavailable`                |
+| `smoke_fixture`       | fail-open silently (smoke universe is known-active)          |
+
+---
+
 ## Summary table
 
 | # | Behavior                          | Lab flag / module                   | Live ref                          |
@@ -262,8 +285,12 @@ positions` is honored only as a legacy fallback when `sizing` omits the key.
 | 5 | Early-close scan-window truncation| `sim/schedule.py` (always-on)       | `bowaka_intraday_scanner.py:671-725` |
 | 6 | Strategy-slice loss gate          | `sim/risk_gates.py` (additive)      | `bowaka_v2_strategy.py:467-472`   |
 | 7 | ADV cap on aggregate symbol notional | `sim/risk_gates.py` (parity port) | `bowaka_v2_strategy.py:474-488`   |
+| 8 | Halt gate fails open on no status data | `sim/strategy_consumer.py` (mode-coupled) | `bowaka_v2_strategy.py:421-430` |
 
 Items 1-4 are recorded in `run_manifest.json` (`simulation` block) and the
 backtest report header on every run. Item 5 is an unconditional correctness fix
 in the Phase 4 scheduler. Items 6-7 are Phase 5 risk-gate work: item 6 is an
 additive intended-realism extension, item 7 is a faithful port of the live code.
+Item 8 is realism remediation 2 Phase 5 (audit P0-009): the per-candidate halt
+gate retains the live fail-open under `current_code_parity` and fails closed
+under `intended_realism`.

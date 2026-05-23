@@ -27,8 +27,13 @@ def test_quote_spread_and_age_gates(tmp_path: Path) -> None:
         "market_data": {"feed": "iex", "max_bar_age_seconds": 600},
         "scanner": {"max_candidates_per_scan": 10, "max_entries_per_scan": 10,
                      "min_signal_strength": 0.0, "signal_expiry_seconds": 600},
+        # Realism remediation 2 Phase 5: the price-chase + halt gates are
+        # non-tunable but evaluate by default. This test exercises only
+        # spread/age gates, so disable them to keep the OK accept path clean.
         "signals": {}, "execution": {"max_spread_bps": 50, "max_quote_age_seconds": 5,
-                                       "order_type": "marketable_limit"},
+                                       "order_type": "marketable_limit",
+                                       "price_chase_gate": {"enabled": False},
+                                       "halt_gate": {"enabled": False}},
         "sizing": {"dollars_per_position": 1000, "max_position_dollars": 5000},
         "risk": {"max_concurrent_positions": 5, "max_total_entries_per_day": 12,
                    "max_gross_exposure_pct": 0.50, "daily_loss_pct": 0.50,

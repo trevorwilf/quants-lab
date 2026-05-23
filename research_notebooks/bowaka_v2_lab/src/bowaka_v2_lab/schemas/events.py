@@ -145,6 +145,9 @@ CANONICAL_REJECTION_REASONS: frozenset[str] = frozenset({
     "spread_too_wide",
     "quote_stale",
     "price_chase_band",
+    # Realism remediation 2 Phase 5 (audit P0-009) — halt data missing under
+    # intended_realism (current_code_parity fails open with a warn).
+    "halt_data_unavailable",
     "lost_signal_before_entry",
     "past_last_entry_time",
     "kill_switch",

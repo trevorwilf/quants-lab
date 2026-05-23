@@ -465,6 +465,11 @@ def run_backtest(
     # consumes. When omitted the minute exit driver falls back to the ordinary
     # ``minute_bars_supplier`` queried at the 16:00 ET close.
     session_minute_supplier: Optional[Callable[[str, _dt.date], pd.DataFrame | None]] = None,
+    # Realism remediation 2 Phase 5 (audit P0-009): venue-status supplier for
+    # the halt gate. ``status_supplier(symbol, ts) -> dict|None``; ``None``
+    # means no status data (current_code_parity warns + fails-open;
+    # intended_realism rejects with ``halt_data_unavailable``).
+    status_supplier: Optional[Callable[..., Optional[dict]]] = None,
     volume_curve: Optional[pd.DataFrame] = None,
     initial_bankroll: float = 100_000.0,
     paths: Optional[BowakaV2Paths] = None,
@@ -695,6 +700,7 @@ def run_backtest(
                     bars_supplier=minute_bars_supplier, consumer=consumer,
                     quote_supplier=quote_supplier,
                     forward_minute_supplier=forward_minute_supplier,
+                    status_supplier=status_supplier,
                 )
                 all_candidate_events.extend(scan_result.emitted)
                 all_gate_dump.extend(scan_result.gate_dump)
@@ -935,6 +941,7 @@ def run_backtest(
                     bars_supplier=minute_bars_supplier, consumer=consumer,
                     quote_supplier=quote_supplier,
                     forward_minute_supplier=forward_minute_supplier,
+                    status_supplier=status_supplier,
                 )
                 sess_acc.candidate_events.extend(scan_result.emitted)
                 sess_acc.gate_dump.extend(scan_result.gate_dump)
@@ -983,6 +990,30 @@ def run_backtest(
                             "regulatory_fees": fr["regulatory_fees"],
                             "quote_source": fr["quote_source"],
                         })
+                        # Realism remediation 2 Phase 5 (audit P0-006): schedule
+                        # a PARENT_FILL_TIMEOUT event at ``submit_ts +
+                        # timeout_seconds`` so the dispatch log reflects the
+                        # timeout firing. The fill model already realized the
+                        # no-fill synchronously; the event is purely a log row.
+                        if (
+                            not fr.get("filled")
+                            and str(fr.get("reason") or "") == "marketable_limit_timeout"
+                            and str(fr.get("order_style") or "") == "marketable_limit"
+                        ):
+                            timeout_secs = int(
+                                (cfg_dict.get("execution") or {}).get(
+                                    "marketable_limit_timeout_seconds", 30
+                                )
+                            )
+                            queue.push(Event(
+                                timestamp=scan_ts + pd.Timedelta(seconds=timeout_secs),
+                                type=EventType.PARENT_FILL_TIMEOUT,
+                                payload={
+                                    "session_date": session_date,
+                                    "parent_order_id": fr["parent_order_id"],
+                                    "symbol": fr["symbol"],
+                                },
+                            ))
 
             # Dispatch. Walk lots up to each event's timestamp BEFORE handling
             # the event so an intraday stop is realized in Portfolio.state
@@ -998,6 +1029,14 @@ def run_backtest(
                 _close_lots_until(event.timestamp, log_event=event)
                 if event.type == EventType.SCAN:
                     _handle_scan(event)
+                elif event.type == EventType.PARENT_FILL_TIMEOUT:
+                    # Realism remediation 2 Phase 5 (audit P0-006): a no-fill
+                    # marker emitted by ``simulate_marketable_limit_fill`` when
+                    # the quote ran past the limit before the timeout. The
+                    # synchronous fill model already realised the no-fill; the
+                    # event is logged here so the dispatch log reflects the
+                    # timeout firing in chronological order.
+                    pass
                 elif event.type == EventType.EOD_MARK:
                     # End-of-session mark-to-market for still-open lots uses
                     # the symbol's last daily-bar close.
@@ -1220,7 +1259,8 @@ def run_backtest(
     from ..reports.execution_quality import build_execution_quality_rows
 
     eq_rows = build_execution_quality_rows(
-        all_fill_records, missing_quote_count=missing_quote_count
+        all_fill_records, missing_quote_count=missing_quote_count,
+        decisions=all_decisions, quote_coverage_rows=quote_coverage_rows,
     )
     eq_rows.append({
         "metric": "broker_reject_rate",

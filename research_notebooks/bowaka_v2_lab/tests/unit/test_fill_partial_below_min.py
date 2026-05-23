@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 
 from bowaka_v2_lab.sim.fills import simulate_market_fill, simulate_marketable_limit_fill
-from bowaka_v2_lab.sim.quote_model import QuoteSnapshot
+from bowaka_v2_lab.sim.quote_model import QuoteSnapshot  # noqa: F401 — used below
 
 
 def _quote(ask: float) -> QuoteSnapshot:
@@ -37,10 +37,17 @@ def test_market_partial_below_min_is_no_fill():
 
 
 def test_marketable_limit_partial_below_min_is_no_fill():
-    q = _quote(ask=10.0)
+    # Realism remediation 2 Phase 5 (audit P0-006): T1 walks the book one cent
+    # at a time. A 5-share ``ask_size`` at $10 leaves the order partial-filled
+    # at well below ``min_order_notional`` → no-fill.
+    q = QuoteSnapshot(
+        bid=9.98, ask=10.0, mid=9.99, spread_pct=0.002,
+        quote_timestamp="2024-09-04T14:00:00Z", quote_age_seconds=0.5,
+        source="historical", bid_size=5, ask_size=5,
+    )
     fill = simulate_marketable_limit_fill(
         side="buy", requested_qty=1_000, quote=q,
-        marketable_limit_slippage_pct=0.005,
+        marketable_limit_slippage_pct=0.0001,  # limit = 10.001, leaves no room
         marketable_limit_timeout_seconds=30,
         minute_bars=None, scan_ts=pd.Timestamp("2024-09-04 14:00:00", tz="UTC"),
         liquidity_proxy_shares=10, cost_stress="base",
