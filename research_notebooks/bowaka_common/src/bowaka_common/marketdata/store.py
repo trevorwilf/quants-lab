@@ -345,3 +345,72 @@ class MarketDataStore:
         if not snaps:
             return None
         return snaps[-1].parent.name.split("=", 1)[1]
+
+    # -- SIP-aware reads (realism remediation 2 Phase 10, audit §11 Phase 9) ---
+    #
+    # Thin wrappers that pre-bind ``feed="sip"`` (and the SIP default
+    # adjustment for daily bars) on top of the generic read methods above. The
+    # store still works exactly the same way for the IEX feed — these helpers
+    # exist so SIP-aware callers can spell the read explicitly, and so any
+    # SIP-payload existence probe goes through one canonical entry point. The
+    # lake has no SIP data today; a call on a SIP-less lake returns empty
+    # frames / ``None`` the same way the IEX path does when its partitions
+    # are absent.
+    # ----------------------------------------------------------------------
+    def sip_daily_bars(
+        self,
+        symbol: str,
+        start: Any,
+        end: Any,
+        *,
+        adjustment: str = _layout.SIP_DAILY_ADJUSTMENT,
+    ) -> pd.DataFrame:
+        """SIP daily bars for ``symbol`` over the inclusive date range.
+
+        Convenience wrapper over :meth:`daily_bars` that pins ``feed="sip"``
+        and defaults ``adjustment`` to ``split_adjusted`` (the SIP convention).
+        """
+        return self.daily_bars(symbol, start, end, feed=_layout.FEED_SIP, adjustment=adjustment)
+
+    def sip_minute_bars(
+        self,
+        symbol: str,
+        start: Any,
+        end: Any,
+        *,
+        adjustment: str = "raw",
+    ) -> pd.DataFrame:
+        """SIP minute bars for ``symbol`` over the inclusive range.
+
+        Convenience wrapper over :meth:`minute_bars` that pins ``feed="sip"``.
+        SIP minute bars are raw by convention (same as IEX).
+        """
+        return self.minute_bars(symbol, start, end, feed=_layout.FEED_SIP, adjustment=adjustment)
+
+    def sip_quotes(self, symbol: str, start: Any, end: Any) -> pd.DataFrame:
+        """SIP quotes for ``symbol`` over the inclusive range."""
+        return self.quotes(symbol, start, end, feed=_layout.FEED_SIP)
+
+    def sip_quotes_at_or_before(
+        self,
+        symbol: str,
+        ts: Any,
+        *,
+        max_age_seconds: float = 60.0,
+    ) -> Optional[QuoteRow]:
+        """Latest SIP quote for ``symbol`` at-or-before ``ts``, within
+        ``max_age_seconds``.
+
+        Convenience wrapper over :meth:`quotes_at_or_before` that pins
+        ``feed="sip"``. Returns ``None`` on a SIP-less lake (the normal case).
+        """
+        return self.quotes_at_or_before(
+            symbol, ts, max_age_seconds=max_age_seconds, feed=_layout.FEED_SIP,
+        )
+
+    def has_sip_partitions(self) -> bool:
+        """Return ``True`` when the lake has any SIP partition (bars / quotes).
+
+        Delegates to :func:`bowaka_common.marketdata.layout.sip_partitions_available`.
+        """
+        return _layout.sip_partitions_available(self.root, vendor=self.vendor)

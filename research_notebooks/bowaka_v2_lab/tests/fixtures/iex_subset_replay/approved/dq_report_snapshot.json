@@ -483,6 +483,17 @@
     {
       "count": 0,
       "evidence": {
+        "detail": "non-SIP feed; SIP probe not applicable",
+        "feed": "iex"
+      },
+      "name": "sip_data_present",
+      "source_file": "(lake SIP partition probe)",
+      "status": "pass",
+      "threshold": null
+    },
+    {
+      "count": 0,
+      "evidence": {
         "lake_adjustment": "raw",
         "require_split_adjustment": false,
         "split_adjustment_applied": false,
@@ -499,7 +510,7 @@
   "failed": 1,
   "feed": "iex",
   "notes": "",
-  "passed": 21,
+  "passed": 22,
   "per_symbol_failures": {},
   "regime": "lake",
   "required_failures": [

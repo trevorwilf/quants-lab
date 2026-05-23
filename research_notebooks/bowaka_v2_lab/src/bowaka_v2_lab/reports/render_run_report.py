@@ -220,6 +220,10 @@ def build_report(
     run_id = run_manifest.get("run_id", summary.get("run_id", "unknown"))
     feed = summary.get("feed", run_manifest.get("feed", lineage.get("feed", "unknown")))
     sim_mode = simulation.get("mode", lineage.get("simulation_mode", "unknown"))
+    # Realism remediation 2 Phase 10 (audit §P1-010): the IEX caveat label.
+    from ..promotion.suitability import feed_caveat_for as _feed_caveat_for
+
+    feed_caveat = _feed_caveat_for(feed)
     header_rows = [
         ["run_id", run_id],
         ["strategy", f"bowaka_v2 v{run_manifest.get('strategy_version', '0.1.0')}"],
@@ -236,7 +240,20 @@ def build_report(
         ["unknown_instrument_class_policy", simulation.get("unknown_instrument_class_policy", "unknown")],
         ["allow_research_relaxed", simulation.get("allow_research_relaxed", "unknown")],
     ]
+    if feed_caveat is not None:
+        header_rows.append(["feed_caveat", feed_caveat])
     md += ["# Bowaka v2 Backtest Report", ""]
+    # Realism remediation 2 Phase 10 (audit §P1-010) — IEX caveat banner at
+    # the top of the report. The banner makes the partial-tape semantics
+    # impossible to miss; downstream review tooling looks for this exact text.
+    if str(feed) == "iex":
+        md += [
+            "> **IEX caveat:** IEX is partial-tape. RVOL_so_far, "
+            "projected_full_day_rvol, range_expansion_so_far, and ADV computed "
+            "on this feed are IEX-specific and NOT consolidated. Parameters "
+            "tuned on IEX are not portable to SIP without retraining.",
+            "",
+        ]
     md += [f"- **Suitability tier:** `{suitability}`"]
     md += [f"  (mechanically capped at `backtesting_only`; paper/live require an "
            f"operator decision)"]
@@ -245,6 +262,14 @@ def build_report(
     md += _md_table(["field", "value"], header_rows, align_right_from=99)
     md += [""]
     rpt["header"] = {"fields": [{"field": k, "value": v} for k, v in header_rows]}
+    # Realism remediation 2 Phase 10 (audit §P1-010) — both labels also surface
+    # at the report-json top level so consumers can branch on them without
+    # parsing the markdown banner. ``iex_partial_tape_banner_present`` reflects
+    # whether the banner is in the rendered body.
+    rpt["feed"] = feed
+    if feed_caveat is not None:
+        rpt["feed_caveat"] = feed_caveat
+    rpt["iex_partial_tape_banner_present"] = (str(feed) == "iex")
 
     # ===== 2. data quality =================================================
     md += ["## Data Quality", ""]
