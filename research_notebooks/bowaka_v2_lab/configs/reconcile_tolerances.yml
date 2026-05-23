@@ -1,0 +1,43 @@
+# Default tolerances for the Phase-9 paper-vs-sim reconciliation framework.
+#
+# Loaded by ``bowaka_v2_lab.reconcile.comparator.load_reconcile_tolerances``
+# when the CLI's ``reconcile`` subcommand runs. Every value below can be
+# overridden by an inline ``reconcile:`` block in a lab config, or by passing
+# a custom tolerances file via ``--tolerances <path>``.
+#
+# The defaults track the realism remediation 2 prompt's Phase-9 spec.
+#
+# emission_jaccard_min
+#   Minimum allowed Jaccard index over candidate-event ids — below this and
+#   the run is flagged. 0.85 means paper and lab agree on at least 85% of the
+#   union of their candidate sets.
+#
+# decision_reason_match_min
+#   Minimum allowed decision-reason match rate over the *comparable*
+#   candidates (those present on both sides). 0.90 means at most 10% of paired
+#   candidates may differ on (decision, reason).
+#
+# fill_price_tolerance_bps
+#   Absolute bps tolerance for a paper-vs-lab fill price residual. A fill is
+#   flagged when ``abs((lab - paper) / paper * 10_000) > 5``.
+#
+# fill_qty_tolerance_shares
+#   Absolute share tolerance for a paper-vs-lab fill quantity residual. The
+#   default 0.0 means the lab must fill the SAME number of shares paper did.
+#
+# fill_latency_p95_tolerance_ms
+#   95th-percentile abs tolerance for the ack→fill latency residual (ms).
+#
+# pnl_tolerance_dollars
+#   Absolute dollar tolerance for the closed-trade PnL residual.
+#
+# exit_timing_tolerance_seconds
+#   Absolute seconds tolerance for the exit-timestamp residual.
+
+emission_jaccard_min: 0.85
+decision_reason_match_min: 0.90
+fill_price_tolerance_bps: 5.0
+fill_qty_tolerance_shares: 0.0
+fill_latency_p95_tolerance_ms: 200.0
+pnl_tolerance_dollars: 1.0
+exit_timing_tolerance_seconds: 60.0

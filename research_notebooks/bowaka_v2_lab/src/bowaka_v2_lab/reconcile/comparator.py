@@ -1,10 +1,79 @@
-"""Match paper candidates → sim candidates by (symbol, scan_timestamp window)."""
+"""Match paper candidates → sim candidates by (symbol, scan_timestamp window).
+
+Also hosts the **Phase-9 reconcile tolerance defaults** loaded from
+``configs/reconcile_tolerances.yml`` and the helper :func:`load_reconcile_tolerances`
+that the CLI / report / tests call to resolve the per-run tolerance dict.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from pathlib import Path
+from typing import Any, Iterable, Mapping, Optional
 
 import pandas as pd
+import yaml
+
+
+# --------------------------------------------------------------------------
+# Realism remediation 2 Phase 9 — reconcile tolerance defaults.
+# --------------------------------------------------------------------------
+#: Per-stage tolerance defaults — match the Phase-9 prompt and the shipped
+#: ``configs/reconcile_tolerances.yml`` defaults. Overrideable by passing a
+#: custom tolerances dict OR a file path to :func:`load_reconcile_tolerances`.
+DEFAULT_RECONCILE_TOLERANCES: dict[str, float] = {
+    "emission_jaccard_min": 0.85,
+    "decision_reason_match_min": 0.90,
+    "fill_price_tolerance_bps": 5.0,
+    "fill_qty_tolerance_shares": 0.0,
+    "fill_latency_p95_tolerance_ms": 200.0,
+    "pnl_tolerance_dollars": 1.0,
+    "exit_timing_tolerance_seconds": 60.0,
+}
+
+
+def _shipped_tolerances_path() -> Path:
+    """The path to the shipped ``configs/reconcile_tolerances.yml`` file."""
+    return (
+        Path(__file__).resolve().parents[2]
+        / "configs" / "reconcile_tolerances.yml"
+    )
+
+
+def load_reconcile_tolerances(
+    overrides: Path | str | Mapping[str, Any] | None = None,
+) -> dict[str, float]:
+    """Resolve the per-run reconcile tolerance dict.
+
+    Precedence: built-in :data:`DEFAULT_RECONCILE_TOLERANCES` < shipped
+    ``configs/reconcile_tolerances.yml`` (if present) < ``overrides`` (file path
+    or in-memory mapping).
+
+    A missing or malformed override file is a soft failure — the defaults still
+    apply, but only known keys are honoured (unknown keys are ignored).
+    """
+    out: dict[str, float] = dict(DEFAULT_RECONCILE_TOLERANCES)
+    shipped = _shipped_tolerances_path()
+    if shipped.is_file():
+        try:
+            data = yaml.safe_load(shipped.read_text(encoding="utf-8")) or {}
+            for k in DEFAULT_RECONCILE_TOLERANCES:
+                if k in data:
+                    out[k] = float(data[k])
+        except Exception:  # noqa: BLE001 — defaults are still safe
+            pass
+    if overrides is None:
+        return out
+    if isinstance(overrides, (str, Path)):
+        try:
+            data = yaml.safe_load(Path(overrides).read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001
+            return out
+    else:
+        data = dict(overrides)
+    for k in DEFAULT_RECONCILE_TOLERANCES:
+        if k in data and data[k] is not None:
+            out[k] = float(data[k])
+    return out
 
 
 @dataclass
