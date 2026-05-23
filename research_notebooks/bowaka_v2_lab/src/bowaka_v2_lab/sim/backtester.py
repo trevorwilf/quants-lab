@@ -677,7 +677,11 @@ def run_backtest(
             "entered_symbols_today": [],
             "in_play_pool": {},
             "symbol_last_emit_ts": {},
-            "entries_per_symbol_today": {},
+            # Realism remediation 2 Phase 7 (audit P1-003): the scanner-dedup
+            # emit counter is ``signal_emits_per_symbol_today``; portfolio
+            # PARENT_FILL counts live on Portfolio.state (entries_per_symbol_today
+            # is rolled into the report from there, NOT from scanner state).
+            "signal_emits_per_symbol_today": {},
         }
         universe = universe_snapshot_by_session.get(session_date)
         daily_cache = daily_cache_by_session.get(session_date)
@@ -777,6 +781,18 @@ def run_backtest(
             ambiguous_bar_count += int(exit_out.get("ambiguous", 0))
             all_trades.extend(exit_out.get("trades", []))
             portfolio.update_mtm(closes_today)
+            # Realism remediation 2 Phase 7 (audit P1-003) — record BOTH
+            # counters per session (scanner emits + portfolio entries) so the
+            # run report can surface them side-by-side. Smoke path mirrors the
+            # event-driven path.
+            sess_count["signal_emits_per_symbol_today"] = dict(
+                state.get("signal_emits_per_symbol_today") or {}
+            )
+            sess_count["entries_per_symbol_today"] = dict(
+                (portfolio.state.entries_per_symbol_today or {})
+                if portfolio.state is not None
+                else {}
+            )
         else:
             # ---- Event-driven path (Phase 4) ------------------------------
             # Replaces the pre-Phase-4 "for scan_ts in session_scan_times:
@@ -1189,6 +1205,18 @@ def run_backtest(
             missing_quote_count += sess_acc.missing_quote_count
             ambiguous_bar_count += sess_acc.ambiguous_count
             event_log_by_session[session_key] = list(sess_acc.event_log)
+            # Realism remediation 2 Phase 7 (audit P1-003): record BOTH
+            # counters per session — the scanner-dedup view (signal emits) and
+            # the portfolio view (PARENT_FILL entries). The two are
+            # intentionally distinct; the report surfaces them side-by-side.
+            sess_count["signal_emits_per_symbol_today"] = dict(
+                state.get("signal_emits_per_symbol_today") or {}
+            )
+            sess_count["entries_per_symbol_today"] = dict(
+                (portfolio.state.entries_per_symbol_today or {})
+                if portfolio.state is not None
+                else {}
+            )
             # The canonical roll-up parquet honors the per-session cap so the
             # default file is bounded; the per-session partition (written
             # below) keeps the FULL log when the session overflowed.

@@ -214,6 +214,12 @@ class PortfolioState:
     # begin_session from lots whose entry_session == session_date). Drives the
     # ``same_symbol_entries_per_day`` gate.
     entered_symbols_today: set[str] = field(default_factory=set)
+    # Realism remediation 2 Phase 7 (audit P1-003) — per-symbol PARENT_FILL
+    # count for THIS session. Incremented in :meth:`Portfolio.add_position`
+    # (i.e. when a PARENT_FILL produces a new lot). Distinct from the scanner's
+    # ``signal_emits_per_symbol_today`` (emit counter); risk gates that care
+    # about actual entries read this, the scanner uses its own emit counter.
+    entries_per_symbol_today: dict[str, int] = field(default_factory=dict)
     # Realism remediation 2 Phase 6 — set ``True`` by the protection state
     # machine when one or more lots are in :attr:`ProtectionState.UNPROTECTED_VIOLATION`
     # / :attr:`ProtectionState.ENTRIES_BLOCKED` AND
@@ -307,6 +313,16 @@ class Portfolio:
             for p in self.open_positions.values()
             if p.entry_session == session_date
         }
+        # Realism remediation 2 Phase 7 (audit P1-003) — per-symbol PARENT_FILL
+        # count for THIS session, recomputed from the open lots whose
+        # entry_session is the new session. Cross-session lots from prior days
+        # do not count (each session has its own daily entry budget).
+        entries_per_symbol_today: dict[str, int] = {}
+        for p in self.open_positions.values():
+            if p.entry_session == session_date:
+                entries_per_symbol_today[p.symbol] = (
+                    entries_per_symbol_today.get(p.symbol, 0) + 1
+                )
         # Realism remediation 2 Phase 6 — recompute entries_blocked from the
         # surviving lots. If any open lot is still in a violation / blocking
         # state, the new session inherits the block; otherwise the new session
@@ -333,6 +349,7 @@ class Portfolio:
             gross_exposure_pct=pct,
             kill_switch_state=None,
             entered_symbols_today=entered,
+            entries_per_symbol_today=entries_per_symbol_today,
             entries_blocked=carryover_block,
         )
 
@@ -377,6 +394,15 @@ class Portfolio:
             self.state.entries_today += 1
             if pos.entry_session == self.state.session_date:
                 self.state.entered_symbols_today.add(pos.symbol)
+                # Realism remediation 2 Phase 7 (audit P1-003): per-symbol
+                # PARENT_FILL count is incremented HERE (on the portfolio side),
+                # NOT in the scanner's emit-counter path. The two counters are
+                # intentionally distinct — an emitted-but-rejected candidate
+                # does NOT consume same-symbol entry allowance on the portfolio
+                # side; it does consume scanner-dedup emit allowance.
+                self.state.entries_per_symbol_today[pos.symbol] = (
+                    self.state.entries_per_symbol_today.get(pos.symbol, 0) + 1
+                )
             gross = sum(p.gross_dollars for p in self.open_positions.values())
             self.state.gross_exposure_dollars = gross
             self.state.gross_exposure_pct = gross / self.state.bankroll if self.state.bankroll > 0 else 0.0
