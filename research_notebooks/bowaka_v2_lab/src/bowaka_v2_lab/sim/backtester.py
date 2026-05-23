@@ -41,8 +41,16 @@ from ..utils.atomic_io import append_jsonl, atomic_write_json, write_parquet
 from ..utils.ids import generate_run_id
 from ..utils.time import require_aware_timestamp
 from .broker import SimulatedBroker
-from .event_loop import run_one_scan
+from .event_loop import (
+    CadenceConfig,
+    Event,
+    EventQueue,
+    EventType,
+    preload_session_events,
+    run_one_scan,
+)
 from .exit_driver import drive_session_exits_daily, drive_session_exits_minute
+from .exits import FadeTelemetry, walk_lot_exit
 from .metrics import build_summary
 from .portfolio import Portfolio, Position
 from .schedule import scan_times_for_session
@@ -75,11 +83,24 @@ _REQUIRED_ARTIFACTS = (
     "trades.parquet",
     "daily_equity.parquet",
     "execution_quality.parquet",
+    # Realism remediation 2 Phase 4: per-event dispatch log. Records every
+    # SCAN / PROTECTION_CHECK / CHILD_FILL / EOD_MARK etc. with the portfolio
+    # state at the end of the event. Sessions over the cap (default 50k rows)
+    # are rotated to ``events/by_session/<date>.parquet`` so any single file is
+    # bounded; the canonical roll-up always stays at the path below.
+    "events/events.parquet",
     "summary.json",
     "report.md",
     "report.json",
     "config_diff_vs_actual_bowaka_v2.yaml",
 )
+
+
+#: Realism remediation 2 Phase 4: row cap for the canonical event log roll-up.
+#: A run that exceeds the cap still emits the canonical ``events/events.parquet``
+#: (truncated) and writes the full per-session detail to
+#: ``events/by_session/<session>.parquet``.
+_EVENTS_PER_SESSION_CAP = 50_000
 
 
 def _git_head() -> str:
@@ -275,6 +296,159 @@ def _build_fade_score_fn(
     return fade_score_fn
 
 
+@dataclass
+class _SessionAccumulators:
+    """Per-session collectors driven by the event dispatcher.
+
+    Holding them in a dataclass lets the dispatch handlers append without a
+    long keyword-argument list. Each list is later concatenated onto the run's
+    cross-session collectors so the artifact contract is unchanged.
+    """
+
+    candidate_events: list[dict] = field(default_factory=list)
+    gate_dump: list[dict] = field(default_factory=list)
+    decisions: list[dict] = field(default_factory=list)
+    orders: list[dict] = field(default_factory=list)
+    fills: list[dict] = field(default_factory=list)
+    fill_records: list[dict] = field(default_factory=list)
+    quote_coverage: list[dict] = field(default_factory=list)
+    trades: list[dict] = field(default_factory=list)
+    fade_telemetry: list[FadeTelemetry] = field(default_factory=list)
+    missing_quote_count: int = 0
+    ambiguous_count: int = 0
+    event_log: list[dict] = field(default_factory=list)
+
+
+def _portfolio_snapshot(portfolio: Portfolio) -> dict[str, Any]:
+    """Snapshot the fields Phase 4 audits in :class:`PortfolioState`.
+
+    The event log captures this dict at the END of every event so a later test
+    can prove a state field updated *between* events. Returned keys match the
+    documented per-event mutations (audit §9.2).
+    """
+    s = portfolio.state
+    if s is None:
+        return {
+            "bankroll": float(portfolio.initial_bankroll),
+            "open_positions": len(portfolio.open_positions),
+            "entries_today": 0,
+            "stopouts_today": 0,
+            "consecutive_stopouts": 0,
+            "daily_realized_pnl": 0.0,
+            "daily_unrealized_pnl": 0.0,
+            "gross_exposure_dollars": 0.0,
+            "gross_exposure_pct": 0.0,
+            "kill_switch_state": None,
+            "entered_symbols_today_count": 0,
+        }
+    return {
+        "bankroll": float(s.bankroll),
+        "open_positions": len(portfolio.open_positions),
+        "entries_today": int(s.entries_today),
+        "stopouts_today": int(s.stopouts_today),
+        "consecutive_stopouts": int(s.consecutive_stopouts),
+        "daily_realized_pnl": float(s.daily_realized_pnl),
+        "daily_unrealized_pnl": float(s.daily_unrealized_pnl),
+        "gross_exposure_dollars": float(s.gross_exposure_dollars),
+        "gross_exposure_pct": float(s.gross_exposure_pct),
+        "kill_switch_state": s.kill_switch_state,
+        "entered_symbols_today_count": len(s.entered_symbols_today),
+    }
+
+
+def _log_event(
+    acc: _SessionAccumulators,
+    *,
+    event: Event,
+    portfolio: Portfolio,
+    extras: Optional[Mapping[str, Any]] = None,
+) -> None:
+    """Append one row to the per-session event log.
+
+    Captures ``(timestamp, event_type, position_id or parent_order_id,
+    portfolio state)`` per the Phase 4 contract. The per-session row count is
+    capped by ``_EVENTS_PER_SESSION_CAP`` to keep any single canonical parquet
+    bounded; sessions over the cap rotate the FULL log to a per-session
+    partition (handled at write time).
+    """
+    row: dict[str, Any] = {
+        "timestamp": event.timestamp.isoformat(),
+        "event_type": event.type.name,
+        "session_date": (
+            event.payload.get("session_date").isoformat()
+            if isinstance(event.payload.get("session_date"), _dt.date)
+            else str(event.payload.get("session_date", ""))
+        ),
+        "position_id": event.payload.get("position_id"),
+        "parent_order_id": event.payload.get("parent_order_id"),
+        "symbol": event.payload.get("symbol"),
+    }
+    row.update(_portfolio_snapshot(portfolio))
+    if extras:
+        for k, v in extras.items():
+            # Don't clobber the snapshot keys.
+            if k not in row:
+                row[k] = v
+    acc.event_log.append(row)
+
+
+def _check_lot_exits_until(
+    portfolio: Portfolio,
+    *,
+    until_ts: pd.Timestamp,
+    session_date: _dt.date,
+    cfg: Mapping[str, Any],
+    bars_by_lot: dict[str, Optional[pd.DataFrame]],
+    quote_supplier: Optional[Callable[..., Optional[dict]]],
+    signal_score_fn: Optional[Callable[[Any, pd.Timestamp], Optional[float]]],
+    same_minute_resolution: str,
+    cost_stress: str,
+    seed: int,
+    fade_telemetry_out: list,
+) -> list[tuple[Any, dict]]:
+    """Walk every open lot's minute path up to ``until_ts``; close on bracket hits.
+
+    Returns ``[(exit_event, trade_dict), ...]`` for every lot closed within the
+    window so the caller can record per-event log rows.
+
+    The lots are snapshotted before iteration because :meth:`Portfolio.close_
+    position_by_id` mutates ``open_positions``. ``bars_by_lot`` is keyed by
+    ``position_id`` so a lot that re-enters in a later session can hold its own
+    minute fixture distinct from an earlier lot of the same symbol.
+    """
+    exits_cfg = cfg.get("exits") or {}
+    closes: list[tuple[Any, dict]] = []
+    for pos in list(portfolio.open_positions.values()):
+        entry_session = pos.entry_session or pos.entry_date
+        if session_date < entry_session:
+            continue
+        bars = bars_by_lot.get(pos.position_id)
+        if bars is None or len(bars) == 0:
+            continue
+        ev = walk_lot_exit(
+            pos, bars,
+            exit_cfg=exits_cfg,
+            same_minute_resolution=str(same_minute_resolution),
+            cost_stress=cost_stress,
+            quote_supplier=quote_supplier,
+            signal_score_fn=signal_score_fn,
+            seed=seed,
+            fade_telemetry_out=fade_telemetry_out,
+            until_ts=until_ts,
+        )
+        if ev is None:
+            continue
+        trade = portfolio.close_position_by_id(
+            ev.position_id or pos.position_id,
+            exit_price=ev.exit_price,
+            exit_reason=ev.exit_reason,
+            exit_date=ev.exit_date,
+            exit_event=ev,
+        )
+        closes.append((ev, trade))
+    return closes
+
+
 def run_backtest(
     *,
     cfg: Mapping[str, Any],
@@ -448,6 +622,18 @@ def run_backtest(
     # manifest. Records the cadence the calendar-aware scheduler produced and
     # the accept / reject breakdown for each session.
     scan_counts: dict[str, dict[str, Any]] = {}
+    # Realism remediation 2 Phase 4: per-event log rows + per-session-cap
+    # rollover info. ``all_event_log_rows`` carries the cross-session log (one
+    # row per dispatched event with the portfolio snapshot at the end of the
+    # event). Sessions whose row count exceeds ``_EVENTS_PER_SESSION_CAP`` are
+    # written FULL to ``events/by_session/<session>.parquet``; the canonical
+    # ``events/events.parquet`` carries the per-session-capped rollup.
+    all_event_log_rows: list[dict] = []
+    event_log_by_session: dict[str, list[dict]] = {}
+    # Realism remediation 2 Phase 4: the four poll cadences are decoupled and
+    # resolved once per run (audit P1-009). All four default to the live
+    # contract: scan=60s, fill=5s, protection=5s, time_stop=60s.
+    cadence = CadenceConfig.from_cfg(cfg_dict)
 
     for session_date in sessions:
         portfolio.begin_session(session_date)
@@ -489,110 +675,364 @@ def run_backtest(
         if universe is None or daily_cache is None:
             continue
 
-        for scan_ts in session_scan_times:
-            scan_result, consumer_results = run_one_scan(
-                cfg=cfg_dict, universe_snapshot=universe, daily_cache=daily_cache,
-                volume_curve=volume_curve, state=state, scan_ts=scan_ts,
-                bars_supplier=minute_bars_supplier, consumer=consumer,
-                quote_supplier=quote_supplier,
-                forward_minute_supplier=forward_minute_supplier,
-            )
-            all_candidate_events.extend(scan_result.emitted)
-            all_gate_dump.extend(scan_result.gate_dump)
-            # Realism Phase 6: per-(symbol, scan_ts) quote-coverage rows built by
-            # run_one_scan — drives historical_quote_coverage_pct.
-            quote_coverage_rows.extend(scan_result.quote_coverage)
-            # Realism Phase 4: roll the per-session scan-count summary.
-            sess_count["actual_scans"] += 1
-            sess_count["candidate_count"] += len(scan_result.emitted)
-            for row in scan_result.gate_dump:
-                reason = row.get("rejection_reason")
-                if reason:
-                    breakdown = sess_count["gate_rejection_breakdown"]
-                    breakdown[reason] = breakdown.get(reason, 0) + 1
-            for cr in consumer_results:
-                all_decisions.extend(cr.decisions)
-                sess_count["accepted_count"] += sum(
-                    1 for d in cr.decisions if d.get("decision") == "accepted"
-                )
-                # Realism Phase 6: collect the consumer's per-candidate fill
-                # records + missing-quote rejects for the execution-quality
-                # report.
-                all_fill_records.extend(cr.fills)
-                missing_quote_count += cr.missing_quote_count
-                for po in cr.parent_orders:
-                    all_orders.append({
-                        "parent_order_id": po.parent_order_id,
-                        "symbol": po.symbol,
-                        "side": po.plan.side.value,
-                        "order_style": po.plan.order_style,
-                        "qty": po.plan.qty,
-                        "status": po.status.value,
-                        "filled_qty": po.filled_qty,
-                        "avg_fill_price": po.avg_fill_price,
-                        "created_at": po.created_at,
-                        "candidate_event_id": po.candidate_event_id,
-                    })
-                # Realism Phase 6: fills.parquet rows come from the *actual*
-                # fill records — one per candidate that reached the fill stage,
-                # whether the fill landed or failed (timeout / partial-below-min).
-                for fr in cr.fills:
-                    all_fills.append({
-                        "parent_order_id": fr["parent_order_id"],
-                        "symbol": fr["symbol"],
-                        "order_style": fr["order_style"],
-                        "filled": fr["filled"],
-                        "filled_qty": fr["filled_qty"],
-                        "requested_qty": fr["requested_qty"],
-                        "avg_fill_price": fr["avg_fill_price"] if fr["filled"] else None,
-                        "notional": fr["notional"] if fr["filled"] else None,
-                        "slippage_bps": fr["slippage_bps"],
-                        "is_partial": fr["is_partial"],
-                        "reason": fr["reason"],
-                        "commission": fr["commission"],
-                        "regulatory_fees": fr["regulatory_fees"],
-                        "quote_source": fr["quote_source"],
-                    })
-
-        # Exit evaluation. Realism Phase 7: exits are driven PER LOT (not per
-        # symbol), closing by position_id. The minute path
-        # (drive_session_exits_minute) is used for current_code_parity /
-        # intended_realism; the daily-bar path (drive_session_exits_daily) is
-        # used ONLY for smoke_fixture so the smoke suite stays fast.
+        # Realism remediation 2 Phase 4: ROUTING by simulation mode.
+        # ``smoke_fixture`` retains the pre-Phase-4 batch-scan-then-exits flow
+        # so the smoke suite stays fast and deterministic. The realism
+        # contracts (``current_code_parity`` / ``intended_realism``) drive an
+        # event-driven dispatch loop where every event mutates ``Portfolio.state``
+        # before the next event sees it (audit P0-002).
         closes_today: dict[str, float] = {}
         if sim_cfg.mode == "smoke_fixture":
+            # ---- Smoke path (unchanged) -----------------------------------
+            # Phase 4 leaves this path on the daily-bar exit driver so the
+            # broad smoke / unit suites do not pay the per-minute walk. The
+            # ``drive_session_exits_daily`` helper is locked to smoke mode in
+            # the audit-acceptance test ``test_event_driven_*``.
+            for scan_ts in session_scan_times:
+                scan_result, consumer_results = run_one_scan(
+                    cfg=cfg_dict, universe_snapshot=universe, daily_cache=daily_cache,
+                    volume_curve=volume_curve, state=state, scan_ts=scan_ts,
+                    bars_supplier=minute_bars_supplier, consumer=consumer,
+                    quote_supplier=quote_supplier,
+                    forward_minute_supplier=forward_minute_supplier,
+                )
+                all_candidate_events.extend(scan_result.emitted)
+                all_gate_dump.extend(scan_result.gate_dump)
+                quote_coverage_rows.extend(scan_result.quote_coverage)
+                sess_count["actual_scans"] += 1
+                sess_count["candidate_count"] += len(scan_result.emitted)
+                for row in scan_result.gate_dump:
+                    reason = row.get("rejection_reason")
+                    if reason:
+                        breakdown = sess_count["gate_rejection_breakdown"]
+                        breakdown[reason] = breakdown.get(reason, 0) + 1
+                for cr in consumer_results:
+                    all_decisions.extend(cr.decisions)
+                    sess_count["accepted_count"] += sum(
+                        1 for d in cr.decisions if d.get("decision") == "accepted"
+                    )
+                    all_fill_records.extend(cr.fills)
+                    missing_quote_count += cr.missing_quote_count
+                    for po in cr.parent_orders:
+                        all_orders.append({
+                            "parent_order_id": po.parent_order_id,
+                            "symbol": po.symbol,
+                            "side": po.plan.side.value,
+                            "order_style": po.plan.order_style,
+                            "qty": po.plan.qty,
+                            "status": po.status.value,
+                            "filled_qty": po.filled_qty,
+                            "avg_fill_price": po.avg_fill_price,
+                            "created_at": po.created_at,
+                            "candidate_event_id": po.candidate_event_id,
+                        })
+                    for fr in cr.fills:
+                        all_fills.append({
+                            "parent_order_id": fr["parent_order_id"],
+                            "symbol": fr["symbol"],
+                            "order_style": fr["order_style"],
+                            "filled": fr["filled"],
+                            "filled_qty": fr["filled_qty"],
+                            "requested_qty": fr["requested_qty"],
+                            "avg_fill_price": fr["avg_fill_price"] if fr["filled"] else None,
+                            "notional": fr["notional"] if fr["filled"] else None,
+                            "slippage_bps": fr["slippage_bps"],
+                            "is_partial": fr["is_partial"],
+                            "reason": fr["reason"],
+                            "commission": fr["commission"],
+                            "regulatory_fees": fr["regulatory_fees"],
+                            "quote_source": fr["quote_source"],
+                        })
             exit_out = drive_session_exits_daily(
                 portfolio, session_date, cfg=cfg_dict,
                 daily_bars_supplier=daily_bars_supplier,
             )
             closes_today = exit_out.get("closes", {})
+            ambiguous_bar_count += int(exit_out.get("ambiguous", 0))
+            all_trades.extend(exit_out.get("trades", []))
+            portfolio.update_mtm(closes_today)
         else:
-            session_fade_score_fn = _build_fade_score_fn(
+            # ---- Event-driven path (Phase 4) ------------------------------
+            # Replaces the pre-Phase-4 "for scan_ts in session_scan_times:
+            # ... then exits after the loop" with a min-heap dispatch loop
+            # that interleaves SCAN, MINUTE_BAR (exit-walk), PROTECTION_CHECK,
+            # TIME_STOP_CHECK and EOD_MARK in chronological order. A SCAN at
+            # 10:05 sees the realized PnL from a 09:55 stopout, so the kill
+            # switch / consecutive-stopout / gross-exposure gates evaluate on
+            # the same state the live strategy would have observed.
+            sess_acc = _SessionAccumulators()
+            sess_fade_score_fn = _build_fade_score_fn(
                 cfg=cfg_dict, daily_cache=daily_cache, volume_curve=volume_curve,
                 minute_bars_supplier=minute_bars_supplier,
                 session_minute_supplier=session_minute_supplier,
             )
-            exit_out = drive_session_exits_minute(
-                portfolio, session_date, cfg=cfg_dict,
-                session_minute_supplier=session_minute_supplier,
-                minute_bars_supplier=minute_bars_supplier,
-                quote_supplier=quote_supplier,
-                signal_score_fn=session_fade_score_fn,
-                cost_stress=(cfg_dict.get("backtest") or {}).get("cost_stress", "base"),
-                seed=int((cfg_dict.get("run") or {}).get("seed", 0)),
+            same_minute = (
+                ((cfg_dict.get("simulation") or {}).get("same_minute_resolution"))
+                or "conservative"
             )
-            all_fade_telemetry.extend(exit_out.get("fade_telemetry", []))
-            # End-of-session mark-to-market for the still-open lots uses the
-            # symbol's last daily-bar close.
-            for sym in sorted({p.symbol for p in portfolio.open_positions.values()}):
-                day_bars = daily_bars_supplier(sym, session_date)
-                if day_bars is None or len(day_bars) == 0:
-                    continue
-                row = day_bars.iloc[-1].to_dict()
-                closes_today[sym] = float(row.get("close", row.get("Close", 0.0)) or 0.0)
-        ambiguous_bar_count += int(exit_out.get("ambiguous", 0))
-        all_trades.extend(exit_out.get("trades", []))
-        portfolio.update_mtm(closes_today)
+            cost_stress = (cfg_dict.get("backtest") or {}).get("cost_stress", "base")
+            run_seed = int((cfg_dict.get("run") or {}).get("seed", 0))
+
+            # Preload SCAN / PROTECTION_CHECK / FILL_POLL / TIME_STOP_CHECK /
+            # EOD_MARK events into a fresh queue.
+            queue = EventQueue()
+            queue.push_many(preload_session_events(
+                session_date=session_date,
+                scan_times=session_scan_times,
+                cadence=cadence,
+            ))
+
+            # Cache the per-lot minute path; built lazily by position_id so a
+            # second lot of the same symbol can hold its own fixture. The
+            # accompanying ``next_idx_by_lot`` tracks how many bars of the lot's
+            # path have already been walked, so each event walks ONLY the new
+            # bars in ``(last_event_ts, event_ts]``. Without this the dispatch
+            # loop would re-scan every bar of every lot on every event tick.
+            bars_by_lot: dict[str, Optional[pd.DataFrame]] = {}
+            next_idx_by_lot: dict[str, int] = {}
+
+            def _bars_for_lot(pos: Position) -> Optional[pd.DataFrame]:
+                """Resolve the regular-session minute bars for ``pos``.
+
+                Honours :func:`drive_session_exits_minute`'s policy: prefer the
+                full-session supplier, fall back to the forming-session
+                supplier queried at the 16:00 close. Bars are pre-sorted by
+                timestamp so the running cursor walks the path monotonically.
+                """
+                if pos.position_id in bars_by_lot:
+                    return bars_by_lot[pos.position_id]
+                bars: Optional[pd.DataFrame] = None
+                if session_minute_supplier is not None:
+                    try:
+                        bars = session_minute_supplier(pos.symbol, session_date)
+                    except Exception:  # noqa: BLE001
+                        bars = None
+                if (bars is None or len(bars) == 0) and minute_bars_supplier is not None:
+                    close_ts = pd.Timestamp(
+                        _dt.datetime.combine(session_date, _dt.time(16, 0)),
+                        tz="America/New_York",
+                    ).tz_convert("UTC")
+                    try:
+                        bars = minute_bars_supplier(pos.symbol, close_ts)
+                    except Exception:  # noqa: BLE001
+                        bars = None
+                if bars is not None and len(bars) > 0:
+                    ts_col = next(
+                        (c for c in ("timestamp", "ts") if c in bars.columns), None
+                    )
+                    if ts_col is not None:
+                        bars = bars.sort_values(ts_col).reset_index(drop=True)
+                bars_by_lot[pos.position_id] = bars
+                return bars
+
+            def _close_lots_until(walk_until: pd.Timestamp, *, log_event: Optional[Event] = None) -> None:
+                """Walk every open lot's NEW minute bars up to ``walk_until``.
+
+                Each close mutates ``Portfolio.state`` immediately (per audit
+                §9.2), so a later event in the same session sees the updated
+                ``daily_realized_pnl`` / ``stopouts_today`` / etc. The cursor
+                in :data:`next_idx_by_lot` makes the per-event walk linear in
+                the new-bar count (not the whole session's bar count) so the
+                event loop stays performant even at a 5-second poll cadence.
+                When the caller passes ``log_event`` the resulting CHILD_FILL
+                rows are tagged with that source event's timestamp + type.
+                """
+                # Snapshot lots ONCE so close-mutations don't break iteration.
+                exits_cfg = cfg_dict.get("exits") or {}
+                for pos in list(portfolio.open_positions.values()):
+                    bars = _bars_for_lot(pos)
+                    if bars is None or len(bars) == 0:
+                        continue
+                    entry_session = pos.entry_session or pos.entry_date
+                    if session_date < entry_session:
+                        continue
+                    # Window the bars to ``(cursor, walk_until]``. The cursor
+                    # advances after this event so each bar is examined once.
+                    cursor = next_idx_by_lot.get(pos.position_id, 0)
+                    if cursor >= len(bars):
+                        continue
+                    sub = bars.iloc[cursor:]
+                    ts_col = next(
+                        (c for c in ("timestamp", "ts") if c in sub.columns), None
+                    )
+                    if ts_col is None:
+                        new_idx = cursor + len(sub)
+                    else:
+                        sub_ts = pd.to_datetime(sub[ts_col], utc=True)
+                        mask = sub_ts <= pd.Timestamp(walk_until)
+                        new_count = int(mask.sum())
+                        sub = sub.iloc[:new_count]
+                        new_idx = cursor + new_count
+                    if len(sub) == 0:
+                        continue
+                    ev = walk_lot_exit(
+                        pos, sub,
+                        exit_cfg=exits_cfg,
+                        same_minute_resolution=str(same_minute),
+                        cost_stress=cost_stress,
+                        quote_supplier=quote_supplier,
+                        signal_score_fn=sess_fade_score_fn,
+                        seed=run_seed,
+                        fade_telemetry_out=sess_acc.fade_telemetry,
+                        until_ts=walk_until,
+                    )
+                    if ev is None:
+                        # No exit in this window — advance the cursor so the
+                        # next event picks up where we left off.
+                        next_idx_by_lot[pos.position_id] = new_idx
+                        continue
+                    # Exit fired — remove the cursor (lot is closed).
+                    next_idx_by_lot.pop(pos.position_id, None)
+                    if ev.ambiguous_bar_resolved:
+                        sess_acc.ambiguous_count += 1
+                    trade = portfolio.close_position_by_id(
+                        ev.position_id or pos.position_id,
+                        exit_price=ev.exit_price,
+                        exit_reason=ev.exit_reason,
+                        exit_date=ev.exit_date,
+                        exit_event=ev,
+                    )
+                    sess_acc.trades.append(trade)
+                    # Emit a CHILD_FILL log row at the actual exit minute.
+                    exit_ts_utc = pd.Timestamp(ev.exit_timestamp) if ev.exit_timestamp else walk_until
+                    if exit_ts_utc.tzinfo is None:
+                        exit_ts_utc = exit_ts_utc.tz_localize("UTC")
+                    child_fill = Event(
+                        timestamp=exit_ts_utc,
+                        type=EventType.CHILD_FILL,
+                        payload={
+                            "session_date": session_date,
+                            "position_id": ev.position_id or pos.position_id,
+                            "symbol": pos.symbol,
+                            "exit_reason": ev.exit_reason,
+                        },
+                    )
+                    _log_event(
+                        sess_acc, event=child_fill, portfolio=portfolio,
+                        extras={
+                            "exit_price": float(ev.exit_price),
+                            "trade_pnl": float(trade.get("pnl", 0.0)),
+                        },
+                    )
+
+            def _handle_scan(event: Event) -> None:
+                """Run one SCAN tick — gated by the live risk state.
+
+                The pre-Phase-4 backtester called ``run_one_scan`` blindly on
+                every scan ts. The realism path keeps that wiring (the scanner
+                + StrategyConsumer collectively implement the entry gates) so
+                signal emission stays bit-identical. Phase 4's contribution is
+                that ``portfolio.state`` is now up-to-date BEFORE this call —
+                a same-day stopout earlier in the loop has already updated
+                ``daily_realized_pnl`` / ``stopouts_today``, so the
+                ``daily_loss_pct`` / ``max_stopouts_per_day`` / consecutive-
+                stopout kill switches gate this scan correctly.
+                """
+                scan_ts = event.timestamp
+                scan_result, consumer_results = run_one_scan(
+                    cfg=cfg_dict, universe_snapshot=universe, daily_cache=daily_cache,
+                    volume_curve=volume_curve, state=state, scan_ts=scan_ts,
+                    bars_supplier=minute_bars_supplier, consumer=consumer,
+                    quote_supplier=quote_supplier,
+                    forward_minute_supplier=forward_minute_supplier,
+                )
+                sess_acc.candidate_events.extend(scan_result.emitted)
+                sess_acc.gate_dump.extend(scan_result.gate_dump)
+                sess_acc.quote_coverage.extend(scan_result.quote_coverage)
+                sess_count["actual_scans"] += 1
+                sess_count["candidate_count"] += len(scan_result.emitted)
+                for row in scan_result.gate_dump:
+                    reason = row.get("rejection_reason")
+                    if reason:
+                        breakdown = sess_count["gate_rejection_breakdown"]
+                        breakdown[reason] = breakdown.get(reason, 0) + 1
+                for cr in consumer_results:
+                    sess_acc.decisions.extend(cr.decisions)
+                    sess_count["accepted_count"] += sum(
+                        1 for d in cr.decisions if d.get("decision") == "accepted"
+                    )
+                    sess_acc.fill_records.extend(cr.fills)
+                    sess_acc.missing_quote_count += cr.missing_quote_count
+                    for po in cr.parent_orders:
+                        sess_acc.orders.append({
+                            "parent_order_id": po.parent_order_id,
+                            "symbol": po.symbol,
+                            "side": po.plan.side.value,
+                            "order_style": po.plan.order_style,
+                            "qty": po.plan.qty,
+                            "status": po.status.value,
+                            "filled_qty": po.filled_qty,
+                            "avg_fill_price": po.avg_fill_price,
+                            "created_at": po.created_at,
+                            "candidate_event_id": po.candidate_event_id,
+                        })
+                    for fr in cr.fills:
+                        sess_acc.fills.append({
+                            "parent_order_id": fr["parent_order_id"],
+                            "symbol": fr["symbol"],
+                            "order_style": fr["order_style"],
+                            "filled": fr["filled"],
+                            "filled_qty": fr["filled_qty"],
+                            "requested_qty": fr["requested_qty"],
+                            "avg_fill_price": fr["avg_fill_price"] if fr["filled"] else None,
+                            "notional": fr["notional"] if fr["filled"] else None,
+                            "slippage_bps": fr["slippage_bps"],
+                            "is_partial": fr["is_partial"],
+                            "reason": fr["reason"],
+                            "commission": fr["commission"],
+                            "regulatory_fees": fr["regulatory_fees"],
+                            "quote_source": fr["quote_source"],
+                        })
+
+            # Dispatch. Walk lots up to each event's timestamp BEFORE handling
+            # the event so an intraday stop is realized in Portfolio.state
+            # before the next SCAN runs (audit P0-002 fix).
+            while not queue.empty():
+                event = queue.pop()
+                # Phase 6 reserved: PROTECTION_CHECK / OCO_ATTACH_ATTEMPT
+                # become first-class lifecycle steps. Phase 4 treats them as
+                # poll-tick markers and uses them to evaluate exits up to now.
+                # Phase 7 reserved: SIGNAL_FADE_CHECK splits out of the lot
+                # walk into its own event so a fade event is independently
+                # logged and dispatched. Phase 4 keeps fade integrated.
+                _close_lots_until(event.timestamp, log_event=event)
+                if event.type == EventType.SCAN:
+                    _handle_scan(event)
+                elif event.type == EventType.EOD_MARK:
+                    # End-of-session mark-to-market for still-open lots uses
+                    # the symbol's last daily-bar close.
+                    for sym in sorted({p.symbol for p in portfolio.open_positions.values()}):
+                        day_bars = daily_bars_supplier(sym, session_date)
+                        if day_bars is None or len(day_bars) == 0:
+                            continue
+                        row = day_bars.iloc[-1].to_dict()
+                        closes_today[sym] = float(row.get("close", row.get("Close", 0.0)) or 0.0)
+                    portfolio.update_mtm(closes_today)
+                # PROTECTION_CHECK / TIME_STOP_CHECK / QUOTE (fill_poll):
+                # exits already evaluated above; the event itself is just a
+                # log marker in Phase 4. Phase 6 / Phase 7 fill in lifecycle.
+                _log_event(sess_acc, event=event, portfolio=portfolio)
+
+            # Roll the session accumulators into the cross-session lists.
+            all_candidate_events.extend(sess_acc.candidate_events)
+            all_gate_dump.extend(sess_acc.gate_dump)
+            all_decisions.extend(sess_acc.decisions)
+            all_orders.extend(sess_acc.orders)
+            all_fills.extend(sess_acc.fills)
+            all_fill_records.extend(sess_acc.fill_records)
+            quote_coverage_rows.extend(sess_acc.quote_coverage)
+            all_trades.extend(sess_acc.trades)
+            all_fade_telemetry.extend(sess_acc.fade_telemetry)
+            missing_quote_count += sess_acc.missing_quote_count
+            ambiguous_bar_count += sess_acc.ambiguous_count
+            event_log_by_session[session_key] = list(sess_acc.event_log)
+            # The canonical roll-up parquet honors the per-session cap so the
+            # default file is bounded; the per-session partition (written
+            # below) keeps the FULL log when the session overflowed.
+            if len(sess_acc.event_log) > _EVENTS_PER_SESSION_CAP:
+                all_event_log_rows.extend(sess_acc.event_log[:_EVENTS_PER_SESSION_CAP])
+            else:
+                all_event_log_rows.extend(sess_acc.event_log)
         for pos in portfolio.open_positions.values():
             all_positions.append({
                 "session_date": session_date.isoformat(),
@@ -791,6 +1231,28 @@ def run_backtest(
         "metric": "historical_quote_coverage_pct", "value": round(quote_cov_pct, 4),
     })
     write_parquet(run_dir / "execution_quality.parquet", pd.DataFrame(eq_rows))
+
+    # Realism remediation 2 Phase 4: per-event dispatch log artifact. The
+    # canonical roll-up is written for every run (it is in the required
+    # artifact contract); the smoke path drives the legacy daily-bar exit
+    # driver and produces no events, so its canonical file is an empty parquet
+    # with the column schema preserved. Sessions whose row count exceeded
+    # ``_EVENTS_PER_SESSION_CAP`` are additionally written FULL to
+    # ``events/by_session/<session>.parquet`` so no canonical file is huge.
+    events_dir = run_dir / "events"
+    events_dir.mkdir(parents=True, exist_ok=True)
+    if all_event_log_rows:
+        write_parquet(events_dir / "events.parquet", pd.DataFrame(all_event_log_rows))
+    else:
+        write_parquet(events_dir / "events.parquet", pd.DataFrame({
+            "timestamp": [], "event_type": [], "session_date": [],
+            "position_id": [], "parent_order_id": [], "symbol": [],
+        }))
+    for sk, rows in event_log_by_session.items():
+        if len(rows) > _EVENTS_PER_SESSION_CAP:
+            partition_dir = events_dir / "by_session"
+            partition_dir.mkdir(parents=True, exist_ok=True)
+            write_parquet(partition_dir / f"{sk}.parquet", pd.DataFrame(rows))
 
     # Realism Phase 7: exit-lifecycle analysis artifact — exit-reason
     # distribution, exit-slippage distribution and per-trade MFE/MAE. Written as
