@@ -98,6 +98,20 @@ def evaluate_risk_gates(
     if state.kill_switch_state is not None:
         return RiskGateResult(False, "kill_switch", target_notional, 0.0)
 
+    # Realism remediation 2 Phase 6 (audit P0-007) — refuse the candidate when
+    # the protection state machine has set ``state.entries_blocked = True`` on
+    # an open lot in :attr:`ProtectionState.UNPROTECTED_VIOLATION` /
+    # ENTRIES_BLOCKED. The block clears the moment the violating lot reaches
+    # PROTECTED again or closes flat (see Portfolio._refresh_entries_blocked).
+    if getattr(state, "entries_blocked", False):
+        try:
+            portfolio.protection_metrics.entries_blocked_by_protection_count += 1
+        except Exception:  # noqa: BLE001 — guarded for legacy Portfolio shims
+            pass
+        return RiskGateResult(
+            False, "entries_blocked_by_protection", target_notional, 0.0
+        )
+
     # max_concurrent_positions — Phase 5: read from `sizing`, not `risk`, per
     # live `bowaka_v2_strategy.py:444-446`. `risk.max_concurrent_positions` is
     # honored only as a legacy fallback when sizing omits it.

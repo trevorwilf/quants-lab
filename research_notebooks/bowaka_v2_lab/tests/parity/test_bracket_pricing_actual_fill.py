@@ -78,7 +78,17 @@ def test_brackets_computed_off_fill_price_not_signal_price():
 
     # Brackets are computed off the ACTUAL FILL price.
     assert pos.bracket_pricing_mode == "actual_fill"
-    assert pos.bracket_attached is True
+    # Realism remediation 2 Phase 6 (audit P0-007) — under
+    # ``current_code_parity`` the consumer no longer immediately stamps the
+    # lot as protected; the protection lifecycle is event-driven and the lot
+    # leaves the synchronous ``consume()`` call in
+    # :attr:`ProtectionState.PARENT_FILLED`. The event loop then schedules the
+    # OCO_ATTACH_ATTEMPT. ``bracket_attached`` (a derived view of state ==
+    # PROTECTED) is therefore False at this point — what matters for parity is
+    # that the bracket *prices* are computed off the actual fill.
+    from bowaka_v2_lab.sim.portfolio import ProtectionState
+    assert pos.protection_state == ProtectionState.PARENT_FILLED
+    assert pos.bracket_attached is False
     assert pos.stop_price == round(fill_price * (1.0 - 0.08), 4)
     assert pos.target_price == round(fill_price * (1.0 + 0.15), 4)
 

@@ -157,6 +157,11 @@ CANONICAL_REJECTION_REASONS: frozenset[str] = frozenset({
     "partial_below_min",        # partial fill below min_order_notional
     "marketable_limit_timeout", # marketable-limit order timed out unfilled
     "fill_failed",              # fill simulation produced no executable fill
+    # Realism remediation 2 Phase 6 (audit P0-007) — risk-gate refusal when
+    # the protection state machine has marked the portfolio
+    # ``entries_blocked`` because an open lot is in
+    # :attr:`ProtectionState.UNPROTECTED_VIOLATION`.
+    "entries_blocked_by_protection",
 })
 
 

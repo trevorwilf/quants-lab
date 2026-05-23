@@ -52,7 +52,8 @@ from .event_loop import (
 from .exit_driver import drive_session_exits_daily, drive_session_exits_minute
 from .exits import FadeTelemetry, walk_lot_exit
 from .metrics import build_summary
-from .portfolio import Portfolio, Position
+from .portfolio import Portfolio, Position, ProtectionState
+from .protection import ProtectionConfig, ProtectionStateMachine
 from .schedule import scan_times_for_session
 
 
@@ -371,8 +372,16 @@ def _log_event(
     bounded; sessions over the cap rotate the FULL log to a per-session
     partition (handled at write time).
     """
+    # Realism remediation 2 Phase 6 — event timestamps are floored to the
+    # second when written to the event log so consumers (and the Phase-4
+    # ``test_event_log_chronological_and_complete`` test) can parse them with
+    # a single :func:`pd.to_datetime` call. The state machine occasionally
+    # produces sub-second offsets (``oco_attach_latency_seconds=0.5``); the
+    # in-memory queue keeps the full precision so dispatch ordering remains
+    # exact, but the persisted log uses second resolution.
+    ts_floored = pd.Timestamp(event.timestamp).floor("s")
     row: dict[str, Any] = {
-        "timestamp": event.timestamp.isoformat(),
+        "timestamp": ts_floored.isoformat(),
         "event_type": event.type.name,
         "session_date": (
             event.payload.get("session_date").isoformat()
@@ -639,6 +648,17 @@ def run_backtest(
     # resolved once per run (audit P1-009). All four default to the live
     # contract: scan=60s, fill=5s, protection=5s, time_stop=60s.
     cadence = CadenceConfig.from_cfg(cfg_dict)
+
+    # Realism remediation 2 Phase 6 (audit P0-007) — protected-position
+    # lifecycle. The state machine wires PARENT_FILL → OCO_ATTACH_ATTEMPT →
+    # PROTECTED (or → UNPROTECTED_VIOLATION → fallback/flatten/entries_blocked
+    # under stress). Disabled for ``smoke_fixture`` runs (they go through the
+    # daily-bar exit driver, no event loop).
+    protection_cfg_obj = ProtectionConfig.from_cfg(cfg_dict)
+    protection_sm = ProtectionStateMachine(
+        cfg=protection_cfg_obj,
+        run_seed=int((cfg_dict.get("run") or {}).get("seed", 0)),
+    )
 
     for session_date in sessions:
         portfolio.begin_session(session_date)
@@ -960,6 +980,31 @@ def run_backtest(
                     )
                     sess_acc.fill_records.extend(cr.fills)
                     sess_acc.missing_quote_count += cr.missing_quote_count
+                    # Realism remediation 2 Phase 6 — drive the protection
+                    # state machine for every newly-created lot. The consumer
+                    # left each lot in PARENT_FILLED (realism / parity) or
+                    # PROTECTED (smoke); for realism / parity we push a
+                    # PARENT_FILL event into the queue so the dispatch loop
+                    # honors the chronological ordering of the attach attempt
+                    # vs subsequent SCAN / PROTECTION_CHECK events.
+                    for pos in cr.new_positions:
+                        if pos.protection_state == ProtectionState.PARENT_FILLED:
+                            fill_ts = pd.Timestamp(
+                                pos.parent_fill_ts or pos.entry_timestamp
+                                or scan_ts
+                            )
+                            if fill_ts.tzinfo is None:
+                                fill_ts = fill_ts.tz_localize("UTC")
+                            queue.push(Event(
+                                timestamp=fill_ts,
+                                type=EventType.PARENT_FILL,
+                                payload={
+                                    "session_date": session_date,
+                                    "position_id": pos.position_id,
+                                    "symbol": pos.symbol,
+                                    "parent_order_id": pos.parent_order_id,
+                                },
+                            ))
                     for po in cr.parent_orders:
                         sess_acc.orders.append({
                             "parent_order_id": po.parent_order_id,
@@ -1027,8 +1072,84 @@ def run_backtest(
                 # walk into its own event so a fade event is independently
                 # logged and dispatched. Phase 4 keeps fade integrated.
                 _close_lots_until(event.timestamp, log_event=event)
+                # Realism remediation 2 Phase 6 — protection-state-machine
+                # event handlers. Tracks per-event ``log_extras`` so the
+                # event-log row can carry the success / failure markers.
+                log_extras: dict[str, Any] = {}
                 if event.type == EventType.SCAN:
                     _handle_scan(event)
+                elif event.type == EventType.PARENT_FILL:
+                    # Phase 6 task 2 — schedule the first OCO_ATTACH_ATTEMPT.
+                    pid = event.payload.get("position_id")
+                    pos = portfolio.open_positions.get(pid)
+                    if pos is not None and pos.protection_state in (
+                        ProtectionState.PARENT_FILLED,
+                        ProtectionState.PARENT_ACKNOWLEDGED,
+                    ):
+                        step = protection_sm.on_parent_fill(
+                            pos, event.timestamp,
+                            portfolio=portfolio, queue=queue,
+                            session_date=session_date,
+                        )
+                        log_extras.update(step.log_extras)
+                elif event.type == EventType.OCO_ATTACH_ATTEMPT:
+                    pid = event.payload.get("position_id")
+                    attempt_index = int(event.payload.get("attempt_index", 0))
+                    pos = portfolio.open_positions.get(pid)
+                    if pos is not None:
+                        step = protection_sm.on_oco_attach_attempt(
+                            pos, event.timestamp,
+                            portfolio=portfolio, queue=queue,
+                            session_date=session_date,
+                            attempt_index=attempt_index,
+                        )
+                        log_extras.update(step.log_extras)
+                elif event.type == EventType.PROTECTION_CHECK:
+                    step = protection_sm.on_protection_check(
+                        event.timestamp,
+                        portfolio=portfolio, queue=queue,
+                        session_date=session_date,
+                    )
+                    log_extras.update(step.log_extras)
+                    # Phase 6 task 2 — flatten violators that the state
+                    # machine moved to FLATTEN_SUBMITTED. We close them at the
+                    # last known mark (the lot's current_price, which is the
+                    # entry price if no MTM yet) using ``manual_flatten`` as
+                    # the exit reason; the trade row drops into the standard
+                    # trades.parquet.
+                    flatten_lots = [
+                        p for p in list(portfolio.open_positions.values())
+                        if p.protection_state == ProtectionState.FLATTEN_SUBMITTED
+                    ]
+                    for p in flatten_lots:
+                        exit_price = float(p.current_price or p.entry_price)
+                        trade = portfolio.close_position_by_id(
+                            p.position_id,
+                            exit_price=exit_price,
+                            exit_reason="manual_flatten",
+                            exit_date=session_date,
+                        )
+                        sess_acc.trades.append(trade)
+                        # Emit a CHILD_FILL log row for the manual flatten so
+                        # the dispatch log records the closure timestamp.
+                        flatten_event = Event(
+                            timestamp=event.timestamp,
+                            type=EventType.CHILD_FILL,
+                            payload={
+                                "session_date": session_date,
+                                "position_id": p.position_id,
+                                "symbol": p.symbol,
+                                "exit_reason": "manual_flatten",
+                            },
+                        )
+                        _log_event(
+                            sess_acc, event=flatten_event, portfolio=portfolio,
+                            extras={
+                                "exit_price": float(exit_price),
+                                "trade_pnl": float(trade.get("pnl", 0.0)),
+                                "manual_flatten": True,
+                            },
+                        )
                 elif event.type == EventType.PARENT_FILL_TIMEOUT:
                     # Realism remediation 2 Phase 5 (audit P0-006): a no-fill
                     # marker emitted by ``simulate_marketable_limit_fill`` when
@@ -1050,7 +1171,10 @@ def run_backtest(
                 # PROTECTION_CHECK / TIME_STOP_CHECK / QUOTE (fill_poll):
                 # exits already evaluated above; the event itself is just a
                 # log marker in Phase 4. Phase 6 / Phase 7 fill in lifecycle.
-                _log_event(sess_acc, event=event, portfolio=portfolio)
+                _log_event(
+                    sess_acc, event=event, portfolio=portfolio,
+                    extras=log_extras or None,
+                )
 
             # Roll the session accumulators into the cross-session lists.
             all_candidate_events.extend(sess_acc.candidate_events)
@@ -1152,6 +1276,29 @@ def run_backtest(
             + float(f.get("regulatory_fees", 0.0) or 0.0) for f in _filled_fills),
         6,
     )
+
+    # Realism remediation 2 Phase 6 (audit P0-007) — protection lifecycle
+    # metrics. Surfaced under ``summary['protection']`` so the run-report and
+    # the Phase-8 optuna objective penalty can read them without traversing
+    # the per-event log. Always present so a clean-run zero-value row is
+    # explicit in the report rather than an absent key.
+    pm = portfolio.protection_metrics
+    summary["protection"] = {
+        "max_unprotected_seconds_observed": round(
+            float(pm.max_unprotected_seconds_observed), 4
+        ),
+        "oco_attach_attempts_count": int(pm.oco_attach_attempts_count),
+        "oco_attach_failure_count": int(pm.oco_attach_failure_count),
+        "fallback_stop_count": int(pm.fallback_stop_count),
+        "flatten_unprotected_count": int(pm.flatten_unprotected_count),
+        "entries_blocked_by_protection_count": int(
+            pm.entries_blocked_by_protection_count
+        ),
+        "total_unprotected_seconds_across_lots": round(
+            float(pm.total_unprotected_seconds_across_lots), 4
+        ),
+        "unprotected_violation_count": int(pm.unprotected_violation_count),
+    }
 
     # Code & dataset manifests.
     code_paths = code_paths_for_manifest or [paths.lab_root / "src"]
