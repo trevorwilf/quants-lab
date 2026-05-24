@@ -178,6 +178,33 @@ def _cmd_config_parity(args: argparse.Namespace) -> int:
     return 0 if not undeclared else 1
 
 
+def _cmd_verify_lake(args: argparse.Namespace) -> int:
+    """Verify the shared market-data lake's completeness against the realism contract.
+
+    Audit 2026-05-23 §P0-004 / §P0-005 (Phase 1). Reports a structured JSON
+    summary of every check and exits non-zero under ``--intended-realism``
+    when any required check fails.
+    """
+    from .data.verify_lake import verify_lake
+
+    if args.lake:
+        lake_root = Path(args.lake)
+    elif os.environ.get("MARKET_DATA_ROOT"):
+        lake_root = Path(os.environ["MARKET_DATA_ROOT"])
+    else:
+        repo_root = Path(__file__).resolve().parents[4]
+        lake_root = repo_root / "research_notebooks" / "market_data"
+
+    result = verify_lake(
+        lake_root, feed=args.feed,
+        intended_realism=bool(getattr(args, "intended_realism", False)),
+    )
+    print(json.dumps(result.as_dict(), indent=2, sort_keys=True, default=str))
+    if result.intended_realism and not result.passed:
+        return 1
+    return 0
+
+
 def _cmd_dq_report(args: argparse.Namespace) -> int:
     """Run the full multi-level data-quality stack for a config.
 
@@ -375,6 +402,25 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--artifacts-root", default=None,
                      help="override artifacts/ root; defaults to research_notebooks/bowaka_v2_lab/artifacts")
     pg.set_defaults(func=_cmd_promotion_gate)
+
+    # Audit 2026-05-23 §P0-004 / §P0-005 (Phase 1) — verify lake completeness.
+    vl = sub.add_parser(
+        "verify-lake",
+        help="check the shared market-data lake for required partitions; "
+             "exit non-zero under --intended-realism when a required check fails",
+    )
+    vl.add_argument(
+        "--lake",
+        default=None,
+        help="lake root; defaults to $MARKET_DATA_ROOT or the in-repo lake",
+    )
+    vl.add_argument("--feed", default="iex", choices=["iex", "sip"],
+                    help="feed under which the bars / quotes are partitioned")
+    vl.add_argument("--intended-realism", action="store_true",
+                    help="fail closed when any required check fails (the realism "
+                         "contract requires bars + quotes + statuses + corporate "
+                         "actions + asset snapshots + non-raw adjustment)")
+    vl.set_defaults(func=_cmd_verify_lake)
 
     rec = sub.add_parser(
         "reconcile",
