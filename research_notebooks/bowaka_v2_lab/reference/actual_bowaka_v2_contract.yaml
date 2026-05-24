@@ -13,7 +13,7 @@
 # source_sha256 is the SHA-256 of the live config file bytes; the
 # tests/parity/ suite flags drift between this snapshot and live.
 # ------------------------------------------------------------------
-contract_schema_version: 2
+contract_schema_version: 3
 data:
   allow_non_sip_for_research_only: true
   daily_timeframe: 1D
@@ -171,6 +171,35 @@ sizing:
   sizing_mode: equal_slice
   target_risk_dollars: 200
 source_filename: bowaka_v2_config.yaml
+source_manifest:
+  bowaka_intraday_scanner.py:
+    bytes: 32103
+    sha256: 7b0c53a801f18b9094cbe759816f303f05f993558495d2d6aa26f82851bcded2
+  bowaka_universe_builder.yaml:
+    bytes: 3532
+    sha256: 2d5ef65e3a2999378b5a4c98345190e4f0c203b3a71c940e88283bd5c2792977
+  bowaka_v2_backtest.py:
+    bytes: 18296
+    sha256: fadcab9fdd4df194d457bfde5d23ad703bac9e3df12723afaf296d54a85999fd
+  bowaka_v2_config.yaml:
+    bytes: 9428
+    sha256: 9fc858962ac85c80f237d09a738aea9d9e592e50cfa82b97cafddcdc9014b7a5
+  bowaka_v2_features.py:
+    bytes: 22027
+    sha256: 5e252097c2e807d2889cbfa8ceb834d06fae1192f0f044973db3bfe3f5d7c6e1
+  bowaka_v2_openalgo_client.py:
+    bytes: 12457
+    sha256: c019fdea7490f2267a23b6676997ea129c3ea671b0945df5e45ee893ecc151a9
+  bowaka_v2_paths.py:
+    bytes: 4133
+    sha256: f5cebc673da3cd46d311268519b09cd5ed8d95c37c53d0a03ddb8ba39b9d5062
+  bowaka_v2_schemas.py:
+    bytes: 9091
+    sha256: 7a1cfbb5c01c89c083b85dcf3fb374540a379f5186d1fddc8e96862972880abe
+  bowaka_v2_strategy.py:
+    bytes: 72798
+    sha256: f729f3165b9c2028f0ed85e8162b0b41dbe047ebd61cf6625afbf7cf0ea15845
+source_manifest_hash: a3af8b332d67e24e3d7a02eabe2b4805cd0724f45745da70a04922300d2d4a1a
 source_sha256: 9fc858962ac85c80f237d09a738aea9d9e592e50cfa82b97cafddcdc9014b7a5
 universe:
   allowed_exchanges:

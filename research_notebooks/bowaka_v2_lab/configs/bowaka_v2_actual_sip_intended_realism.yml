@@ -104,9 +104,19 @@ run:
   kind: backtest
   seed: 1337
 scanner:
+  debug_gate_dump: true
+  enabled: true
+  full_universe_refresh_interval_minutes: 5
+  in_play_refresh_interval_seconds: 60
   max_candidates_per_scan: 25
   max_entries_per_scan: 3
   min_signal_strength: 0.0
+  require_fresh_intraday_bar: true
+  require_prior_daily_baseline: true
+  same_symbol_entries_per_day: 1
+  scan_interval_seconds: 60
+  signal_expiry_seconds: 600
+  symbol_cooldown_minutes: 390
 session:
   calendar: XNYS
   end: '15:55'
