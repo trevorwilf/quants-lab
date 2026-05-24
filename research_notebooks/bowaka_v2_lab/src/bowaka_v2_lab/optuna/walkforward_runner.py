@@ -58,6 +58,7 @@ from ..sim.backtester import run_backtest
 from ..sim.schedule import scan_times_for_session
 from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
 from .dispatcher import OptunaStudy
+from .errors import OptunaStudyInvalidError, structural_exceptions
 from .holdout_guard import HoldoutGuard
 from .objective import (
     DEFAULT_PENALTY_WEIGHTS,
@@ -485,6 +486,14 @@ def _run_validation_folds(
     that raises degrades to :func:`_degraded_fold` rather than aborting.
     """
     folds: list[FoldResult] = []
+    # Audit 2026-05-23 §P0-001: structural exceptions (HoldoutGuardError,
+    # PreflightError, DataQualityError, MissingLakePartitionError,
+    # ConfigParityError, OptunaStudyInvalidError) MUST NOT be swallowed as a
+    # degraded fold — they indicate a bug in the lab plumbing, not a noisy
+    # strategy/eval error, and the broad ``except Exception`` would mask them
+    # behind a sentinel score. They propagate out of the trial; the study
+    # runner then aborts with OptunaStudyInvalidError.
+    structural = structural_exceptions()
     for i, split in enumerate(plan.splits):
         holdout_guard.assert_can_read(split.val_start, split.val_end)
         fold_id = f"f{i}_{split.val_start.isoformat()}"
@@ -496,8 +505,10 @@ def _run_validation_folds(
                 return_report=True,
             )
             folds.append(_fold_result(fold_id, summary))
-        except Exception as exc:  # noqa: BLE001 — one bad fold must not kill the trial
-            log.warning("fold %s failed: %s", fold_id, exc)
+        except structural:
+            raise
+        except Exception as exc:  # noqa: BLE001 — non-structural strategy/eval error may degrade
+            log.warning("fold %s failed non-structurally: %s", fold_id, exc)
             folds.append(_degraded_fold(fold_id))
     return folds
 
@@ -548,6 +559,11 @@ def make_walkforward_objective(
     Optuna side (audit §P1-005).
     """
 
+    # Audit 2026-05-23 §P0-001 — structural exceptions escape the trial so the
+    # study runner can abort with OptunaStudyInvalidError; only non-structural
+    # strategy/eval errors degrade to ``_FAILED_TRIAL_SCORE``.
+    structural = structural_exceptions()
+
     def objective(trial: Any) -> float:
         try:
             # Realism remediation 2 Phase 8 (incumbent baseline): trial 0 with
@@ -587,6 +603,8 @@ def make_walkforward_objective(
             if code_hash is not None:
                 trial.set_user_attr("code_hash", code_hash)
             return result.objective
+        except structural:
+            raise
         except Exception as exc:  # noqa: BLE001 — one bad trial must not abort the study
             log.error("trial %s failed entirely: %s", getattr(trial, "number", "?"), exc)
             return _FAILED_TRIAL_SCORE
@@ -701,6 +719,78 @@ def _incumbent_baseline_params() -> dict[str, Any]:
 
 def _hash(payload: Any) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _write_failed_study_artifact(
+    *,
+    paths: BowakaV2Paths,
+    study_name: str,
+    study_metadata: dict[str, Any],
+    failure_reason: str,
+    sim_cfg: SimulationConfig,
+    simulation_contract: str,
+    suitability_tier: str,
+    feed: str,
+    partial_tape: bool,
+    feed_caveat: Any,
+    plan,
+    trials_requested: int,
+    startup: int,
+    universe_pit_sample: dict | None,
+    preflight_symbol_count: int,
+    log: logging.Logger,
+    n_trials_completed: int = 0,
+    n_invalid_trials: int = 0,
+) -> Path:
+    """Write a study results JSON with ``status: "failed"`` for forensic review.
+
+    Audit 2026-05-23 §P0-001. Called when either (a) a structural exception
+    escaped ``study.optimize`` or (b) every completed trial was invalid (sentinel
+    score / missing fold metrics). Writes the same artifact path the success
+    path would have used, but with empty ``best_params`` and a
+    ``best_trial_report`` carrying the error reason — so the runner's caller
+    sees the same artifact contract regardless of outcome, and the file exists
+    on disk before the exception is re-raised.
+    """
+    out = {
+        "status": "failed",
+        "failure_reason": failure_reason,
+        "study_name": study_name,
+        "simulation_mode": sim_cfg.mode,
+        "simulation_contract": simulation_contract,
+        "suitability_tier": suitability_tier,
+        "feed": feed,
+        "partial_tape": partial_tape,
+        **({"feed_caveat": feed_caveat} if feed_caveat is not None else {}),
+        "search_space_version": SEARCH_SPACE_VERSION,
+        "n_trials_requested": trials_requested,
+        "n_trials_completed": n_trials_completed,
+        "n_invalid_trials": n_invalid_trials,
+        "n_startup_trials": startup,
+        "n_folds": len(plan.splits),
+        "universe": {
+            "selection": "daily_point_in_time",
+            "preflight_probe_symbols": preflight_symbol_count,
+            "pit_sample": universe_pit_sample,
+        },
+        "final_holdout": [
+            plan.final_holdout_start.isoformat(),
+            plan.final_holdout_end.isoformat(),
+        ],
+        "final_holdout_scored": False,
+        "best_value": None,
+        "best_params": {},
+        "best_trial_report": {"error": failure_reason},
+        "study_metadata": study_metadata,
+    }
+    results_path = Path(paths.artifact_root) / "optuna" / f"{study_name}.json"
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    results_path.write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
+    log.error(
+        "walk-forward study FAILED: %s — failed artifact written to %s",
+        failure_reason, results_path,
+    )
+    return results_path
 
 
 # --------------------------------------------------------------------------
@@ -954,8 +1044,18 @@ def run_walkforward_study(
             symbols=symbols, sessions=probe_sessions, quote_supplier=quote_supplier,
             scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
         )
-    except Exception as exc:  # noqa: BLE001 — a probe failure must not silently skip preflight
-        log.warning("preflight probe degraded (%s); checks run on available signals", exc)
+    except Exception as exc:  # noqa: BLE001 — probe failure handling depends on mode
+        # Audit 2026-05-23 §P0-003 — leave dq_report / quote_cov_pct as None;
+        # the updated preflight ``_check_data_quality`` / ``_check_quote_coverage``
+        # will FAIL CLOSED on missing values under ``intended_realism`` (with a
+        # clear pointer back to the audit). For ``current_code_parity`` / smoke
+        # the previous warn-then-continue semantics are preserved (the preflight
+        # records ``skipped`` for the missing inputs).
+        log.warning(
+            "preflight probe failed (%s); preflight will fail closed under "
+            "intended_realism and skip the affected checks under parity / smoke",
+            exc,
+        )
 
     preflight = run_preflight(
         sim_mode=sim_cfg.mode,
@@ -1193,15 +1293,99 @@ def run_walkforward_study(
         config_hash=lab_config_hash,
         code_hash=code_hash,
     )
-    study.optimize(objective)
+    # Audit 2026-05-23 §P0-001 — a structural exception escaping the trial
+    # must abort the study with a written failed-status artifact rather than
+    # being swallowed by Optuna's loop. The artifact preserves the study
+    # metadata (forensic) and the structural failure reason; the runner then
+    # re-raises ``OptunaStudyInvalidError``.
+    structural = structural_exceptions()
+    try:
+        study.optimize(objective)
+    except structural as struct_exc:
+        failure_reason = (
+            f"structural exception escaped optimize: "
+            f"{type(struct_exc).__name__}: {struct_exc}"
+        )
+        _write_failed_study_artifact(
+            paths=paths,
+            study_name=study.study.study_name,
+            study_metadata=study_metadata,
+            failure_reason=failure_reason,
+            sim_cfg=sim_cfg,
+            simulation_contract=simulation_contract,
+            suitability_tier=suitability_tier,
+            feed=feed,
+            partial_tape=partial_tape,
+            feed_caveat=feed_caveat,
+            plan=plan,
+            trials_requested=trials,
+            startup=startup,
+            universe_pit_sample=universe_pit_sample,
+            preflight_symbol_count=len(symbols),
+            log=log,
+        )
+        raise OptunaStudyInvalidError(failure_reason) from struct_exc
 
     import optuna
 
     completed = [t for t in study.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    # Audit 2026-05-23 §P0-001 — validate the completed-trial set. A trial
+    # whose ``value`` is the sentinel score (or whose user_attrs lack fold
+    # metrics) is structurally invalid; if every completed trial is invalid
+    # the study did not produce a usable best, and emitting ``status: "ok"``
+    # with non-empty ``best_params`` would silently recommend a sentinel
+    # parameter set. The runner instead writes a failed artifact and raises.
+    _FAILED_EPS = 1e-6
+    valid_trials: list = []
+    invalid_trials: list[tuple[Any, str]] = []
+    for t in completed:
+        value = float(t.value) if t.value is not None else float("-inf")
+        if value <= _FAILED_TRIAL_SCORE + _FAILED_EPS:
+            invalid_trials.append((t, "sentinel_score"))
+            continue
+        fold_scores = t.user_attrs.get("fold_scores") or []
+        fold_metrics = t.user_attrs.get("fold_metrics") or []
+        if len(fold_scores) != len(plan.splits) or len(fold_metrics) != len(plan.splits):
+            invalid_trials.append((t, "missing_fold_metrics"))
+            continue
+        valid_trials.append(t)
+
+    if completed and not valid_trials:
+        failures = ", ".join(
+            f"trial#{t.number}:{reason}" for t, reason in invalid_trials
+        )
+        failure_reason = (
+            f"study produced zero valid non-sentinel trials; "
+            f"completed={len(completed)}, invalid={len(invalid_trials)} ({failures}); "
+            f"see docs/audits/2026-05-23_realism_audit.md §P0-001"
+        )
+        _write_failed_study_artifact(
+            paths=paths,
+            study_name=study.study.study_name,
+            study_metadata=study_metadata,
+            failure_reason=failure_reason,
+            sim_cfg=sim_cfg,
+            simulation_contract=simulation_contract,
+            suitability_tier=suitability_tier,
+            feed=feed,
+            partial_tape=partial_tape,
+            feed_caveat=feed_caveat,
+            plan=plan,
+            trials_requested=trials,
+            startup=startup,
+            universe_pit_sample=universe_pit_sample,
+            preflight_symbol_count=len(symbols),
+            log=log,
+            n_trials_completed=len(completed),
+            n_invalid_trials=len(invalid_trials),
+        )
+        raise OptunaStudyInvalidError(failure_reason)
+
     # Explicit ranked list — never study.best_trial (a zero-completed study would raise).
     ranked = sorted(
-        (t for t in completed if t.value is not None),
-        key=lambda t: t.value, reverse=True,
+        valid_trials,
+        key=lambda t: float(t.value),
+        reverse=True,
     )
     best = ranked[0] if ranked else None
     # Realism remediation 2 Phase 8 — overridden selection: median fold score
@@ -1220,12 +1404,15 @@ def run_walkforward_study(
         return v
 
     ranked_by_median_minus_stability = sorted(
-        completed, key=_median_minus_stability, reverse=True,
+        valid_trials, key=_median_minus_stability, reverse=True,
     )
     best_by_median_minus_stability = (
         ranked_by_median_minus_stability[0]
         if ranked_by_median_minus_stability else None
     )
+    # The incumbent trial is recorded for forensic value even when it landed
+    # in ``invalid_trials`` — operators want to see the incumbent's outcome
+    # alongside the optimizer's best, including when the incumbent failed.
     incumbent_baseline_trial = next(
         (t for t in completed if t.user_attrs.get("incumbent_trial") is True),
         None,
@@ -1424,5 +1611,6 @@ __all__ = [
     "OptunaParityError",
     "CurrentCodeParityStudyRefused",
     "IntendedRealismDataInsufficient",
+    "OptunaStudyInvalidError",
     "_incumbent_baseline_params",
 ]

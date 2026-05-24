@@ -5,6 +5,49 @@
 > (paper / live) requires SIP-validated walk-forward results and paper-vs-sim
 > reconciliation, neither of which can be produced from this lab in isolation.
 
+## Active audit blockers (2026-05-23)
+
+A third realism audit
+([`docs/audits/2026-05-23_realism_audit.md`](docs/audits/2026-05-23_realism_audit.md))
+re-tested the lab after the prior two remediations and found the defects below
+still live in code. Remediation 3 (this branch series) closes every code-
+addressable P0/P1/P2 finding; the lake-ingestion / paper-recon work is
+explicitly out of scope and tracked in the audit itself.
+
+- **P0-001** — an all-sentinel Optuna study (every trial scored
+  ``_FAILED_TRIAL_SCORE``) used to complete with ``status: "ok"`` and a
+  non-empty ``best_params``. After Phase 0 the runner validates the completed
+  trial set and raises ``OptunaStudyInvalidError`` when zero valid trials
+  exist.
+- **P0-002** — ``HoldoutGuard`` used closed-interval semantics; the walk-
+  forward planner uses half-open ``[start, end)``. Boundary-equal folds were
+  rejected by the guard, then swallowed by the objective. The guard is now
+  half-open.
+- **P0-003** — preflight DQ / quote-coverage probes failed open under
+  ``intended_realism``. They now fail closed: a ``None`` DQ report or a probe
+  exception fails the run.
+- **§6.6** — preflight under ``intended_realism`` used a 100-symbol cap. Phase 1
+  expands it to the full per-fold PIT eligible-universe union (or fails closed
+  on a missing waiver).
+- **P0-004 / P0-005** — Phase 1 adds the ``bowaka-v2-lab verify-lake`` CLI; the
+  ingestion itself is operator-owned and out of scope.
+- **P1-002** — the frozen contract now hashes the strategy/scanner/features/
+  schemas/backtest source files via a ``source_manifest`` (Phase 2).
+- **P1-003** — generated optuna configs now expose every live ``scanner:`` key
+  (Phase 2); ``StrategyConsumer`` reads ``same_symbol_entries_per_day`` from
+  the scanner block, not from risk.
+- **P1-004** — risk-control parameters stay in the Optuna search space, but a
+  promotion-gate refusal caps the effective tier at ``research_only`` when the
+  candidate moves any risk control beyond epsilon from the incumbent (Phase 3).
+- **P1-006** — ``OPTUNA_STORAGE=sqlite:///…`` relative paths are now resolved
+  against the lab root, not the launch CWD (Phase 3).
+- **P2-001** — stale ``config/models.py`` defaults removed / aligned (Phase 3).
+- **P2-002** — new ``optuna_smoke`` / ``paper_reconcile`` pytest markers (Phase 3).
+
+P1-005 (fill calibration) and P1-009 (paper reconciliation) require real paper
+logs and stay deferred. The promotion checklist (audit §12) is the gate for
+``main`` and is **not** closed by remediation 3.
+
 ## Active audit blockers (2026-05-22)
 
 A second realism audit

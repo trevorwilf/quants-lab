@@ -123,8 +123,26 @@ def _check_data_quality(
     sim_mode: str,
     allow_smoke: bool,
 ) -> PreflightCheck:
-    """Refuse the study when the dataset's DQ report has a failing required check."""
+    """Refuse the study when the dataset's DQ report has a failing required check.
+
+    Audit 2026-05-23 §P0-003 — fail closed under ``intended_realism`` when the
+    DQ report is missing: a research-grade study cannot run without a DQ
+    report. ``current_code_parity`` and ``smoke_fixture`` retain the previous
+    ``skipped`` semantics (parity / smoke runs surface the absence as a
+    warning, not a refusal).
+    """
     if dq_report is None:
+        if sim_mode == "intended_realism":
+            return PreflightCheck(
+                name="data_quality",
+                status="fail",
+                detail=(
+                    "intended_realism requires a data-quality report; none was "
+                    "supplied to preflight. See docs/audits/2026-05-23_realism_audit.md "
+                    "§P0-003."
+                ),
+                evidence={"simulation_mode": sim_mode},
+            )
         return PreflightCheck(
             name="data_quality",
             status="skipped",
@@ -209,6 +227,24 @@ def _check_quote_coverage(
             evidence={},
         )
     if quote_coverage_pct is None:
+        # Audit 2026-05-23 §P0-003 — intended_realism requires a measured
+        # historical-quote coverage; a missing probe must fail closed (the
+        # downstream realism simulator would otherwise silently fall back to
+        # the zero-spread quote model). Parity / smoke continue to skip.
+        if sim_mode == "intended_realism":
+            return PreflightCheck(
+                name="quote_coverage",
+                status="fail",
+                detail=(
+                    "intended_realism requires measured historical quote coverage; "
+                    "probe returned None. See docs/audits/2026-05-23_realism_audit.md "
+                    "§P0-003."
+                ),
+                evidence={
+                    "simulation_mode": sim_mode,
+                    "min_quote_coverage_pct": float(min_quote_coverage_pct),
+                },
+            )
         return PreflightCheck(
             name="quote_coverage",
             status="skipped",
@@ -288,14 +324,32 @@ def _check_sip_data(
             evidence={"feed": feed},
         )
     present = sip_partitions_present
+    probe_exception: Optional[str] = None
     if present is None and lake_root is not None:
         try:
             from bowaka_common.marketdata.layout import sip_partitions_available
 
             present = sip_partitions_available(lake_root)
-        except Exception:  # noqa: BLE001 — probe failure leaves the result unknown
+        except Exception as exc:  # noqa: BLE001 — probe failure handling depends on mode
             present = None
+            probe_exception = str(exc)
     if present is None:
+        # Audit 2026-05-23 §P0-003 — intended_realism cannot tolerate an
+        # unknown SIP-partition state; the run silently degrades otherwise.
+        # Parity / smoke continue to skip the check.
+        if sim_mode == "intended_realism":
+            return PreflightCheck(
+                name="sip_data_present",
+                status="fail",
+                detail=(
+                    "intended_realism requires a probed SIP-partition presence "
+                    "but the probe could not be performed (supply lake_root or "
+                    "sip_partitions_present). See "
+                    "docs/audits/2026-05-23_realism_audit.md §P0-003."
+                ),
+                evidence={"feed": feed, "probe_exception": probe_exception,
+                          "simulation_mode": sim_mode},
+            )
         return PreflightCheck(
             name="sip_data_present",
             status="skipped",
@@ -303,7 +357,7 @@ def _check_sip_data(
                 "could not probe SIP partition presence — supply lake_root or "
                 "sip_partitions_present to the preflight, or check the lake by hand"
             ),
-            evidence={"feed": feed},
+            evidence={"feed": feed, "probe_exception": probe_exception},
         )
     if present:
         return PreflightCheck(
@@ -499,6 +553,8 @@ def _probe_fold(
     # the preflight cost — the cheap preflight already probed the first 5
     # sessions; the goal here is to PROVE coverage across every fold, not
     # to be exhaustive.
+    sim_mode = ((cfg.get("simulation") or {}).get("mode") or "smoke_fixture")
+    md = cfg.get("market_data") or {}
     import pandas as _pd
     try:
         import exchange_calendars as _xcals  # noqa: F401
@@ -506,7 +562,24 @@ def _probe_fold(
         sessions = [_pd.Timestamp(s).date() for s in cal.sessions_in_range(
             _pd.Timestamp(fold.start), _pd.Timestamp(fold.end)
         )]
-    except Exception:  # noqa: BLE001 — calendar load failure must not crash preflight
+    except Exception as exc:  # noqa: BLE001 — calendar load failure handling depends on mode
+        # Audit 2026-05-23 §P0-003 — intended_realism cannot tolerate a silent
+        # calendar load failure; it must fail closed. Parity / smoke continue
+        # to skip the fold (the cheaper preflight already noted the gap).
+        if sim_mode == "intended_realism":
+            return PreflightResult(
+                passed=False,
+                checks=[PreflightCheck(
+                    name=f"fold:{fold.fold_id}",
+                    status="fail",
+                    detail=(
+                        f"fold {fold.fold_id} calendar load failed under intended_realism: {exc}. "
+                        "See docs/audits/2026-05-23_realism_audit.md §P0-003."
+                    ),
+                    evidence={"kind": fold.kind, "exception": str(exc),
+                              "simulation_mode": sim_mode},
+                )],
+            )
         sessions = []
     if not sessions:
         return PreflightResult(
@@ -519,8 +592,6 @@ def _probe_fold(
             )],
         )
 
-    sim_mode = ((cfg.get("simulation") or {}).get("mode") or "smoke_fixture")
-    md = cfg.get("market_data") or {}
     try:
         minute_supplier, daily_supplier = make_lake_suppliers(
             lake_root, feed=feed,
@@ -537,7 +608,27 @@ def _probe_fold(
             minute_bars_supplier=minute_supplier,
             scan_times_per_session=scan_times_per_session,
         )
-    except Exception as exc:  # noqa: BLE001 — DQ probe failure surfaces as a fold-skipped warning
+    except Exception as exc:  # noqa: BLE001 — DQ probe failure handling depends on mode
+        # Audit 2026-05-23 §P0-003 — under intended_realism a DQ probe
+        # exception is the structural signal that the lake cannot support a
+        # research-grade objective. Fail closed; the runner's outer
+        # ``try/except STRUCTURAL_EXCEPTIONS`` will not catch a PreflightError
+        # raised by ``run_full_fold_preflight``'s caller, but the failed-status
+        # study artifact is still written by that path.
+        if sim_mode == "intended_realism":
+            return PreflightResult(
+                passed=False,
+                checks=[PreflightCheck(
+                    name=f"fold:{fold.fold_id}",
+                    status="fail",
+                    detail=(
+                        f"fold {fold.fold_id} DQ probe failed under intended_realism: {exc}. "
+                        "See docs/audits/2026-05-23_realism_audit.md §P0-003."
+                    ),
+                    evidence={"kind": fold.kind, "exception": str(exc),
+                              "simulation_mode": sim_mode},
+                )],
+            )
         return PreflightResult(
             passed=True,
             checks=[PreflightCheck(
@@ -548,14 +639,33 @@ def _probe_fold(
             )],
         )
     quote_cov_pct: Optional[float] = None
+    quote_probe_exception: Optional[str] = None
     try:
         quote_supplier = make_quote_supplier(lake_root, feed=feed)
         quote_cov_pct = probe_quote_coverage(
             symbols=symbols, sessions=sessions, quote_supplier=quote_supplier,
             scan_times_per_session=scan_times_per_session, max_probe=200,
         )
-    except Exception as exc:  # noqa: BLE001 — quote probe failure leaves quote_cov_pct None
+    except Exception as exc:  # noqa: BLE001 — quote probe failure handling depends on mode
+        # Audit 2026-05-23 §P0-003 — under intended_realism a quote-probe
+        # exception must fail closed (the downstream realism simulator would
+        # otherwise silently fall back to the zero-spread quote model).
         quote_cov_pct = None
+        quote_probe_exception = str(exc)
+        if sim_mode == "intended_realism":
+            return PreflightResult(
+                passed=False,
+                checks=[PreflightCheck(
+                    name=f"fold:{fold.fold_id}",
+                    status="fail",
+                    detail=(
+                        f"fold {fold.fold_id} quote probe failed under intended_realism: {exc}. "
+                        "See docs/audits/2026-05-23_realism_audit.md §P0-003."
+                    ),
+                    evidence={"kind": fold.kind, "exception": str(exc),
+                              "simulation_mode": sim_mode},
+                )],
+            )
 
     result = run_preflight(
         sim_mode=str(sim_mode),
