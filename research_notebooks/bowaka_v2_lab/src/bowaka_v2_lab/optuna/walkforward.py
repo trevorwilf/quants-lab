@@ -19,6 +19,13 @@ def _add_months(d: _dt.date, n: int) -> _dt.date:
 
 @dataclass(frozen=True)
 class WalkForwardSplit:
+    """One walk-forward training / validation split.
+
+    All intervals are half-open ``[start, end)`` — see audit 2026-05-23 §P0-002.
+    A split with ``val_end == final_holdout_start`` is admissible (the
+    validation window ends exactly when the holdout begins).
+    """
+
     train_start: _dt.date
     train_end: _dt.date
     val_start: _dt.date
@@ -27,6 +34,11 @@ class WalkForwardSplit:
 
 @dataclass(frozen=True)
 class WalkForwardPlan:
+    """A walk-forward plan: a tuple of train/val splits + a final-holdout window.
+
+    All intervals are half-open ``[start, end)`` — see audit 2026-05-23 §P0-002.
+    """
+
     splits: tuple[WalkForwardSplit, ...]
     final_holdout_start: _dt.date
     final_holdout_end: _dt.date

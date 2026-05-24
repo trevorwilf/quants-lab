@@ -40,6 +40,18 @@ from bowaka_common.marketdata import layout as _layout
 
 DATA_QUALITY_SCHEMA_VERSION = 2
 
+
+class DataQualityError(RuntimeError):
+    """Raised when a data-quality required check fails and the caller asked for
+    raise-on-fail behaviour.
+
+    Audit 2026-05-23 §P0-001 / §P0-003. The default report-returning API is
+    unchanged — :func:`build_data_quality_report` still returns a report
+    document. This exception is the structural signal that the Optuna runner's
+    ``except STRUCTURAL_EXCEPTIONS: raise`` block must not swallow into a
+    sentinel score.
+    """
+
 #: Per-symbol audit columns mapped to DQ checks. ``0`` is healthy for every
 #: count column; any positive count is a defect of the labelled severity.
 #: ``passed_research_audit`` is the audit's own boolean verdict.

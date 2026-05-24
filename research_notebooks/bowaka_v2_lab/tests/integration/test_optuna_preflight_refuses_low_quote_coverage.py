@@ -85,7 +85,14 @@ def test_probe_quote_coverage_with_no_quotes_returns_zero_then_refuses() -> None
 
 
 def test_probe_quote_coverage_none_supplier_returns_none() -> None:
-    """No quote supplier -> None -> the coverage check is skipped, not failed."""
+    """No quote supplier -> None coverage -> intended_realism fails CLOSED.
+
+    Audit 2026-05-23 §P0-003 reversed the prior fail-open behavior. Under
+    ``intended_realism`` a missing quote-coverage probe is no longer ``skipped``
+    — the realism simulator would otherwise silently fall back to the
+    zero-spread quote model. ``current_code_parity`` / ``smoke_fixture``
+    continue to ``skipped``.
+    """
     import datetime as dt
 
     coverage = probe_quote_coverage(
@@ -95,11 +102,21 @@ def test_probe_quote_coverage_none_supplier_returns_none() -> None:
         scan_times_per_session=lambda d: ["09:45"],
     )
     assert coverage is None
+    # intended_realism — must fail closed.
+    with pytest.raises(PreflightError):
+        run_preflight(
+            sim_mode="intended_realism",
+            allow_smoke=False,
+            dq_report=_clean_dq(),
+            quote_coverage_pct=coverage,
+        )
+    # current_code_parity — still skipped (parity uses the quote fallback).
     result = run_preflight(
-        sim_mode="intended_realism",
+        sim_mode="current_code_parity",
         allow_smoke=False,
         dq_report=_clean_dq(),
         quote_coverage_pct=coverage,
+        raise_on_fail=False,
     )
     cov = next(c for c in result.checks if c.name == "quote_coverage")
     assert cov.status == "skipped"
