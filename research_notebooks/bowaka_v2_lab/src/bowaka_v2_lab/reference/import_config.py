@@ -277,7 +277,13 @@ def build_config_from_contract(
         # commit-shipped optuna configs carry conservative defaults the runner
         # honours; the operator overrides per-study via --n-trials / --n-jobs.
         cfg["optuna"] = {
-            "storage": "${OPTUNA_STORAGE:-sqlite:///research_notebooks/bowaka_v2_lab/artifacts/optuna/local.db}",
+            # Audit 2026-05-23 §P1-006 — relative SQLite URIs resolve against
+            # the lab root at runtime via
+            # ``bowaka_v2_lab.optuna.storage_path.resolve_storage_uri``, so
+            # launching the runner from the lab directory works. For a
+            # production study use a PostgreSQL URI:
+            #   OPTUNA_STORAGE="postgresql+psycopg://user:pass@host:5432/bowaka_optuna"
+            "storage": "${OPTUNA_STORAGE:-sqlite:///artifacts/optuna/local.db}",
             "n_trials": 200,
             "n_jobs": 1,
             "n_startup_trials": 25,

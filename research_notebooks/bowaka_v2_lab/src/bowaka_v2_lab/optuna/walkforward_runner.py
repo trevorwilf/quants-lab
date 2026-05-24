@@ -1274,12 +1274,21 @@ def run_walkforward_study(
             len(fold_windows), len(full_fold_preflight_result.checks),
         )
 
+    # Audit 2026-05-23 §P1-006 — relative ``sqlite:///`` URIs resolve against
+    # the lab root, not the launch CWD. PostgreSQL URIs are unchanged.
+    raw_storage_uri = optuna_cfg.get("storage") or None
+    resolved_storage_uri = None
+    if raw_storage_uri:
+        from .storage_path import resolve_storage_uri
+
+        resolved_storage_uri = resolve_storage_uri(raw_storage_uri, paths=paths)
+
     study = OptunaStudy(
         feed=feed,
         cost_stress=str(bt.get("cost_stress", "conservative")),
         dataset_hash=dataset_hash,
         config_hash=lab_config_hash,
-        storage_uri=optuna_cfg.get("storage") or None,
+        storage_uri=resolved_storage_uri,
         n_trials=trials,
         n_jobs=jobs,
         n_startup_trials=startup,
@@ -1653,8 +1662,39 @@ def run_walkforward_study(
                 else None
             ),
         }
+    # Audit 2026-05-23 §P1-004 — risk-control promotion gate. Evaluate the
+    # winning trial's risk-control parameters against the incumbent baseline;
+    # any drift past epsilon labels the run a risk_policy_experiment and caps
+    # the effective tier at research_only.
+    from .promotion_gates import evaluate_promotion
+
+    # Build the incumbent baseline from the contract; the per-trial incumbent
+    # may be absent (incumbent_trial=False), so use the contract directly.
+    incumbent_for_gate = (
+        dict(incumbent_baseline_trial.params)
+        if incumbent_baseline_trial is not None
+        else _incumbent_baseline_params()
+    )
+    candidate_for_gate = dict(best.params) if best is not None else {}
+    promotion_decision = evaluate_promotion(
+        incumbent_params=incumbent_for_gate,
+        candidate_params=candidate_for_gate,
+        requested_tier=str(suitability_tier),
+        feed=feed,
+    )
+    effective_tier = promotion_decision["effective_tier"]
+    # Cap the suitability tier to the gate's effective tier — never raise it.
+    if effective_tier != suitability_tier:
+        log.warning(
+            "promotion gate capped suitability_tier %s -> %s; reasons: %s",
+            suitability_tier, effective_tier,
+            "; ".join(promotion_decision["refusal_reasons"]) or "n/a",
+        )
+        suitability_tier = effective_tier
+        out["suitability_tier"] = suitability_tier
+
     promotion_evidence: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "study_name": study.study.study_name,
         "simulation_contract": simulation_contract,
         "suitability_tier": suitability_tier,
@@ -1683,6 +1723,18 @@ def run_walkforward_study(
             simulation_contract == "intended_realism"
             and suitability_tier in ("backtesting_only", "paper_candidate", "live_candidate")
         ),
+        # Audit 2026-05-23 §P1-004 — risk-control promotion gate decision.
+        # ``promotable`` is the gate's verdict; ``refusal_reasons`` lists the
+        # caps that fired; ``risk_policy_experiment`` flags runs where the
+        # optimizer materially changed a risk-control parameter from the
+        # incumbent (a paper-recon prerequisite, not a parameter-recommendation).
+        "promotable": promotion_decision["promotable"],
+        "effective_tier": promotion_decision["effective_tier"],
+        "requested_tier": promotion_decision["requested_tier"],
+        "refusal_reasons": promotion_decision["refusal_reasons"],
+        "risk_policy_experiment": promotion_decision["risk_policy_experiment"],
+        "risk_drift": promotion_decision["risk_drift"],
+        "feed_cap_applied": promotion_decision["feed_cap_applied"],
     }
     promo_dir = Path(paths.artifact_root) / "optuna" / study.study.study_name
     promo_dir.mkdir(parents=True, exist_ok=True)
