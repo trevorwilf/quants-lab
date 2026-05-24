@@ -67,7 +67,7 @@ from .objective import (
     fold_result_from_report,
     fold_score,
 )
-from .preflight import probe_quote_coverage, run_preflight
+from .preflight import PreflightError, probe_quote_coverage, run_preflight
 from .search_space import SEARCH_SPACE_VERSION, resolve_search_space, suggest_params
 from .stability import top_k_cluster_stability
 from .walkforward import build_walkforward_splits
@@ -294,23 +294,58 @@ def _xnys_sessions(start: _dt.date, end: _dt.date) -> list[_dt.date]:
     return [pd.Timestamp(s).date() for s in cal.sessions_in_range(pd.Timestamp(start), pd.Timestamp(end))]
 
 
-def _resolve_symbols(cfg: dict, md: dict, *, cap: int = 100) -> list[str]:
-    """A BOUNDED symbol sample for study-start preflight probing — NOT the
-    trading universe.
+def _resolve_symbols(
+    cfg: dict,
+    md: dict,
+    *,
+    cap: int = 100,
+    sim_mode: Optional[str] = None,
+    plan: Any = None,
+) -> list[str]:
+    """A symbol sample for study-start preflight probing — NOT the trading universe.
 
-    The walk-forward folds trade the per-session **point-in-time universe**
-    built by ``universe.builder.build_pit_universe_for_sessions`` (rebuilt every
-    session from the lake's asset master + filters — daily, uncapped, exactly
-    like the live scanner). This capped list is used only to keep the preflight
-    data-quality / quote-coverage probes fast, to seed the dataset-lineage hash,
-    and as a daily-cache fallback for a session whose PIT universe is empty.
+    Audit 2026-05-23 §6.6 / Phase 1 — under ``intended_realism`` the preflight
+    must probe the *full per-fold PIT eligible-universe union* (no cap). The
+    capped 100-symbol sample silently underreported coverage. Other modes
+    (parity / smoke / research_only with an explicit waiver) keep the capped
+    behaviour because their preflight is plumbing, not coverage proof.
 
-    Explicit ``universe.symbols`` > lake-derived (capped at ``cap``) > synthetic.
+    Explicit ``universe.symbols`` > full PIT union (intended_realism) >
+    lake-derived (capped at ``cap``) > synthetic.
+
+    The walk-forward folds themselves trade the per-session PIT universe
+    rebuilt at fold-time from the lake asset master + filters — daily,
+    uncapped, exactly like the live scanner. This helper produces the
+    *preflight probe* symbol set only.
     """
     explicit = (cfg.get("universe", {}) or {}).get("symbols")
     if explicit:
         return [str(s) for s in explicit]
-    if str(md.get("minute_bar_source", "fixture")) in ("alpaca", "shared"):
+
+    preflight_cfg = (cfg.get("optuna") or {}).get("preflight") or {}
+    research_waiver = bool(preflight_cfg.get("research_waiver_capped_symbols", False))
+    is_lake = str(md.get("minute_bar_source", "fixture")) in ("alpaca", "shared")
+
+    if sim_mode == "intended_realism" and plan is not None and is_lake and not research_waiver:
+        from .pit_universe import plan_pit_symbol_union
+
+        union = plan_pit_symbol_union(
+            md.get("shared_root"), feed=md.get("feed", "iex"),
+            plan=plan, cfg=cfg, include_holdout=True,
+        )
+        if not union:
+            # The lake was probed but the PIT union was empty — fall back to
+            # the lake-available symbols. The preflight DQ check will surface
+            # the underlying lake gap.
+            from bowaka_common.marketdata import available_symbols
+
+            return available_symbols(
+                md.get("shared_root"), timeframe="1d",
+                feed=md.get("feed", "iex"),
+            )
+        return sorted(union)
+
+    if is_lake:
         from bowaka_common.marketdata import available_symbols
 
         return available_symbols(
@@ -741,6 +776,9 @@ def _write_failed_study_artifact(
     log: logging.Logger,
     n_trials_completed: int = 0,
     n_invalid_trials: int = 0,
+    pit_union_symbol_count: Optional[int] = None,
+    preflight_coverage_fraction: Optional[float] = None,
+    research_waiver_capped_symbols: bool = False,
 ) -> Path:
     """Write a study results JSON with ``status: "failed"`` for forensic review.
 
@@ -772,6 +810,10 @@ def _write_failed_study_artifact(
             "selection": "daily_point_in_time",
             "preflight_probe_symbols": preflight_symbol_count,
             "pit_sample": universe_pit_sample,
+            "preflight_symbol_count": preflight_symbol_count,
+            "pit_union_symbol_count": pit_union_symbol_count,
+            "preflight_coverage_fraction": preflight_coverage_fraction,
+            "research_waiver_capped_symbols": research_waiver_capped_symbols,
         },
         "final_holdout": [
             plan.final_holdout_start.isoformat(),
@@ -1006,8 +1048,56 @@ def run_walkforward_study(
 
     feed = str(md.get("feed", "iex"))
     lake_root = md.get("shared_root")
-    symbols = _resolve_symbols(cfg, md)
+    # Audit 2026-05-23 §6.6 / Phase 1 — under ``intended_realism`` resolve
+    # the preflight symbol set against the full per-fold PIT union (not the
+    # 100-symbol cap). Parity / smoke / explicit-waiver runs keep the cap.
+    symbols = _resolve_symbols(cfg, md, sim_mode=sim_cfg.mode, plan=plan)
     holdout_guard = HoldoutGuard(plan.final_holdout_start, plan.final_holdout_end)
+
+    # Audit 2026-05-23 §6.6 + P1-001 — coverage telemetry. ``pit_union_*`` is
+    # the full PIT eligible-symbol union across every fold's sessions;
+    # ``preflight_symbol_count`` is the actual probe set; ``coverage_fraction``
+    # is the ratio. Under ``intended_realism`` without an explicit
+    # ``research_waiver_capped_symbols: true`` the runner fails closed when
+    # the fraction is < 1.0.
+    pit_union_symbol_count: Optional[int] = None
+    preflight_coverage_fraction: Optional[float] = None
+    research_waiver_capped_symbols = bool(
+        ((cfg.get("optuna") or {}).get("preflight") or {}).get(
+            "research_waiver_capped_symbols", False
+        )
+    )
+    try:
+        if str(md.get("minute_bar_source", "fixture")) in ("alpaca", "shared"):
+            from .pit_universe import plan_pit_symbol_union
+
+            pit_union = plan_pit_symbol_union(
+                lake_root, feed=feed, plan=plan, cfg=cfg, include_holdout=True,
+            )
+            pit_union_symbol_count = len(pit_union)
+            if pit_union_symbol_count > 0:
+                preflight_coverage_fraction = (
+                    len(set(symbols) & pit_union) / pit_union_symbol_count
+                )
+    except Exception as exc:  # noqa: BLE001 — coverage telemetry must never crash the study
+        log.warning("PIT-union coverage telemetry failed (%s); coverage unknown", exc)
+
+    if (
+        sim_cfg.mode == "intended_realism"
+        and not research_waiver_capped_symbols
+        and preflight_coverage_fraction is not None
+        and preflight_coverage_fraction < 1.0 - 1e-9
+    ):
+        delta = (pit_union_symbol_count or 0) - len(symbols)
+        raise PreflightError(
+            f"optuna study refused by preflight: intended_realism requires the "
+            f"FULL per-fold PIT eligible-universe union but the probe covers "
+            f"{len(symbols)}/{pit_union_symbol_count} symbols "
+            f"({preflight_coverage_fraction:.2%}; delta={delta}). Pass an "
+            f"explicit ``optuna.preflight.research_waiver_capped_symbols: true`` "
+            f"to opt into research-only with the capped sample. "
+            f"See docs/audits/2026-05-23_realism_audit.md §6.6."
+        )
 
     # ---- study-start preflight (Phase 9, Task 3) --------------------------
     # Build the dataset's data-quality report and probe quote coverage, then
@@ -1323,6 +1413,9 @@ def run_walkforward_study(
             universe_pit_sample=universe_pit_sample,
             preflight_symbol_count=len(symbols),
             log=log,
+            pit_union_symbol_count=pit_union_symbol_count,
+            preflight_coverage_fraction=preflight_coverage_fraction,
+            research_waiver_capped_symbols=research_waiver_capped_symbols,
         )
         raise OptunaStudyInvalidError(failure_reason) from struct_exc
 
@@ -1378,6 +1471,9 @@ def run_walkforward_study(
             log=log,
             n_trials_completed=len(completed),
             n_invalid_trials=len(invalid_trials),
+            pit_union_symbol_count=pit_union_symbol_count,
+            preflight_coverage_fraction=preflight_coverage_fraction,
+            research_waiver_capped_symbols=research_waiver_capped_symbols,
         )
         raise OptunaStudyInvalidError(failure_reason)
 
@@ -1465,6 +1561,13 @@ def run_walkforward_study(
             ),
             "preflight_probe_symbols": len(symbols),
             "pit_sample": universe_pit_sample,
+            # Audit 2026-05-23 §6.6 / P1-001 — full-PIT-union coverage telemetry.
+            # The runner refuses ``intended_realism`` runs with coverage < 1.0
+            # unless the operator passes ``research_waiver_capped_symbols: true``.
+            "preflight_symbol_count": len(symbols),
+            "pit_union_symbol_count": pit_union_symbol_count,
+            "preflight_coverage_fraction": preflight_coverage_fraction,
+            "research_waiver_capped_symbols": research_waiver_capped_symbols,
         },
         "final_holdout": [
             plan.final_holdout_start.isoformat(),
