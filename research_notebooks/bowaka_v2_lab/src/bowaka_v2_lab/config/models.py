@@ -175,10 +175,17 @@ class SessionConfig(_StrictBase):
 
 
 class UniverseConfig(_StrictBase):
+    """Universe gate config — defaults match the live contract.
+
+    Audit 2026-05-23 §P2-001: pre-remediation ``max_price=1000.0`` and
+    ``min_adv_dollars=1_000_000`` were stale (the live contract gates penny
+    stocks at $1-20 with ADV >= $250k). Defaults are now the live values.
+    """
+
     asset_classes: list[str] = Field(default_factory=lambda: ["operating_equity"])
     min_price: float = 1.0
-    max_price: float = 1000.0
-    min_adv_dollars: float = 1_000_000
+    max_price: float = 20.0
+    min_adv_dollars: float = 250_000.0
     exclude_pattern_class: bool = True
     symbols: Optional[list[str]] = None
 

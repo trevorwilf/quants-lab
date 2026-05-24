@@ -75,6 +75,13 @@ markers = [
     "unit: fast unit test (tests/unit)",
     "notebook: notebook end-to-end execution test",
     "synthetic_fallback: depends on the synthetic IEX subset (real lake unavailable)",
+    # Audit 2026-05-23 §P2-002 — segmentation hygiene for the slow Optuna /
+    # paper-recon work. ``optuna_smoke`` selects the smoke-scale walk-forward
+    # studies (use with @pytest.mark.slow so the comprehensive ``-m "not slow"``
+    # filter still excludes them); ``paper_reconcile`` selects paper-vs-sim
+    # reconciliation tests that need real paper logs.
+    "optuna_smoke: smoke-scale Optuna walk-forward integration test",
+    "paper_reconcile: paper-vs-sim reconciliation test (real paper logs required)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
