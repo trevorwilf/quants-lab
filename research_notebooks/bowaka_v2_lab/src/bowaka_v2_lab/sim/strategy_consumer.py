@@ -212,6 +212,7 @@ class StrategyConsumer:
         risk_cfg = cfg.get("risk") or {}
         exits_cfg = cfg.get("exits") or {}
         market_data_cfg = cfg.get("market_data") or {}
+        scanner_cfg = cfg.get("scanner") or {}
         symbol = candidate_event["symbol"]
         cost_stress = str((cfg.get("backtest") or {}).get("cost_stress", "conservative"))
 
@@ -324,7 +325,18 @@ class StrategyConsumer:
         entered_today = (
             portfolio_state.entered_symbols_today if portfolio_state is not None else set()
         )
-        same_symbol_per_day = int(risk_cfg.get("same_symbol_entries_per_day", 1))
+        # Audit 2026-05-23 §P1-003 — the live contract puts
+        # ``same_symbol_entries_per_day`` under ``scanner:`` (it is a candidate
+        # -gating limit, not a risk-control). Read scanner first; tolerate the
+        # legacy ``risk.`` location for older configs the loader hasn't
+        # rejected yet. The config-loading layer raises ConfigParityError when
+        # both are set.
+        same_symbol_per_day = int(
+            scanner_cfg.get(
+                "same_symbol_entries_per_day",
+                risk_cfg.get("same_symbol_entries_per_day", 1),
+            )
+        )
         # `entered_symbols_today` records each symbol opened this session. With a
         # cap of 1 (the live default) a symbol already in the set is rejected;
         # for caps > 1, count this session's lots for the symbol.

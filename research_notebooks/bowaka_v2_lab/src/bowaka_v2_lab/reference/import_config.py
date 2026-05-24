@@ -182,12 +182,14 @@ def build_config_from_contract(
         "exclude_pattern_class": True,
     }
 
-    # --- scanner: MAP from the live scanner schema ---
-    scanner: dict[str, Any] = {
-        "max_candidates_per_scan": c_scanner.get("max_candidates_per_scan"),
-        "max_entries_per_scan": c_scanner.get("max_entries_per_scan"),
-        "min_signal_strength": 0.0,
-    }
+    # --- scanner: emit EVERY live scanner key (audit 2026-05-23 §P1-003) ---
+    # Iterating the contract's scanner mapping (rather than enumerating keys
+    # in code) means the generated config automatically expands when the
+    # actual contract grows. ``min_signal_strength`` is the lab-schema knob
+    # the optimizer overlays on — it inherits from the contract when present
+    # and otherwise defaults to 0.0 (the live scanner's effective default).
+    scanner: dict[str, Any] = {k: v for k, v in c_scanner.items()}
+    scanner.setdefault("min_signal_strength", 0.0)
 
     # --- signals: research flag + all 16 thresholds verbatim ---
     signals: dict[str, Any] = {"allow_unknown_instrument_class_for_research": False}

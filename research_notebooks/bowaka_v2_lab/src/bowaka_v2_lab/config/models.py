@@ -184,9 +184,34 @@ class UniverseConfig(_StrictBase):
 
 
 class ScannerConfig(_StrictBase):
-    max_candidates_per_scan: int = 10
+    """Live ``scanner:`` block — all keys from the actual contract.
+
+    Audit 2026-05-23 §P1-003 — every live ``scanner:`` key is exposed at the
+    lab schema level (was just three: max_candidates / max_entries /
+    min_signal_strength). The other keys (cadence, expiry, per-symbol caps,
+    baseline gating) were buried in code defaults; without them the generated
+    Optuna configs hid the live contract.
+
+    ``same_symbol_entries_per_day`` lives here (not on ``RiskConfig``) — the
+    live contract treats it as a scanner / candidate-gating field. A config
+    that sets it under both ``scanner`` and ``risk`` is a parity error and the
+    config loader raises :class:`ConfigParityError`.
+    """
+
+    max_candidates_per_scan: int = 25
     max_entries_per_scan: int = 3
-    min_signal_strength: float = 0.5
+    min_signal_strength: float = 0.0
+    # Audit 2026-05-23 §P1-003 — the rest of the live scanner block.
+    enabled: bool = True
+    debug_gate_dump: bool = False
+    scan_interval_seconds: int = 60
+    full_universe_refresh_interval_minutes: int = 5
+    in_play_refresh_interval_seconds: int = 60
+    signal_expiry_seconds: int = 600
+    same_symbol_entries_per_day: int = 1
+    symbol_cooldown_minutes: int = 390
+    require_prior_daily_baseline: bool = True
+    require_fresh_intraday_bar: bool = True
 
 
 #: Live signal gates that must be set when simulation.mode is a real mode and

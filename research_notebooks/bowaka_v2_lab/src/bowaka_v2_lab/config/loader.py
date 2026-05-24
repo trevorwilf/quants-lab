@@ -107,5 +107,40 @@ def load_config(path: str | Path) -> dict[str, Any]:
             f"unknown top-level keys in {cfg_path}: {sorted(unknown)}; "
             f"allowed: {sorted(ALLOWED_TOP_LEVEL_KEYS)}"
         )
+    # Audit 2026-05-23 §P1-003 — ``same_symbol_entries_per_day`` lives under
+    # ``scanner:`` (it is a candidate-gating field per the live contract).
+    # A config that sets it under both ``scanner`` and ``risk`` is ambiguous
+    # — the runtime would otherwise honor whichever the consumer happens to
+    # read; reject up-front instead of letting the mismatch silently shape a
+    # trial's behavior.
+    _assert_same_symbol_entries_unambiguous(expanded, cfg_path=cfg_path)
     expanded["_source_path"] = str(cfg_path)
     return expanded
+
+
+def _assert_same_symbol_entries_unambiguous(
+    cfg: Mapping[str, Any], *, cfg_path: Path
+) -> None:
+    """Refuse a config that sets ``same_symbol_entries_per_day`` in both blocks.
+
+    Audit 2026-05-23 §P1-003. The live contract treats this as a scanner
+    field; the lab schema now models it on :class:`ScannerConfig`. A legacy
+    config that still sets it under ``risk`` is rejected with a clear
+    pointer to the canonical location.
+    """
+    from ..optuna.errors import ConfigParityError
+
+    scanner = cfg.get("scanner") or {}
+    risk = cfg.get("risk") or {}
+    if (
+        isinstance(scanner, dict)
+        and isinstance(risk, dict)
+        and "same_symbol_entries_per_day" in scanner
+        and "same_symbol_entries_per_day" in risk
+    ):
+        raise ConfigParityError(
+            f"config {cfg_path} sets ``same_symbol_entries_per_day`` under BOTH "
+            f"``scanner`` and ``risk``. The live contract treats this as a "
+            f"scanner field — drop the risk entry. See "
+            f"docs/audits/2026-05-23_realism_audit.md §P1-003."
+        )
