@@ -220,3 +220,6 @@ app/outputs/bowaka_v2_lab/
 research_notebooks/bowaka_common/.pytest_cache/
 research_notebooks/bowaka_common/.ruff_cache/
 research_notebooks/bowaka_common/*.egg-info/
+
+
+docs/audits/
