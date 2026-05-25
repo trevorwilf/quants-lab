@@ -104,4 +104,25 @@ def write_universe_artifacts(
     return hashes
 
 
-__all__ = ["write_universe_artifacts"]
+def compute_universe_hashes(
+    universe_by_session: Mapping[_dt.date, Mapping[str, UniverseRecord]],
+) -> dict[_dt.date, str]:
+    """Return ``{session_date: universe_hash}`` without writing parquet/json.
+
+    Used by ``run_backtest(artifact_mode="objective_minimal")`` (speedup §5.1
+    Phase 1) — the objective needs the per-session hash for the run-manifest
+    extras but does not need the snapshot/funnel files. Same hashing as
+    :func:`write_universe_artifacts`; only the disk writes are skipped.
+    """
+    hashes: dict[_dt.date, str] = {}
+    for session_date, records in universe_by_session.items():
+        sd = (
+            session_date
+            if isinstance(session_date, _dt.date)
+            else pd.Timestamp(session_date).date()
+        )
+        hashes[sd] = universe_hash(records)
+    return hashes
+
+
+__all__ = ["compute_universe_hashes", "write_universe_artifacts"]

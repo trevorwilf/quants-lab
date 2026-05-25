@@ -289,6 +289,12 @@ def build_config_from_contract(
             "n_startup_trials": 25,
             "study_name_prefix": f"bowaka_v2_actual_{feed}_{mode}",
             "cost_stress": "conservative",
+            # Speedup report §5.1 / §11.2 Phase 1 — opt-in fast path for the
+            # per-trial fold backtests. Default "full" preserves the legacy
+            # report.json-reading path; Phase 5 flips this to
+            # "objective_minimal" after parity is proven so the per-trial
+            # backtests skip every disk artifact write.
+            "objective_artifact_mode": "full",
             "walkforward": {
                 "train_months": 21,
                 "val_months": 1,

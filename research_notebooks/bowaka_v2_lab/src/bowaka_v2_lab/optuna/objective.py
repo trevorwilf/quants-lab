@@ -313,6 +313,67 @@ def _metric_value(metrics: Iterable[Mapping[str, Any]], name: str, default: Any 
     return default
 
 
+def fold_result_from_backtest_result(
+    fold_id: str,
+    result: Any,
+) -> FoldResult:
+    """Build a :class:`FoldResult` from a :class:`BacktestResult` in memory.
+
+    Speedup report §5.1 / §11.2 Phase 1: when ``run_backtest`` was called with
+    ``artifact_mode="objective_minimal"`` no ``report.json`` exists on disk,
+    so the objective consumes the in-memory result fields directly. The
+    drawdown is recomputed from ``result.daily_equity`` (mark-to-market) —
+    the closed-trade ``summary.max_drawdown_pct`` is deliberately ignored.
+    The fill-rate / quote-coverage / missing-quote-count lookup order
+    matches :func:`fold_result_from_report` exactly: execution_quality_rows
+    first, summary fallback.
+    """
+    summary = dict(result.summary or {})
+    eq_rows = list(getattr(result, "execution_quality_rows", []) or [])
+    daily_rows = list(getattr(result, "daily_equity", []) or [])
+    bankroll = [
+        float(r.get("bankroll", 0.0))
+        for r in daily_rows
+        if isinstance(r, Mapping) and r.get("bankroll") is not None
+    ]
+
+    net_return = summary.get("net_return_pct", 0.0)
+    n_trades = summary.get("n_trades", 0)
+    fill_rate = _metric_value(eq_rows, "fill_rate", summary.get("fill_rate", 1.0))
+    quote_cov_pct = _metric_value(
+        eq_rows, "historical_quote_coverage_pct",
+        summary.get("historical_quote_coverage_pct", 100.0),
+    )
+    missing_quote = _metric_value(
+        eq_rows, "missing_quote_count", summary.get("missing_quote_count", 0)
+    )
+
+    dd = mark_to_market_drawdown(bankroll)
+    wd = worst_day_loss(bankroll)
+    return FoldResult(
+        fold_id=fold_id,
+        net_return=float(net_return or 0.0),
+        max_drawdown=dd,
+        turnover=float(summary.get("turnover", 0.0) or 0.0),
+        concentration=float(summary.get("concentration", 0.0) or 0.0),
+        n_trades=int(n_trades or 0),
+        ambiguous_bar_count=int(summary.get("ambiguous_bar_count", 0) or 0),
+        missing_quote_count=int(missing_quote or 0),
+        worst_day_loss=wd,
+        quote_coverage=float(quote_cov_pct or 0.0) / 100.0,
+        fill_rate=float(fill_rate if fill_rate is not None else 1.0),
+        metrics={
+            "net_return_pct": float(net_return or 0.0),
+            "mtm_max_drawdown_pct": dd,
+            "worst_day_loss_pct": wd,
+            "n_trades": int(n_trades or 0),
+            "fill_rate": float(fill_rate if fill_rate is not None else 1.0),
+            "historical_quote_coverage_pct": float(quote_cov_pct or 0.0),
+            "missing_quote_count": int(missing_quote or 0),
+        },
+    )
+
+
 def fold_result_from_report(
     fold_id: str,
     report: Mapping[str, Any],
@@ -480,6 +541,7 @@ __all__ = [
     "validate_metric_units",
     "mark_to_market_drawdown",
     "worst_day_loss",
+    "fold_result_from_backtest_result",
     "fold_result_from_report",
     "fold_penalties",
     "fold_score",

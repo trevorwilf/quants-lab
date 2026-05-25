@@ -16,7 +16,7 @@ import datetime as _dt
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Optional
+from typing import Any, Callable, Iterable, Literal, Mapping, Optional
 
 import pandas as pd
 
@@ -68,6 +68,26 @@ class BacktestResult:
     decisions: list[dict]
     candidate_events: list[dict]
     portfolio: Portfolio
+
+    # Speedup report §5.1 / §11.2 Phase 1 — the in-memory artifacts the
+    # walk-forward objective consumes. Populated whether artifact_mode is
+    # ``full`` or ``objective_minimal`` so a single converter
+    # (``fold_result_from_backtest_result``) works for both modes without
+    # re-reading parquet/json. ``None`` only when the field is not collected
+    # for a given run (defensive default).
+    daily_equity: list[dict] = field(default_factory=list)
+    execution_quality_rows: list[dict] = field(default_factory=list)
+    quote_coverage_rows: list[dict] = field(default_factory=list)
+    orders: list[dict] = field(default_factory=list)
+    fills: list[dict] = field(default_factory=list)
+    positions: list[dict] = field(default_factory=list)
+    exit_analysis: Optional[dict] = None
+    #: ``ProfileCounters.snapshot()`` when counters were active during the
+    #: run; ``None`` otherwise (the default).
+    profile_counters: Optional[dict] = None
+    #: The ``artifact_mode`` the run executed in — useful for downstream
+    #: assertions / tests.
+    artifact_mode: str = "full"
 
 
 _REQUIRED_ARTIFACTS = (
@@ -486,8 +506,22 @@ def run_backtest(
     paths: Optional[BowakaV2Paths] = None,
     run_dir: Optional[Path] = None,
     code_paths_for_manifest: Optional[list[Path]] = None,
+    # Speedup report §5.1 / §11.2 Phase 1 — ``"objective_minimal"`` runs the
+    # full simulation/event/portfolio/fill/exit/daily-equity logic but skips
+    # every disk artifact write (parquet, jsonl, json, markdown, the
+    # promotion checklist, the suitability decision, the report renderer)
+    # — only the in-memory :class:`BacktestResult` is returned. Default
+    # ``"full"`` preserves every existing call site verbatim.
+    artifact_mode: Literal["full", "objective_minimal"] = "full",
 ) -> BacktestResult:
-    """Run a complete v2 backtest and write the 16-file artifact contract."""
+    """Run a complete v2 backtest.
+
+    ``artifact_mode="full"`` (default) writes the 16-file artifact contract
+    and runs the promotion checklist + suitability decision.
+    ``artifact_mode="objective_minimal"`` runs the same simulation but
+    suppresses every disk write — used by the Optuna walk-forward objective
+    where artifacts are not consumed. Both modes populate the in-memory
+    :class:`BacktestResult` with everything the objective needs."""
     if paths is None:
         repo_root = Path(__file__).resolve().parents[5]
         paths = BowakaV2Paths.default(repo_root)
@@ -562,39 +596,55 @@ def run_backtest(
         daily_cache_by_session=daily_cache_by_session,
         session_minute_supplier=session_minute_supplier,
     )
-    atomic_write_json(run_dir / "data_quality_report.json", data_quality_report)
+    if artifact_mode == "full":
+        atomic_write_json(run_dir / "data_quality_report.json", data_quality_report)
     startup_dq_failure = evaluate_startup_dq(
         data_quality_report, simulation_mode=sim_cfg.mode
     )
     if startup_dq_failure is not None:
         # Record the precise rejection reason in the run manifest, then abort.
         feed = (cfg_dict.get("market_data") or {}).get("feed", "iex")
-        failure_manifest = build_run_manifest(
-            strategy_id="bowaka_v2",
-            strategy_version=str(cfg_dict.get("strategy_version", "0.1.0")),
-            run_id=run_id, config_hash=strategy_hash, dataset_hash=dataset_hash,
-            code_manifest_hash="(aborted before code manifest)",
-            run_kind="backtest", feed=feed,
-            extras={
-                "run_hash": run_hash,
-                "simulation": sim_cfg.model_dump(),
-                "startup_dq_failure": startup_dq_failure,
-                "dataset_lineage": {
-                    k: v for k, v in dataset_lineage.items() if k != "lake_manifest"
+        if artifact_mode == "full":
+            failure_manifest = build_run_manifest(
+                strategy_id="bowaka_v2",
+                strategy_version=str(cfg_dict.get("strategy_version", "0.1.0")),
+                run_id=run_id, config_hash=strategy_hash, dataset_hash=dataset_hash,
+                code_manifest_hash="(aborted before code manifest)",
+                run_kind="backtest", feed=feed,
+                extras={
+                    "run_hash": run_hash,
+                    "simulation": sim_cfg.model_dump(),
+                    "startup_dq_failure": startup_dq_failure,
+                    "dataset_lineage": {
+                        k: v for k, v in dataset_lineage.items() if k != "lake_manifest"
+                    },
                 },
-            },
-        )
-        atomic_write_json(run_dir / "run_manifest.json", failure_manifest)
+            )
+            atomic_write_json(run_dir / "run_manifest.json", failure_manifest)
         raise RuntimeError(startup_dq_failure)
 
     # Config-parity diff vs the frozen live contract (realism Phase 1). Written
     # on every run; in intended_realism mode an unannotated `mismatch` aborts
     # the run at startup, before the run loop produces any further artifacts.
+    # In objective_minimal mode the diff is computed only when the realism
+    # gate is active (so unannotated mismatches still abort) — the file write
+    # itself is suppressed.
     if contract_available():
-        _diff_path, _diff_rows = write_config_diff(
-            run_dir, cfg_dict, load_actual_contract(),
-            config_path=cfg_dict.get("_source_path"),
-        )
+        if artifact_mode == "full":
+            _diff_path, _diff_rows = write_config_diff(
+                run_dir, cfg_dict, load_actual_contract(),
+                config_path=cfg_dict.get("_source_path"),
+            )
+        else:
+            # objective_minimal — compute the diff in-memory only (no file
+            # write) so the realism unannotated-mismatch gate still fires.
+            from ..config.config_diff import build_config_diff, load_parity_overrides
+
+            _overrides = load_parity_overrides(cfg_dict.get("_source_path"))
+            _diff_rows = build_config_diff(
+                cfg_dict, load_actual_contract(),
+                intentional_overrides=_overrides,
+            )
         if sim_cfg.mode == "intended_realism":
             _unannotated = unannotated_mismatches(_diff_rows)
             if _unannotated:
@@ -604,7 +654,7 @@ def run_backtest(
                     f"{sorted(_unannotated)}. Reconcile the config, or declare each as an "
                     f"intentional override in the parity sidecar (<config>.parity.yml)."
                 )
-    else:
+    elif artifact_mode == "full":
         # No frozen contract on this host — emit a placeholder so the artifact
         # contract still holds. Realism mode cannot be parity-gated; that is
         # surfaced rather than silently skipped.
@@ -1258,7 +1308,14 @@ def run_backtest(
     # from the funnel; for legacy snapshots it is the snapshot's own hash.
     universe_hashes_by_session: dict[str, str] = {}
     if pit_records_by_session:
-        pit_hashes = write_universe_artifacts(run_dir, pit_records_by_session)
+        if artifact_mode == "full":
+            pit_hashes = write_universe_artifacts(run_dir, pit_records_by_session)
+        else:
+            # objective_minimal — compute the per-session universe hashes
+            # in-memory without writing the universe artifact parquet files.
+            from ..universe.persist import compute_universe_hashes
+
+            pit_hashes = compute_universe_hashes(pit_records_by_session)
         for sd, uhash in pit_hashes.items():
             key = sd.isoformat() if isinstance(sd, _dt.date) else str(sd)
             universe_hashes_by_session[key] = uhash
@@ -1403,42 +1460,12 @@ def run_backtest(
         },
     )
 
-    # Write all 16 artifacts (atomic). data_quality_report.json is written
-    # earlier (before the run loop) so the realism DQ gate can fail closed; it
-    # is not re-written here.
-    atomic_write_json(run_dir / "run_manifest.json", run_man)
-    atomic_write_json(run_dir / "config_snapshot.json", cfg_dict)
-    atomic_write_json(run_dir / "dataset_manifest.json", ds_man)
-    atomic_write_json(run_dir / "code_manifest.json", code_man)
-    if all_candidate_events:
-        append_jsonl(run_dir / "candidate_events.jsonl", all_candidate_events)
-        write_parquet(run_dir / "candidate_events.parquet", pd.json_normalize(all_candidate_events, sep="."))
-    else:
-        (run_dir / "candidate_events.jsonl").write_text("", encoding="utf-8")
-        write_parquet(run_dir / "candidate_events.parquet", pd.DataFrame({"symbol": []}))
-    # Realism Phase 4: per-(scan_ts, symbol) gate dump. With full intraday
-    # replay this is ~scans x universe rows; when it grows past the partition
-    # threshold the rows are also written partitioned per session date under
-    # scanner/gate_dump_by_session/ to keep any single file bounded.
-    _write_gate_dump(run_dir, all_gate_dump)
-    write_parquet(run_dir / "entry_decisions.parquet",
-                  pd.json_normalize(all_decisions, sep=".") if all_decisions else pd.DataFrame({"symbol": []}))
-    write_parquet(run_dir / "orders.parquet",
-                  pd.DataFrame(all_orders) if all_orders else pd.DataFrame({"parent_order_id": []}))
-    write_parquet(run_dir / "fills.parquet",
-                  pd.DataFrame(all_fills) if all_fills else pd.DataFrame({"parent_order_id": []}))
-    write_parquet(run_dir / "positions.parquet",
-                  pd.DataFrame(all_positions) if all_positions else pd.DataFrame({"symbol": []}))
-    write_parquet(run_dir / "trades.parquet",
-                  pd.DataFrame(all_trades) if all_trades else pd.DataFrame({"symbol": []}))
-    write_parquet(run_dir / "daily_equity.parquet",
-                  pd.DataFrame(daily_equity) if daily_equity else pd.DataFrame({"session_date": []}))
-    # Realism Phase 6: execution_quality.parquet — spread / quote-age / slippage
-    # distributions, fill + partial-fill rates, missing-quote count, liquidity
-    # participation, fees paid and the quote source mix. Built from the
-    # per-candidate fill records; the legacy broker-reject / ambiguous-bar
-    # counters are appended so existing readers still find them.
+    # Build the in-memory execution-quality rows + exit analysis — these are
+    # needed by the BacktestResult fields the Optuna objective consumes, and
+    # also for the finalize quote-coverage gate below. They are the SAME
+    # objects subsequently written to disk in full mode.
     from ..reports.execution_quality import build_execution_quality_rows
+    from ..reports.exit_analysis import build_exit_analysis
 
     eq_rows = build_execution_quality_rows(
         all_fill_records, missing_quote_count=missing_quote_count,
@@ -1452,35 +1479,6 @@ def run_backtest(
     eq_rows.append({
         "metric": "historical_quote_coverage_pct", "value": round(quote_cov_pct, 4),
     })
-    write_parquet(run_dir / "execution_quality.parquet", pd.DataFrame(eq_rows))
-
-    # Realism remediation 2 Phase 4: per-event dispatch log artifact. The
-    # canonical roll-up is written for every run (it is in the required
-    # artifact contract); the smoke path drives the legacy daily-bar exit
-    # driver and produces no events, so its canonical file is an empty parquet
-    # with the column schema preserved. Sessions whose row count exceeded
-    # ``_EVENTS_PER_SESSION_CAP`` are additionally written FULL to
-    # ``events/by_session/<session>.parquet`` so no canonical file is huge.
-    events_dir = run_dir / "events"
-    events_dir.mkdir(parents=True, exist_ok=True)
-    if all_event_log_rows:
-        write_parquet(events_dir / "events.parquet", pd.DataFrame(all_event_log_rows))
-    else:
-        write_parquet(events_dir / "events.parquet", pd.DataFrame({
-            "timestamp": [], "event_type": [], "session_date": [],
-            "position_id": [], "parent_order_id": [], "symbol": [],
-        }))
-    for sk, rows in event_log_by_session.items():
-        if len(rows) > _EVENTS_PER_SESSION_CAP:
-            partition_dir = events_dir / "by_session"
-            partition_dir.mkdir(parents=True, exist_ok=True)
-            write_parquet(partition_dir / f"{sk}.parquet", pd.DataFrame(rows))
-
-    # Realism Phase 7: exit-lifecycle analysis artifact — exit-reason
-    # distribution, exit-slippage distribution and per-trade MFE/MAE. Written as
-    # exit_analysis.json (machine-readable) and surfaced in summary.json so the
-    # report renderer + downstream readers can find the distribution.
-    from ..reports.exit_analysis import build_exit_analysis
 
     exit_analysis = build_exit_analysis(all_trades)
     exit_analysis["signal_fade_telemetry_count"] = len(all_fade_telemetry)
@@ -1495,32 +1493,36 @@ def run_backtest(
         }
         for t in all_fade_telemetry
     ]
-    atomic_write_json(run_dir / "exit_analysis.json", exit_analysis)
+    # Surface the exit-analysis summary fields BEFORE the finalize gate so the
+    # summary is identical regardless of artifact_mode.
     summary["exit_reason_distribution"] = exit_analysis["exit_reason_distribution"]["counts"]
     summary["ambiguous_stop_wins"] = (
         exit_analysis["exit_reason_distribution"]["ambiguous_stop_wins"]
     )
     summary["exit_slippage_bps"] = exit_analysis["exit_slippage_bps"]
     summary["signal_fade_telemetry_count"] = len(all_fade_telemetry)
-    atomic_write_json(run_dir / "summary.json", summary)
 
-    # ---- Realism Phase 6: finalize-step quote-coverage gate ----------------
+    # ---- Realism Phase 6: finalize-step quote-coverage gate (always runs) ----
     # In intended_realism mode the run FAILS at finalize when the fraction of
     # (symbol, scan_ts) pairs backed by a historical quote is below
-    # simulation.min_quote_coverage_pct. The coverage check is appended to the
-    # already-written data_quality_report.json so the failure is recorded; the
-    # run manifest's startup_dq_failure stays None (this is a finalize failure,
-    # distinct from the startup gate). This runs BEFORE the report is rendered
-    # so the report reflects the complete, finalized data-quality report.
+    # simulation.min_quote_coverage_pct. The check is appended to the (in-memory
+    # OR on-disk) data-quality report; the run manifest's startup_dq_failure
+    # stays None (this is a finalize failure, distinct from the startup gate).
     quote_cov_check = build_quote_coverage_check(
         quote_coverage_rows=quote_coverage_rows,
         min_quote_coverage_pct=sim_cfg.min_quote_coverage_pct,
         simulation_mode=sim_cfg.mode,
     )
-    try:
-        _dq_doc = json.loads((run_dir / "data_quality_report.json").read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — defensive; the report was written earlier
-        _dq_doc = {"checks": []}
+    if artifact_mode == "full":
+        try:
+            _dq_doc = json.loads((run_dir / "data_quality_report.json").read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — defensive; the report was written earlier
+            _dq_doc = {"checks": []}
+    else:
+        # objective_minimal — the pre-loop DQ json was not written; clone the
+        # in-memory report so we can append the finalize check identically.
+        _dq_doc = dict(data_quality_report)
+        _dq_doc["checks"] = list(_dq_doc.get("checks") or [])
     _dq_doc.setdefault("checks", []).append(quote_cov_check)
     if quote_cov_check["status"] == "fail":
         _dq_doc["failed"] = int(_dq_doc.get("failed", 0)) + 1
@@ -1532,36 +1534,109 @@ def run_backtest(
         _dq_doc["warned"] = int(_dq_doc.get("warned", 0)) + 1
     else:
         _dq_doc["passed"] = int(_dq_doc.get("passed", 0)) + 1
-    atomic_write_json(run_dir / "data_quality_report.json", _dq_doc)
     if sim_cfg.mode == "intended_realism" and quote_cov_check["status"] == "fail":
         raise RuntimeError(
             "intended_realism run aborted at finalize: "
             + str(quote_cov_check["evidence"].get("detail", "quote_coverage failed"))
         )
 
-    # ---- Realism Phase 8: substantive report renderer ---------------------
-    # report.md (human) + report.json (machine-readable) are assembled entirely
-    # from the artifacts written above — nothing is recomputed. The renderer
-    # carries the full Phase 0-7 section set; the Phase-4 stub language is gone.
-    from ..reports.render_run_report import write_run_report
-    from ..promotion.checklist import run_all_checklists
-    from ..promotion.suitability import decide_suitability
+    # The remaining work — artifact writes, report renderer, promotion
+    # checklist, suitability decision — runs only in full mode. The in-memory
+    # state collected above is returned in :class:`BacktestResult` and the
+    # Optuna objective scores from it directly (speedup §5.1 / §11.2 Phase 1).
+    if artifact_mode == "full":
+        # Write all artifacts (atomic). data_quality_report.json was written
+        # earlier (before the run loop) so the realism DQ gate could fail
+        # closed; here it is rewritten with the finalize quote-coverage row.
+        atomic_write_json(run_dir / "run_manifest.json", run_man)
+        atomic_write_json(run_dir / "config_snapshot.json", cfg_dict)
+        atomic_write_json(run_dir / "dataset_manifest.json", ds_man)
+        atomic_write_json(run_dir / "code_manifest.json", code_man)
+        if all_candidate_events:
+            append_jsonl(run_dir / "candidate_events.jsonl", all_candidate_events)
+            write_parquet(run_dir / "candidate_events.parquet", pd.json_normalize(all_candidate_events, sep="."))
+        else:
+            (run_dir / "candidate_events.jsonl").write_text("", encoding="utf-8")
+            write_parquet(run_dir / "candidate_events.parquet", pd.DataFrame({"symbol": []}))
+        # Realism Phase 4: per-(scan_ts, symbol) gate dump. With full intraday
+        # replay this is ~scans x universe rows; when it grows past the
+        # partition threshold the rows are also written partitioned per session
+        # date under scanner/gate_dump_by_session/ to keep any single file
+        # bounded.
+        _write_gate_dump(run_dir, all_gate_dump)
+        write_parquet(run_dir / "entry_decisions.parquet",
+                      pd.json_normalize(all_decisions, sep=".") if all_decisions else pd.DataFrame({"symbol": []}))
+        write_parquet(run_dir / "orders.parquet",
+                      pd.DataFrame(all_orders) if all_orders else pd.DataFrame({"parent_order_id": []}))
+        write_parquet(run_dir / "fills.parquet",
+                      pd.DataFrame(all_fills) if all_fills else pd.DataFrame({"parent_order_id": []}))
+        write_parquet(run_dir / "positions.parquet",
+                      pd.DataFrame(all_positions) if all_positions else pd.DataFrame({"symbol": []}))
+        write_parquet(run_dir / "trades.parquet",
+                      pd.DataFrame(all_trades) if all_trades else pd.DataFrame({"symbol": []}))
+        write_parquet(run_dir / "daily_equity.parquet",
+                      pd.DataFrame(daily_equity) if daily_equity else pd.DataFrame({"session_date": []}))
+        write_parquet(run_dir / "execution_quality.parquet", pd.DataFrame(eq_rows))
 
-    _checklist_results = run_all_checklists(run_dir)
-    _tier = decide_suitability(run_dir, _checklist_results)
-    # Realism remediation 2 Phase 0: stamp the mechanical suitability_tier onto
-    # the run manifest (simulation_contract was stamped above). The report
-    # renderer already surfaces both top-level fields in report.json.
-    run_man["suitability_tier"] = _tier
-    atomic_write_json(run_dir / "run_manifest.json", run_man)
-    write_run_report(
-        run_dir,
-        suitability=_tier,
-        checklist_results=_checklist_results,
-    )
+        events_dir = run_dir / "events"
+        events_dir.mkdir(parents=True, exist_ok=True)
+        if all_event_log_rows:
+            write_parquet(events_dir / "events.parquet", pd.DataFrame(all_event_log_rows))
+        else:
+            write_parquet(events_dir / "events.parquet", pd.DataFrame({
+                "timestamp": [], "event_type": [], "session_date": [],
+                "position_id": [], "parent_order_id": [], "symbol": [],
+            }))
+        for sk, rows in event_log_by_session.items():
+            if len(rows) > _EVENTS_PER_SESSION_CAP:
+                partition_dir = events_dir / "by_session"
+                partition_dir.mkdir(parents=True, exist_ok=True)
+                write_parquet(partition_dir / f"{sk}.parquet", pd.DataFrame(rows))
+
+        atomic_write_json(run_dir / "exit_analysis.json", exit_analysis)
+        atomic_write_json(run_dir / "summary.json", summary)
+        atomic_write_json(run_dir / "data_quality_report.json", _dq_doc)
+
+        # ---- Realism Phase 8: substantive report renderer ---------------------
+        # report.md + report.json are assembled from the artifacts written above
+        # — nothing is recomputed.
+        from ..reports.render_run_report import write_run_report
+        from ..promotion.checklist import run_all_checklists
+        from ..promotion.suitability import decide_suitability
+
+        _checklist_results = run_all_checklists(run_dir)
+        _tier = decide_suitability(run_dir, _checklist_results)
+        run_man["suitability_tier"] = _tier
+        atomic_write_json(run_dir / "run_manifest.json", run_man)
+        write_run_report(
+            run_dir,
+            suitability=_tier,
+            checklist_results=_checklist_results,
+        )
+
+    # Capture the active ProfileCounters snapshot (if any) into the result —
+    # exposed on BacktestResult for the benchmark script. Safe under no-context.
+    from ..utils.profile_counters import counters_enabled as _ce
+    from ..utils.profile_counters import current_profile_counters as _cc
+
+    profile_snapshot: Optional[dict] = None
+    if _ce():
+        try:
+            profile_snapshot = _cc().snapshot()
+        except LookupError:
+            profile_snapshot = None
 
     return BacktestResult(
         run_id=run_id, run_dir=run_dir, summary=summary,
         trades=all_trades, decisions=all_decisions,
         candidate_events=all_candidate_events, portfolio=portfolio,
+        daily_equity=list(daily_equity),
+        execution_quality_rows=list(eq_rows),
+        quote_coverage_rows=list(quote_coverage_rows),
+        orders=list(all_orders),
+        fills=list(all_fills),
+        positions=list(all_positions),
+        exit_analysis=dict(exit_analysis),
+        profile_counters=profile_snapshot,
+        artifact_mode=artifact_mode,
     )
