@@ -386,6 +386,14 @@ class OptunaConfig(_StrictBase):
     n_startup_trials: Optional[int] = None
     study_name_prefix: str = "bowaka_v2"
     cost_stress: Literal["base", "conservative", "severe"] = "conservative"
+    #: Speedup report §5.1 / §11.2 Phase 1 — opt-in fast path: when set to
+    #: ``"objective_minimal"`` the per-trial fold backtests skip every disk
+    #: artifact write (parquet, jsonl, json, markdown, promotion checklist,
+    #: suitability decision) and the objective scores from the in-memory
+    #: :class:`BacktestResult`. Default ``"full"`` preserves the legacy
+    #: ``report.json``-reading path; Phase 5 flips this on for the actual
+    #: optuna configs after parity is proven.
+    objective_artifact_mode: Literal["full", "objective_minimal"] = "full"
     walkforward: dict[str, Any] = Field(default_factory=dict)
     search_space_overrides: dict[str, Any] = Field(default_factory=dict)
 

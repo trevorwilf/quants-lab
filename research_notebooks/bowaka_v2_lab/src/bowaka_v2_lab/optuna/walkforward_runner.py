@@ -65,6 +65,7 @@ from .objective import (
     DEFAULT_PENALTY_WEIGHTS,
     FoldResult,
     compute_objective,
+    fold_result_from_backtest_result,
     fold_result_from_report,
     fold_score,
 )
@@ -469,6 +470,70 @@ def _run_fold_backtest(
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
+def _run_fold_backtest_objective(
+    cfg: dict,
+    *,
+    val_start: _dt.date,
+    val_end: _dt.date,
+    lake_root: Any,
+    feed: str,
+    symbols: list[str],
+    paths: BowakaV2Paths,
+) -> Optional[Any]:
+    """Run one fold backtest in ``artifact_mode="objective_minimal"`` and
+    return the in-memory :class:`BacktestResult` (or ``None`` for an empty
+    session window). Speedup report §5.1 / §11.2 Phase 1.
+
+    Identical wiring to :func:`_run_fold_backtest` (same PIT universe, same
+    daily cache, same suppliers, same scan cadence) — the ONLY difference is
+    that ``run_backtest`` is called with ``artifact_mode="objective_minimal"``
+    so disk-side artifact writes are suppressed. The run still uses a temp
+    ``run_dir`` (the backtester occasionally writes early-abort manifests on
+    DQ failure even in minimal mode); cleanup happens in ``finally``.
+    """
+    sessions = _xnys_sessions(val_start, val_end)
+    if not sessions:
+        return None
+    from bowaka_common.marketdata import MarketDataStore
+
+    minute_supplier, daily_supplier = make_lake_suppliers(
+        lake_root, feed=feed,
+        intraday_window_policy=resolve_intraday_window_policy(cfg),
+    )
+    quote_supplier = make_quote_supplier(
+        lake_root, feed=feed,
+        default_max_age_seconds=float(
+            (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
+        ),
+    )
+    forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
+    universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
+    daily_cache: dict[_dt.date, Any] = {}
+    for s in sessions:
+        sess_syms = eligible_symbols(universe.get(s, {})) or symbols
+        daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
+    run_dir = Path(tempfile.mkdtemp(prefix="bowaka_wf_fold_min_"))
+    try:
+        result = run_backtest(
+            cfg=cfg,
+            sessions=sessions,
+            scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+            universe_snapshot_by_session=universe,
+            daily_cache_by_session=daily_cache,
+            minute_bars_supplier=minute_supplier,
+            daily_bars_supplier=daily_supplier,
+            quote_supplier=quote_supplier,
+            forward_minute_supplier=forward_minute_supplier,
+            initial_bankroll=100_000.0,
+            paths=paths,
+            run_dir=run_dir,
+            artifact_mode="objective_minimal",
+        )
+        return result
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
 def _fold_result(fold_id: str, summary: dict) -> FoldResult:
     """Build a realistic :class:`FoldResult` from a fold's run summary.
 
@@ -516,6 +581,7 @@ def _run_validation_folds(
     paths: BowakaV2Paths,
     holdout_guard: HoldoutGuard,
     log: logging.Logger,
+    objective_artifact_mode: str = "full",
 ) -> list[FoldResult]:
     """Run a real backtest over every walk-forward validation window.
 
@@ -523,6 +589,12 @@ def _run_validation_folds(
     best-trial neighbourhood robustness sweep. The :class:`HoldoutGuard` is
     asserted per fold so tuning can never read the final-holdout window; a fold
     that raises degrades to :func:`_degraded_fold` rather than aborting.
+
+    Speedup report §5.1 / §11.2 Phase 1: when ``objective_artifact_mode ==
+    "objective_minimal"`` the per-fold backtest skips every disk artifact
+    write and the converter is :func:`fold_result_from_backtest_result`.
+    Default ``"full"`` preserves the legacy ``report.json``-reading path,
+    so neighbor reruns and any non-objective caller stay byte-stable.
     """
     folds: list[FoldResult] = []
     # Audit 2026-05-23 §P0-001: structural exceptions (HoldoutGuardError,
@@ -537,13 +609,27 @@ def _run_validation_folds(
         holdout_guard.assert_can_read(split.val_start, split.val_end)
         fold_id = f"f{i}_{split.val_start.isoformat()}"
         try:
-            summary = _run_fold_backtest(
-                trial_cfg,
-                val_start=split.val_start, val_end=split.val_end,
-                lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
-                return_report=True,
-            )
-            folds.append(_fold_result(fold_id, summary))
+            if objective_artifact_mode == "objective_minimal":
+                result = _run_fold_backtest_objective(
+                    trial_cfg,
+                    val_start=split.val_start, val_end=split.val_end,
+                    lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
+                )
+                if result is None:
+                    # An empty session window — legacy path returns empty
+                    # summary; build a zero-trade degraded result so the
+                    # fold still records in the trial.
+                    folds.append(_fold_result(fold_id, {}))
+                else:
+                    folds.append(fold_result_from_backtest_result(fold_id, result))
+            else:
+                summary = _run_fold_backtest(
+                    trial_cfg,
+                    val_start=split.val_start, val_end=split.val_end,
+                    lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
+                    return_report=True,
+                )
+                folds.append(_fold_result(fold_id, summary))
         except structural:
             raise
         except Exception as exc:  # noqa: BLE001 — non-structural strategy/eval error may degrade
@@ -588,6 +674,12 @@ def make_walkforward_objective(
     dataset_hash: Optional[str] = None,
     config_hash: Optional[str] = None,
     code_hash: Optional[str] = None,
+    # Speedup report §5.1 / §11.2 Phase 1 — opt-in fast path: skip every
+    # disk artifact write in the per-trial fold backtests. Default ``"full"``
+    # preserves the legacy ``report.json``-reading flow until Phase 5 (where
+    # the actual optuna configs flip the flag on after the Phase 1 parity
+    # tests prove identical FoldResults).
+    objective_artifact_mode: str = "full",
 ) -> Callable[[Any], float]:
     """Build the Optuna objective: median fold score over real per-fold backtests.
 
@@ -620,6 +712,7 @@ def make_walkforward_objective(
                 apply_trial_params(base_cfg, params), plan,
                 lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
                 holdout_guard=holdout_guard, log=log,
+                objective_artifact_mode=objective_artifact_mode,
             )
             result = compute_objective(folds)
             trial.set_user_attr("fold_scores", result.fold_scores)
@@ -1387,6 +1480,24 @@ def run_walkforward_study(
             log.warning("incumbent baseline requested but no contract available; "
                         "trial 0 will be a regular TPE-startup sample")
 
+    # Speedup report §5.1 / §11.2 Phase 1 — config-driven opt-in flag for the
+    # objective-minimal (no disk artifact) fold path. Default ``"full"``
+    # preserves byte-stable behaviour; Phase 5 flips the actual-IEX/SIP
+    # configs to ``"objective_minimal"`` after parity is proven.
+    objective_artifact_mode = str(
+        (cfg.get("optuna") or {}).get("objective_artifact_mode", "full")
+    )
+    if objective_artifact_mode not in ("full", "objective_minimal"):
+        raise OptunaStudyInvalidError(
+            f"optuna.objective_artifact_mode must be 'full' or 'objective_minimal', "
+            f"got {objective_artifact_mode!r}"
+        )
+    if objective_artifact_mode == "objective_minimal":
+        log.info(
+            "objective_artifact_mode=objective_minimal — per-trial fold "
+            "backtests skip disk artifact writes (speedup §5.1 / §11.2 Phase 1)"
+        )
+
     objective = make_walkforward_objective(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
         paths=paths, holdout_guard=holdout_guard, log=log,
@@ -1395,6 +1506,7 @@ def run_walkforward_study(
         dataset_hash=dataset_hash,
         config_hash=lab_config_hash,
         code_hash=code_hash,
+        objective_artifact_mode=objective_artifact_mode,
     )
     # Audit 2026-05-23 §P0-001 — a structural exception escaping the trial
     # must abort the study with a written failed-status artifact rather than
