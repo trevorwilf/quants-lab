@@ -295,6 +295,11 @@ def build_config_from_contract(
             # "objective_minimal" after parity is proven so the per-trial
             # backtests skip every disk artifact write.
             "objective_artifact_mode": "full",
+            # Speedup report §5.3 / §11.2 Phase 3 — opt-in LRU-cached
+            # supplier adapter. Default False preserves the legacy direct-
+            # MarketDataStore path; Phase 5 flips this to True after Phase 3
+            # parity is proven.
+            "cached_suppliers": False,
             "walkforward": {
                 "train_months": 21,
                 "val_months": 1,

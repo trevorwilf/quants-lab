@@ -24,6 +24,10 @@ from typing import Any, Callable, Mapping, Optional
 import pandas as pd
 
 from ..config.paths import BowakaV2Paths
+from ..data.cached_suppliers import (
+    make_cached_lake_suppliers,
+    make_cached_supplier_callables,
+)
 from ..data.suppliers import (
     build_daily_cache_from_lake,
     make_forward_minute_supplier,
@@ -123,10 +127,17 @@ def _build_one_fold_context(
     symbols: tuple[str, ...],
     paths: BowakaV2Paths,
     holdout_guard: HoldoutGuard,
+    cached_suppliers: bool = False,
 ) -> Optional[FoldRuntimeContext]:
     """Build a :class:`FoldRuntimeContext` for one ``(val_start, val_end)``
     window. Returns ``None`` for an empty session window (so the caller can
-    skip the fold rather than carrying an empty context)."""
+    skip the fold rather than carrying an empty context).
+
+    Speedup report §5.3 / §11.2 Phase 3 — when ``cached_suppliers`` is
+    ``True`` the per-fold supplier callables are backed by
+    :class:`CachedSessionMarketData` (LRU partition cache, identical
+    boundary semantics). Default ``False`` preserves the legacy path.
+    """
     from bowaka_common.marketdata import MarketDataStore
 
     sessions = calendar_sessions_half_open(val_start, val_end)
@@ -134,16 +145,28 @@ def _build_one_fold_context(
         return None
     cfg = dict(base_cfg)
     intraday_policy = resolve_intraday_window_policy(cfg)
-    minute_sup, daily_sup = make_lake_suppliers(
-        lake_root, feed=feed, intraday_window_policy=intraday_policy,
+    quote_max_age = float(
+        (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
     )
-    quote_sup = make_quote_supplier(
-        lake_root, feed=feed,
-        default_max_age_seconds=float(
-            (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
-        ),
-    )
-    forward_sup = make_forward_minute_supplier(lake_root, feed=feed)
+    if cached_suppliers:
+        adapter = make_cached_lake_suppliers(
+            lake_root, feed=feed,
+            intraday_window_policy=intraday_policy,
+            default_max_age_seconds=quote_max_age,
+        )
+        callables = make_cached_supplier_callables(adapter)
+        minute_sup = callables["minute"]
+        daily_sup = callables["daily"]
+        quote_sup = callables["quote"]
+        forward_sup = callables["forward_minute"]
+    else:
+        minute_sup, daily_sup = make_lake_suppliers(
+            lake_root, feed=feed, intraday_window_policy=intraday_policy,
+        )
+        quote_sup = make_quote_supplier(
+            lake_root, feed=feed, default_max_age_seconds=quote_max_age,
+        )
+        forward_sup = make_forward_minute_supplier(lake_root, feed=feed)
     universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
     daily_cache: dict[_dt.date, pd.DataFrame] = {}
     eligible: dict[_dt.date, tuple[str, ...]] = {}
@@ -182,12 +205,16 @@ def build_fold_contexts(
     symbols: list[str] | tuple[str, ...],
     paths: BowakaV2Paths,
     holdout_guard: HoldoutGuard,
+    cached_suppliers: bool = False,
 ) -> tuple[Optional[FoldRuntimeContext], ...]:
     """Build one :class:`FoldRuntimeContext` per validation split.
 
     Each entry is ``None`` when the corresponding split has no XNYS sessions
     in its half-open window — the per-trial loop still records the fold (as
     an empty result) but skips the backtest.
+
+    ``cached_suppliers=True`` opts each context's supplier callables into
+    the Phase 3 LRU-cached adapter (default ``False``).
     """
     syms = tuple(symbols)
     contexts: list[Optional[FoldRuntimeContext]] = []
@@ -198,6 +225,7 @@ def build_fold_contexts(
             val_start=split.val_start, val_end=split.val_end,
             base_cfg=base_cfg, lake_root=lake_root, feed=feed,
             symbols=syms, paths=paths, holdout_guard=holdout_guard,
+            cached_suppliers=cached_suppliers,
         )
         contexts.append(ctx)
     return tuple(contexts)
@@ -212,6 +240,7 @@ def build_holdout_context(
     symbols: list[str] | tuple[str, ...],
     paths: BowakaV2Paths,
     holdout_guard: HoldoutGuard,
+    cached_suppliers: bool = False,
 ) -> Optional[FoldRuntimeContext]:
     """Build a :class:`FoldRuntimeContext` for the final-holdout window."""
     return _build_one_fold_context(
@@ -220,6 +249,7 @@ def build_holdout_context(
         val_end=plan.final_holdout_end,
         base_cfg=base_cfg, lake_root=lake_root, feed=feed,
         symbols=tuple(symbols), paths=paths, holdout_guard=holdout_guard,
+        cached_suppliers=cached_suppliers,
     )
 
 
