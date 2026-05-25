@@ -57,6 +57,7 @@ from ..data.suppliers import (
 from ..sim.backtester import run_backtest
 from ..sim.schedule import scan_times_for_session
 from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
+from .calendar_sessions import calendar_sessions_half_open
 from .dispatcher import OptunaStudy
 from .errors import OptunaStudyInvalidError, structural_exceptions
 from .holdout_guard import HoldoutGuard
@@ -288,10 +289,13 @@ def _to_date(value: Any) -> _dt.date:
 
 
 def _xnys_sessions(start: _dt.date, end: _dt.date) -> list[_dt.date]:
-    import exchange_calendars as xcals
+    """Half-open ``[start, end)`` XNYS sessions (speedup report §3, audit §P0-002).
 
-    cal = xcals.get_calendar("XNYS")
-    return [pd.Timestamp(s).date() for s in cal.sessions_in_range(pd.Timestamp(start), pd.Timestamp(end))]
+    Delegates to :func:`calendar_sessions_half_open` so the walk-forward
+    runner and :mod:`.pit_universe` cannot drift. ``val_end ==
+    final_holdout_start`` no longer leaks the holdout's first session.
+    """
+    return calendar_sessions_half_open(start, end)
 
 
 def _resolve_symbols(

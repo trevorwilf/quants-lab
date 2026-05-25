@@ -31,24 +31,14 @@ def _log() -> logging.Logger:
 
 
 def _xnys_sessions(start: _dt.date, end: _dt.date, *, calendar: str = "XNYS") -> list[_dt.date]:
-    """Return the list of trading sessions in the half-open ``[start, end)`` window.
+    """Half-open ``[start, end)`` sessions for the PIT preflight (speedup §3).
 
-    The walk-forward planner uses half-open windows (audit 2026-05-23 §P0-002);
-    the union iteration matches that convention so a fold whose ``val_end ==
-    final_holdout_start`` never accidentally includes the holdout's first
-    session.
+    Delegates to :func:`calendar_sessions_half_open` so this module and the
+    walk-forward runner share a single implementation.
     """
-    import exchange_calendars as xcals
+    from .calendar_sessions import calendar_sessions_half_open
 
-    cal = xcals.get_calendar(calendar)
-    # exchange_calendars' sessions_in_range is closed-closed; emulate half-open
-    # by stepping back one day from the end. A single-day fold (start == end)
-    # yields an empty list because the window is half-open.
-    if start >= end:
-        return []
-    closed_end = pd.Timestamp(end) - pd.Timedelta(days=1)
-    sessions = cal.sessions_in_range(pd.Timestamp(start), closed_end)
-    return [pd.Timestamp(s).date() for s in sessions]
+    return calendar_sessions_half_open(start, end, calendar=calendar)
 
 
 def fold_pit_symbol_union(

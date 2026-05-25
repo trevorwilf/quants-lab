@@ -7,7 +7,23 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
+from .profile_counters import counters_enabled as _profile_counters_enabled
+from .profile_counters import current_profile_counters as _profile_counters_current
 from .serialization import to_json
+
+
+def _count_bytes(path: Path) -> None:
+    """Add ``path``'s size to ``artifact_bytes_written`` when counters are on."""
+    if not _profile_counters_enabled():
+        return
+    try:
+        size = int(path.stat().st_size)
+    except OSError:
+        return
+    try:
+        _profile_counters_current().inc(artifact_bytes_written=size)
+    except LookupError:
+        pass
 
 
 def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
@@ -24,6 +40,7 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
             os.unlink(tmp_path)
         finally:
             raise
+    _count_bytes(path)
 
 
 def atomic_write_json(path: Path, obj: Any, *, indent: int | None = 2) -> None:
@@ -35,11 +52,18 @@ def append_jsonl(path: Path, records: Iterable[dict[str, Any]]) -> int:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0
+    bytes_written = 0
     with path.open("a", encoding="utf-8") as fh:
         for rec in records:
-            fh.write(to_json(rec))
-            fh.write("\n")
+            line = to_json(rec) + "\n"
+            fh.write(line)
+            bytes_written += len(line.encode("utf-8"))
             n += 1
+    if _profile_counters_enabled() and bytes_written:
+        try:
+            _profile_counters_current().inc(artifact_bytes_written=bytes_written)
+        except LookupError:
+            pass
     return n
 
 
@@ -61,6 +85,7 @@ def write_parquet(path: Path, df: "object", *, compression: str = "snappy") -> N
             except Exception:
                 pass
         raise
+    _count_bytes(path)
 
 
 @contextmanager
@@ -79,3 +104,4 @@ def atomic_replace(path: Path) -> Iterator[Path]:
             except Exception:
                 pass
         raise
+    _count_bytes(path)

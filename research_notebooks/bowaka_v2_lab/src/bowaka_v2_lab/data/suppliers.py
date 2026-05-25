@@ -15,6 +15,22 @@ import pandas as pd
 
 from bowaka_common.marketdata import MarketDataStore
 
+from ..utils.profile_counters import counters_enabled, current_profile_counters
+
+
+def _count(**kwargs: int) -> None:
+    """Increment the active :class:`ProfileCounters` if counters are enabled.
+
+    Fast-path skip when the process flag is off (zero allocations). Outside an
+    active context the ``LookupError`` from ``ContextVar.get()`` is swallowed.
+    """
+    if not counters_enabled():
+        return
+    try:
+        current_profile_counters().inc(**kwargs)
+    except LookupError:
+        pass
+
 #: Local clock time (ET) each intraday-window policy starts the forming-session
 #: minute-bar window from. ``regular_open`` = 09:30, ``scanner_start`` = 09:45,
 #: ``extended_hours`` = 04:00 (premarket). Realism Phase 4 (audit P0-006).
@@ -126,6 +142,7 @@ def make_lake_suppliers(
     store = _as_store(shared_root, vendor=vendor)
 
     def minute_bars_supplier(symbol: str, cutoff: Any) -> pd.DataFrame:
+        _count(minute_supplier_calls=1)
         ts = pd.Timestamp(cutoff)
         ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
         session_start = intraday_window_start(ts, intraday_window_policy)
@@ -157,6 +174,7 @@ def make_forward_minute_supplier(
     store = _as_store(shared_root, vendor=vendor)
 
     def forward_minute_supplier(symbol: str, ts: Any) -> pd.DataFrame:
+        _count(minute_supplier_calls=1)
         start = pd.Timestamp(ts)
         start = start.tz_localize("UTC") if start.tzinfo is None else start.tz_convert("UTC")
         end = start + pd.Timedelta(minutes=int(window_minutes))
@@ -188,6 +206,7 @@ def make_quote_supplier(
     store = _as_store(shared_root, vendor=vendor)
 
     def quote_supplier(symbol: str, ts: Any, max_age_seconds: Any = None):
+        _count(quote_supplier_calls=1)
         age = float(max_age_seconds) if max_age_seconds is not None else float(default_max_age_seconds)
         row = store.quotes_at_or_before(symbol, ts, max_age_seconds=age, feed=feed)
         if row is None:
@@ -228,6 +247,7 @@ def build_daily_cache_from_lake(
     No-lookahead: every value uses only sessions strictly earlier than
     ``session_date``. Returns a DataFrame with :data:`DAILY_CACHE_COLUMNS`.
     """
+    _count(daily_cache_builds=1)
     store = _as_store(store_or_root, vendor=vendor)
     target = _as_date(session_date)
     rows: list[dict[str, Any]] = []
