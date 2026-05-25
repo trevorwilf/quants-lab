@@ -408,6 +408,15 @@ class OptunaConfig(_StrictBase):
     #: (``memory_reserve_gib``, ``max_workers``, ``strict_parallel``,
     #: ``blas_thread_pin``) without further schema churn.
     parallel: dict[str, Any] = Field(default_factory=dict)
+    #: Speedup report §6.2 / §11.2 Phase 7 — conservative fold-level
+    #: pruning. Free-form dict so the runner can read additive knobs
+    #: without schema churn. Recognised keys: ``enabled`` (bool),
+    #: ``min_completed_trials_before_pruning`` (int),
+    #: ``catastrophic_floor`` (float),
+    #: ``use_running_median_after_warmup`` (bool),
+    #: ``allow_pruned_in_promotion`` (bool). Default empty dict ≡
+    #: pruning disabled.
+    pruning: dict[str, Any] = Field(default_factory=dict)
     walkforward: dict[str, Any] = Field(default_factory=dict)
     search_space_overrides: dict[str, Any] = Field(default_factory=dict)
 
