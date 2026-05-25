@@ -338,6 +338,11 @@ def run_one_scan(
     quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
     forward_minute_supplier: Optional[Callable[[str, Any], pd.DataFrame | None]] = None,
     status_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    # Speedup report §5.4 / §11.2 Phase 4 — precomputed per-session context
+    # and gate-dump suppression. ``None`` + ``True`` preserve the legacy
+    # behaviour for every existing caller.
+    scan_context: Any = None,
+    collect_gate_dump: bool = True,
 ) -> tuple[ScanResult, list[StrategyConsumerResult]]:
     """Run one scan tick and consume each emitted candidate.
 
@@ -353,6 +358,7 @@ def run_one_scan(
         cfg=cfg, universe_snapshot=universe_snapshot, daily_cache=daily_cache,
         volume_curve=volume_curve, state=state, scan_ts=scan_ts,
         bars_supplier=bars_supplier,
+        scan_context=scan_context, collect_gate_dump=collect_gate_dump,
     )
     max_quote_age = int((cfg.get("execution") or {}).get("max_quote_age_seconds", 5))
     consumer_results: list[StrategyConsumerResult] = []
