@@ -714,6 +714,21 @@ def run_backtest(
             "this build. Default 'preload' must be used until the Phase 6 "
             "parity matrix proves identical FoldResults (speedup report §6.3)."
         )
+    # Speedup report §6.4 / matrix doc §17.2 Phase 9 — scan-matrix runtime
+    # opt-in is default-off scaffolding (Phase 8 ships the builder; Phase 9
+    # wires the runtime evaluator). The runtime guard refuses the opt-in
+    # until the matrix-vs-legacy parity matrix proves bit-identical
+    # FoldResults; the legacy scanner path is the only path in this build.
+    _matrix_enabled_flag = bool(
+        ((cfg_dict.get("optuna") or {}).get("acceleration") or {})
+        .get("scan_matrix", {}).get("enabled", False)
+    )
+    if _matrix_enabled_flag:
+        from ..scanner.scan_matrix_runtime import (
+            assert_backtester_matrix_opt_in_is_supported,
+        )
+
+        assert_backtester_matrix_opt_in_is_supported(enabled=True)
 
     # Realism remediation 2 Phase 6 (audit P0-007) — protected-position
     # lifecycle. The state machine wires PARENT_FILL → OCO_ATTACH_ATTEMPT →
