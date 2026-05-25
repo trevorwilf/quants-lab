@@ -78,6 +78,20 @@ market_data:
   require_adjusted_daily_bars: true
   require_split_adjustment: true
 optuna:
+  acceleration:
+    scan_matrix:
+      allow_full_history_matrix: false
+      build_if_missing: false
+      dtype_policy: float64_first
+      enabled: false
+      fail_on_matrix_sensitive_search_space: true
+      max_optuna_workers: 8
+      precompute_workers: 8
+      require_parity_manifest: true
+      root: research_notebooks/bowaka_v2_lab/artifacts/cache/scan_matrix
+      scope: validation
+      separate_holdout_matrix: true
+      storage_format: numpy_memmap
   cached_suppliers: true
   cost_stress: conservative
   n_jobs: 8

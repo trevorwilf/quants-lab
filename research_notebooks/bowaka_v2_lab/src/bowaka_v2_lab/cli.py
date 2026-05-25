@@ -440,7 +440,60 @@ def build_parser() -> argparse.ArgumentParser:
                      help="output directory for reconciliation_report.{md,json}")
     rec.set_defaults(func=_cmd_reconcile)
 
+    # Speedup report §6.4 / matrix doc §12 — scan-matrix builder + verifier.
+    sm = sub.add_parser(
+        "scan-matrix",
+        help="Build / verify the precomputed scan feature matrix (Phase 8).",
+    )
+    sm_sub = sm.add_subparsers(dest="scan_matrix_cmd", required=True)
+    smb = sm_sub.add_parser("build", help="Build the per-session matrix partitions.")
+    smb.add_argument("--config", required=True)
+    smb.add_argument("--scope", choices=["validation", "holdout", "full_history"],
+                     default="validation")
+    smb.add_argument("--workers", type=int, default=8)
+    smb.add_argument("--reserve-system-gib", type=float, default=32.0)
+    smb.add_argument("--max-optuna-workers", type=int, default=8)
+    smb.add_argument("--store-root", default=None)
+    smb.set_defaults(func=_cmd_scan_matrix_build)
+
+    smv = sm_sub.add_parser("verify", help="Spot-check a built matrix against legacy features.")
+    smv.add_argument("--store-root", required=True)
+    smv.add_argument("--config", required=True)
+    smv.add_argument("--sample-count", type=int, default=10)
+    smv.set_defaults(func=_cmd_scan_matrix_verify)
+
     return p
+
+
+def _cmd_scan_matrix_build(args: argparse.Namespace) -> int:
+    """Build the scan matrix per matrix doc §12 phase 1."""
+    from .scanner.scan_matrix import build_scan_matrix
+
+    store_root = Path(args.store_root) if args.store_root else None
+    out = build_scan_matrix(
+        args.config,
+        scope=args.scope,
+        workers=int(args.workers),
+        reserve_gib=float(args.reserve_system_gib),
+        max_optuna_workers=int(args.max_optuna_workers),
+        store_root=store_root,
+    )
+    print(json.dumps({
+        "status": "ok", "command": "scan-matrix build",
+        "scope": args.scope, "store_root": str(out),
+    }, indent=2))
+    return 0
+
+
+def _cmd_scan_matrix_verify(args: argparse.Namespace) -> int:
+    """Spot-check the built matrix against the legacy feature path."""
+    from .scanner.scan_matrix import verify_scan_matrix
+
+    report = verify_scan_matrix(
+        Path(args.store_root), args.config, sample_count=int(args.sample_count),
+    )
+    print(json.dumps(report, indent=2, default=str))
+    return 0 if report.get("status") in ("ok", "warn") else 1
 
 
 def _cmd_promotion_gate(args: argparse.Namespace) -> int:
