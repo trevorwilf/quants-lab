@@ -619,6 +619,11 @@ def _run_validation_folds(
     log: logging.Logger,
     objective_artifact_mode: str = "full",
     fold_contexts: Optional[tuple[Optional[FoldRuntimeContext], ...]] = None,
+    # Speedup report §6.2 / §11.2 Phase 7 — optional conservative pruning
+    # hook. Called once after each completed fold with
+    # ``(fold_index, running_score)``; raise ``optuna.TrialPruned`` to abort
+    # the trial early. Default ``None`` preserves the legacy no-prune flow.
+    prune_callback: Optional[Callable[[int, float], None]] = None,
 ) -> list[FoldResult]:
     """Run a real backtest over every walk-forward validation window.
 
@@ -674,6 +679,16 @@ def _run_validation_folds(
         except Exception as exc:  # noqa: BLE001 — non-structural strategy/eval error may degrade
             log.warning("fold %s failed non-structurally: %s", fold_id, exc)
             folds.append(_degraded_fold(fold_id))
+        # Speedup §6.2 / Phase 7 — running-score pruning hook. Computed
+        # AFTER the fold result is appended so the hook sees the partial
+        # series. The callback (if supplied) is responsible for raising
+        # ``optuna.TrialPruned`` when the conservative floor is breached.
+        if prune_callback is not None and folds:
+            try:
+                running_score = compute_objective(folds).objective
+            except Exception:  # noqa: BLE001 — never let scoring kill the trial
+                running_score = _FAILED_TRIAL_SCORE
+            prune_callback(i, running_score)
     return folds
 
 
@@ -803,6 +818,14 @@ def make_walkforward_objective(
     # strategy/eval errors degrade to ``_FAILED_TRIAL_SCORE``.
     structural = structural_exceptions()
 
+    # Speedup report §6.2 / §11.2 Phase 7 — conservative fold-level pruning.
+    pruning_cfg = (base_cfg.get("optuna") or {}).get("pruning") or {}
+    pruning_enabled = bool(pruning_cfg.get("enabled", False))
+    min_completed_before_prune = int(
+        pruning_cfg.get("min_completed_trials_before_pruning", 30)
+    )
+    catastrophic_floor = float(pruning_cfg.get("catastrophic_floor", -0.5))
+
     def objective(trial: Any) -> float:
         try:
             # Realism remediation 2 Phase 8 (incumbent baseline): trial 0 with
@@ -816,12 +839,45 @@ def make_walkforward_objective(
                 trial.set_user_attr("incumbent_trial", True)
             else:
                 params = suggest_params(trial, overrides=search_space_overrides)
+
+            def _prune_cb(fold_idx: int, running_score: float) -> None:
+                if not pruning_enabled:
+                    return
+                # Honor the TPE startup window — never prune before the
+                # configured floor of completed trials.
+                try:
+                    import optuna as _optuna_mod
+
+                    n_complete = sum(
+                        1 for t in trial.study.get_trials(deepcopy=False)
+                        if t.state == _optuna_mod.trial.TrialState.COMPLETE
+                    )
+                except Exception:  # noqa: BLE001 — defensive (mock studies)
+                    n_complete = 0
+                if n_complete < min_completed_before_prune:
+                    return
+                # Report to Optuna so visualisers see the running score.
+                try:
+                    trial.report(float(running_score), step=int(fold_idx))
+                except Exception:  # noqa: BLE001
+                    pass
+                if running_score <= catastrophic_floor:
+                    trial.set_user_attr("pruned", True)
+                    trial.set_user_attr("pruned_at_fold", int(fold_idx))
+                    trial.set_user_attr("pruned_running_score", float(running_score))
+                    import optuna as _optuna_mod
+                    raise _optuna_mod.TrialPruned(
+                        f"running_score={running_score:.6f} <= floor="
+                        f"{catastrophic_floor:.6f} at fold {fold_idx}"
+                    )
+
             folds = _run_validation_folds(
                 apply_trial_params(base_cfg, params), plan,
                 lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
                 holdout_guard=holdout_guard, log=log,
                 objective_artifact_mode=objective_artifact_mode,
                 fold_contexts=fold_contexts,
+                prune_callback=_prune_cb,
             )
             result = compute_objective(folds)
             trial.set_user_attr("fold_scores", result.fold_scores)
@@ -847,6 +903,15 @@ def make_walkforward_objective(
         except structural:
             raise
         except Exception as exc:  # noqa: BLE001 — one bad trial must not abort the study
+            # Speedup §6.2 / Phase 7 — TrialPruned must propagate so Optuna
+            # records the trial as PRUNED (not COMPLETED, not FAILED).
+            try:
+                import optuna as _optuna_mod
+
+                if isinstance(exc, _optuna_mod.TrialPruned):
+                    raise
+            except ImportError:  # pragma: no cover — optuna is a hard dep
+                pass
             log.error("trial %s failed entirely: %s", getattr(trial, "number", "?"), exc)
             return _FAILED_TRIAL_SCORE
 
@@ -1716,6 +1781,14 @@ def run_walkforward_study(
 
     import optuna
 
+    # Speedup §6.2 / Phase 7 — pruned trials are recorded but NEVER part of
+    # the completed-trial pool. ``optuna.trial.TrialState.COMPLETE`` already
+    # filters them out (pruned trials hold state ``PRUNED``); record the
+    # count for visibility regardless of ``allow_pruned_in_promotion``.
+    pruned = [t for t in study.study.trials if t.state == optuna.trial.TrialState.PRUNED]
+    if pruned:
+        study.study.set_user_attr("n_pruned_trials", len(pruned))
+        log.info("study has %d pruned trial(s) (excluded from best-trial selection)", len(pruned))
     completed = [t for t in study.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     # Audit 2026-05-23 §P0-001 — validate the completed-trial set. A trial
     # whose ``value`` is the sentinel score (or whose user_attrs lack fold
