@@ -24,7 +24,12 @@ def main() -> None:
             "CONFIG_PATH = 'research_notebooks/bowaka_v2_lab/configs/bowaka_v2_actual_iex_current_code_optuna.yml'\n"
             "N_TRIALS = None          # None -> optuna.n_trials from the config; or set an integer\n"
             "N_STARTUP_TRIALS = None  # None -> optuna.n_startup_trials; random trials before TPE\n"
+            "N_JOBS = None            # None -> optuna.n_jobs (Phase 5 default: 8 workers on PostgreSQL)\n"
             "FEED = 'auto'            # 'auto' (SIP > IEX > synthetic) | 'sip' | 'iex' | 'synthetic'\n"
+            "# Phase 10 default-on: trial 0 is pinned to the actual-contract\n"
+            "# parameter set (the live config) so the optimizer's best can be\n"
+            "# compared against the live incumbent. Set False to disable.\n"
+            "INCUMBENT_TRIAL = True\n"
         )},
         {"type": "markdown", "source": (
             "# 10 - Walk-Forward Optuna\n\n"
@@ -65,10 +70,11 @@ def main() -> None:
             "# carries the auto-opt-in flags when the lake forces parity mode\n"
             "# (IEX-only / SIP-bars-no-quotes); the mechanical cap is research_only.\n"
             "result = run_walkforward_study(\n"
-            "  resolved.path, n_trials=N_TRIALS,\n"
+            "  resolved.path, n_trials=N_TRIALS, n_jobs=N_JOBS,\n"
             "  n_startup_trials=N_STARTUP_TRIALS, allow_smoke=resolved.allow_smoke,\n"
             "  allow_current_code_parity_study=resolved.allow_current_code_parity_study,\n"
             "  tier=resolved.tier,\n"
+            "  incumbent_trial=INCUMBENT_TRIAL,\n"
             ")\n"
             "print(json.dumps(result, indent=2, default=str))\n"
         )},

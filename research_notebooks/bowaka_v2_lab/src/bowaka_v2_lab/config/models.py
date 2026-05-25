@@ -428,6 +428,11 @@ class OptunaConfig(_StrictBase):
     #: ``fail_on_matrix_sensitive_search_space`` (bool),
     #: ``allow_full_history_matrix`` (bool).
     acceleration: dict[str, Any] = Field(default_factory=dict)
+    #: Speedup report §9 / Phase 10 — expanded robustness:
+    #: ``top_k_replays`` (int, default 3), ``sensitivity`` (dict with
+    #: ``enabled``, ``n_steps``), ``stress`` (dict with ``enabled``,
+    #: ``floors``). Default empty dict ≡ legacy single-best replay.
+    robustness: dict[str, Any] = Field(default_factory=dict)
     walkforward: dict[str, Any] = Field(default_factory=dict)
     search_space_overrides: dict[str, Any] = Field(default_factory=dict)
 
