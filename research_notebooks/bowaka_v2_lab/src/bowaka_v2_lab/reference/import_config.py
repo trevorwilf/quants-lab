@@ -313,6 +313,24 @@ def build_config_from_contract(
                 "strict_parallel": False,
                 "blas_thread_pin": True,
             },
+            # Speedup report §6.4 / matrix doc §17 Phase 8 — scan-matrix
+            # acceleration. Default off (Phase 9 wires it to the runtime).
+            "acceleration": {
+                "scan_matrix": {
+                    "enabled": False,
+                    "build_if_missing": False,
+                    "scope": "validation",
+                    "separate_holdout_matrix": True,
+                    "root": "research_notebooks/bowaka_v2_lab/artifacts/cache/scan_matrix",
+                    "dtype_policy": "float64_first",
+                    "storage_format": "numpy_memmap",
+                    "precompute_workers": 8,
+                    "max_optuna_workers": 8,
+                    "require_parity_manifest": True,
+                    "fail_on_matrix_sensitive_search_space": True,
+                    "allow_full_history_matrix": False,
+                },
+            },
             "walkforward": {
                 "train_months": 21,
                 "val_months": 1,

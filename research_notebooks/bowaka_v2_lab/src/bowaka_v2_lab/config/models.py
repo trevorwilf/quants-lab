@@ -417,6 +417,17 @@ class OptunaConfig(_StrictBase):
     #: ``allow_pruned_in_promotion`` (bool). Default empty dict ≡
     #: pruning disabled.
     pruning: dict[str, Any] = Field(default_factory=dict)
+    #: Speedup report §6.4 / matrix doc §17 Phase 8 — scan-matrix
+    #: acceleration knobs (default disabled). Free-form dict;
+    #: recognised keys (under ``acceleration.scan_matrix``):
+    #: ``enabled`` (bool), ``build_if_missing`` (bool), ``scope`` (str),
+    #: ``separate_holdout_matrix`` (bool), ``root`` (str),
+    #: ``dtype_policy`` (str), ``storage_format`` (str),
+    #: ``precompute_workers`` (int), ``max_optuna_workers`` (int),
+    #: ``require_parity_manifest`` (bool),
+    #: ``fail_on_matrix_sensitive_search_space`` (bool),
+    #: ``allow_full_history_matrix`` (bool).
+    acceleration: dict[str, Any] = Field(default_factory=dict)
     walkforward: dict[str, Any] = Field(default_factory=dict)
     search_space_overrides: dict[str, Any] = Field(default_factory=dict)
 
