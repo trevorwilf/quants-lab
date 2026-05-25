@@ -60,6 +60,12 @@ from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
 from .calendar_sessions import calendar_sessions_half_open
 from .dispatcher import OptunaStudy
 from .errors import OptunaStudyInvalidError, structural_exceptions
+from .fold_context import (
+    FoldRuntimeContext,
+    assert_search_space_does_not_affect_context,
+    build_fold_contexts,
+    build_holdout_context,
+)
 from .holdout_guard import HoldoutGuard
 from .objective import (
     DEFAULT_PENALTY_WEIGHTS,
@@ -396,6 +402,7 @@ def _run_fold_backtest(
     symbols: list[str],
     paths: BowakaV2Paths,
     return_report: bool = False,
+    ctx: Optional[FoldRuntimeContext] = None,
 ) -> dict:
     """Run one real backtest over a walk-forward validation window.
 
@@ -404,36 +411,48 @@ def _run_fold_backtest(
     ``"_report"`` key (so the objective can use the DAILY mark-to-market
     drawdown rather than the closed-trade ``summary.max_drawdown_pct``).
 
-    Realism Phase 3: the walk-forward objective consumes the point-in-time
-    universe built per session from the lake — never the synthetic fixture.
+    Speedup report §5.2 / §11.2 Phase 2: when ``ctx`` is supplied the
+    sessions / PIT universe / daily cache / supplier callables are read
+    from the precomputed :class:`FoldRuntimeContext` rather than rebuilt
+    here. The legacy (no-ctx) code path is preserved for callers that
+    haven't been migrated yet — it is semantically identical, only slower.
     """
-    sessions = _xnys_sessions(val_start, val_end)
-    if not sessions:
-        return {}
-    from bowaka_common.marketdata import MarketDataStore
+    if ctx is None:
+        sessions = _xnys_sessions(val_start, val_end)
+        if not sessions:
+            return {}
+        from bowaka_common.marketdata import MarketDataStore
 
-    minute_supplier, daily_supplier = make_lake_suppliers(
-        lake_root, feed=feed,
-        intraday_window_policy=resolve_intraday_window_policy(cfg),
-    )
-    # Realism Phase 6: each fold uses the lake's historical-quote supplier and
-    # the forward-minute supplier (marketable-limit timeout detection).
-    quote_supplier = make_quote_supplier(
-        lake_root, feed=feed,
-        default_max_age_seconds=float(
-            (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
-        ),
-    )
-    forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
-    universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
-    # Build the daily-feature cache from each session's PIT-eligible symbols —
-    # the exact set the scanner iterates — so a cache entry exists for every
-    # symbol the universe admits. An empty PIT universe (no lake asset master)
-    # falls back to the explicit ``symbols`` list so the fold still runs.
-    daily_cache = {}
-    for s in sessions:
-        sess_syms = eligible_symbols(universe.get(s, {})) or symbols
-        daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
+        minute_supplier, daily_supplier = make_lake_suppliers(
+            lake_root, feed=feed,
+            intraday_window_policy=resolve_intraday_window_policy(cfg),
+        )
+        quote_supplier = make_quote_supplier(
+            lake_root, feed=feed,
+            default_max_age_seconds=float(
+                (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
+            ),
+        )
+        forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
+        universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
+        daily_cache = {}
+        for s in sessions:
+            sess_syms = eligible_symbols(universe.get(s, {})) or symbols
+            daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
+        scan_times_callable = lambda d: scan_times_for_session(d, cfg)  # noqa: E731
+    else:
+        sessions = list(ctx.sessions)
+        if not sessions:
+            return {}
+        universe = ctx.universe_by_session
+        daily_cache = dict(ctx.daily_cache_by_session)
+        minute_supplier = ctx.suppliers.minute
+        daily_supplier = ctx.suppliers.daily
+        quote_supplier = ctx.suppliers.quote
+        forward_minute_supplier = ctx.suppliers.forward_minute
+        _scan_times = dict(ctx.scan_times_by_session)
+        scan_times_callable = lambda d: list(_scan_times.get(d, ()))  # noqa: E731
+
     run_dir = Path(tempfile.mkdtemp(prefix="bowaka_wf_fold_"))
     try:
         # Realism Phase 4: each walk-forward fold replays the full intraday
@@ -441,7 +460,7 @@ def _run_fold_backtest(
         result = run_backtest(
             cfg=cfg,
             sessions=sessions,
-            scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+            scan_times_per_session=scan_times_callable,
             universe_snapshot_by_session=universe,
             daily_cache_by_session=daily_cache,
             minute_bars_supplier=minute_supplier,
@@ -479,45 +498,61 @@ def _run_fold_backtest_objective(
     feed: str,
     symbols: list[str],
     paths: BowakaV2Paths,
+    ctx: Optional[FoldRuntimeContext] = None,
 ) -> Optional[Any]:
     """Run one fold backtest in ``artifact_mode="objective_minimal"`` and
     return the in-memory :class:`BacktestResult` (or ``None`` for an empty
-    session window). Speedup report §5.1 / §11.2 Phase 1.
+    session window). Speedup report §5.1–§5.2 / §11.2 Phases 1 & 2.
 
-    Identical wiring to :func:`_run_fold_backtest` (same PIT universe, same
-    daily cache, same suppliers, same scan cadence) — the ONLY difference is
-    that ``run_backtest`` is called with ``artifact_mode="objective_minimal"``
-    so disk-side artifact writes are suppressed. The run still uses a temp
-    ``run_dir`` (the backtester occasionally writes early-abort manifests on
-    DQ failure even in minimal mode); cleanup happens in ``finally``.
+    When ``ctx`` is supplied the sessions / PIT universe / daily cache /
+    supplier callables are read from the precomputed
+    :class:`FoldRuntimeContext` rather than rebuilt here (the Phase 2
+    fast path). The legacy (no-ctx) code path is preserved for callers
+    that haven't been migrated yet — it is semantically identical, only
+    slower.
     """
-    sessions = _xnys_sessions(val_start, val_end)
-    if not sessions:
-        return None
-    from bowaka_common.marketdata import MarketDataStore
+    if ctx is None:
+        sessions = _xnys_sessions(val_start, val_end)
+        if not sessions:
+            return None
+        from bowaka_common.marketdata import MarketDataStore
 
-    minute_supplier, daily_supplier = make_lake_suppliers(
-        lake_root, feed=feed,
-        intraday_window_policy=resolve_intraday_window_policy(cfg),
-    )
-    quote_supplier = make_quote_supplier(
-        lake_root, feed=feed,
-        default_max_age_seconds=float(
-            (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
-        ),
-    )
-    forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
-    universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
-    daily_cache: dict[_dt.date, Any] = {}
-    for s in sessions:
-        sess_syms = eligible_symbols(universe.get(s, {})) or symbols
-        daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
+        minute_supplier, daily_supplier = make_lake_suppliers(
+            lake_root, feed=feed,
+            intraday_window_policy=resolve_intraday_window_policy(cfg),
+        )
+        quote_supplier = make_quote_supplier(
+            lake_root, feed=feed,
+            default_max_age_seconds=float(
+                (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
+            ),
+        )
+        forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
+        universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
+        daily_cache: dict[_dt.date, Any] = {}
+        for s in sessions:
+            sess_syms = eligible_symbols(universe.get(s, {})) or symbols
+            daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
+        scan_times_callable = lambda d: scan_times_for_session(d, cfg)  # noqa: E731
+    else:
+        sessions = list(ctx.sessions)
+        if not sessions:
+            return None
+        universe = ctx.universe_by_session
+        daily_cache = dict(ctx.daily_cache_by_session)
+        minute_supplier = ctx.suppliers.minute
+        daily_supplier = ctx.suppliers.daily
+        quote_supplier = ctx.suppliers.quote
+        forward_minute_supplier = ctx.suppliers.forward_minute
+        _scan_times = dict(ctx.scan_times_by_session)
+        scan_times_callable = lambda d: list(_scan_times.get(d, ()))  # noqa: E731
+
     run_dir = Path(tempfile.mkdtemp(prefix="bowaka_wf_fold_min_"))
     try:
         result = run_backtest(
             cfg=cfg,
             sessions=sessions,
-            scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+            scan_times_per_session=scan_times_callable,
             universe_snapshot_by_session=universe,
             daily_cache_by_session=daily_cache,
             minute_bars_supplier=minute_supplier,
@@ -582,6 +617,7 @@ def _run_validation_folds(
     holdout_guard: HoldoutGuard,
     log: logging.Logger,
     objective_artifact_mode: str = "full",
+    fold_contexts: Optional[tuple[Optional[FoldRuntimeContext], ...]] = None,
 ) -> list[FoldResult]:
     """Run a real backtest over every walk-forward validation window.
 
@@ -608,12 +644,14 @@ def _run_validation_folds(
     for i, split in enumerate(plan.splits):
         holdout_guard.assert_can_read(split.val_start, split.val_end)
         fold_id = f"f{i}_{split.val_start.isoformat()}"
+        ctx = fold_contexts[i] if (fold_contexts is not None and i < len(fold_contexts)) else None
         try:
             if objective_artifact_mode == "objective_minimal":
                 result = _run_fold_backtest_objective(
                     trial_cfg,
                     val_start=split.val_start, val_end=split.val_end,
                     lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
+                    ctx=ctx,
                 )
                 if result is None:
                     # An empty session window — legacy path returns empty
@@ -627,7 +665,7 @@ def _run_validation_folds(
                     trial_cfg,
                     val_start=split.val_start, val_end=split.val_end,
                     lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
-                    return_report=True,
+                    return_report=True, ctx=ctx,
                 )
                 folds.append(_fold_result(fold_id, summary))
         except structural:
@@ -649,12 +687,14 @@ def _score_param_set(
     paths: BowakaV2Paths,
     holdout_guard: HoldoutGuard,
     log: logging.Logger,
+    fold_contexts: Optional[tuple[Optional[FoldRuntimeContext], ...]] = None,
 ) -> tuple[float, list[FoldResult]]:
     """Run every validation fold for ``params``; return ``(objective, folds)``."""
     folds = _run_validation_folds(
         apply_trial_params(base_cfg, params), plan,
         lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
         holdout_guard=holdout_guard, log=log,
+        fold_contexts=fold_contexts,
     )
     return compute_objective(folds).objective, folds
 
@@ -680,6 +720,12 @@ def make_walkforward_objective(
     # the actual optuna configs flip the flag on after the Phase 1 parity
     # tests prove identical FoldResults).
     objective_artifact_mode: str = "full",
+    # Speedup report §5.2 / §11.2 Phase 2 — precomputed per-fold context
+    # (sessions, scan_times, PIT universe, daily cache, suppliers). When
+    # supplied, the per-trial folds skip rebuilding any of these. ``None``
+    # preserves the legacy per-trial path so callers that haven't been
+    # migrated still work.
+    fold_contexts: Optional[tuple[Optional[FoldRuntimeContext], ...]] = None,
 ) -> Callable[[Any], float]:
     """Build the Optuna objective: median fold score over real per-fold backtests.
 
@@ -713,6 +759,7 @@ def make_walkforward_objective(
                 lake_root=lake_root, feed=feed, symbols=symbols, paths=paths,
                 holdout_guard=holdout_guard, log=log,
                 objective_artifact_mode=objective_artifact_mode,
+                fold_contexts=fold_contexts,
             )
             result = compute_objective(folds)
             trial.set_user_attr("fold_scores", result.fold_scores)
@@ -992,6 +1039,10 @@ def build_best_trial_report(
     log: logging.Logger,
     search_space_overrides: dict[str, Any] | None = None,
     n_neighbours: int = 5,
+    # Speedup report §5.2 / §11.2 Phase 2 — neighbor reruns reuse the
+    # study's precomputed fold contexts. Stays on full artifact mode (the
+    # neighbor reruns are part of the audit trail).
+    fold_contexts: Optional[tuple[Optional[FoldRuntimeContext], ...]] = None,
 ) -> dict[str, Any]:
     """Build the best-trial report: fold-by-fold metrics + neighbourhood robustness.
 
@@ -1020,6 +1071,7 @@ def build_best_trial_report(
                 base_cfg, params, plan,
                 lake_root=lake_root, feed=feed, symbols=symbols,
                 paths=paths, holdout_guard=holdout_guard, log=log,
+                fold_contexts=fold_contexts,
             )
         except Exception as exc:  # noqa: BLE001 — a bad neighbour must not abort the report
             log.warning("neighbour %d failed: %s", idx, exc)
@@ -1498,6 +1550,19 @@ def run_walkforward_study(
             "backtests skip disk artifact writes (speedup §5.1 / §11.2 Phase 1)"
         )
 
+    # Speedup report §5.2 / §11.2 Phase 2 — build the per-fold runtime
+    # context ONCE, before constructing the objective. The search-space
+    # guard refuses any tuned parameter that would invalidate the cache.
+    assert_search_space_does_not_affect_context(search_space_overrides)
+    fold_contexts = build_fold_contexts(
+        cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
+        paths=paths, holdout_guard=holdout_guard,
+    )
+    log.info(
+        "precomputed %d fold runtime context(s) for the study "
+        "(speedup §5.2 / §11.2 Phase 2)", sum(1 for c in fold_contexts if c is not None),
+    )
+
     objective = make_walkforward_objective(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
         paths=paths, holdout_guard=holdout_guard, log=log,
@@ -1507,6 +1572,7 @@ def run_walkforward_study(
         config_hash=lab_config_hash,
         code_hash=code_hash,
         objective_artifact_mode=objective_artifact_mode,
+        fold_contexts=fold_contexts,
     )
     # Audit 2026-05-23 §P0-001 — a structural exception escaping the trial
     # must abort the study with a written failed-status artifact rather than
@@ -1647,6 +1713,7 @@ def run_walkforward_study(
                 best, cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
                 paths=paths, holdout_guard=holdout_guard, log=log,
                 search_space_overrides=search_space_overrides,
+                fold_contexts=fold_contexts,
             )
         except Exception as exc:  # noqa: BLE001 — reporting failure must not lose the study
             log.warning("best-trial report failed: %s", exc)

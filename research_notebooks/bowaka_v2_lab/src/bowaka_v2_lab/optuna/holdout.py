@@ -59,6 +59,7 @@ def score_final_holdout(
     """
     # Imported here to avoid a circular import at module load
     # (walkforward_runner imports objective/holdout symbols at the top level).
+    from .fold_context import build_holdout_context
     from .walkforward_runner import (
         _resolve_symbols,
         _run_fold_backtest,
@@ -109,6 +110,14 @@ def score_final_holdout(
     # against the same substantive metrics the validation folds use — daily MTM
     # drawdown, worst-day loss, quote coverage, fill rate, missing-quote counts.
     # Pass return_report=True and build the FoldResult identically to validation.
+    # Speedup §5.2 / §11.2 Phase 2 — precompute the holdout context once for
+    # this single backtest (the supplier-creation cost is unchanged; the
+    # PIT-universe / daily-cache cost is moved out of the inner call so a
+    # future re-run path reuses it).
+    holdout_ctx = build_holdout_context(
+        cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
+        paths=paths, holdout_guard=guard,
+    )
     summary = _run_fold_backtest(
         holdout_cfg,
         val_start=plan.final_holdout_start,
@@ -118,6 +127,7 @@ def score_final_holdout(
         symbols=symbols,
         paths=paths,
         return_report=True,
+        ctx=holdout_ctx,
     )
     guard.exit_final_eval()
 
