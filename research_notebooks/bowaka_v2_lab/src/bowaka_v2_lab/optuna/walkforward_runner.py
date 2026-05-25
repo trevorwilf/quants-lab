@@ -58,7 +58,8 @@ from ..sim.backtester import run_backtest
 from ..sim.schedule import scan_times_for_session
 from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
 from .calendar_sessions import calendar_sessions_half_open
-from .dispatcher import OptunaStudy
+from ..utils.memory_guard import MemoryBudget
+from .dispatcher import OptunaStudy, run_bowaka_optimization_dispatch
 from .errors import OptunaStudyInvalidError, structural_exceptions
 from .fold_context import (
     FoldRuntimeContext,
@@ -697,6 +698,67 @@ def _score_param_set(
         fold_contexts=fold_contexts,
     )
     return compute_objective(folds).objective, folds
+
+
+def make_walkforward_objective_for_worker(
+    config_path: str,
+    *,
+    search_space_overrides: Optional[dict[str, Any]] = None,
+    incumbent_params: Optional[dict[str, Any]] = None,
+    dataset_hash: Optional[str] = None,
+    config_hash: Optional[str] = None,
+    code_hash: Optional[str] = None,
+    objective_artifact_mode: str = "objective_minimal",
+    cached_suppliers: bool = True,
+) -> Callable[[Any], float]:
+    """Worker-side objective factory (speedup report §6.1 / §11.3 Phase 5).
+
+    The parallel dispatcher imports this via the dotted reference
+    ``bowaka_v2_lab.optuna.walkforward_runner:make_walkforward_objective_for_worker``
+    and calls it inside each worker subprocess with ``factory_kwargs``.
+    The worker rebuilds the per-fold runtime contexts from scratch
+    (one-shot cost amortized over the worker's trial slice) so the parent
+    process's closures (which capture large pandas frames) do NOT have to
+    be pickled across the process boundary.
+    """
+    cfg = load_config(config_path)
+    repo_root = Path(__file__).resolve().parents[5]
+    paths = BowakaV2Paths.from_config(cfg, repo_root=repo_root)
+
+    sim_cfg = SimulationConfig.model_validate(cfg.get("simulation") or {})
+    optuna_cfg = cfg.get("optuna", {}) or {}
+    wf = optuna_cfg.get("walkforward", {}) or {}
+    bt = cfg.get("backtest", {}) or {}
+    md = cfg.get("market_data", {}) or {}
+
+    plan = build_walkforward_splits(
+        full_start=_to_date(bt["start_date"]),
+        full_end=_to_date(bt["end_date"]),
+        train_months=int(wf.get("train_months", 6)),
+        val_months=int(wf.get("val_months", 1)),
+        final_holdout_months=int(wf.get("final_holdout_months", 1)),
+    )
+    feed = str(md.get("feed", "iex"))
+    lake_root = md.get("shared_root")
+    symbols = _resolve_symbols(cfg, md, sim_mode=sim_cfg.mode, plan=plan)
+    holdout_guard = HoldoutGuard(plan.final_holdout_start, plan.final_holdout_end)
+    assert_search_space_does_not_affect_context(search_space_overrides)
+    fold_contexts = build_fold_contexts(
+        cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
+        paths=paths, holdout_guard=holdout_guard,
+        cached_suppliers=bool(cached_suppliers),
+    )
+    return make_walkforward_objective(
+        cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
+        paths=paths, holdout_guard=holdout_guard, log=_log(),
+        search_space_overrides=search_space_overrides,
+        incumbent_params=incumbent_params,
+        dataset_hash=dataset_hash,
+        config_hash=config_hash,
+        code_hash=code_hash,
+        objective_artifact_mode=objective_artifact_mode,
+        fold_contexts=fold_contexts,
+    )
 
 
 def make_walkforward_objective(
@@ -1579,6 +1641,19 @@ def run_walkforward_study(
         objective_artifact_mode=objective_artifact_mode,
         fold_contexts=fold_contexts,
     )
+    # Speedup report §6.1 / §11.3 Phase 5 — process-parallel Optuna against
+    # PostgreSQL storage. ``n_jobs <= 1`` keeps the serial in-process loop;
+    # ``n_jobs > 1`` spawns workers (capped at MemoryBudget.max_optuna_workers,
+    # default 8). Workers each set BLAS threads to 1 before importing NumPy
+    # and rebuild their own objective via the dotted factory so the parent's
+    # heavy closures do not have to be pickled.
+    parallel_cfg = (cfg.get("optuna") or {}).get("parallel") or {}
+    strict_parallel_flag = bool(parallel_cfg.get("strict_parallel", False))
+    mem_budget = MemoryBudget.from_system(
+        reserve_system_gib=float(parallel_cfg.get("memory_reserve_gib", 32.0)),
+        max_optuna_workers=int(parallel_cfg.get("max_workers", 8)),
+    )
+
     # Audit 2026-05-23 §P0-001 — a structural exception escaping the trial
     # must abort the study with a written failed-status artifact rather than
     # being swallowed by Optuna's loop. The artifact preserves the study
@@ -1586,7 +1661,31 @@ def run_walkforward_study(
     # re-raises ``OptunaStudyInvalidError``.
     structural = structural_exceptions()
     try:
-        study.optimize(objective)
+        run_bowaka_optimization_dispatch(
+            study=study.study, study_name=study.study.study_name,
+            objective=objective,
+            objective_factory_dotted=(
+                "bowaka_v2_lab.optuna.walkforward_runner"
+                ":make_walkforward_objective_for_worker"
+            ),
+            factory_kwargs={
+                "config_path": str(config_path),
+                "search_space_overrides": search_space_overrides,
+                "incumbent_params": incumbent_params,
+                "dataset_hash": dataset_hash,
+                "config_hash": lab_config_hash,
+                "code_hash": code_hash,
+                "objective_artifact_mode": objective_artifact_mode,
+                "cached_suppliers": cached_suppliers_flag,
+            },
+            n_trials=trials,
+            n_jobs=int(study.n_jobs),
+            storage_url=study.storage_uri,
+            memory_budget=mem_budget,
+            sampler_seed=1337,
+            n_startup_trials=startup,
+            strict_parallel=strict_parallel_flag,
+        )
     except structural as struct_exc:
         failure_reason = (
             f"structural exception escaped optimize: "

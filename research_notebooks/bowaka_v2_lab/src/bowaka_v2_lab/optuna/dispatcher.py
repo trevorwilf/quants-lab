@@ -22,7 +22,14 @@ from ..promotion.suitability import (
     assert_not_above_research_only_for_iex,
     feed_caveat_for,
 )
+from ..utils.memory_guard import MemoryBudget, MemoryReserveViolation
+from .errors import OptunaStudyInvalidError
 from .objective import compute_objective, FoldResult
+from .parallel import (
+    WorkerResult,
+    pin_blas_threads_to_one,
+    run_parallel_bowaka_optimization,
+)
 
 
 #: Realism remediation 2 Phase 10 (audit §P1-010): the canonical study-name
@@ -110,8 +117,132 @@ class OptunaStudy:
         self.study.optimize(objective_fn, n_trials=self.n_trials, n_jobs=self.n_jobs)
 
 
+def _is_postgres_url(uri: Optional[str]) -> bool:
+    return bool(uri) and "postgresql" in uri.lower()
+
+
+def run_bowaka_optimization_dispatch(
+    *,
+    study: optuna.Study,
+    study_name: str,
+    objective: Callable[[Any], float],
+    objective_factory_dotted: Optional[str] = None,
+    factory_kwargs: Optional[dict[str, Any]] = None,
+    n_trials: int,
+    n_jobs: int = 1,
+    storage_url: Optional[str] = None,
+    memory_budget: Optional[MemoryBudget] = None,
+    sampler_seed: int = 1337,
+    n_startup_trials: int = 25,
+    strict_parallel: bool = False,
+    feature_store_gib_estimate: float = 0.0,
+) -> optuna.Study:
+    """Run ``n_trials`` against ``study`` either serially or in parallel.
+
+    Speedup report §6.1 / §11.3 Phase 5. When ``n_jobs <= 1`` the dispatcher
+    runs ``study.optimize`` in-process (legacy behaviour). When ``n_jobs > 1``:
+
+    * Storage MUST be PostgreSQL — concurrent SQLite writers corrupt the
+      study database. With ``strict_parallel=True`` a non-PostgreSQL URI
+      raises :class:`OptunaStudyInvalidError`; without it, the dispatcher
+      logs a warning and falls back to serial.
+    * Worker count is capped at ``memory_budget.max_optuna_workers``
+      (default 8).
+    * ``memory_budget.assert_launch_safe(feature_store_gib_estimate,
+      n_workers=...)`` is asserted before spawn.
+    * Workers are spawned subprocesses; each pins BLAS to 1 thread BEFORE
+      importing NumPy. The objective is reconstructed inside the worker
+      via ``objective_factory_dotted(**factory_kwargs)`` so the parent
+      process's objective closure (which captures large fold contexts)
+      does NOT have to be pickled.
+    * On success the study is reloaded from storage so subsequent
+      ``study.best_trial`` / neighbor reruns see every worker's trials.
+    """
+    import logging
+
+    log = logging.getLogger("bowaka_v2_lab.optuna.dispatcher")
+    if n_jobs <= 1:
+        study.optimize(objective, n_trials=n_trials, n_jobs=1)
+        return study
+
+    if not _is_postgres_url(storage_url):
+        if strict_parallel:
+            raise OptunaStudyInvalidError(
+                "Bowaka process-parallel Optuna requires PostgreSQL storage; "
+                f"got storage_url={storage_url!r}. Set "
+                "OPTUNA_STORAGE=postgresql+psycopg2://... or pass "
+                "strict_parallel=False for an automatic serial fallback."
+            )
+        log.warning(
+            "n_jobs=%d but storage=%r is not PostgreSQL; falling back to serial "
+            "(set strict_parallel=True to refuse instead).",
+            n_jobs, storage_url,
+        )
+        study.optimize(objective, n_trials=n_trials, n_jobs=1)
+        return study
+
+    if objective_factory_dotted is None:
+        raise OptunaStudyInvalidError(
+            "Bowaka process-parallel Optuna requires "
+            "objective_factory_dotted='module:attr' so each worker can rebuild "
+            "the objective without pickling the parent's closure."
+        )
+
+    budget = memory_budget or MemoryBudget.from_system()
+    effective_n_jobs = min(int(n_jobs), int(budget.max_optuna_workers))
+    if effective_n_jobs != n_jobs:
+        log.info(
+            "capping n_jobs from %d to %d (memory_budget.max_optuna_workers)",
+            n_jobs, effective_n_jobs,
+        )
+    try:
+        budget.assert_launch_safe(
+            feature_store_gib_estimate=float(feature_store_gib_estimate),
+            n_workers=effective_n_jobs,
+        )
+    except MemoryReserveViolation as e:
+        if strict_parallel:
+            raise
+        log.warning("memory budget refused parallel launch: %s; serial fallback", e)
+        study.optimize(objective, n_trials=n_trials, n_jobs=1)
+        return study
+
+    log.info(
+        "launching %d workers against %s study=%r for %d trials "
+        "(speedup report §6.1 / §11.3 Phase 5)",
+        effective_n_jobs, storage_url, study_name, n_trials,
+    )
+    results = run_parallel_bowaka_optimization(
+        study_name=study_name,
+        storage_url=storage_url,
+        n_total_trials=int(n_trials),
+        n_workers=effective_n_jobs,
+        objective_factory_dotted=objective_factory_dotted,
+        factory_kwargs=dict(factory_kwargs or {}),
+        sampler_seed=sampler_seed,
+        n_startup_trials=n_startup_trials,
+        memory_budget=budget,
+    )
+    n_complete = sum(r.n_completed for r in results)
+    n_failed = sum(r.n_failed for r in results)
+    log.info(
+        "parallel optimize done: %d completed, %d failed across %d workers",
+        n_complete, n_failed, len(results),
+    )
+    if all(r.error for r in results):
+        raise OptunaStudyInvalidError(
+            "every parallel worker errored before any trial completed: "
+            + "; ".join(f"w{r.worker_id}: {r.error}" for r in results)
+        )
+    # Reload the study so the parent process sees the union of all worker
+    # trials (best_trial / neighbour reruns / artifact writers all need this).
+    refreshed = optuna.load_study(study_name=study_name, storage=storage_url)
+    return refreshed
+
+
 __all__ = [
     "OptunaStudy",
     "build_study_name",
     "IEX_STUDY_PREFIX",
+    "run_bowaka_optimization_dispatch",
 ]

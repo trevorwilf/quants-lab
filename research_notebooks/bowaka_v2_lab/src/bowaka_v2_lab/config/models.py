@@ -403,6 +403,11 @@ class OptunaConfig(_StrictBase):
     #: dict shape exactly. Default ``False`` until Phase 3 parity is proven;
     #: Phase 5 flips this on for the actual optuna configs.
     cached_suppliers: bool = False
+    #: Speedup report §6.1 / §11.3 Phase 5 — process-parallel launcher
+    #: knobs. Free-form dict so the dispatcher can read additive fields
+    #: (``memory_reserve_gib``, ``max_workers``, ``strict_parallel``,
+    #: ``blas_thread_pin``) without further schema churn.
+    parallel: dict[str, Any] = Field(default_factory=dict)
     walkforward: dict[str, Any] = Field(default_factory=dict)
     search_space_overrides: dict[str, Any] = Field(default_factory=dict)
 
