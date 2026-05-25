@@ -283,23 +283,36 @@ def build_config_from_contract(
             # launching the runner from the lab directory works. For a
             # production study use a PostgreSQL URI:
             #   OPTUNA_STORAGE="postgresql+psycopg://user:pass@host:5432/bowaka_optuna"
-            "storage": "${OPTUNA_STORAGE:-sqlite:///artifacts/optuna/local.db}",
+            "storage": (
+                "${OPTUNA_STORAGE:-postgresql+psycopg2://optuna:optuna@"
+                "optuna-postgres:5432/optuna}"
+            ),
             "n_trials": 200,
-            "n_jobs": 1,
+            # Speedup report §6.1 / §11.3 Phase 5 — process-parallel default.
+            # Capped at MemoryBudget.max_optuna_workers (default 8) at runtime.
+            # PostgreSQL storage required; the dispatcher falls back to serial
+            # on a non-PostgreSQL URL unless ``parallel.strict_parallel`` is set.
+            "n_jobs": 8,
             "n_startup_trials": 25,
             "study_name_prefix": f"bowaka_v2_actual_{feed}_{mode}",
             "cost_stress": "conservative",
-            # Speedup report §5.1 / §11.2 Phase 1 — opt-in fast path for the
-            # per-trial fold backtests. Default "full" preserves the legacy
-            # report.json-reading path; Phase 5 flips this to
-            # "objective_minimal" after parity is proven so the per-trial
-            # backtests skip every disk artifact write.
-            "objective_artifact_mode": "full",
-            # Speedup report §5.3 / §11.2 Phase 3 — opt-in LRU-cached
-            # supplier adapter. Default False preserves the legacy direct-
-            # MarketDataStore path; Phase 5 flips this to True after Phase 3
-            # parity is proven.
-            "cached_suppliers": False,
+            # Speedup report §5.1 / §11.2 Phase 1 — flipped on now that Phase
+            # 1 parity is proven (per-trial fold backtests skip every disk
+            # artifact write; FoldResult is built from the in-memory
+            # BacktestResult identically to the legacy report.json path).
+            "objective_artifact_mode": "objective_minimal",
+            # Speedup report §5.3 / §11.2 Phase 3 — flipped on now that
+            # Phase 3 parity is proven (cached LRU adapter eliminates
+            # repeated Parquet reads while preserving the inclusive
+            # boundary semantics + quote-supplier dict shape exactly).
+            "cached_suppliers": True,
+            # Speedup report §6.1 / §11.3 Phase 5 — parallel launcher knobs.
+            "parallel": {
+                "memory_reserve_gib": 32,
+                "max_workers": 8,
+                "strict_parallel": False,
+                "blas_thread_pin": True,
+            },
             "walkforward": {
                 "train_months": 21,
                 "val_months": 1,
