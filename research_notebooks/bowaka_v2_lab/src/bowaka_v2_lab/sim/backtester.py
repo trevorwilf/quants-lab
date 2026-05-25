@@ -35,6 +35,7 @@ from ..config.paths import BowakaV2Paths
 from ..data.data_quality import build_data_quality_report, evaluate_startup_dq
 from ..data.lineage import build_dataset_lineage
 from ..reference import actual_contract_hash, contract_available, load_actual_contract
+from ..scanner.scan_context import build_scan_session_context
 from ..universe.builder import UniverseRecord, to_scanner_snapshot
 from ..universe.persist import write_universe_artifacts
 from ..utils.atomic_io import append_jsonl, atomic_write_json, write_parquet
@@ -756,6 +757,19 @@ def run_backtest(
         if universe is None or daily_cache is None:
             continue
 
+        # Speedup report §5.4 / §11.2 Phase 4 — precompute the per-session
+        # scan context (universe_meta_by_sym, cache_by_sym, config_hash_v,
+        # volume_curve_fraction_by_scan_bucket) ONCE per session. The legacy
+        # per-scan rebuilds are replaced by a context lookup inside
+        # ``evaluate_one_scan``. In ``objective_minimal`` mode the per-symbol
+        # gate-dump rows are replaced with bounded rejection counters
+        # (collect_gate_dump=False); full mode keeps the dump for forensics.
+        collect_gate_dump = (artifact_mode == "full")
+        scan_session_ctx = build_scan_session_context(
+            cfg_dict, daily_cache, universe, session_scan_times,
+            volume_curve=volume_curve, collect_gate_dump=collect_gate_dump,
+        )
+
         # Realism remediation 2 Phase 4: ROUTING by simulation mode.
         # ``smoke_fixture`` retains the pre-Phase-4 batch-scan-then-exits flow
         # so the smoke suite stays fast and deterministic. The realism
@@ -777,17 +791,24 @@ def run_backtest(
                     quote_supplier=quote_supplier,
                     forward_minute_supplier=forward_minute_supplier,
                     status_supplier=status_supplier,
+                    scan_context=scan_session_ctx,
+                    collect_gate_dump=collect_gate_dump,
                 )
                 all_candidate_events.extend(scan_result.emitted)
                 all_gate_dump.extend(scan_result.gate_dump)
                 quote_coverage_rows.extend(scan_result.quote_coverage)
                 sess_count["actual_scans"] += 1
                 sess_count["candidate_count"] += len(scan_result.emitted)
+                breakdown = sess_count["gate_rejection_breakdown"]
                 for row in scan_result.gate_dump:
                     reason = row.get("rejection_reason")
                     if reason:
-                        breakdown = sess_count["gate_rejection_breakdown"]
                         breakdown[reason] = breakdown.get(reason, 0) + 1
+                # Speedup §5.4 — when collect_gate_dump=False the per-symbol
+                # rows are replaced with bounded counters; merge them so the
+                # session funnel still totals correctly.
+                for reason, n in scan_result.rejection_counts.items():
+                    breakdown[reason] = breakdown.get(reason, 0) + int(n)
                 for cr in consumer_results:
                     all_decisions.extend(cr.decisions)
                     sess_count["accepted_count"] += sum(
@@ -1030,17 +1051,23 @@ def run_backtest(
                     quote_supplier=quote_supplier,
                     forward_minute_supplier=forward_minute_supplier,
                     status_supplier=status_supplier,
+                    scan_context=scan_session_ctx,
+                    collect_gate_dump=collect_gate_dump,
                 )
                 sess_acc.candidate_events.extend(scan_result.emitted)
                 sess_acc.gate_dump.extend(scan_result.gate_dump)
                 sess_acc.quote_coverage.extend(scan_result.quote_coverage)
                 sess_count["actual_scans"] += 1
                 sess_count["candidate_count"] += len(scan_result.emitted)
+                breakdown = sess_count["gate_rejection_breakdown"]
                 for row in scan_result.gate_dump:
                     reason = row.get("rejection_reason")
                     if reason:
-                        breakdown = sess_count["gate_rejection_breakdown"]
                         breakdown[reason] = breakdown.get(reason, 0) + 1
+                # Speedup §5.4 — merge bounded counters when full per-symbol
+                # dump rows were suppressed.
+                for reason, n in scan_result.rejection_counts.items():
+                    breakdown[reason] = breakdown.get(reason, 0) + int(n)
                 for cr in consumer_results:
                     sess_acc.decisions.extend(cr.decisions)
                     sess_count["accepted_count"] += sum(
