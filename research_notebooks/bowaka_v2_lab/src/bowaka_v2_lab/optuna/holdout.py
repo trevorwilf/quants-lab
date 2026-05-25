@@ -114,9 +114,11 @@ def score_final_holdout(
     # this single backtest (the supplier-creation cost is unchanged; the
     # PIT-universe / daily-cache cost is moved out of the inner call so a
     # future re-run path reuses it).
+    cached_suppliers_flag = bool((cfg.get("optuna") or {}).get("cached_suppliers", False))
     holdout_ctx = build_holdout_context(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
         paths=paths, holdout_guard=guard,
+        cached_suppliers=cached_suppliers_flag,
     )
     summary = _run_fold_backtest(
         holdout_cfg,

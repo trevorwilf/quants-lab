@@ -1553,14 +1553,19 @@ def run_walkforward_study(
     # Speedup report §5.2 / §11.2 Phase 2 — build the per-fold runtime
     # context ONCE, before constructing the objective. The search-space
     # guard refuses any tuned parameter that would invalidate the cache.
+    # Speedup report §5.3 / §11.2 Phase 3 — opt-in cached supplier adapter.
     assert_search_space_does_not_affect_context(search_space_overrides)
+    cached_suppliers_flag = bool((cfg.get("optuna") or {}).get("cached_suppliers", False))
     fold_contexts = build_fold_contexts(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
         paths=paths, holdout_guard=holdout_guard,
+        cached_suppliers=cached_suppliers_flag,
     )
     log.info(
         "precomputed %d fold runtime context(s) for the study "
-        "(speedup §5.2 / §11.2 Phase 2)", sum(1 for c in fold_contexts if c is not None),
+        "(speedup §5.2 / §11.2 Phase 2)%s",
+        sum(1 for c in fold_contexts if c is not None),
+        " [cached_suppliers=True — §5.3 / §11.2 Phase 3]" if cached_suppliers_flag else "",
     )
 
     objective = make_walkforward_objective(

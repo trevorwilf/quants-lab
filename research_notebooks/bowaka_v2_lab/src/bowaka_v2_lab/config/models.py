@@ -394,6 +394,15 @@ class OptunaConfig(_StrictBase):
     #: ``report.json``-reading path; Phase 5 flips this on for the actual
     #: optuna configs after parity is proven.
     objective_artifact_mode: Literal["full", "objective_minimal"] = "full"
+    #: Speedup report §5.3 / §11.2 Phase 3 — opt-in: route per-fold supplier
+    #: calls through the Bowaka-local LRU adapter
+    #: (:class:`bowaka_v2_lab.data.cached_suppliers.CachedSessionMarketData`)
+    #: instead of `bowaka_common.marketdata.MarketDataStore` directly. The
+    #: cache eliminates repeated Parquet reads while preserving the
+    #: ``[start, end]`` inclusive boundary semantics and the `quote_supplier`
+    #: dict shape exactly. Default ``False`` until Phase 3 parity is proven;
+    #: Phase 5 flips this on for the actual optuna configs.
+    cached_suppliers: bool = False
     walkforward: dict[str, Any] = Field(default_factory=dict)
     search_space_overrides: dict[str, Any] = Field(default_factory=dict)
 
