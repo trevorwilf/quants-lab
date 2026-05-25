@@ -8,6 +8,7 @@ under ``paths.lab_root`` and creates the parent directory.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,20 @@ def _paths(lab_root: Path) -> BowakaV2Paths:
     )
 
 
+def _is_absolute_sqlite_uri(uri: str) -> bool:
+    """SQLAlchemy absolute-path syntax differs by platform.
+
+    * POSIX:   ``sqlite:////absolute/path`` (4 slashes).
+    * Windows: ``sqlite:///C:/absolute/path`` (3 slashes + drive letter).
+
+    Both forms denote an absolute path and SQLAlchemy resolves them the same;
+    the test only needs to refuse the *relative* form ``sqlite:///relative``.
+    """
+    return uri.startswith("sqlite:////") or bool(
+        re.match(r"^sqlite:///[A-Za-z]:/", uri)
+    )
+
+
 def test_resolves_relative_sqlite_path_from_lab_root(tmp_path, monkeypatch):
     """A relative SQLite URI lands under the lab root regardless of CWD."""
     lab = tmp_path / "research_notebooks" / "bowaka_v2_lab"
@@ -33,7 +48,7 @@ def test_resolves_relative_sqlite_path_from_lab_root(tmp_path, monkeypatch):
     uri = resolve_storage_uri(
         "sqlite:///artifacts/optuna/local.db", paths=_paths(lab),
     )
-    assert uri.startswith("sqlite:////"), f"expected absolute uri, got {uri!r}"
+    assert _is_absolute_sqlite_uri(uri), f"expected absolute uri, got {uri!r}"
     assert (lab / "artifacts" / "optuna").is_dir()
     # The resolved path is under the lab root, not the CWD.
     assert str(lab).replace("\\", "/") in uri
@@ -48,7 +63,7 @@ def test_resolves_relative_sqlite_path_from_repo_root(tmp_path, monkeypatch):
     uri = resolve_storage_uri(
         "sqlite:///artifacts/optuna/local.db", paths=_paths(lab),
     )
-    assert uri.startswith("sqlite:////")
+    assert _is_absolute_sqlite_uri(uri), f"expected absolute uri, got {uri!r}"
     assert str(lab).replace("\\", "/") in uri
 
 
@@ -64,7 +79,7 @@ def test_resolves_relative_path_that_includes_lab_root_prefix(tmp_path, monkeypa
         "sqlite:///research_notebooks/bowaka_v2_lab/artifacts/optuna/local.db",
         paths=_paths(lab),
     )
-    assert uri.startswith("sqlite:////")
+    assert _is_absolute_sqlite_uri(uri), f"expected absolute uri, got {uri!r}"
     # The double-prefix bug would surface as ``.../bowaka_v2_lab/research_notebooks/bowaka_v2_lab/...``.
     expected_dir = (lab / "artifacts" / "optuna").as_posix()
     assert expected_dir in uri, f"expected {expected_dir} in {uri}"

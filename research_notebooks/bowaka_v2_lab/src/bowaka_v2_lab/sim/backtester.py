@@ -39,6 +39,8 @@ from ..universe.builder import UniverseRecord, to_scanner_snapshot
 from ..universe.persist import write_universe_artifacts
 from ..utils.atomic_io import append_jsonl, atomic_write_json, write_parquet
 from ..utils.ids import generate_run_id
+from ..utils.profile_counters import counters_enabled as _profile_counters_enabled
+from ..utils.profile_counters import current_profile_counters as _profile_counters_current
 from ..utils.time import require_aware_timestamp
 from .broker import SimulatedBroker
 from .event_loop import (
@@ -1081,6 +1083,11 @@ def run_backtest(
             # before the next SCAN runs (audit P0-002 fix).
             while not queue.empty():
                 event = queue.pop()
+                if _profile_counters_enabled():
+                    try:
+                        _profile_counters_current().inc(event_count_processed=1)
+                    except LookupError:
+                        pass
                 # Phase 6 reserved: PROTECTION_CHECK / OCO_ATTACH_ATTEMPT
                 # become first-class lifecycle steps. Phase 4 treats them as
                 # poll-tick markers and uses them to evaluate exits up to now.

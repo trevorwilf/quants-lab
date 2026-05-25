@@ -44,6 +44,8 @@ from ..features import (
     compute_volume_curve_fraction,
     adv_bucket,
 )
+from ..utils.profile_counters import counters_enabled as _profile_counters_enabled
+from ..utils.profile_counters import current_profile_counters as _profile_counters_current
 from .event_builder import build_candidate_event
 
 
@@ -370,4 +372,11 @@ def evaluate_one_scan(
             row["effective_cap"] = effective_cap
         result.gate_dump.append(row)
     state["scanner_last_run_ts"] = scan_iso
+    if _profile_counters_enabled() and result.gate_dump:
+        try:
+            _profile_counters_current().inc(
+                gate_dump_rows_constructed=len(result.gate_dump),
+            )
+        except LookupError:
+            pass
     return result

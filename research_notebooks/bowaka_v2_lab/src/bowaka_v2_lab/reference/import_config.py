@@ -381,12 +381,17 @@ def import_actual_config(
     BowakaV2Config.model_validate(dict(cfg))
     dest = Path(out_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(render_config_yaml(cfg, purpose=purpose), encoding="utf-8")
+    # write_bytes bypasses Windows text-mode CRLF translation so the file's
+    # newlines match ``.gitattributes`` (``*.yml text eol=lf``) on every host —
+    # the byte-stable parity test was passing on the Linux container but
+    # failing on a Windows checkout because ``write_text`` injected ``\r\n``.
+    dest.write_bytes(render_config_yaml(cfg, purpose=purpose).encode("utf-8"))
     if feed_thresholds == "sip_tightened":
         sidecar = dest.with_name(f"{dest.stem}.parity_sidecar.yaml")
-        sidecar.write_text(
-            render_parity_sidecar_yaml(build_sip_tightened_sidecar_rows(contract)),
-            encoding="utf-8",
+        sidecar.write_bytes(
+            render_parity_sidecar_yaml(
+                build_sip_tightened_sidecar_rows(contract)
+            ).encode("utf-8")
         )
     return dest
 

@@ -555,13 +555,13 @@ def _probe_fold(
     # to be exhaustive.
     sim_mode = ((cfg.get("simulation") or {}).get("mode") or "smoke_fixture")
     md = cfg.get("market_data") or {}
-    import pandas as _pd
     try:
-        import exchange_calendars as _xcals  # noqa: F401
-        cal = _xcals.get_calendar("XNYS")
-        sessions = [_pd.Timestamp(s).date() for s in cal.sessions_in_range(
-            _pd.Timestamp(fold.start), _pd.Timestamp(fold.end)
-        )]
+        # Half-open ``[fold.start, fold.end)`` to match the planner — a fold
+        # whose ``end == final_holdout_start`` must NOT include the holdout's
+        # first session (speedup report §3 / audit §P0-002).
+        from .calendar_sessions import calendar_sessions_half_open
+
+        sessions = calendar_sessions_half_open(fold.start, fold.end)
     except Exception as exc:  # noqa: BLE001 — calendar load failure handling depends on mode
         # Audit 2026-05-23 §P0-003 — intended_realism cannot tolerate a silent
         # calendar load failure; it must fail closed. Parity / smoke continue
@@ -587,7 +587,7 @@ def _probe_fold(
             checks=[PreflightCheck(
                 name=f"fold:{fold.fold_id}",
                 status="skipped",
-                detail=f"fold {fold.fold_id} has no XNYS sessions in [{fold.start}, {fold.end}]",
+                detail=f"fold {fold.fold_id} has no XNYS sessions in [{fold.start}, {fold.end})",
                 evidence={"kind": fold.kind, "start": fold.start.isoformat(), "end": fold.end.isoformat()},
             )],
         )
