@@ -701,6 +701,19 @@ def run_backtest(
     # resolved once per run (audit P1-009). All four default to the live
     # contract: scan=60s, fill=5s, protection=5s, time_stop=60s.
     cadence = CadenceConfig.from_cfg(cfg_dict)
+    # Speedup report §6.3 / §11.2 Phase 6 — lazy event scheduling is
+    # default-off scaffolding; the on-demand handler hooks that schedule
+    # PROTECTION_CHECK / QUOTE / TIME_STOP_CHECK events are not yet wired
+    # into the dispatch loop. Refuse the opt-in until the parity matrix
+    # at tests/parity/test_lazy_event_scheduling_parity.py proves
+    # identical FoldResults to the preload variant.
+    if cadence.cadence_strategy == "lazy":
+        raise RuntimeError(
+            "cadence_strategy='lazy' is reserved for the Phase 6 lazy "
+            "scheduler; the on-demand handler hooks are not yet wired in "
+            "this build. Default 'preload' must be used until the Phase 6 "
+            "parity matrix proves identical FoldResults (speedup report §6.3)."
+        )
 
     # Realism remediation 2 Phase 6 (audit P0-007) — protected-position
     # lifecycle. The state machine wires PARENT_FILL → OCO_ATTACH_ATTEMPT →

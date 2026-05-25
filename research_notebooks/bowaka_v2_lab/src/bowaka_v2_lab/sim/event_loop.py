@@ -153,12 +153,24 @@ class CadenceConfig:
     All four values are positive integers (seconds). The backtester reads them
     from ``cfg.session`` / ``cfg.simulation`` / ``cfg.scanner`` — explicit
     values win, otherwise the field defaults stand.
+
+    Speedup report §6.3 / §11.2 Phase 6 — ``cadence_strategy`` selects the
+    per-session event preload. ``"preload"`` (default) builds every
+    SCAN / PROTECTION_CHECK / QUOTE / TIME_STOP_CHECK / EOD_MARK event
+    upfront — the legacy behaviour. ``"lazy"`` opts into the on-demand
+    scheduler that emits only SCAN + EOD_MARK at session start and
+    materialises poll-tick events from handlers when an open lot,
+    pending order, or time-stop-relevant position exists. Default
+    ``"preload"`` preserves bit-identical behaviour; ``"lazy"`` is
+    refused at runtime by the backtester until the Phase 6 parity matrix
+    proves identical FoldResults.
     """
 
     scan_interval_seconds: int = 60
     fill_poll_interval_seconds: int = 5
     protection_poll_interval_seconds: int = 5
     time_stop_check_interval_seconds: int = 60
+    cadence_strategy: str = "preload"
 
     @classmethod
     def from_cfg(cls, cfg: Mapping[str, Any]) -> "CadenceConfig":
@@ -176,6 +188,14 @@ class CadenceConfig:
         session_cfg = (cfg.get("session") or {}) if cfg else {}
         sim_cfg = (cfg.get("simulation") or {}) if cfg else {}
         loop = int(session_cfg.get("loop_interval_seconds", 5))
+        strategy = str(
+            session_cfg.get("cadence_strategy",
+                            sim_cfg.get("cadence_strategy", "preload"))
+        )
+        if strategy not in ("preload", "lazy"):
+            raise ValueError(
+                f"cadence_strategy must be 'preload' or 'lazy', got {strategy!r}"
+            )
         return cls(
             scan_interval_seconds=int(session_cfg.get("scan_interval_seconds", 60)),
             fill_poll_interval_seconds=int(
@@ -187,6 +207,7 @@ class CadenceConfig:
             time_stop_check_interval_seconds=int(
                 sim_cfg.get("time_stop_check_interval_seconds", 60)
             ),
+            cadence_strategy=strategy,
         )
 
 
@@ -305,6 +326,86 @@ def preload_session_events(
     ))
 
     return events
+
+
+def preload_session_events_lazy(
+    *,
+    session_date: _dt.date,
+    scan_times: Iterable[pd.Timestamp],
+    cadence: CadenceConfig,
+    eod_clock: _dt.time = _dt.time(16, 0),
+) -> list[Event]:
+    """Lazy variant — emits ONLY SCAN events + EOD_MARK at session start.
+
+    Speedup report §6.3 / §11.2 Phase 6. With this preload the dispatcher
+    materialises PROTECTION_CHECK / QUOTE (fill_poll) / TIME_STOP_CHECK
+    events on demand from event handlers:
+
+    * a new lot opens → schedule the next PROTECTION_CHECK at
+      ``min(next_5s_boundary_after_now, eod_et)`` and re-schedule after
+      each tick until the lot closes;
+    * a parent order is submitted → schedule the next ``QUOTE / fill_poll``
+      at the cadence until the order fills / cancels / times out;
+    * a position whose time-stop window is approaching → schedule
+      ``TIME_STOP_CHECK`` at the next 60s tick.
+
+    The dispatcher MUST preserve same-timestamp event ordering identical
+    to the preload variant — the audit-paranoia constraint is that two
+    runs of the same backtest (one preload, one lazy) produce
+    bit-identical candidate-event sequences, fills, trades, daily equity,
+    and FoldResults.
+
+    **Status (Phase 6 scaffolding):** the lazy preload itself is wired
+    here but the handler hooks in ``sim/backtester.py`` are NOT yet
+    rewired; the backtester refuses ``cadence_strategy="lazy"`` at
+    runtime until the parity matrix in
+    ``tests/parity/test_lazy_event_scheduling_parity.py`` (13 cases)
+    proves identical results to preload mode. Until then the flag
+    documents intent without changing behaviour.
+    """
+    scan_ts_list = sorted(set(pd.Timestamp(s) for s in scan_times))
+    scan_ts_list = [
+        s.tz_localize("UTC") if s.tzinfo is None else s.tz_convert("UTC")
+        for s in scan_ts_list
+    ]
+    eod_et = pd.Timestamp(
+        _dt.datetime.combine(session_date, eod_clock), tz="America/New_York"
+    ).tz_convert("UTC")
+    events: list[Event] = []
+    for ts in scan_ts_list:
+        events.append(Event(timestamp=ts, type=EventType.SCAN, payload={
+            "scan_ts": ts, "session_date": session_date,
+        }))
+    events.append(Event(
+        timestamp=eod_et, type=EventType.EOD_MARK,
+        payload={"session_date": session_date},
+    ))
+    return events
+
+
+def next_tick_at_or_after(
+    ts: pd.Timestamp,
+    interval_seconds: int,
+    *,
+    anchor: pd.Timestamp | None = None,
+) -> pd.Timestamp:
+    """Return the next cadence-aligned tick at or after ``ts``.
+
+    When ``anchor`` is supplied the tick grid is anchored on it (so
+    "next 5s tick" means the next ts of the form
+    ``anchor + N * interval``). Used by the lazy scheduler to compute
+    the next PROTECTION_CHECK / QUOTE / TIME_STOP_CHECK timestamp.
+    """
+    step = pd.Timedelta(seconds=int(interval_seconds))
+    if step <= pd.Timedelta(0):
+        raise ValueError("interval_seconds must be positive")
+    base = anchor or ts.normalize()
+    delta = ts - base
+    n = int(delta.total_seconds() // step.total_seconds())
+    candidate = base + step * n
+    if candidate < ts:
+        candidate = candidate + step
+    return candidate
 
 
 # ---- legacy per-scan helper (kept stable for SCAN dispatch) ----------------
