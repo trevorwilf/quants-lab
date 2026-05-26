@@ -83,6 +83,10 @@ class ProfileCounters:
     bars_df_slices: int = 0
     session_window_cache_hits: int = 0
     session_window_cache_misses: int = 0
+    # Speedup report v2 §6.1 / Phase 6 — scanner symbol-eval count
+    # (legacy + matrix paths both bump this so a benchmark can compare
+    # per-scan symbol-eval work directly).
+    scanner_symbol_evals: int = 0
 
     extra: dict[str, Any] = field(default_factory=dict)
 

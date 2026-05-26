@@ -329,6 +329,13 @@ def build_config_from_contract(
                     "require_parity_manifest": True,
                     "fail_on_matrix_sensitive_search_space": True,
                     "allow_full_history_matrix": False,
+                    # Speedup report v2 §4 P6 / §6.1 / Phase 6 — three-mode
+                    # runtime: disabled (default; legacy scanner) /
+                    # compatibility (matrix-backed evaluator returning
+                    # bit-equal candidate events) / vectorized (numpy gate
+                    # masks). Both non-disabled modes are scaffolding-only
+                    # until the parity matrix lands.
+                    "runtime_mode": "disabled",
                 },
             },
             "walkforward": {

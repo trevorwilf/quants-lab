@@ -25,14 +25,29 @@ def test_assert_disabled_passes():
     assert_backtester_matrix_opt_in_is_supported(enabled=False)
 
 
-def test_assert_enabled_raises():
-    """``enabled=True`` raises the scaffolding guard with an actionable message."""
+def test_assert_enabled_with_non_disabled_runtime_mode_raises():
+    """Speedup report v2 §6.1 / Phase 6: ``runtime_mode != 'disabled'`` raises.
+
+    Phase 6 refactored the guard to a three-mode resolution. ``enabled=True``
+    alone with the default ``runtime_mode='disabled'`` no longer raises (the
+    matrix can be built for inspection without firing the runtime path).
+    Non-disabled modes — compatibility / vectorized — are still
+    scaffolding-only and refused with an actionable message.
+    """
     with pytest.raises(MatrixRuntimeNotImplementedError) as info:
-        assert_backtester_matrix_opt_in_is_supported(enabled=True)
+        assert_backtester_matrix_opt_in_is_supported(
+            enabled=True, runtime_mode="compatibility", parity_manifest_present=True,
+        )
     msg = str(info.value)
-    assert "Phase 9" in msg
-    assert "scan_matrix" in msg
-    assert "build" in msg.lower() or "precomputed" in msg.lower()
+    assert "runtime_mode" in msg or "scan-matrix" in msg or "scan_matrix" in msg
+    assert "disabled" in msg.lower() or "parity" in msg.lower()
+
+
+def test_assert_enabled_with_default_runtime_mode_is_a_no_op():
+    """``enabled=True`` with the default ``runtime_mode='disabled'`` is admissible
+    — Phase 6 lets the matrix be built for inspection without firing the
+    runtime path."""
+    assert_backtester_matrix_opt_in_is_supported(enabled=True, runtime_mode="disabled")
 
 
 def test_row_wise_evaluator_raises_scaffolding_error():
@@ -96,7 +111,13 @@ def test_backtester_refuses_matrix_enabled_at_run_start(tmp_path):
         "backtest": {"start_date": "2024-09-04", "end_date": "2024-09-04",
                       "cost_stress": "base"},
         "run": {"kind": "backtest", "seed": 1337},
-        "optuna": {"acceleration": {"scan_matrix": {"enabled": True}}},
+        "optuna": {"acceleration": {"scan_matrix": {
+            "enabled": True,
+            # Speedup report v2 §6.1 / Phase 6 — force runtime_mode=
+            # "compatibility" so the backtester opt-in guard fires.
+            "runtime_mode": "compatibility",
+            "require_parity_manifest": True,
+        }}},
     }
     paths = BowakaV2Paths(
         lab_root=tmp_path / "research_notebooks" / "bowaka_v2_lab",
