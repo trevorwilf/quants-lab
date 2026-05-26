@@ -761,11 +761,28 @@ def make_walkforward_objective_for_worker(
     symbols = _resolve_symbols(cfg, md, sim_mode=sim_cfg.mode, plan=plan)
     holdout_guard = HoldoutGuard(plan.final_holdout_start, plan.final_holdout_end)
     assert_search_space_does_not_affect_context(search_space_overrides)
+    # Speedup report v2 §5.8 / Phase 1 — time the worker-side context build
+    # so the phase-profile JSON can attribute amortised cost. The counter
+    # uses the existing ProfileCounters context (no-op when disabled).
+    import time as _time
+
+    _worker_ctx_start = _time.perf_counter()
     fold_contexts = build_fold_contexts(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
         paths=paths, holdout_guard=holdout_guard,
         cached_suppliers=bool(cached_suppliers),
     )
+    _worker_ctx_end = _time.perf_counter()
+    from ..utils.profile_counters import (
+        counters_enabled as _ce,
+        current_profile_counters as _cpc,
+    )
+
+    if _ce():
+        try:
+            _cpc().inc(worker_context_build_seconds=_worker_ctx_end - _worker_ctx_start)
+        except LookupError:
+            pass
     return make_walkforward_objective(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
         paths=paths, holdout_guard=holdout_guard, log=_log(),
@@ -1049,6 +1066,109 @@ def _hash(payload: Any) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
+class _PhaseProfile:
+    """Lightweight phase timer for the speedup-v2 phase-profile JSON.
+
+    Speedup report v2 §5.8 / Phase 1 task 5. Tracks per-phase wall-clock
+    seconds via :func:`time.perf_counter` deltas; phases are named by the
+    caller (``resolve_config``, ``preflight``, ``fold_context_precompute``,
+    ``optuna_optimize``, ``finalize``). A single phase can be re-entered;
+    the helper accumulates time across re-entries.
+    """
+
+    def __init__(self) -> None:
+        import time as _t
+        self._t = _t
+        self._times: dict[str, float] = {}
+        self._current: Optional[str] = None
+        self._current_start: float = 0.0
+
+    def begin(self, name: str) -> None:
+        if self._current:
+            self.end()
+        self._current = name
+        self._current_start = self._t.perf_counter()
+
+    def end(self) -> None:
+        if self._current:
+            elapsed = self._t.perf_counter() - self._current_start
+            self._times[self._current] = self._times.get(self._current, 0.0) + elapsed
+            self._current = None
+
+    def snapshot(self) -> dict[str, float]:
+        if self._current:
+            self.end()
+        return dict(self._times)
+
+
+def _rss_peak_gib() -> float:
+    """Best-effort peak resident-set size in GiB (current process).
+
+    On POSIX uses ``resource.getrusage(RUSAGE_SELF).ru_maxrss`` (Linux: KiB,
+    macOS: bytes); otherwise falls back to ``psutil.Process(...).memory_info()
+    .rss`` which is a current — not peak — sample. Returns 0.0 when neither
+    is available.
+    """
+    import os
+    try:
+        import resource  # POSIX only
+
+        ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # Linux: KiB; macOS: bytes. Heuristic: > 2 GiB-in-bytes (~2e9) → macOS;
+        # otherwise KiB → bytes via *1024.
+        if ru > 2_000_000_000:
+            return float(ru) / (2 ** 30)
+        return float(ru * 1024) / (2 ** 30)
+    except ImportError:
+        pass
+    try:
+        import psutil  # type: ignore
+
+        rss = psutil.Process(os.getpid()).memory_info().rss
+        return float(rss) / (2 ** 30)
+    except Exception:  # noqa: BLE001 — psutil import / probe error is non-fatal
+        return 0.0
+
+
+def _write_phase_profile_json(
+    *,
+    paths: "BowakaV2Paths",
+    study_name: str,
+    profile: _PhaseProfile,
+    counters: Mapping[str, Any],
+    config_hash: Optional[str],
+    dataset_hash: Optional[str],
+    code_hash: Optional[str],
+    log: logging.Logger,
+) -> Path:
+    """Write the speedup-v2 phase-profile JSON next to the main study artifact.
+
+    Speedup report v2 §5.8 / Phase 1 task 5. Schema::
+
+        {
+          "phase_seconds": {<phase>: <float>, ...},
+          "counters": {<name>: <value>, ...},
+          "memory": {"rss_peak_gib": <float>},
+          "config_hash": "...",
+          "dataset_hash": "...",
+          "code_hash": "..."
+        }
+    """
+    payload = {
+        "phase_seconds": profile.snapshot(),
+        "counters": dict(counters),
+        "memory": {"rss_peak_gib": _rss_peak_gib()},
+        "config_hash": config_hash or "",
+        "dataset_hash": dataset_hash or "",
+        "code_hash": code_hash or "",
+    }
+    out_path = Path(paths.artifact_root) / "optuna" / f"{study_name}__phase_profile.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    log.info("phase profile written: %s", out_path)
+    return out_path
+
+
 def _write_failed_study_artifact(
     *,
     paths: BowakaV2Paths,
@@ -1300,6 +1420,20 @@ def run_walkforward_study(
     Score it once, after tuning, via :func:`optuna.holdout.score_final_holdout`.
     """
     log = log or _log()
+    # Speedup report v2 §5.8 / Phase 1 task 5 — phase profile JSON.
+    # Track per-phase wall-clock from the very top so the profile attributes
+    # config-load + parity-check cost too. Also bind a ProfileCounters context
+    # so counter increments inside the study land somewhere readable.
+    from ..utils.profile_counters import (
+        ProfileCounters as _PC,
+        profile_counters_context as _pcc,
+    )
+
+    _phase_profile = _PhaseProfile()
+    _phase_profile.begin("resolve_config")
+    _counters_inst = _PC()
+    _counters_cm = _pcc(_counters_inst, enable=True)
+    _counters_cm.__enter__()
     cfg = load_config(config_path)
     sim_cfg = SimulationConfig.model_validate(cfg.get("simulation") or {})
 
@@ -1451,6 +1585,7 @@ def run_walkforward_study(
     # This is the structural short-circuit: the broad ``except Exception`` in
     # the trial objective never sees a preflight failure, so the failed
     # artifact must land here.
+    _phase_profile.begin("preflight")
     preflight = run_preflight(
         sim_mode=sim_cfg.mode,
         allow_smoke=allow_smoke,
@@ -1524,6 +1659,17 @@ def run_walkforward_study(
             preflight_coverage_fraction=preflight_coverage_fraction,
             research_waiver_capped_symbols=research_waiver_capped_symbols,
         )
+        # Speedup report v2 §5.8 — phase profile lands even on preflight-fail
+        # exit so the operator sees how long the failed run cost.
+        try:
+            _write_phase_profile_json(
+                paths=paths, study_name=_placeholder_study_name,
+                profile=_phase_profile, counters=_counters_inst.snapshot(),
+                config_hash=None, dataset_hash=None, code_hash=None,
+                log=log,
+            )
+        finally:
+            _counters_cm.__exit__(None, None, None)
         raise OptunaStudyInvalidError(failure_reason)
     log.info("preflight passed: %d checks", len(preflight.checks))
 
@@ -1822,6 +1968,7 @@ def run_walkforward_study(
     # Speedup report §5.3 / §11.2 Phase 3 — opt-in cached supplier adapter.
     assert_search_space_does_not_affect_context(search_space_overrides)
     cached_suppliers_flag = bool((cfg.get("optuna") or {}).get("cached_suppliers", False))
+    _phase_profile.begin("fold_context_precompute")
     fold_contexts = build_fold_contexts(
         cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
         paths=paths, holdout_guard=holdout_guard,
@@ -1864,6 +2011,7 @@ def run_walkforward_study(
     # metadata (forensic) and the structural failure reason; the runner then
     # re-raises ``OptunaStudyInvalidError``.
     structural = structural_exceptions()
+    _phase_profile.begin("optuna_optimize")
     try:
         run_bowaka_optimization_dispatch(
             study=study.study, study_name=study.study.study_name,
@@ -1916,6 +2064,15 @@ def run_walkforward_study(
             preflight_coverage_fraction=preflight_coverage_fraction,
             research_waiver_capped_symbols=research_waiver_capped_symbols,
         )
+        try:
+            _write_phase_profile_json(
+                paths=paths, study_name=study.study.study_name,
+                profile=_phase_profile, counters=_counters_inst.snapshot(),
+                config_hash=lab_config_hash, dataset_hash=dataset_hash,
+                code_hash=code_hash, log=log,
+            )
+        finally:
+            _counters_cm.__exit__(None, None, None)
         raise OptunaStudyInvalidError(failure_reason) from struct_exc
 
     import optuna
@@ -1982,7 +2139,20 @@ def run_walkforward_study(
             preflight_coverage_fraction=preflight_coverage_fraction,
             research_waiver_capped_symbols=research_waiver_capped_symbols,
         )
+        try:
+            _write_phase_profile_json(
+                paths=paths, study_name=study.study.study_name,
+                profile=_phase_profile, counters=_counters_inst.snapshot(),
+                config_hash=lab_config_hash, dataset_hash=dataset_hash,
+                code_hash=code_hash, log=log,
+            )
+        finally:
+            _counters_cm.__exit__(None, None, None)
         raise OptunaStudyInvalidError(failure_reason)
+    # Speedup report v2 §5.8 / Phase 1 task 5 — kick off the finalize phase
+    # for the success path (best-trial reporting, neighbour evaluation,
+    # promotion evidence assembly, results-JSON write).
+    _phase_profile.begin("finalize")
 
     # Explicit ranked list — never study.best_trial (a zero-completed study would raise).
     ranked = sorted(
@@ -2249,6 +2419,17 @@ def run_walkforward_study(
     results_path.parent.mkdir(parents=True, exist_ok=True)
     results_path.write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
     out["results_path"] = str(results_path)
+    # Speedup report v2 §5.8 / Phase 1 task 5 — phase profile JSON.
+    try:
+        _phase_profile_path = _write_phase_profile_json(
+            paths=paths, study_name=study.study.study_name,
+            profile=_phase_profile, counters=_counters_inst.snapshot(),
+            config_hash=lab_config_hash, dataset_hash=dataset_hash,
+            code_hash=code_hash, log=log,
+        )
+        out["phase_profile_path"] = str(_phase_profile_path)
+    finally:
+        _counters_cm.__exit__(None, None, None)
     log.info("walk-forward study done: %d/%d trials completed, best=%s",
              len(completed), trials, out["best_value"])
     return out

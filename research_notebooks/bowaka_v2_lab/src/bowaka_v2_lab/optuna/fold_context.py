@@ -18,12 +18,14 @@ The neighbor-rerun and final-holdout flows also use precomputed contexts
 from __future__ import annotations
 
 import datetime as _dt
+import time as _time
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
 import pandas as pd
 
 from ..config.paths import BowakaV2Paths
+from ..utils.profile_counters import counters_enabled, current_profile_counters
 from ..data.cached_suppliers import (
     make_cached_lake_suppliers,
     make_cached_supplier_callables,
@@ -167,6 +169,17 @@ def _build_one_fold_context(
             lake_root, feed=feed, default_max_age_seconds=quote_max_age,
         )
         forward_sup = make_forward_minute_supplier(lake_root, feed=feed)
+    # Speedup report v2 §4 P1 / §5.3 / Phase 1 — opt into the batch daily
+    # cache (one parquet read per symbol over the full span, in-memory slices
+    # per session) via ``optuna.acceleration.batch_daily_cache.enabled``.
+    # Default ``False`` preserves the legacy per-session loop; the batch path
+    # produces a bit-for-bit-equal ``dict[date, DataFrame]`` (proven by the
+    # parity tests in tests/parity/test_batch_daily_cache_*).
+    batch_flag = bool(
+        ((cfg.get("optuna") or {}).get("acceleration") or {})
+        .get("batch_daily_cache", {}).get("enabled", False)
+    )
+    _ctx_t_start = _time.perf_counter()
     universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
     daily_cache: dict[_dt.date, pd.DataFrame] = {}
     eligible: dict[_dt.date, tuple[str, ...]] = {}
@@ -174,8 +187,23 @@ def _build_one_fold_context(
     for s in sessions:
         sess_syms = list(eligible_symbols(universe.get(s, {})) or symbols)
         eligible[s] = tuple(sess_syms)
-        daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
         scan_times[s] = tuple(scan_times_for_session(s, cfg))
+        if not batch_flag:
+            daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
+    if batch_flag:
+        from ..data.daily_cache_batch import build_daily_cache_for_sessions_from_lake
+
+        daily_cache = build_daily_cache_for_sessions_from_lake(
+            lake_root, eligible, sessions, feed=feed,
+        )
+    _ctx_t_end = _time.perf_counter()
+    if counters_enabled():
+        try:
+            current_profile_counters().inc(
+                fold_context_build_seconds=_ctx_t_end - _ctx_t_start,
+            )
+        except LookupError:
+            pass
     return FoldRuntimeContext(
         fold_id=fold_id,
         val_start=val_start, val_end=val_end,
