@@ -482,6 +482,11 @@ class BowakaV2Config(_StrictBase):
     optuna: Optional[OptunaConfig] = None
     reconcile: Optional[ReconcileConfig] = None
     promotion: Optional[PromotionConfig] = None
+    # Speedup report v2 §1.4 / §8.3 / §9 / Phase 5 — staged finalist
+    # evaluation knobs. Loose schema (``dict[str, Any]``) because the block
+    # is operator-driven and may grow new fields (stress scenarios,
+    # perturbation knobs) without bumping the strict schema.
+    finalist_evaluation: Optional[dict[str, Any]] = None
 
     # Source-of-truth metadata propagated by ``loader.load_config``. Not part of the
     # public API but tolerated for downstream introspection.

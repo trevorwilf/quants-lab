@@ -338,6 +338,32 @@ def build_config_from_contract(
             },
             "search_space_overrides": {},
         }
+        # Speedup report v2 §1.4 / §8.3 / §9 / Phase 5 — staged finalist
+        # evaluation defaults. The Stage B pipeline re-runs the top-K
+        # candidates + the incumbent in full artifact mode, scores the
+        # final holdout (once), runs the fold-local stress matrix, and
+        # runs a local parameter-neighborhood sweep. Operator-driven —
+        # invoke via ``bowaka_v2_lab.optuna.evaluate_finalists`` or the
+        # ``evaluate-finalists`` CLI subcommand.
+        cfg["finalist_evaluation"] = {
+            "top_k": 15,
+            "include_incumbent": True,
+            "full_artifacts": True,
+            "score_final_holdout": True,
+            "stress_scenarios": [
+                {"name": "wider_spreads",
+                 "overrides": {"execution.max_spread_bps_multiplier": 1.5}},
+                {"name": "stale_quote_pressure",
+                 "overrides": {"execution.max_quote_age_seconds_multiplier": 0.5}},
+                {"name": "higher_cost_stress",
+                 "overrides": {"backtest.cost_stress": "aggressive"}},
+            ],
+            "local_parameter_perturbation": {
+                "enabled": True,
+                "relative_delta": 0.05,
+                "max_neighbors_per_param": 2,
+            },
+        }
     return cfg
 
 

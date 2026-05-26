@@ -1,11 +1,7 @@
 # ------------------------------------------------------------------
 # WORKSTATION BENCHMARK-ONLY OVERLAY — 16 workers.
 #
-# Speedup report v2 §4 P2 / §5.4 / Phase 2 task 3. Do NOT promote a
-# study built with this overlay until Phase 1+2 are merged AND a
-# workstation benchmark shows wall-clock improvement and zero
-# correctness drift vs the 8-worker baseline (16w may oversubscribe
-# PostgreSQL's 8 thread cap).
+# Speedup report v2 §4 P2 / §5.4 / Phase 2 task 3. Do NOT promote.
 # ------------------------------------------------------------------
 artifacts:
   write_jsonl: true
@@ -41,6 +37,25 @@ exits:
   time_stop:
     enabled: true
     exit_time: '15:45'
+finalist_evaluation:
+  full_artifacts: true
+  include_incumbent: true
+  local_parameter_perturbation:
+    enabled: true
+    max_neighbors_per_param: 2
+    relative_delta: 0.05
+  score_final_holdout: true
+  stress_scenarios:
+  - name: wider_spreads
+    overrides:
+      execution.max_spread_bps_multiplier: 1.5
+  - name: stale_quote_pressure
+    overrides:
+      execution.max_quote_age_seconds_multiplier: 0.5
+  - name: higher_cost_stress
+    overrides:
+      backtest.cost_stress: aggressive
+  top_k: 15
 market_data:
   allow_non_sip_for_research_only: true
   assume_naive_timezone: false
