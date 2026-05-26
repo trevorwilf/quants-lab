@@ -47,8 +47,10 @@ def counters_enabled() -> bool:
 class ProfileCounters:
     """Mutable counter bag for one profiling pass (single thread / process).
 
-    All fields are integers and default to zero. Use :meth:`inc` to bump fields
-    by keyword. :meth:`snapshot` returns a plain dict suitable for JSON dumps.
+    Integer-typed fields default to zero; float-typed timing fields default to
+    0.0 (cumulative seconds across the bound context). Use :meth:`inc` to
+    bump fields by keyword. :meth:`snapshot` returns a plain dict suitable for
+    JSON dumps.
     """
 
     minute_supplier_calls: int = 0
@@ -59,20 +61,42 @@ class ProfileCounters:
     event_count_processed: int = 0
     gate_dump_rows_constructed: int = 0
     artifact_bytes_written: int = 0
+    # Speedup report v2 §5.3 / §5.8 / Phase 1 — batch-daily-cache counters.
+    # Increments are gated by the existing ``_COUNTERS_ENABLED`` flag (no-op
+    # when off); each parquet read of a symbol's full daily history under
+    # the batch path bumps ``daily_parquet_reads`` exactly once vs.
+    # ``unique_symbols * sessions`` under the legacy per-session path.
+    daily_parquet_reads: int = 0
+    daily_cache_symbols: int = 0
+    daily_cache_sessions: int = 0
+    daily_cache_batch_load_seconds: float = 0.0
+    daily_cache_batch_slice_seconds: float = 0.0
+    fold_context_build_seconds: float = 0.0
+    worker_context_build_seconds: float = 0.0
 
-    extra: dict[str, int] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
-    def inc(self, **kwargs: int) -> None:
+    def inc(self, **kwargs: Any) -> None:
         for name, delta in kwargs.items():
             if hasattr(self, name) and name != "extra":
-                setattr(self, name, int(getattr(self, name)) + int(delta))
+                current = getattr(self, name)
+                if isinstance(current, float):
+                    setattr(self, name, float(current) + float(delta))
+                else:
+                    setattr(self, name, int(current) + int(delta))
             else:
-                self.extra[name] = int(self.extra.get(name, 0)) + int(delta)
+                cur = self.extra.get(name, 0)
+                if isinstance(delta, float) or isinstance(cur, float):
+                    self.extra[name] = float(cur) + float(delta)
+                else:
+                    self.extra[name] = int(cur) + int(delta)
 
     def reset(self) -> None:
         for f in fields(self):
             if f.name == "extra":
                 self.extra.clear()
+            elif f.type == "float" or isinstance(getattr(self, f.name), float):
+                setattr(self, f.name, 0.0)
             else:
                 setattr(self, f.name, 0)
 

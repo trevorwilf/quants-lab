@@ -230,6 +230,56 @@ def make_quote_supplier(
     return quote_supplier
 
 
+def _daily_cache_row_from_prior(
+    symbol: str,
+    prior: pd.DataFrame,
+    *,
+    atr_window: int,
+    vol_window: int,
+    ema_span: int,
+) -> dict[str, Any]:
+    """Compute the per-symbol daily-cache row from an already-filtered ``prior``.
+
+    Speedup report v2 §4 P1 / §5.3 / Phase 1 task 1. Extracted from the legacy
+    :func:`build_daily_cache_from_lake` loop so the batch path
+    (:func:`bowaka_v2_lab.data.daily_cache_batch.build_daily_cache_for_sessions_from_lake`)
+    can share identical row math. ``prior`` must be the DataFrame after
+    ``prior["_sd"] < target`` filtering, sorted ascending by ``_sd`` and
+    reset-indexed.
+
+    The output dict carries the exact keys / dtypes the legacy loop appended,
+    in the order matching :data:`DAILY_CACHE_COLUMNS`. **EMA is computed from
+    the truncated ``prior`` (length ≤ ``lookback_days`` calendar days) — do
+    NOT compute over a longer history and slice; the 400-day truncation is
+    part of the strategy definition.**
+    """
+    close = prior["close"].astype(float)
+    high = prior["high"].astype(float)
+    low = prior["low"].astype(float)
+    volume = prior["volume"].astype(float)
+    prev_close = close.shift(1)
+    true_range = pd.concat(
+        [(high - low), (high - prev_close).abs(), (low - prev_close).abs()], axis=1
+    ).max(axis=1)
+    atr = true_range.rolling(atr_window).mean()
+    ema = close.ewm(span=ema_span, adjust=False).mean()
+    prior_close = float(close.iloc[-1])
+    prior_atr = float(atr.iloc[-1]) if not pd.isna(atr.iloc[-1]) else 0.0
+    ema_prior = float(ema.iloc[-1])
+    ema_lag3 = float(ema.iloc[-4]) if len(ema) >= 4 else ema_prior
+    return {
+        "symbol": symbol,
+        "prior_close": prior_close,
+        "avg_volume_20d": float(volume.tail(vol_window).mean()),
+        "avg_dollar_volume_20d": float((close * volume).tail(vol_window).mean()),
+        "prior_atr_14d": prior_atr,
+        "prior_atr_pct": (prior_atr / prior_close) if prior_close else 0.0,
+        "ema_10_prior": ema_prior,
+        "ema_10_lag_3": ema_lag3,
+        "ema_slope_prior": (ema_prior - ema_lag3) / 3.0,
+    }
+
+
 def build_daily_cache_from_lake(
     store_or_root: Any,
     symbols: Iterable[str],
@@ -255,6 +305,7 @@ def build_daily_cache_from_lake(
         df = store.daily_bars(
             symbol, target - _dt.timedelta(days=lookback_days), target, feed=feed
         )
+        _count(daily_parquet_reads=1)
         if df.empty:
             continue
         if "session_date" in df.columns:
@@ -265,33 +316,10 @@ def build_daily_cache_from_lake(
         prior = prior[prior["_sd"] < target].sort_values("_sd").reset_index(drop=True)
         if prior.empty:
             continue
-        close = prior["close"].astype(float)
-        high = prior["high"].astype(float)
-        low = prior["low"].astype(float)
-        volume = prior["volume"].astype(float)
-        prev_close = close.shift(1)
-        true_range = pd.concat(
-            [(high - low), (high - prev_close).abs(), (low - prev_close).abs()], axis=1
-        ).max(axis=1)
-        atr = true_range.rolling(atr_window).mean()
-        ema = close.ewm(span=ema_span, adjust=False).mean()
-        prior_close = float(close.iloc[-1])
-        prior_atr = float(atr.iloc[-1]) if not pd.isna(atr.iloc[-1]) else 0.0
-        ema_prior = float(ema.iloc[-1])
-        ema_lag3 = float(ema.iloc[-4]) if len(ema) >= 4 else ema_prior
-        rows.append(
-            {
-                "symbol": symbol,
-                "prior_close": prior_close,
-                "avg_volume_20d": float(volume.tail(vol_window).mean()),
-                "avg_dollar_volume_20d": float((close * volume).tail(vol_window).mean()),
-                "prior_atr_14d": prior_atr,
-                "prior_atr_pct": (prior_atr / prior_close) if prior_close else 0.0,
-                "ema_10_prior": ema_prior,
-                "ema_10_lag_3": ema_lag3,
-                "ema_slope_prior": (ema_prior - ema_lag3) / 3.0,
-            }
-        )
+        rows.append(_daily_cache_row_from_prior(
+            symbol, prior,
+            atr_window=atr_window, vol_window=vol_window, ema_span=ema_span,
+        ))
     if not rows:
         return pd.DataFrame(columns=DAILY_CACHE_COLUMNS)
     return pd.DataFrame(rows, columns=DAILY_CACHE_COLUMNS)
