@@ -458,6 +458,11 @@ def _run_fold_backtest(
     try:
         # Realism Phase 4: each walk-forward fold replays the full intraday
         # scan cadence (was one hard-coded 14:00-UTC scan per session).
+        # Speedup v2 §5.6 / Phase 3 — pass the cached invariant DQ report
+        # when the context carries one (default None preserves legacy build).
+        _cached_dq = (
+            ctx.startup_dq_report if ctx is not None else None
+        )
         result = run_backtest(
             cfg=cfg,
             sessions=sessions,
@@ -471,6 +476,7 @@ def _run_fold_backtest(
             initial_bankroll=100_000.0,
             paths=paths,
             run_dir=run_dir,
+            startup_dq_report=_cached_dq,
         )
         summary = dict(result.summary)
         if return_report:
@@ -550,6 +556,11 @@ def _run_fold_backtest_objective(
 
     run_dir = Path(tempfile.mkdtemp(prefix="bowaka_wf_fold_min_"))
     try:
+        # Speedup v2 §5.6 / Phase 3 — pass the cached invariant DQ report
+        # when the context carries one (default None preserves legacy build).
+        _cached_dq = (
+            ctx.startup_dq_report if ctx is not None else None
+        )
         result = run_backtest(
             cfg=cfg,
             sessions=sessions,
@@ -564,6 +575,7 @@ def _run_fold_backtest_objective(
             paths=paths,
             run_dir=run_dir,
             artifact_mode="objective_minimal",
+            startup_dq_report=_cached_dq,
         )
         return result
     finally:
