@@ -603,8 +603,26 @@ def build_session_partition(
 
 def _estimate_matrix_size_gib(
     n_sessions: int, n_scans_per_session: int, n_symbols: int,
+    *,
+    eligible_symbols_by_session: Optional[Mapping[_dt.date, Sequence[str]]] = None,
 ) -> float:
-    """Coarse upper bound (matrix doc §9)."""
+    """Coarse upper bound (matrix doc §9).
+
+    Speedup report v2 §4 P6 / Phase 6 task 1 — when
+    ``eligible_symbols_by_session`` is supplied the estimate uses the
+    ACTUAL point-in-time eligible-symbol count (max across the supplied
+    sessions). The prior hard-coded ``n_symbols=100`` produced a ~7x
+    understatement on a representative IEX session (about 704 eligible on
+    2025-08-27). The override path is the new default for any caller that
+    has the PIT map; legacy callers without the map continue to pass
+    ``n_symbols`` directly.
+    """
+    if eligible_symbols_by_session is not None:
+        counts = [
+            len(eligible_symbols_by_session.get(s, ())) for s in eligible_symbols_by_session
+        ]
+        if counts:
+            n_symbols = max(int(n_symbols), max(counts))
     per_cell = (
         len(DYNAMIC_FLOAT64_COLUMNS) * 8
         + len(DYNAMIC_INT64_COLUMNS) * 8
@@ -678,11 +696,36 @@ def build_scan_matrix(
         max_optuna_workers=int(max_optuna_workers),
     )
     sample_scan_count = max(1, int((cfg.get("session") or {}).get("scan_interval_seconds", 60)))
-    est_n_symbols = 100
+    # Speedup report v2 §4 P6 / Phase 6 task 1 — probe the actual PIT eligible
+    # symbol counts on the first few sessions; the prior hard-coded
+    # ``est_n_symbols=100`` produced a 7x understatement on real IEX data.
+    est_n_symbols = 100  # fallback for callers without lake access
+    eligible_pit: Optional[Mapping[_dt.date, Sequence[str]]] = None
+    if lake_root and sessions:
+        try:
+            from bowaka_common.marketdata import MarketDataStore
+            from ..universe.builder import (
+                build_pit_universe_for_sessions, eligible_symbols,
+            )
+
+            probe = sessions[: min(5, len(sessions))]
+            pit = build_pit_universe_for_sessions(probe, cfg, MarketDataStore(lake_root))
+            eligible_pit = {
+                s: tuple(eligible_symbols(pit.get(s, {})) or ())
+                for s in probe
+            }
+            if eligible_pit:
+                est_n_symbols = max(
+                    est_n_symbols,
+                    max(len(v) for v in eligible_pit.values()),
+                )
+        except Exception:  # noqa: BLE001 — probe failure falls back to legacy estimate
+            eligible_pit = None
     est_size_gib = _estimate_matrix_size_gib(
         n_sessions=len(sessions),
         n_scans_per_session=max(1, 390 // max(1, sample_scan_count // 60 if sample_scan_count >= 60 else 1)),
         n_symbols=est_n_symbols,
+        eligible_symbols_by_session=eligible_pit,
     )
     budget.assert_launch_safe(feature_store_gib_estimate=float(est_size_gib))
 

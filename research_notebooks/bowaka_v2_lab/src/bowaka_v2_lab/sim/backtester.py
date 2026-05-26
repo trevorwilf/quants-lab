@@ -843,9 +843,23 @@ def run_backtest(
     if _matrix_enabled_flag:
         from ..scanner.scan_matrix_runtime import (
             assert_backtester_matrix_opt_in_is_supported,
+            resolve_runtime_mode,
         )
 
-        assert_backtester_matrix_opt_in_is_supported(enabled=True)
+        # Speedup report v2 §4 P6 / §6.1 / Phase 6 — three-mode resolution.
+        # ``runtime_mode='disabled'`` (the default) lets the matrix be built
+        # for inspection without firing the runtime path. Non-disabled
+        # modes are refused by the guard until parity proof lands.
+        _runtime_mode = resolve_runtime_mode(cfg_dict)
+        _parity_present = bool(
+            ((cfg_dict.get("optuna") or {}).get("acceleration") or {})
+            .get("scan_matrix", {}).get("require_parity_manifest", True)
+        )
+        assert_backtester_matrix_opt_in_is_supported(
+            enabled=True,
+            runtime_mode=_runtime_mode,
+            parity_manifest_present=_parity_present,
+        )
 
     # Realism remediation 2 Phase 6 (audit P0-007) — protected-position
     # lifecycle. The state machine wires PARENT_FILL → OCO_ATTACH_ATTEMPT →

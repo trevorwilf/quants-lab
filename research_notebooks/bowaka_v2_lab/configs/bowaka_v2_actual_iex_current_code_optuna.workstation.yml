@@ -82,6 +82,7 @@ optuna:
       precompute_workers: 8
       require_parity_manifest: true
       root: research_notebooks/bowaka_v2_lab/artifacts/cache/scan_matrix
+      runtime_mode: disabled
       scope: validation
       separate_holdout_matrix: true
       storage_format: numpy_memmap
