@@ -11,7 +11,13 @@ vendor: alpaca
 feed: iex                  # iex | sip — switch to sip once your Alpaca plan supports it.
                            # Each feed is a separate partition; the first sip run
                            # fills it, later runs extend it incrementally.
-adjustment: raw
+adjustment: split_adjusted   # was 'raw' — required by bowaka_v2 actual-IEX
+                             # current_code optuna config (P0-A gate refuses
+                             # split-unsensitive RVOL / ATR / EMA features
+                             # otherwise). 2026-05-26 transition; the legacy
+                             # adjustment=raw partition stays on disk as a
+                             # backstop until the split-adjusted ingest
+                             # completes + the manifest flips.
 paper: true
 
 start_date: 2024-01-01
