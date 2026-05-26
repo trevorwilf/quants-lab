@@ -36,6 +36,8 @@ ALLOWED_TOP_LEVEL_KEYS = frozenset(
         "optuna",
         "reconcile",
         "promotion",
+        # Speedup report v2 §1.4 / Phase 5 — staged finalist evaluation knobs.
+        "finalist_evaluation",
     }
 )
 

@@ -29,12 +29,29 @@ class HoldoutGuard:
     final_holdout_start: _dt.date
     final_holdout_end: _dt.date
     _phase: str = field(default="tuning")  # "tuning" | "final_eval"
+    _finalist_read_declared: bool = field(default=False)
 
     def enter_final_eval(self) -> None:
         self._phase = "final_eval"
 
     def exit_final_eval(self) -> None:
         self._phase = "tuning"
+
+    def declare_finalist_read(self) -> None:
+        """Authorise a single finalist holdout-evaluation phase.
+
+        Speedup report v2 §1.4 / §5.x / Phase 5 task 1. The finalist
+        evaluation pipeline is the ONE place where the holdout window may
+        be read AFTER tuning has completed. Without this declaration the
+        ``assert_can_read`` block continues to refuse holdout reads even
+        in ``final_eval`` mode — defence-in-depth against accidental
+        re-runs that would re-fit on holdout.
+        """
+        self._finalist_read_declared = True
+
+    def revoke_finalist_read(self) -> None:
+        """Revoke the finalist declaration — typically after the holdout-read phase."""
+        self._finalist_read_declared = False
 
     def assert_can_read(self, start: _dt.date, end: _dt.date) -> None:
         """Raise if ``[start, end)`` overlaps the final-holdout window during tuning.
@@ -48,6 +65,12 @@ class HoldoutGuard:
             return
         # half-open [start, end) — see audit 2026-05-23 §P0-002
         if end <= self.final_holdout_start or start >= self.final_holdout_end:
+            return
+        # Speedup report v2 §1.4 / Phase 5 task 1 — the finalist-evaluation
+        # pipeline is the one authorised reader of the holdout window AFTER
+        # tuning. The declaration is per-guard so a stray test that constructs
+        # a fresh ``HoldoutGuard`` does not inherit the authorisation.
+        if self._finalist_read_declared:
             return
         raise HoldoutGuardError(
             f"tuning code attempted to read [{start}, {end}) which overlaps "

@@ -66,6 +66,25 @@ exits:
   time_stop:
     enabled: true
     exit_time: '15:45'
+finalist_evaluation:
+  full_artifacts: true
+  include_incumbent: true
+  local_parameter_perturbation:
+    enabled: true
+    max_neighbors_per_param: 2
+    relative_delta: 0.05
+  score_final_holdout: true
+  stress_scenarios:
+  - name: wider_spreads
+    overrides:
+      execution.max_spread_bps_multiplier: 1.5
+  - name: stale_quote_pressure
+    overrides:
+      execution.max_quote_age_seconds_multiplier: 0.5
+  - name: higher_cost_stress
+    overrides:
+      backtest.cost_stress: aggressive
+  top_k: 15
 market_data:
   allow_non_sip_for_research_only: false
   assume_naive_timezone: false
