@@ -215,6 +215,26 @@ def _build_one_fold_context(
         daily_cache = build_daily_cache_for_sessions_from_lake(
             lake_root, eligible, sessions, feed=feed,
         )
+    # Speedup report v2 §4 P3 / §5.7 / Phase 4 — opt into the session
+    # minute-window cache. ``CachedSessionMarketData`` (Phase 3) is a strict
+    # superset of what this replaces for the minute supplier, so the gate
+    # AND condition (``cached_suppliers`` + flag) gives the Phase 4 path
+    # priority for the minute supplier only. Default OFF — adoption is
+    # benchmark-only until the parity tests prove the swap.
+    session_window_flag = bool(
+        ((cfg.get("optuna") or {}).get("acceleration") or {})
+        .get("session_minute_window_cache", {}).get("enabled", False)
+    )
+    if session_window_flag and cached_suppliers:
+        from ..scanner.session_minute_window_supplier import (
+            make_session_minute_window_supplier,
+        )
+
+        minute_sup = make_session_minute_window_supplier(
+            MarketDataStore(lake_root), sessions, eligible,
+            feed=feed, intraday_policy=intraday_policy,
+            max_bar_age_seconds=None,  # legacy parity — see cache docstring
+        )
     _ctx_t_end = _time.perf_counter()
     if counters_enabled():
         try:

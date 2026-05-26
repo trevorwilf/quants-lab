@@ -78,6 +78,11 @@ class ProfileCounters:
     # Speedup report v2 §5.6 / Phase 3 — invariant startup DQ cache counters.
     startup_dq_builds: int = 0
     startup_dq_cached_hits: int = 0
+    # Speedup report v2 §5.7 / Phase 4 — session minute-window cache counters.
+    bars_supplier_calls: int = 0
+    bars_df_slices: int = 0
+    session_window_cache_hits: int = 0
+    session_window_cache_misses: int = 0
 
     extra: dict[str, Any] = field(default_factory=dict)
 
