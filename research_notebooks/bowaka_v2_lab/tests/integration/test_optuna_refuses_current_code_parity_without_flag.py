@@ -97,7 +97,19 @@ def test_gate_admits_smoke_fixture_without_flag() -> None:
 
 
 def _write_parity_cfg(tmp_path: Path, lab_root: Path) -> Path:
-    """Write a current_code_parity walk-forward config against a tiny lake."""
+    """Write a current_code_parity walk-forward config against a tiny lake.
+
+    Speedup report §4 P0-A / Phase 0 task 3: the unified preflight DQ gate now
+    fails closed on adjustment-gating failures even in parity mode (it used to
+    surface them as a warn). The tiny synthetic lake here does not provide
+    split / corporate-action metadata, so the test's parity config must drop
+    ``require_adjusted_daily_bars`` / ``require_split_adjustment`` to keep the
+    DQ probe clean — otherwise the study would fail closed before the
+    parity-gate admission this test is exercising. This is a test-fixture
+    change only; production parity studies against a real lake continue to
+    require adjustment, and the new Phase 0 gate refuses them when the lake
+    is raw (see ``test_walkforward_fails_before_context_build_on_raw_lake``).
+    """
     lake = tmp_path / "lake"
     build_tiny_lake(lake, ["AAA"], start=dt.date(2024, 1, 1), end=dt.date(2024, 5, 1))
     raw_cfg = lab_root / "configs" / "bowaka_v2_actual_iex_current_code_optuna.yml"
@@ -111,6 +123,12 @@ def _write_parity_cfg(tmp_path: Path, lab_root: Path) -> Path:
     # The helper pins smoke_fixture; overwrite to current_code_parity for this test.
     cfg_doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
     cfg_doc["simulation"] = {"mode": "current_code_parity"}
+    # Drop adjustment requirements (see docstring): the tiny synthetic lake
+    # carries no manifest declaring adjustment policy; the post-Phase-0
+    # adjustment-gating DQ check would otherwise refuse the study.
+    cfg_doc.setdefault("market_data", {})
+    cfg_doc["market_data"]["require_adjusted_daily_bars"] = False
+    cfg_doc["market_data"]["require_split_adjustment"] = False
     cfg_path.write_text(yaml.safe_dump(cfg_doc), encoding="utf-8")
     return cfg_path
 

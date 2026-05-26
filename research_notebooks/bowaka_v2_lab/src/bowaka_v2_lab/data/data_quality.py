@@ -52,6 +52,23 @@ class DataQualityError(RuntimeError):
     sentinel score.
     """
 
+
+class StartupDataQualityError(DataQualityError):
+    """Raised at the start of :func:`bowaka_v2_lab.sim.backtester.run_backtest`
+    when :func:`evaluate_startup_dq` rejects the run.
+
+    Speedup report §4 P0-A / §5.1. The pre-remediation behaviour was a generic
+    ``RuntimeError`` at the abort point in the backtester; the Optuna runner's
+    ``_run_validation_folds`` then matched the broad ``except Exception`` clause
+    and degraded the fold to ``_degraded_fold``, swallowing the structural
+    rejection behind a numeric sentinel score. ``StartupDataQualityError`` is a
+    subclass of :class:`DataQualityError`, so the runner's ``except structural:
+    raise`` block (already bound to ``DataQualityError`` via
+    :func:`bowaka_v2_lab.optuna.errors.structural_exceptions`) propagates it
+    out of the trial and aborts the study with
+    :class:`bowaka_v2_lab.optuna.errors.OptunaStudyInvalidError`.
+    """
+
 #: Per-symbol audit columns mapped to DQ checks. ``0`` is healthy for every
 #: count column; any positive count is a defect of the labelled severity.
 #: ``passed_research_audit`` is the audit's own boolean verdict.

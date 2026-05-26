@@ -675,6 +675,9 @@ def _run_validation_folds(
                 )
                 folds.append(_fold_result(fold_id, summary))
         except structural:
+            # StartupDataQualityError is a DataQualityError subclass (speedup
+            # report §4 P0-A / Phase 0 task 1) — it propagates here and aborts
+            # the study.
             raise
         except Exception as exc:  # noqa: BLE001 — non-structural strategy/eval error may degrade
             log.warning("fold %s failed non-structurally: %s", fold_id, exc)
@@ -828,17 +831,13 @@ def make_walkforward_objective(
 
     def objective(trial: Any) -> float:
         try:
-            # Realism remediation 2 Phase 8 (incumbent baseline): trial 0 with
-            # incumbent_params runs the actual-contract parameter set verbatim
-            # so the optimizer's best can be compared against the live config.
-            if incumbent_params and getattr(trial, "number", -1) == 0:
-                params = _suggest_incumbent_params(
-                    trial, incumbent_params,
-                    overrides=search_space_overrides,
-                )
-                trial.set_user_attr("incumbent_trial", True)
-            else:
-                params = suggest_params(trial, overrides=search_space_overrides)
+            # Speedup report §4 P0-B / Phase 0 task 5 — every trial calls
+            # ``suggest_params`` with the SAME resolved distributions. The
+            # incumbent flag is set by ``study.enqueue_trial(..., user_attrs=
+            # {"incumbent_trial": True})`` in ``run_walkforward_study`` so
+            # trial 0 still records as the incumbent without changing the
+            # search-space distribution.
+            params = suggest_params(trial, overrides=search_space_overrides)
 
             def _prune_cb(fold_idx: int, running_score: float) -> None:
                 if not pruning_enabled:
@@ -924,73 +923,96 @@ def _suggest_incumbent_params(
     *,
     overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Pin every search-space parameter to its incumbent value for trial 0.
+    """DEPRECATED: pinned the incumbent by collapsing each search-space entry to a
+    near-singleton dynamic distribution for trial 0.
 
-    Calls ``trial.suggest_*`` for every name in the resolved search space so
-    Optuna records the incumbent params in the trial (otherwise Optuna would
-    not know about them). Each suggestion is constrained to the incumbent
-    value: ``suggest_float`` low/high collapsed to the value, ``suggest_int``
-    likewise, ``suggest_categorical`` with a singleton choice. Out-of-range
-    incumbents are clamped to the search-space bounds so the suggest call
-    succeeds (the incumbent is the live config; clamping is rare and reported
-    via trial.user_attrs["incumbent_clamped"]).
+    Speedup report §4 P0-B / Phase 0 task 5. The collapsed-range trick changed
+    Optuna's resolved distribution on trial 0 only — every later trial reverted
+    to the full search-space bounds. Optuna 3.x records the per-trial
+    distribution on the trial, then asserts on subsequent trials that any
+    repeated ``suggest_*`` call uses the SAME distribution; the resulting
+    "CategoricalDistribution does not support dynamic value space" /
+    "FloatDistribution does not match the previous trial" errors put every
+    non-incumbent trial into the FAILED state. Replaced by
+    :func:`_enqueue_incumbent_trial` (parent-side ``study.enqueue_trial``).
+    """
+    raise NotImplementedError(
+        "Phase 0 task 5: replaced by _enqueue_incumbent_trial; the dynamic "
+        "categorical/float distributions this function produced trigger "
+        "Optuna's 'CategoricalDistribution does not support dynamic value "
+        "space' error — see speedup report §4 P0-B."
+    )
+
+
+def _enqueue_incumbent_trial(
+    study: "optuna.Study",
+    incumbent_params: Mapping[str, Any],
+    *,
+    search_space_overrides: Optional[dict[str, Any]] = None,
+) -> dict[str, dict[str, Any]]:
+    """Enqueue trial 0 with the live-contract incumbent params.
+
+    Speedup report §4 P0-B / Phase 0 task 5. The enqueue path delivers the
+    incumbent value to Optuna without modifying the resolved search-space
+    distribution, so trial 0's ``suggest_*`` calls see the same ``(lo, hi)``
+    every trial.
+
+    Validates each incumbent value against the resolved search-space spec:
+
+    * ``uniform`` / ``log_uniform``: clamp into ``[lo, hi]``; record in the
+      returned ``clamped`` dict on change.
+    * ``int``: clamp into ``[lo, hi]``; record on change.
+    * ``categorical``: REFUSE silent clamping (speedup report §5.2). A
+      categorical value not in the choice list is an explicit operator error;
+      raise :class:`OptunaStudyInvalidError` so the operator widens the search
+      space or fixes the incumbent contract before tuning.
+
+    Returns the per-param clamp dict (empty when no clamping was needed). The
+    caller is responsible for recording the clamps on ``study.user_attrs``.
     """
     from .search_space import resolve_search_space
 
-    spec = resolve_search_space(overrides)
-    out: dict[str, Any] = {}
+    spec = resolve_search_space(search_space_overrides)
+    checked_params: dict[str, Any] = {}
     clamped: dict[str, dict[str, Any]] = {}
     for name, entry in spec.items():
         if name not in incumbent_params:
-            # Fall back to a regular suggestion for any param the incumbent
-            # doesn't declare — the optimizer can still sample it.
-            kind = entry[0]
-            if kind == "uniform":
-                out[name] = trial.suggest_float(name, entry[1], entry[2])
-            elif kind == "int":
-                out[name] = trial.suggest_int(name, entry[1], entry[2])
-            elif kind == "log_uniform":
-                out[name] = trial.suggest_float(name, entry[1], entry[2], log=True)
-            elif kind == "categorical":
-                out[name] = trial.suggest_categorical(name, list(entry[1]))
-            continue
+            raise OptunaStudyInvalidError(
+                f"incumbent missing required search-space param: {name}"
+            )
         target = incumbent_params[name]
         kind = entry[0]
-        if kind == "uniform" or kind == "log_uniform":
+        if kind in ("uniform", "log_uniform"):
             lo, hi = float(entry[1]), float(entry[2])
-            clamped_val = float(min(hi, max(lo, float(target))))
-            if clamped_val != float(target):
-                clamped[name] = {"target": target, "clamped": clamped_val, "range": [lo, hi]}
-            # Optuna requires lo < hi to make a "fixed" suggestion;
-            # use suggest_float with the exact range and let TPE record the value.
-            # We can't pin to a single point; instead pass a tiny range around it.
-            eps = max(abs(clamped_val) * 1e-9, 1e-12)
-            lo_p = max(lo, clamped_val - eps)
-            hi_p = min(hi, clamped_val + eps)
-            if hi_p <= lo_p:
-                hi_p = lo_p + eps  # safety
-            log_flag = (kind == "log_uniform")
-            if log_flag and (lo_p <= 0 or hi_p <= 0):
-                # log_uniform requires strictly positive; fall back to non-log
-                log_flag = False
-            out[name] = trial.suggest_float(name, lo_p, hi_p, log=log_flag)
+            t = float(target)
+            clamped_val = float(min(hi, max(lo, t)))
+            if clamped_val != t:
+                clamped[name] = {"target": t, "clamped": clamped_val, "range": [lo, hi]}
+            checked_params[name] = clamped_val
         elif kind == "int":
             lo, hi = int(entry[1]), int(entry[2])
-            clamped_val = int(min(hi, max(lo, int(target))))
-            if clamped_val != int(target):
-                clamped[name] = {"target": target, "clamped": clamped_val, "range": [lo, hi]}
-            out[name] = trial.suggest_int(name, clamped_val, clamped_val)
+            t = int(target)
+            clamped_val = int(min(hi, max(lo, t)))
+            if clamped_val != t:
+                clamped[name] = {"target": t, "clamped": clamped_val, "range": [lo, hi]}
+            checked_params[name] = clamped_val
         elif kind == "categorical":
             choices = list(entry[1])
-            chosen = target if target in choices else (choices[0] if choices else target)
-            if chosen != target:
-                clamped[name] = {"target": target, "clamped": chosen, "choices": choices}
-            out[name] = trial.suggest_categorical(name, [chosen])
-        else:
-            out[name] = target
-    if clamped:
-        trial.set_user_attr("incumbent_clamped", clamped)
-    return out
+            if target not in choices:
+                raise OptunaStudyInvalidError(
+                    f"incumbent value {target!r} for {name} not in choices "
+                    f"{choices}; widen the search space or fix the incumbent "
+                    f"contract before tuning (speedup report §5.2)"
+                )
+            checked_params[name] = target
+        else:  # pragma: no cover — defensive against future kinds
+            checked_params[name] = target
+    study.enqueue_trial(
+        checked_params,
+        user_attrs={"incumbent_trial": True},
+        skip_if_exists=True,
+    )
+    return clamped
 
 
 def _incumbent_baseline_params() -> dict[str, Any]:
@@ -1423,6 +1445,12 @@ def run_walkforward_study(
             exc,
         )
 
+    # Speedup report §4 P0-A / Phase 0 task 3: run the preflight checks
+    # WITHOUT immediate raise so a failed check can be turned into a written
+    # failed-status study artifact BEFORE ``build_fold_contexts`` is called.
+    # This is the structural short-circuit: the broad ``except Exception`` in
+    # the trial objective never sees a preflight failure, so the failed
+    # artifact must land here.
     preflight = run_preflight(
         sim_mode=sim_cfg.mode,
         allow_smoke=allow_smoke,
@@ -1434,7 +1462,69 @@ def run_walkforward_study(
         # the IEX path (the SIP check is a no-op for any non-SIP feed).
         feed=feed,
         lake_root=Path(lake_root) if lake_root else None,
+        raise_on_fail=False,
     )
+    if not preflight.passed:
+        # Synthesize a placeholder study_name for the failed artifact (the
+        # real study has not been created yet at this point; ``dataset_hash``
+        # is computed below). The placeholder uses ``build_study_name`` with
+        # an 8-char content hash of the inputs available pre-preflight so the
+        # file is reproducible.
+        from .dispatcher import build_study_name as _build_study_name
+        from ..promotion.suitability import feed_caveat_for as _feed_caveat_for
+
+        _placeholder_dataset_hash = _hash([
+            str(config_path), feed, sim_cfg.mode,
+            [s.isoformat() for s in (probe_sessions or [])],
+        ])[:16]
+        _placeholder_study_name = _build_study_name(
+            feed=feed,
+            cost_stress=str(bt.get("cost_stress", "conservative")),
+            dataset_hash=_placeholder_dataset_hash,
+        )
+        _first_fail = next(
+            (c for c in preflight.checks if c.status == "fail"),
+            None,
+        )
+        if _first_fail is not None:
+            failure_reason = (
+                f"preflight {_first_fail.name} failed: {_first_fail.detail}"
+            )
+        else:  # pragma: no cover — defensive (passed=False with no fail check)
+            failure_reason = "preflight failed (no failing check recorded)"
+        _suitability_tier = tier_for_simulation_contract(sim_cfg.mode)
+        if feed == "iex" and _suitability_tier != "research_only":
+            _suitability_tier = "research_only"
+        _trials_for_artifact = int(
+            n_trials if n_trials is not None
+            else optuna_cfg.get("n_trials", 20)
+        )
+        _startup_for_artifact = int(
+            n_startup_trials if n_startup_trials is not None
+            else optuna_cfg.get("n_startup_trials", 10)
+        )
+        _write_failed_study_artifact(
+            paths=paths,
+            study_name=_placeholder_study_name,
+            study_metadata={"preflight": preflight.as_dict()},
+            failure_reason=failure_reason,
+            sim_cfg=sim_cfg,
+            simulation_contract=sim_cfg.mode,
+            suitability_tier=_suitability_tier,
+            feed=feed,
+            partial_tape=(str(feed).lower() == "iex"),
+            feed_caveat=_feed_caveat_for(feed),
+            plan=plan,
+            trials_requested=_trials_for_artifact,
+            startup=_startup_for_artifact,
+            universe_pit_sample=None,
+            preflight_symbol_count=len(symbols),
+            log=log,
+            pit_union_symbol_count=pit_union_symbol_count,
+            preflight_coverage_fraction=preflight_coverage_fraction,
+            research_waiver_capped_symbols=research_waiver_capped_symbols,
+        )
+        raise OptunaStudyInvalidError(failure_reason)
     log.info("preflight passed: %d checks", len(preflight.checks))
 
     # Realism remediation 2 Phase 8 (audit §P0-011): the explicit
@@ -1646,15 +1736,64 @@ def run_walkforward_study(
         ),
         len(symbols),
     )
-    # Realism remediation 2 Phase 8 — incumbent baseline. When opted in,
-    # trial 0 is pinned to the actual-contract parameter set (read from the
-    # frozen contract).
+    # Speedup report §4 P0-B / Phase 0 task 5 — incumbent baseline. When opted
+    # in, the actual-contract parameter set is enqueued as trial 0 via
+    # ``study.enqueue_trial``; the resolved search-space distributions are NOT
+    # collapsed (the legacy ``_suggest_incumbent_params`` path triggered Optuna
+    # "dynamic value space" errors on every subsequent trial).
     incumbent_params: Optional[dict[str, Any]] = None
     if incumbent_trial:
         incumbent_params = _incumbent_baseline_params()
         if incumbent_params:
-            log.info("incumbent baseline: trial 0 pinned to %d contract params",
-                     len(incumbent_params))
+            # The frozen contract carries only a subset of every search-space
+            # key (lab-only knobs like ``execution.max_quote_age_seconds`` are
+            # not in the contract). The strict enqueue helper refuses on
+            # missing keys; fill the contract gap with the search-space
+            # midpoint default so the enqueue still pins trial 0 to the
+            # incumbent for contract-covered keys without spuriously failing
+            # the study. ``_padded_count`` is recorded on the study so the
+            # operator can audit the gap.
+            from .search_space import resolve_search_space as _resolve_ss
+
+            _spec = _resolve_ss(search_space_overrides)
+            _padded: dict[str, Any] = {}
+            for _name, _entry in _spec.items():
+                if _name in incumbent_params:
+                    continue
+                _kind = _entry[0]
+                if _kind == "uniform":
+                    incumbent_params[_name] = (float(_entry[1]) + float(_entry[2])) / 2.0
+                elif _kind == "log_uniform":
+                    incumbent_params[_name] = (float(_entry[1]) * float(_entry[2])) ** 0.5
+                elif _kind == "int":
+                    incumbent_params[_name] = (int(_entry[1]) + int(_entry[2])) // 2
+                elif _kind == "categorical":
+                    incumbent_params[_name] = list(_entry[1])[0]
+                else:  # pragma: no cover — defensive
+                    continue
+                _padded[_name] = incumbent_params[_name]
+            if _padded:
+                log.warning(
+                    "incumbent baseline padded %d search-space key(s) absent "
+                    "from the contract with search-space defaults: %s",
+                    len(_padded), sorted(_padded.keys()),
+                )
+                study.study.set_user_attr("incumbent_padded_from_search_space", _padded)
+            clamped = _enqueue_incumbent_trial(
+                study.study, incumbent_params,
+                search_space_overrides=search_space_overrides,
+            )
+            if clamped:
+                study.study.set_user_attr("incumbent_clamped", clamped)
+                log.warning(
+                    "incumbent enqueue clamped %d param(s) into search-space "
+                    "bounds: %s",
+                    len(clamped), sorted(clamped.keys()),
+                )
+            log.info("incumbent baseline: enqueued trial 0 with %d params "
+                     "(%d from contract, %d padded from search space)",
+                     len(incumbent_params),
+                     len(incumbent_params) - len(_padded), len(_padded))
         else:
             log.warning("incumbent baseline requested but no contract available; "
                         "trial 0 will be a regular TPE-startup sample")
