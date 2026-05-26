@@ -74,7 +74,24 @@ class FoldSupplierBundle:
 
 @dataclass(frozen=True)
 class FoldRuntimeContext:
-    """Immutable per-fold cache of every trial-invariant setup."""
+    """Immutable per-fold cache of every trial-invariant setup.
+
+    Speedup report v2 §4 P4 / §5.6 / Phase 3 task 2 — when the
+    ``optuna.acceleration.startup_dq_cache.enabled`` flag is on,
+    ``startup_dq_report`` carries the invariant subset of the DQ report
+    (filtered via ``build_data_quality_report(..., classify_filter="invariant")``)
+    plus a ``_cache_key`` stamped with the lake root, feed, symbols hash,
+    sessions, simulation mode, gating-relevant market_data flags,
+    config_hash, code_hash, and :data:`DQ_CHECK_INVARIANCE_VERSION`. The
+    per-trial ``run_backtest`` reads this when it can, then composes a
+    trial-dependent half computed fresh from the trial's tuned ``cfg``.
+
+    ``startup_dq_failure`` is the cached
+    :func:`evaluate_startup_dq` verdict against the invariant subset; it
+    is ``None`` when the invariant half does not gate the run on its own.
+    Trial-dependent failures still surface via the merged report at trial
+    time.
+    """
 
     fold_id: str
     val_start: _dt.date
@@ -90,6 +107,8 @@ class FoldRuntimeContext:
     symbols: tuple[str, ...]
     paths: BowakaV2Paths
     holdout_guard: HoldoutGuard
+    startup_dq_report: Optional[dict[str, Any]] = None
+    startup_dq_failure: Optional[str] = None
 
 
 def assert_search_space_does_not_affect_context(
@@ -204,6 +223,77 @@ def _build_one_fold_context(
             )
         except LookupError:
             pass
+
+    # Speedup report v2 §4 P4 / §5.6 / Phase 3 task 2 — build the invariant
+    # half of the startup DQ report once per fold so per-trial backtests
+    # do not rebuild it. Default OFF; the per-trial flow continues to call
+    # ``build_data_quality_report`` in full unless the flag is set AND the
+    # cache key matches the trial's config.
+    startup_dq_report: Optional[dict[str, Any]] = None
+    startup_dq_failure: Optional[str] = None
+    cache_flag = bool(
+        ((cfg.get("optuna") or {}).get("acceleration") or {})
+        .get("startup_dq_cache", {}).get("enabled", False)
+    )
+    if cache_flag:
+        from ..data.data_quality import (
+            DQ_CHECK_INVARIANCE_VERSION,
+            build_data_quality_report,
+            evaluate_startup_dq,
+        )
+        from ..data.lineage import build_dataset_lineage
+        import hashlib as _hashlib
+
+        try:
+            lineage = build_dataset_lineage(
+                cfg=cfg, symbols=symbols,
+                start=sessions[0], end=sessions[-1],
+                lab_config_hash="fold_dq_cache",
+            )
+            invariant_half = build_data_quality_report(
+                cfg=cfg, lineage=lineage, requested_symbols=symbols,
+                sessions=sessions,
+                daily_bars_supplier=daily_sup,
+                minute_bars_supplier=minute_sup,
+                scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+                daily_cache_by_session=daily_cache,
+                session_minute_supplier=None,
+                classify_filter="invariant",
+            )
+            md = cfg.get("market_data") or {}
+            sim = cfg.get("simulation") or {}
+            symbols_hash = _hashlib.sha256(
+                ",".join(sorted(symbols)).encode("utf-8")
+            ).hexdigest()[:16]
+            invariant_half["_cache_key"] = {
+                "lake_root": str(lake_root),
+                "feed": feed,
+                "symbols_hash": symbols_hash,
+                "sessions": [s.isoformat() for s in sessions],
+                "simulation_mode": (
+                    sim.get("mode") if isinstance(sim, dict) else None
+                ),
+                "market_data_keys": {
+                    "require_adjusted_daily_bars":
+                        md.get("require_adjusted_daily_bars"),
+                    "require_split_adjustment": md.get("require_split_adjustment"),
+                    "max_bar_age_seconds": md.get("max_bar_age_seconds"),
+                    "max_quote_age_seconds": md.get("max_quote_age_seconds"),
+                },
+                "dq_check_invariance_version": DQ_CHECK_INVARIANCE_VERSION,
+            }
+            startup_dq_report = invariant_half
+            sim_mode = (sim.get("mode") if isinstance(sim, dict)
+                        else "smoke_fixture") or "smoke_fixture"
+            startup_dq_failure = evaluate_startup_dq(
+                invariant_half, simulation_mode=str(sim_mode),
+            )
+        except Exception as exc:  # noqa: BLE001 — caching is best-effort
+            # Cache build failure must not abort the fold; the per-trial path
+            # rebuilds the full report from scratch.
+            startup_dq_report = None
+            startup_dq_failure = None
+
     return FoldRuntimeContext(
         fold_id=fold_id,
         val_start=val_start, val_end=val_end,
@@ -221,6 +311,8 @@ def _build_one_fold_context(
         symbols=tuple(symbols),
         paths=paths,
         holdout_guard=holdout_guard,
+        startup_dq_report=startup_dq_report,
+        startup_dq_failure=startup_dq_failure,
     )
 
 

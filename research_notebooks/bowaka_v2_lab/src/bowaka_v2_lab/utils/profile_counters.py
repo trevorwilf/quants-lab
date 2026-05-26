@@ -75,6 +75,9 @@ class ProfileCounters:
     worker_context_build_seconds: float = 0.0
     # Speedup report v2 §5.4 / Phase 2 — parallel preflight wall-clock.
     parallel_preflight_seconds: float = 0.0
+    # Speedup report v2 §5.6 / Phase 3 — invariant startup DQ cache counters.
+    startup_dq_builds: int = 0
+    startup_dq_cached_hits: int = 0
 
     extra: dict[str, Any] = field(default_factory=dict)
 

@@ -119,6 +119,121 @@ _REQUIRED_CHECK_NAMES: frozenset[str] = frozenset(
     }
 )
 
+#: Speedup report v2 §4 P4 / §5.6 / Phase 3 task 1 — invariance classification
+#: of every DQ check. A check is **invariant** when its result depends only on
+#: quantities held fixed for a study/fold context (``cfg.market_data``,
+#: ``cfg.simulation.mode``, lineage, requested symbols, sessions,
+#: ``daily_cache_by_session``, ``session_minute_supplier``). It is
+#: **trial_dependent** when any tuned search-space parameter could change the
+#: result. Examples: ``quote_coverage`` uses ``max_quote_age_seconds`` (in the
+#: search space) → trial_dependent; ``coverage_missing_exit_path`` uses
+#: ``exits.max_hold_days`` (in the search space) → trial_dependent. When in
+#: doubt, mark trial_dependent (the cache then rebuilds; conservatism wins).
+#:
+#: Bump :data:`DQ_CHECK_INVARIANCE_VERSION` on EVERY change to this dict (or
+#: when the search space starts tuning a previously-frozen knob). The cache
+#: invalidation key includes the version so a bump force-rebuilds every
+#: study's cached report.
+DQ_CHECK_INVARIANCE_VERSION = 1
+_DQ_CHECK_INVARIANCE: dict[str, str] = {
+    # ---- audit-derived (lineage / lake state — never trial-tuned) ----------
+    "audit_missing_sessions": "invariant",
+    "audit_duplicate_sessions": "invariant",
+    "audit_ohlc_violations": "invariant",
+    "audit_zero_volume_sessions": "invariant",
+    "audit_large_gap_flags": "invariant",
+    "audit_passed_research_audit": "invariant",
+    "audit_available": "invariant",
+    # ---- coverage / adjustment / quote partitions (lake + config flags) ----
+    "coverage_missing": "invariant",
+    "adjustment_mismatch": "invariant",
+    "split_adjustment_mismatch": "invariant",
+    "quotes_partitions_available": "invariant",
+    "quotes_required_but_absent": "invariant",
+    # ``quote_coverage`` consumes ``max_quote_age_seconds`` (Optuna search-space
+    # leaf) — trial_dependent.
+    "quote_coverage": "trial_dependent",
+    "sip_data_present": "invariant",
+    "sip_data_absent": "invariant",
+    "synthetic_data": "invariant",
+    # ---- multi-level DQ (audit §P0-010 / realism remediation 2 Phase 3) ----
+    "ingestion_schema": "invariant",
+    "ingestion_timestamps_sorted": "invariant",
+    "ingestion_duplicate_timestamps": "invariant",
+    "ingestion_ohlc_violation": "invariant",
+    "ingestion_nonpositive_price": "invariant",
+    "ingestion_volume_anomaly": "invariant",
+    "ingestion_level_error": "invariant",
+    "session_minute_count_violation": "invariant",
+    "intraday_gap": "invariant",
+    "session_stale_segment": "invariant",
+    "session_level_error": "invariant",
+    "coverage_missing_late_session": "invariant",
+    # ``coverage_missing_exit_path`` consumes ``exits.max_hold_days`` (in the
+    # search space) — trial_dependent.
+    "coverage_missing_exit_path": "trial_dependent",
+    # ``replay_quote_age_violation`` consumes ``max_quote_age_seconds`` (in
+    # the search space) — trial_dependent.
+    "replay_quote_age_violation": "trial_dependent",
+    "replay_level_error": "invariant",
+    "feature_leakage": "invariant",
+    "feature_split_unaware": "invariant",
+    "feature_level_error": "invariant",
+    "halt_data_unavailable_when_required": "invariant",
+    "quote_status_level_error": "invariant",
+}
+
+
+def dq_check_invariance(name: str) -> str:
+    """Return ``"invariant"`` / ``"trial_dependent"`` for a check name.
+
+    Unknown names default to ``"trial_dependent"`` so a forgotten classification
+    never poisons the cache silently — the conservative fallback forces a
+    rebuild rather than reusing a possibly-stale row.
+    """
+    return _DQ_CHECK_INVARIANCE.get(name, "trial_dependent")
+
+
+def merge_dq_reports(
+    a: Mapping[str, Any], b: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Merge two partial DQ reports (invariant + trial_dependent halves).
+
+    Speedup report v2 §4 P4 / Phase 3 task 3. Concatenates ``checks``,
+    deduplicates by ``name`` (the second mapping wins on collision — which
+    should never happen for a clean split but is the conservative fallback),
+    then rebuilds ``failed`` / ``required_failures`` /
+    ``adjustment_gating_failures`` from the merged ``checks`` list. Other
+    top-level fields are taken from ``a`` (the invariant half) with any
+    additional keys from ``b`` layered on top.
+    """
+    by_name: dict[str, dict[str, Any]] = {}
+    for c in (a.get("checks") or ()):
+        by_name[c["name"]] = dict(c)
+    for c in (b.get("checks") or ()):
+        by_name[c["name"]] = dict(c)
+    merged_checks = list(by_name.values())
+    failed = [c["name"] for c in merged_checks if c.get("status") == "fail"]
+    required_failures = [
+        n for n in failed if n in _REQUIRED_CHECK_NAMES
+    ]
+    adjustment_gating_failures = [
+        n for n in failed if n in _ADJUSTMENT_GATING_CHECK_NAMES
+    ]
+    merged = dict(a)
+    for k, v in b.items():
+        if k not in ("checks", "failed", "required_failures",
+                     "adjustment_gating_failures", "passed", "warned"):
+            merged.setdefault(k, v)
+    merged["checks"] = merged_checks
+    merged["failed"] = sum(1 for c in merged_checks if c.get("status") == "fail")
+    merged["passed"] = sum(1 for c in merged_checks if c.get("status") == "pass")
+    merged["warned"] = sum(1 for c in merged_checks if c.get("status") == "warn")
+    merged["required_failures"] = sorted(set(required_failures))
+    merged["adjustment_gating_failures"] = sorted(set(adjustment_gating_failures))
+    return merged
+
+
 #: Adjustment-enforcement checks (realism remediation 2 Phase 1, audit §P0-005).
 #: Unlike the rest of :data:`_REQUIRED_CHECK_NAMES` — which gate only
 #: ``intended_realism`` — these gate ANY non-smoke run: a ``current_code_parity``
@@ -777,6 +892,7 @@ def build_data_quality_report(
     scan_times_per_session,
     daily_cache_by_session: Optional[Mapping[_dt.date, Any]] = None,
     session_minute_supplier=None,
+    classify_filter: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build the full ``data_quality_report.json`` document for a run.
 
@@ -790,6 +906,12 @@ def build_data_quality_report(
     full regular-session minute frame) drives the session-level checks. Both are
     optional — when absent the dependent levels degrade to a clean ``pass``
     rather than failing.
+
+    Speedup report v2 §4 P4 / §5.6 / Phase 3 task 3 — when
+    ``classify_filter="invariant"`` only checks classified
+    :data:`_DQ_CHECK_INVARIANCE` invariant are emitted; with
+    ``classify_filter="trial_dependent"`` only the trial-dependent checks. The
+    default ``None`` runs every check (legacy behaviour).
     """
     feed = str((cfg.get("market_data", {}) or {}).get("feed", "iex"))
     regime = str(lineage.get("regime", "synthetic"))
@@ -920,6 +1042,18 @@ def build_data_quality_report(
             lake_adjustment_policy=lake_adjustment_policy,
         )
     )
+
+    # Speedup report v2 §4 P4 / §5.6 / Phase 3 — invariance filter.
+    if classify_filter is not None:
+        if classify_filter not in ("invariant", "trial_dependent"):
+            raise ValueError(
+                "classify_filter must be 'invariant', 'trial_dependent', or "
+                f"None; got {classify_filter!r}"
+            )
+        checks = [
+            c for c in checks
+            if dq_check_invariance(c.get("name", "")) == classify_filter
+        ]
 
     return assemble_report(checks=checks, regime="lake", feed=feed, notes="")
 
@@ -1083,6 +1217,7 @@ def _build_multi_level_checks(
 
 __all__ = [
     "DATA_QUALITY_SCHEMA_VERSION",
+    "DQ_CHECK_INVARIANCE_VERSION",
     "build_data_quality_report",
     "build_audit_checks",
     "build_coverage_check",
@@ -1091,6 +1226,8 @@ __all__ = [
     "build_quote_check",
     "build_quote_coverage_check",
     "build_sip_data_check",
+    "dq_check_invariance",
+    "merge_dq_reports",
     "historical_quote_coverage_pct",
     "find_latest_audit",
     "synthetic_data_quality_report",

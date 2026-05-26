@@ -33,9 +33,11 @@ from ..config.hashing import canonical_run_hash, canonical_strategy_hash
 from ..config.models import SimulationConfig
 from ..config.paths import BowakaV2Paths
 from ..data.data_quality import (
+    DQ_CHECK_INVARIANCE_VERSION,
     StartupDataQualityError,
     build_data_quality_report,
     evaluate_startup_dq,
+    merge_dq_reports,
 )
 from ..data.lineage import build_dataset_lineage
 from ..reference import actual_contract_hash, contract_available, load_actual_contract
@@ -485,6 +487,106 @@ def _check_lot_exits_until(
     return closes
 
 
+def _build_dq_report_with_optional_cache(
+    *,
+    cached_invariant_report: Optional[Mapping[str, Any]],
+    cfg: Mapping[str, Any],
+    dataset_lineage: Mapping[str, Any],
+    requested_symbols: list[str],
+    sessions: list[_dt.date],
+    daily_bars_supplier,
+    minute_bars_supplier,
+    scan_times_per_session,
+    daily_cache_by_session,
+    session_minute_supplier,
+) -> dict[str, Any]:
+    """Build the DQ report — using the cached invariant half when available.
+
+    Speedup report v2 §4 P4 / §5.6 / Phase 3 task 3/4. When
+    ``cached_invariant_report`` is non-None and its ``_cache_key`` matches the
+    live values, only the trial-dependent half is recomputed and the two
+    halves are merged via :func:`merge_dq_reports`. On any mismatch the cache
+    is silently bypassed (legacy full rebuild, with a logged warning) — the
+    safer fallback. The result is bit-equivalent to the un-cached path for
+    runs against the same lake / config family.
+    """
+    # Use module-level ``build_data_quality_report`` so ``patch.object(
+    # backtester, "build_data_quality_report", ...)`` in tests reaches both
+    # the full-rebuild and the trial-dependent paths.
+    import hashlib as _hashlib
+    import logging as _logging
+    import sys as _sys
+
+    from ..utils.profile_counters import counters_enabled, current_profile_counters
+
+    _log = _logging.getLogger("bowaka_v2_lab.sim.backtester")
+
+    def _build_dq(*, classify_filter: Optional[str] = None) -> dict[str, Any]:
+        """Module-level dispatch — picks up ``patch.object`` rebinds on this module."""
+        mod = _sys.modules[__name__]
+        return mod.build_data_quality_report(
+            cfg=cfg, lineage=dataset_lineage,
+            requested_symbols=requested_symbols, sessions=sessions,
+            daily_bars_supplier=daily_bars_supplier,
+            minute_bars_supplier=minute_bars_supplier,
+            scan_times_per_session=scan_times_per_session,
+            daily_cache_by_session=daily_cache_by_session,
+            session_minute_supplier=session_minute_supplier,
+            classify_filter=classify_filter,
+        )
+
+    def _bump(field: str) -> None:
+        if counters_enabled():
+            try:
+                current_profile_counters().inc(**{field: 1})
+            except LookupError:
+                pass
+
+    def _full_rebuild() -> dict[str, Any]:
+        _bump("startup_dq_builds")
+        return _build_dq()
+
+    if cached_invariant_report is None:
+        return _full_rebuild()
+
+    cache_key = cached_invariant_report.get("_cache_key") or {}
+    md = cfg.get("market_data") or {}
+    sim = cfg.get("simulation") or {}
+    symbols_hash = _hashlib.sha256(
+        ",".join(sorted(requested_symbols)).encode("utf-8")
+    ).hexdigest()[:16]
+    lake_root_str = str(md.get("shared_root") or dataset_lineage.get("lake_root") or "")
+    expected_key = {
+        "lake_root": lake_root_str,
+        "feed": str(md.get("feed", "iex")),
+        "symbols_hash": symbols_hash,
+        "sessions": [s.isoformat() for s in sessions],
+        "simulation_mode": (sim.get("mode") if isinstance(sim, dict) else None),
+        "market_data_keys": {
+            "require_adjusted_daily_bars": md.get("require_adjusted_daily_bars"),
+            "require_split_adjustment": md.get("require_split_adjustment"),
+            "max_bar_age_seconds": md.get("max_bar_age_seconds"),
+            "max_quote_age_seconds": md.get("max_quote_age_seconds"),
+        },
+        "dq_check_invariance_version": DQ_CHECK_INVARIANCE_VERSION,
+    }
+    for k, expected in expected_key.items():
+        if cache_key.get(k) != expected:
+            _log.warning(
+                "startup_dq_cache miss on field %r (expected %r, got %r); "
+                "rebuilding the full DQ report",
+                k, expected, cache_key.get(k),
+            )
+            return _full_rebuild()
+
+    # Cache key matches — recompute only the trial-dependent half and merge.
+    _bump("startup_dq_cached_hits")
+    invariant_half = dict(cached_invariant_report)
+    invariant_half.pop("_cache_key", None)  # drop the bookkeeping field
+    trial_half = _build_dq(classify_filter="trial_dependent")
+    return merge_dq_reports(invariant_half, trial_half)
+
+
 def run_backtest(
     *,
     cfg: Mapping[str, Any],
@@ -518,6 +620,14 @@ def run_backtest(
     # — only the in-memory :class:`BacktestResult` is returned. Default
     # ``"full"`` preserves every existing call site verbatim.
     artifact_mode: Literal["full", "objective_minimal"] = "full",
+    # Speedup report v2 §4 P4 / §5.6 / Phase 3 task 3 — when supplied, the
+    # invariant half of the DQ report is reused (its ``_cache_key`` is
+    # verified against this run's lake/feed/symbols/sessions/sim_mode/
+    # market_data flags + DQ_CHECK_INVARIANCE_VERSION). Only the
+    # trial-dependent half is recomputed for this trial; mismatch falls back
+    # to the legacy full rebuild with a logged warning. Default ``None``
+    # preserves the legacy path verbatim.
+    startup_dq_report: Optional[Mapping[str, Any]] = None,
 ) -> BacktestResult:
     """Run a complete v2 backtest.
 
@@ -587,17 +697,15 @@ def run_backtest(
     # the heavy run loop. The precise reason is recorded in the run manifest and
     # the CLI exits non-zero. smoke_fixture / current_code_parity runs are never
     # failed by DQ — the report is still written for them.
-    data_quality_report = build_data_quality_report(
+    data_quality_report = _build_dq_report_with_optional_cache(
+        cached_invariant_report=startup_dq_report,
         cfg=cfg_dict,
-        lineage=dataset_lineage,
+        dataset_lineage=dataset_lineage,
         requested_symbols=requested_symbols,
         sessions=sessions,
         daily_bars_supplier=daily_bars_supplier,
         minute_bars_supplier=minute_bars_supplier,
         scan_times_per_session=scan_times_per_session,
-        # Realism remediation 2 Phase 3 — the daily-feature cache feeds the
-        # feature-leakage check; the full-session minute supplier feeds the
-        # session-level minute-count / gap / stale checks.
         daily_cache_by_session=daily_cache_by_session,
         session_minute_supplier=session_minute_supplier,
     )
