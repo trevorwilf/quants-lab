@@ -167,23 +167,32 @@ def _check_data_quality(
             ),
             evidence={"regime": regime, "simulation_mode": sim_mode},
         )
-    if required_failures:
+    adjustment_gating_failures = list(dq_report.get("adjustment_gating_failures") or [])
+    if required_failures or adjustment_gating_failures:
         evidence = {
             "regime": regime,
             "failed": failed,
             "required_failures": sorted(required_failures),
+            "adjustment_gating_failures": sorted(adjustment_gating_failures),
         }
-        # The data-quality contract gates ONLY intended_realism runs;
-        # current_code_parity surfaces the same report but is never failed by it.
-        if sim_mode == "intended_realism":
+        # Speedup report §4 P0-A / §5.1: the unified gate uses ``evaluate_startup_dq``
+        # — the same predicate ``run_backtest`` consults — so a parity study
+        # against a raw lake whose config requires adjusted daily bars fails the
+        # preflight closed (the prior code silently surfaced this as a ``warn``
+        # for ``current_code_parity``). ``evaluate_startup_dq`` returns ``None``
+        # for any mode/check combination that does NOT gate; only those that
+        # gate produce a non-None reason here, and we mark them as ``fail``.
+        # Non-gating failures (e.g. non-adjustment required failures under
+        # ``current_code_parity``) still surface as a ``warn`` so the historical
+        # "report it, run it" parity behaviour is preserved for them.
+        from ..data.data_quality import evaluate_startup_dq
+
+        startup_dq_reason = evaluate_startup_dq(dq_report, simulation_mode=sim_mode)
+        if startup_dq_reason is not None:
             return PreflightCheck(
                 name="data_quality",
                 status="fail",
-                detail=(
-                    f"the dataset's data-quality report has {len(required_failures)} "
-                    f"failing required check(s): {sorted(required_failures)} — the lake "
-                    f"cannot support a research-grade optimization"
-                ),
+                detail=startup_dq_reason,
                 evidence=evidence,
             )
         return PreflightCheck(

@@ -32,7 +32,11 @@ from ..config.config_diff import (
 from ..config.hashing import canonical_run_hash, canonical_strategy_hash
 from ..config.models import SimulationConfig
 from ..config.paths import BowakaV2Paths
-from ..data.data_quality import build_data_quality_report, evaluate_startup_dq
+from ..data.data_quality import (
+    StartupDataQualityError,
+    build_data_quality_report,
+    evaluate_startup_dq,
+)
 from ..data.lineage import build_dataset_lineage
 from ..reference import actual_contract_hash, contract_available, load_actual_contract
 from ..scanner.scan_context import build_scan_session_context
@@ -622,7 +626,12 @@ def run_backtest(
                 },
             )
             atomic_write_json(run_dir / "run_manifest.json", failure_manifest)
-        raise RuntimeError(startup_dq_failure)
+        # Speedup report §4 P0-A / §5.1: a generic RuntimeError was swallowed by
+        # the Optuna runner's broad ``except Exception`` block in
+        # ``_run_validation_folds`` and degraded the fold to a sentinel score.
+        # ``StartupDataQualityError`` is a ``DataQualityError`` subclass — it is
+        # structural; the runner re-raises it to abort the study cleanly.
+        raise StartupDataQualityError(startup_dq_failure)
 
     # Config-parity diff vs the frozen live contract (realism Phase 1). Written
     # on every run; in intended_realism mode an unannotated `mismatch` aborts
