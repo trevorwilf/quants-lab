@@ -409,12 +409,29 @@ def make_alpaca_bars_fetcher(
     """Return a :data:`BarsFetcher` backed by the Alpaca historical data API."""
 
     def _fetch(batch: list, timeframe: str, start_dt: datetime, end_dt: datetime) -> dict:
+        from alpaca.data.enums import Adjustment
         from alpaca.data.historical import StockHistoricalDataClient
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
 
         tf = TimeFrame.Day if timeframe == "1d" else TimeFrame.Minute
         client = StockHistoricalDataClient(api_key=cfg.api_key, secret_key=cfg.api_secret)
+        # bowaka_v2 speedup-v2 P0-A follow-up — thread the configured adjustment
+        # into the Alpaca SDK request so the actual bar payload matches the
+        # ``cfg.adjustment`` partition label. Pre-patch the request omitted
+        # ``adjustment`` and Alpaca defaulted to raw, which produced a silent
+        # mislabel when ``cfg.adjustment="split_adjusted"`` wrote bars under
+        # the ``_adjusted/`` partition path that were actually raw.
+        _adjustment_enum_by_cfg: dict[str, Any] = {
+            "raw": Adjustment.RAW,
+            "split_adjusted": Adjustment.SPLIT,
+            "split": Adjustment.SPLIT,
+            "dividend_adjusted": Adjustment.DIVIDEND,
+            "dividend": Adjustment.DIVIDEND,
+            "all": Adjustment.ALL,
+            "adjusted": Adjustment.ALL,
+        }
+        _adj = _adjustment_enum_by_cfg.get(str(cfg.adjustment).lower(), Adjustment.RAW)
         rows: dict[str, list[dict]] = {sym: [] for sym in batch}
         page_token = None
         while True:
@@ -425,6 +442,7 @@ def make_alpaca_bars_fetcher(
                 start=start_dt,
                 end=end_dt,
                 feed=cfg.feed_enum,
+                adjustment=_adj,
                 page_token=page_token,
             )
             resp = with_retries(client.get_stock_bars, req, log=log)
