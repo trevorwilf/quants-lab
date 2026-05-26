@@ -1066,6 +1066,23 @@ def _hash(payload: Any) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
+def _stub_parent_objective_for_parallel(trial: Any) -> float:
+    """In process-parallel mode the parent's objective MUST NOT be called.
+
+    Speedup report v2 §1.3 / §5.4 / Phase 2 task 1. The dispatcher's
+    ``run_parallel_bowaka_optimization`` reconstructs the objective inside
+    each worker via the dotted factory; the in-parent ``objective`` argument
+    is only consulted in serial fallback. If the dispatcher ever calls this
+    stub something has gone wrong (a process_parallel decision was made but
+    the dispatcher took the serial branch).
+    """
+    raise RuntimeError(
+        "process_parallel mode: parent objective must not be called; "
+        "the dispatcher should be using the dotted factory entrypoint. "
+        "See speedup report v2 §1.3 / §5.4."
+    )
+
+
 class _PhaseProfile:
     """Lightweight phase timer for the speedup-v2 phase-profile JSON.
 
@@ -1962,48 +1979,126 @@ def run_walkforward_study(
             "backtests skip disk artifact writes (speedup §5.1 / §11.2 Phase 1)"
         )
 
-    # Speedup report §5.2 / §11.2 Phase 2 — build the per-fold runtime
-    # context ONCE, before constructing the objective. The search-space
-    # guard refuses any tuned parameter that would invalidate the cache.
-    # Speedup report §5.3 / §11.2 Phase 3 — opt-in cached supplier adapter.
+    # Speedup report v2 §1.3 / §4 P2 / §5.4 / Phase 2 — parallel preflight
+    # runs BEFORE ``build_fold_contexts`` so a strict-parallel run against
+    # SQLite, or with a memory budget that cannot fit the requested worker
+    # count, fails closed BEFORE the parent pays the context-build cost. In
+    # process-parallel mode the parent skips the parent-side context build
+    # entirely — workers rebuild contexts inside each subprocess via the
+    # dotted factory.
     assert_search_space_does_not_affect_context(search_space_overrides)
     cached_suppliers_flag = bool((cfg.get("optuna") or {}).get("cached_suppliers", False))
-    _phase_profile.begin("fold_context_precompute")
-    fold_contexts = build_fold_contexts(
-        cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
-        paths=paths, holdout_guard=holdout_guard,
-        cached_suppliers=cached_suppliers_flag,
-    )
-    log.info(
-        "precomputed %d fold runtime context(s) for the study "
-        "(speedup §5.2 / §11.2 Phase 2)%s",
-        sum(1 for c in fold_contexts if c is not None),
-        " [cached_suppliers=True — §5.3 / §11.2 Phase 3]" if cached_suppliers_flag else "",
-    )
-
-    objective = make_walkforward_objective(
-        cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
-        paths=paths, holdout_guard=holdout_guard, log=log,
-        search_space_overrides=search_space_overrides,
-        incumbent_params=incumbent_params,
-        dataset_hash=dataset_hash,
-        config_hash=lab_config_hash,
-        code_hash=code_hash,
-        objective_artifact_mode=objective_artifact_mode,
-        fold_contexts=fold_contexts,
-    )
-    # Speedup report §6.1 / §11.3 Phase 5 — process-parallel Optuna against
-    # PostgreSQL storage. ``n_jobs <= 1`` keeps the serial in-process loop;
-    # ``n_jobs > 1`` spawns workers (capped at MemoryBudget.max_optuna_workers,
-    # default 8). Workers each set BLAS threads to 1 before importing NumPy
-    # and rebuild their own objective via the dotted factory so the parent's
-    # heavy closures do not have to be pickled.
     parallel_cfg = (cfg.get("optuna") or {}).get("parallel") or {}
     strict_parallel_flag = bool(parallel_cfg.get("strict_parallel", False))
     mem_budget = MemoryBudget.from_system(
         reserve_system_gib=float(parallel_cfg.get("memory_reserve_gib", 32.0)),
         max_optuna_workers=int(parallel_cfg.get("max_workers", 8)),
     )
+    from .parallel import (
+        ParallelDecision as _ParallelDecision,
+        preflight_parallel_dispatch as _preflight_parallel_dispatch,
+    )
+    from ..utils.profile_counters import (
+        counters_enabled as _ce2,
+        current_profile_counters as _cpc2,
+    )
+    import time as _time
+
+    _pp_start = _time.perf_counter()
+    try:
+        parallel_decision = _preflight_parallel_dispatch(
+            study.study, n_jobs=jobs,
+            storage_uri=resolved_storage_uri,
+            mem_budget=mem_budget,
+            strict_parallel=strict_parallel_flag,
+        )
+    except OptunaStudyInvalidError as struct_exc:
+        failure_reason = f"parallel preflight: {struct_exc}"
+        _write_failed_study_artifact(
+            paths=paths,
+            study_name=study.study.study_name,
+            study_metadata=study_metadata,
+            failure_reason=failure_reason,
+            sim_cfg=sim_cfg,
+            simulation_contract=simulation_contract,
+            suitability_tier=suitability_tier,
+            feed=feed,
+            partial_tape=partial_tape,
+            feed_caveat=feed_caveat,
+            plan=plan,
+            trials_requested=trials,
+            startup=startup,
+            universe_pit_sample=universe_pit_sample,
+            preflight_symbol_count=len(symbols),
+            log=log,
+            pit_union_symbol_count=pit_union_symbol_count,
+            preflight_coverage_fraction=preflight_coverage_fraction,
+            research_waiver_capped_symbols=research_waiver_capped_symbols,
+        )
+        try:
+            _write_phase_profile_json(
+                paths=paths, study_name=study.study.study_name,
+                profile=_phase_profile, counters=_counters_inst.snapshot(),
+                config_hash=lab_config_hash, dataset_hash=dataset_hash,
+                code_hash=code_hash, log=log,
+            )
+        finally:
+            _counters_cm.__exit__(None, None, None)
+        raise OptunaStudyInvalidError(failure_reason) from struct_exc
+    finally:
+        _pp_end = _time.perf_counter()
+        if _ce2():
+            try:
+                _cpc2().inc(parallel_preflight_seconds=_pp_end - _pp_start)
+            except LookupError:
+                pass
+    study.study.set_user_attr("dispatch_mode", parallel_decision.mode)
+    study.study.set_user_attr("dispatch_reason", parallel_decision.reason)
+    study.study.set_user_attr("dispatch_n_workers", parallel_decision.n_workers)
+    log.info(
+        "parallel preflight: mode=%s n_workers=%d reason=%s",
+        parallel_decision.mode, parallel_decision.n_workers,
+        parallel_decision.reason,
+    )
+
+    # Speedup report §5.2 / §11.2 Phase 2 — build the per-fold runtime
+    # context ONCE, before constructing the objective. The search-space
+    # guard refuses any tuned parameter that would invalidate the cache.
+    # Speedup report §5.3 / §11.2 Phase 3 — opt-in cached supplier adapter.
+    # NB: strict-parallel skips the parent context build (workers rebuild
+    # via the dotted factory) — speedup v2 §1.3 / §5.4 / Phase 2.
+    fold_contexts: Optional[tuple] = None
+    if parallel_decision.mode == "process_parallel":
+        log.info(
+            "process_parallel mode — parent skips build_fold_contexts; "
+            "workers rebuild via the dotted factory (speedup v2 §5.4)"
+        )
+        objective = _stub_parent_objective_for_parallel
+    else:
+        _phase_profile.begin("fold_context_precompute")
+        fold_contexts = build_fold_contexts(
+            cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
+            paths=paths, holdout_guard=holdout_guard,
+            cached_suppliers=cached_suppliers_flag,
+        )
+        log.info(
+            "precomputed %d fold runtime context(s) for the study "
+            "(speedup §5.2 / §11.2 Phase 2)%s",
+            sum(1 for c in fold_contexts if c is not None),
+            " [cached_suppliers=True — §5.3 / §11.2 Phase 3]" if cached_suppliers_flag else "",
+        )
+
+        objective = make_walkforward_objective(
+            cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
+            paths=paths, holdout_guard=holdout_guard, log=log,
+            search_space_overrides=search_space_overrides,
+            incumbent_params=incumbent_params,
+            dataset_hash=dataset_hash,
+            config_hash=lab_config_hash,
+            code_hash=code_hash,
+            objective_artifact_mode=objective_artifact_mode,
+            fold_contexts=fold_contexts,
+        )
 
     # Audit 2026-05-23 §P0-001 — a structural exception escaping the trial
     # must abort the study with a written failed-status artifact rather than

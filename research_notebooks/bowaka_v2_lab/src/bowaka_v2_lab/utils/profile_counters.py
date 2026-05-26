@@ -73,6 +73,8 @@ class ProfileCounters:
     daily_cache_batch_slice_seconds: float = 0.0
     fold_context_build_seconds: float = 0.0
     worker_context_build_seconds: float = 0.0
+    # Speedup report v2 §5.4 / Phase 2 — parallel preflight wall-clock.
+    parallel_preflight_seconds: float = 0.0
 
     extra: dict[str, Any] = field(default_factory=dict)
 

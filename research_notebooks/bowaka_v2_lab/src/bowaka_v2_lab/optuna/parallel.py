@@ -24,9 +24,10 @@ import multiprocessing as _mp
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional
 
 from ..utils.memory_guard import MemoryBudget, MemoryReserveViolation
+from .errors import OptunaStudyInvalidError
 
 
 @dataclass
@@ -205,10 +206,89 @@ def run_parallel_bowaka_optimization(
     return results
 
 
+@dataclass(frozen=True)
+class ParallelDecision:
+    """The result of :func:`preflight_parallel_dispatch`.
+
+    ``mode``:
+
+    * ``"serial"`` — run ``study.optimize`` in-process; the parent SHOULD
+      build the fold contexts once (legacy behaviour).
+    * ``"process_parallel"`` — spawn workers against the shared storage URL;
+      the parent MUST NOT build fold contexts (each worker rebuilds them
+      via the dotted-factory entrypoint).
+
+    ``reason`` is a human-readable note surfaced in study user_attrs.
+    """
+
+    mode: Literal["serial", "process_parallel"]
+    n_workers: int
+    reason: str
+
+
+def preflight_parallel_dispatch(
+    study: Any,
+    *,
+    n_jobs: int,
+    storage_uri: Optional[str],
+    mem_budget: MemoryBudget,
+    strict_parallel: bool,
+) -> ParallelDecision:
+    """Decide serial vs process-parallel BEFORE any expensive setup.
+
+    Speedup report v2 §1.3 / §4 P2 / §5.4 / Phase 2 task 1. Runs the same
+    storage + memory checks the in-process dispatcher used to perform AFTER
+    fold contexts were already built; bubbling them up here means the
+    strict-parallel parent never pays the context-build cost when it cannot
+    legally launch workers.
+
+    Rules:
+
+    * ``n_jobs <= 1`` → ``serial``, no further checks.
+    * Process-parallel REQUIRES a PostgreSQL storage URL.
+      ``sqlite:`` / in-memory studies cannot host concurrent writers safely.
+      Either ``strict_parallel`` mode raises here (regardless of count), so
+      the only way to run against SQLite is ``n_jobs == 1`` (which still
+      returns ``serial``).
+    * Memory: ``mem_budget.assert_launch_safe(0.0, n_workers=n_jobs)``. On
+      :class:`MemoryReserveViolation`:
+      - ``strict_parallel`` → raises :class:`OptunaStudyInvalidError`.
+      - otherwise → returns ``serial`` with the violation reason.
+    """
+    if int(n_jobs) <= 1:
+        return ParallelDecision(mode="serial", n_workers=1, reason="n_jobs <= 1")
+    if not storage_uri or "postgresql" not in str(storage_uri).lower():
+        raise OptunaStudyInvalidError(
+            "process-parallel Optuna requires an RDB (PostgreSQL), not SQLite; "
+            f"got storage_uri={storage_uri!r}. Set "
+            "OPTUNA_STORAGE=postgresql+psycopg2://... or run with n_jobs=1. "
+            "See speedup report v2 §7.5."
+        )
+    try:
+        mem_budget.assert_launch_safe(
+            feature_store_gib_estimate=0.0,
+            n_workers=int(n_jobs),
+        )
+    except MemoryReserveViolation as exc:
+        if strict_parallel:
+            raise OptunaStudyInvalidError(
+                f"strict_parallel: {exc}"
+            )
+        return ParallelDecision(
+            mode="serial", n_workers=1,
+            reason=f"memory refused parallel; falling back: {exc}",
+        )
+    return ParallelDecision(
+        mode="process_parallel", n_workers=int(n_jobs), reason="ok",
+    )
+
+
 __all__ = [
+    "ParallelDecision",
     "WorkerResult",
     "WorkerSpec",
     "_BLAS_THREAD_ENV_VARS",
     "pin_blas_threads_to_one",
+    "preflight_parallel_dispatch",
     "run_parallel_bowaka_optimization",
 ]
