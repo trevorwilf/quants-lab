@@ -265,20 +265,18 @@ def _build_one_fold_context(
         import hashlib as _hashlib
 
         try:
-            # Speedup hotfix 2026-05-27 — both the DQ report content AND the
-            # cache key are now keyed by the same per-fold-eligible-union
-            # symbols set the trial reader derives from
-            # ``universe_snapshot_by_session``. Pre-patch the stamper used
-            # the broader ``symbols`` arg (the preflight-probe-capped set),
-            # while ``run_backtest`` built ``requested_symbols`` from the
-            # universe snapshot — they rarely matched, so every trial saw a
-            # ``symbols_hash`` cache miss and rebuilt the full DQ report.
+            # Speedup hotfix 2026-05-27 (rev 2) — derive symbols from the
+            # ``eligible`` dict (per-fold ELIGIBLE-symbol union). The
+            # ``universe`` value per session is ``dict[symbol_str,
+            # UniverseRecord]``; ``to_scanner_snapshot`` (which the trial
+            # reader's universe_snapshot_by_session normalises through)
+            # includes ONLY eligible symbols. So both sides land on
+            # eligible.union(). Pre-patch the stamper iterated
+            # ``u.get("symbols")`` expecting the normalised shape — that
+            # returned empty and fell back to ``symbols`` (the broad
+            # preflight set), causing the cache to miss on every trial.
             _stamp_symbols = sorted({
-                str(s["symbol"])
-                for u in universe.values()
-                if isinstance(u, dict)
-                for s in (u.get("symbols") or [])
-                if isinstance(s, dict) and "symbol" in s
+                str(sym) for syms in eligible.values() for sym in syms
             }) or list(symbols)
             lineage = build_dataset_lineage(
                 cfg=cfg, symbols=_stamp_symbols,
