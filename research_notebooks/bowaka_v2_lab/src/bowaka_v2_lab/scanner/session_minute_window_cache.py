@@ -148,8 +148,11 @@ class SessionMinuteWindowCache:
             ts_col = pd.to_datetime(frame["timestamp"], utc=True)
             frame = frame.assign(timestamp=ts_col).sort_values("timestamp").reset_index(drop=True)
             self._frames[str(symbol)] = frame
+            # Pandas datetime64[ns, UTC] is int64 nanoseconds-since-epoch
+            # under the hood. ``.astype("datetime64[ns]")`` strips the
+            # timezone with a UserWarning; use the int64 view directly.
             self._timestamps[str(symbol)] = (
-                frame["timestamp"].to_numpy().astype("datetime64[ns]").astype("int64")
+                frame["timestamp"].astype("int64").to_numpy()
             )
 
     def bars_until(self, symbol: str, scan_ts: Any) -> pd.DataFrame:

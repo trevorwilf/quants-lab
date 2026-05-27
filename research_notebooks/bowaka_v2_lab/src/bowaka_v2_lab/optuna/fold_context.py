@@ -285,8 +285,22 @@ def _build_one_fold_context(
             symbols_hash = _hashlib.sha256(
                 ",".join(sorted(symbols)).encode("utf-8")
             ).hexdigest()[:16]
+            # Speedup hotfix 2026-05-27 — resolve the lake root the same way
+            # the trial reader does (md.shared_root → dataset_lineage.lake_root
+            # via resolve_lake_root). Pre-patch the stamper used the raw
+            # function arg, which is ``None`` when the config relies on env-
+            # var resolution (the workstation overlay does not set
+            # ``market_data.shared_root`` explicitly). That made every trial
+            # cache-miss on field ``lake_root`` and rebuild the full DQ
+            # report, defeating Phase 3 entirely.
+            try:
+                from ..data.lineage import resolve_lake_root as _resolve_lake_root
+
+                _cache_key_lake_root = str(_resolve_lake_root(cfg))
+            except Exception:  # noqa: BLE001 — fall back to the raw param
+                _cache_key_lake_root = str(lake_root)
             invariant_half["_cache_key"] = {
-                "lake_root": str(lake_root),
+                "lake_root": _cache_key_lake_root,
                 "feed": feed,
                 "symbols_hash": symbols_hash,
                 "sessions": [s.isoformat() for s in sessions],

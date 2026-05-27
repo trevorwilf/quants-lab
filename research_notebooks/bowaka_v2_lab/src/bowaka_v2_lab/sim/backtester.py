@@ -555,7 +555,17 @@ def _build_dq_report_with_optional_cache(
     symbols_hash = _hashlib.sha256(
         ",".join(sorted(requested_symbols)).encode("utf-8")
     ).hexdigest()[:16]
-    lake_root_str = str(md.get("shared_root") or dataset_lineage.get("lake_root") or "")
+    # Speedup hotfix 2026-05-27 — resolve via the same helper the fold-
+    # context stamper uses; matching string semantics is what gates the
+    # Phase 3 cache from spuriously rebuilding every trial.
+    try:
+        from ..data.lineage import resolve_lake_root as _resolve_lake_root_for_cache
+
+        lake_root_str = str(_resolve_lake_root_for_cache(cfg))
+    except Exception:  # noqa: BLE001
+        lake_root_str = str(
+            md.get("shared_root") or dataset_lineage.get("lake_root") or ""
+        )
     expected_key = {
         "lake_root": lake_root_str,
         "feed": str(md.get("feed", "iex")),
