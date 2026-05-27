@@ -274,6 +274,86 @@ def _compute_prior_baselines(
     return prior_close, prior_adv
 
 
+# Speedup hotfix 2026-05-26 — process-local cache of each symbol's FULL daily
+# history, keyed by (str(lake_store_lake_root), symbol, feed). The PIT
+# universe builder calls ``lake_store.daily_bars(symbol, start, end, feed)``
+# per (session × symbol); consecutive sessions share 99.5% of the
+# ``_DAILY_LOOKBACK_DAYS`` window, so without this cache each fold makes
+# (n_sessions × n_symbols) ≈ 134k parquet reads on the live IEX lake. With
+# the cache: n_symbols ≈ 6,400 reads per (lake, feed) PER WORKER PROCESS.
+# The lake is immutable within a study; a re-ingest creates a fresh process.
+#: Cached payload per (lake_root, symbol, feed). ``close_x_volume`` is the
+#: precomputed dollar-volume product (eliminates the broadcast multiply in
+#: _compute_prior_baselines). ``session_dates`` is a numpy-aligned date
+#: array so per-session mask construction is a single int comparison.
+class _CachedDailyHistory:
+    __slots__ = ("close", "volume", "session_dates", "close_x_volume")
+
+    def __init__(self, df: pd.DataFrame) -> None:
+        if df is None or df.empty:
+            self.close = None
+            self.volume = None
+            self.session_dates = None
+            self.close_x_volume = None
+            return
+        if "session_date" in df.columns:
+            sd = pd.to_datetime(df["session_date"]).dt.date
+        else:
+            sd = (
+                pd.to_datetime(df["timestamp"], utc=True)
+                .dt.tz_convert("America/New_York")
+                .dt.date
+            )
+        # Sort once by session date so iloc-tail() at the end is the last N days.
+        order = sd.argsort()
+        sd_sorted = sd.values[order]
+        close_sorted = df["close"].astype(float).values[order]
+        volume_sorted = df["volume"].astype(float).values[order]
+        self.session_dates = sd_sorted
+        self.close = close_sorted
+        self.volume = volume_sorted
+        self.close_x_volume = close_sorted * volume_sorted
+
+
+_PIT_DAILY_FULL_HISTORY_CACHE: dict[tuple[str, str, str], _CachedDailyHistory] = {}
+
+
+def _full_daily_history(
+    lake_store: Any, symbol: str, *, feed: str,
+) -> _CachedDailyHistory:
+    """Cached full daily history for ``symbol`` on ``lake_store``.
+
+    Reads ``lake_store.daily_bars(symbol, 1970-01-01, today, feed=feed)`` once
+    per ``(lake_root, symbol, feed)`` triple, then returns the same compact
+    payload (numpy arrays + precomputed close×volume) on subsequent calls.
+    Cache is process-local — fresh worker processes start cold (intended;
+    spawn workers cannot share the parent's cache).
+    """
+    lake_root_str = ""
+    if hasattr(lake_store, "lake_root"):
+        lake_root_str = str(getattr(lake_store, "lake_root"))
+    elif hasattr(lake_store, "root"):
+        lake_root_str = str(getattr(lake_store, "root"))
+    key = (lake_root_str, str(symbol), str(feed))
+    cached = _PIT_DAILY_FULL_HISTORY_CACHE.get(key)
+    if cached is not None:
+        return cached
+    full_start = _dt.date(1970, 1, 1)
+    full_end = _dt.date.today()
+    try:
+        df = lake_store.daily_bars(symbol, full_start, full_end, feed=feed)
+    except Exception:  # noqa: BLE001
+        df = pd.DataFrame()
+    payload = _CachedDailyHistory(df)
+    _PIT_DAILY_FULL_HISTORY_CACHE[key] = payload
+    return payload
+
+
+def _pit_daily_history_cache_clear() -> None:
+    """Test hook: clear the per-symbol full-history cache."""
+    _PIT_DAILY_FULL_HISTORY_CACHE.clear()
+
+
 def _build_prior_baselines_map(
     symbols: Iterable[str],
     session_date: _dt.date,
@@ -285,21 +365,37 @@ def _build_prior_baselines_map(
 
     Reads the lake's daily bars over a trailing window ending the day before
     ``session_date``. A symbol with no lake bars maps to ``(None, None)``.
+
+    Speedup hotfix 2026-05-26: backed by
+    :func:`_full_daily_history` — each symbol's full daily parquet is read
+    ONCE per worker, then sliced in-memory for every (session, symbol) probe.
+    20× cold-start speedup on the live IEX lake.
     """
+    import numpy as _np
+
     out: dict[str, tuple[Optional[float], Optional[float]]] = {}
     if lake_store is None:
         return {s: (None, None) for s in symbols}
-    start = session_date - _dt.timedelta(days=_DAILY_LOOKBACK_DAYS)
-    # End the read the day before the session — a hard guard against pulling
-    # the session's own bar even if the store range is inclusive.
-    end = session_date - _dt.timedelta(days=1)
+    # The legacy path used start = session_date - 400d, end = session_date - 1d.
+    # The compute below uses ``< session_date`` so we don't need an inclusive
+    # upper bound — slice everything strictly earlier.
     for symbol in symbols:
-        try:
-            df = lake_store.daily_bars(symbol, start, end, feed=feed)
-        except Exception:  # noqa: BLE001 — a bad symbol must not abort the build
+        h = _full_daily_history(lake_store, symbol, feed=feed)
+        if h.session_dates is None:
             out[symbol] = (None, None)
             continue
-        out[symbol] = _compute_prior_baselines(df, session_date)
+        # Sessions are pre-sorted; use searchsorted to find the cutoff.
+        cutoff_idx = int(_np.searchsorted(h.session_dates, session_date, side="left"))
+        if cutoff_idx == 0:
+            out[symbol] = (None, None)
+            continue
+        prior_close = float(h.close[cutoff_idx - 1])
+        adv_slice = h.close_x_volume[max(0, cutoff_idx - _ADV_WINDOW):cutoff_idx]
+        if len(adv_slice) == 0:
+            out[symbol] = (None, None)
+            continue
+        prior_adv = float(_np.mean(adv_slice))
+        out[symbol] = (prior_close, prior_adv)
     return out
 
 
