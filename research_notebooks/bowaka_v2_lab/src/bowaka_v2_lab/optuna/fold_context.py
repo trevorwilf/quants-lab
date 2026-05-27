@@ -265,13 +265,28 @@ def _build_one_fold_context(
         import hashlib as _hashlib
 
         try:
+            # Speedup hotfix 2026-05-27 — both the DQ report content AND the
+            # cache key are now keyed by the same per-fold-eligible-union
+            # symbols set the trial reader derives from
+            # ``universe_snapshot_by_session``. Pre-patch the stamper used
+            # the broader ``symbols`` arg (the preflight-probe-capped set),
+            # while ``run_backtest`` built ``requested_symbols`` from the
+            # universe snapshot — they rarely matched, so every trial saw a
+            # ``symbols_hash`` cache miss and rebuilt the full DQ report.
+            _stamp_symbols = sorted({
+                str(s["symbol"])
+                for u in universe.values()
+                if isinstance(u, dict)
+                for s in (u.get("symbols") or [])
+                if isinstance(s, dict) and "symbol" in s
+            }) or list(symbols)
             lineage = build_dataset_lineage(
-                cfg=cfg, symbols=symbols,
+                cfg=cfg, symbols=_stamp_symbols,
                 start=sessions[0], end=sessions[-1],
                 lab_config_hash="fold_dq_cache",
             )
             invariant_half = build_data_quality_report(
-                cfg=cfg, lineage=lineage, requested_symbols=symbols,
+                cfg=cfg, lineage=lineage, requested_symbols=_stamp_symbols,
                 sessions=sessions,
                 daily_bars_supplier=daily_sup,
                 minute_bars_supplier=minute_sup,
@@ -283,7 +298,7 @@ def _build_one_fold_context(
             md = cfg.get("market_data") or {}
             sim = cfg.get("simulation") or {}
             symbols_hash = _hashlib.sha256(
-                ",".join(sorted(symbols)).encode("utf-8")
+                ",".join(_stamp_symbols).encode("utf-8")
             ).hexdigest()[:16]
             # Speedup hotfix 2026-05-27 — resolve the lake root the same way
             # the trial reader does (md.shared_root → dataset_lineage.lake_root

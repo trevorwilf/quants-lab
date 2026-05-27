@@ -145,6 +145,13 @@ _DQ_CHECK_INVARIANCE: dict[str, str] = {
     "audit_passed_research_audit": "invariant",
     "audit_available": "invariant",
     # ---- coverage / adjustment / quote partitions (lake + config flags) ----
+    # ``coverage_missing`` is per-(symbol, session). It IS invariant across
+    # trials within the same fold — symbols are fixed (per-fold PIT
+    # eligible union from ``universe_snapshot_by_session``); only strategy
+    # params vary across trials. The fold-context stamper + the trial
+    # reader both derive ``requested_symbols`` from the same per-fold
+    # universe snapshot, so the cache key's ``symbols_hash`` matches and
+    # the cached coverage_missing result is reused.
     "coverage_missing": "invariant",
     "adjustment_mismatch": "invariant",
     "split_adjustment_mismatch": "invariant",
