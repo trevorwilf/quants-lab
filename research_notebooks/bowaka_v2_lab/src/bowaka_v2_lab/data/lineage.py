@@ -98,13 +98,42 @@ def _partition_files_hash(root: Path) -> str:
     return _sha256_of_obj(entries)
 
 
+# Speedup hotfix 2026-05-26 — process-local cache for the per-partition
+# rglob hashes. ``build_dataset_lineage`` is called per fold per trial
+# inside ``run_backtest``; with ~30k parquet files in the bars tree the
+# rglob alone dominates trial wall-clock (proven via py-spy dump on
+# workers stuck in ``_bars_partitions_hash``). The lake is immutable for
+# the duration of a study, so memoising by ``(lake_root, timeframe,
+# manifest_generated_at)`` is safe — a re-ingestion auto-busts the cache
+# because the manifest's ``generated_at`` timestamp changes.
+_BARS_PARTITION_HASH_CACHE: dict[tuple[str, str, str], str] = {}
+
+
 def _bars_partitions_hash(lake_root: Path, timeframe: str) -> str:
-    """Per-partition hash of every symbol's bars for one timeframe (all feeds/adjustments)."""
+    """Per-partition hash of every symbol's bars for one timeframe (all feeds/adjustments).
+
+    Cached by ``(str(lake_root), timeframe, manifest_generated_at)`` so a
+    walk-forward study with ~30k bar parquets pays the rglob cost once
+    per study, not once per (trial × fold).
+    """
     # Walk the whole bars/<timeframe-aware> tree: layout nests
     # bars/vendor=*/feed=*/timeframe=<tf>/adjustment=*/symbol=*/...
     bars_root = lake_root / _layout.DS_BARS
     if not bars_root.is_dir():
         return _sha256_of_obj([])
+    # Cache key derives from the lake manifest's ``generated_at`` — a
+    # re-ingest re-stamps it and the cache misses, producing a fresh hash.
+    manifest_gen_at = ""
+    try:
+        manifest_gen_at = str(
+            (load_lake_manifest(lake_root) or {}).get("generated_at", "")
+        )
+    except Exception:  # noqa: BLE001 — best-effort cache key; fall back to no key
+        pass
+    key = (str(lake_root), timeframe, manifest_gen_at)
+    cached = _BARS_PARTITION_HASH_CACHE.get(key)
+    if cached is not None:
+        return cached
     entries: list[tuple[str, int]] = []
     for tf_dir in sorted(bars_root.glob(f"vendor=*/feed=*/timeframe={timeframe}/adjustment=*")):
         for f in sorted(tf_dir.rglob("*.parquet")):
@@ -114,20 +143,64 @@ def _bars_partitions_hash(lake_root: Path, timeframe: str) -> str:
                 size = -1
             entries.append((f.relative_to(bars_root).as_posix(), size))
     entries.sort()
-    return _sha256_of_obj(entries)
+    out = _sha256_of_obj(entries)
+    _BARS_PARTITION_HASH_CACHE[key] = out
+    return out
+
+
+def _bars_partitions_hash_cache_clear() -> None:
+    """Test hook: clear the per-partition hash cache."""
+    _BARS_PARTITION_HASH_CACHE.clear()
+
+
+# Same memoisation pattern as ``_bars_partitions_hash`` — see the speedup
+# hotfix comment above. Keyed by ``(str(lake_root), kind, manifest_generated_at)``.
+_PARTITION_HASH_CACHE: dict[tuple[str, str, str], str] = {}
+
+
+def _cached_partition_hash(
+    lake_root: Path, kind: str, builder,
+) -> str:
+    manifest_gen_at = ""
+    try:
+        manifest_gen_at = str(
+            (load_lake_manifest(lake_root) or {}).get("generated_at", "")
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    key = (str(lake_root), kind, manifest_gen_at)
+    cached = _PARTITION_HASH_CACHE.get(key)
+    if cached is not None:
+        return cached
+    out = builder()
+    _PARTITION_HASH_CACHE[key] = out
+    return out
 
 
 def _quotes_partitions_hash(lake_root: Path) -> str:
-    """Per-partition hash of the ``quotes/`` tree (empty-list hash when absent)."""
-    return _partition_files_hash(lake_root / _layout.DS_QUOTES)
+    """Per-partition hash of the ``quotes/`` tree (empty-list hash when absent).
+
+    Cached — see :data:`_PARTITION_HASH_CACHE`. The lake is immutable within
+    a study, so re-running this per-trial would waste filesystem-walk time.
+    """
+    return _cached_partition_hash(
+        lake_root, "quotes",
+        lambda: _partition_files_hash(lake_root / _layout.DS_QUOTES),
+    )
 
 
 def _corp_actions_hash(lake_root: Path) -> str:
-    """Per-partition hash of ``corporate_actions/``; ``"none"`` when the tree is absent."""
+    """Per-partition hash of ``corporate_actions/``; ``"none"`` when the tree is absent.
+
+    Cached — see :data:`_PARTITION_HASH_CACHE`.
+    """
     ca_root = lake_root / _layout.DS_CORPORATE_ACTIONS
     if not ca_root.is_dir():
         return "none"
-    return _partition_files_hash(ca_root)
+    return _cached_partition_hash(
+        lake_root, "corp_actions",
+        lambda: _partition_files_hash(ca_root),
+    )
 
 
 def quotes_partitions_available(lake_root: Path) -> bool:

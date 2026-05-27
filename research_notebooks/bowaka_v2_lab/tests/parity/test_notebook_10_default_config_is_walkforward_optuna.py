@@ -26,7 +26,22 @@ _NOTEBOOK = _LAB_ROOT / "notebooks" / "10_optuna_walkforward.ipynb"
 #: Phase-12 default: walk-forward-purpose, IEX, current_code_parity. The lake
 #: today is IEX-only so resolve_walkforward_config('auto') is a no-op against
 #: this base; when SIP+quotes land it auto-upgrades simulation.mode upward.
-_EXPECTED_DEFAULT = "bowaka_v2_actual_iex_current_code_optuna.yml"
+#:
+#: Speedup report v2 hotfix 2026-05-26 (post-Phase-6): the notebook 10 builder
+#: now defaults to the workstation OVERLAY
+#: (``bowaka_v2_actual_iex_current_code_optuna.workstation.yml``) which is
+#: built on top of the base optuna config + the operator-spec memory /
+#: parallel knobs. The base ``_optuna.yml`` is still accepted (so a manual
+#: override stays valid). Both must contain ``optuna.walkforward`` — the
+#: defense-in-depth test below catches single-window backtest configs.
+_EXPECTED_DEFAULT_BASE = "bowaka_v2_actual_iex_current_code_optuna.yml"
+_EXPECTED_DEFAULT_WORKSTATION = (
+    "bowaka_v2_actual_iex_current_code_optuna.workstation.yml"
+)
+_ACCEPTED_DEFAULT_SUFFIXES = (
+    _EXPECTED_DEFAULT_BASE,
+    _EXPECTED_DEFAULT_WORKSTATION,
+)
 
 #: Matches ``CONFIG_PATH = 'literal'`` (or ``"literal"``) ANYWHERE in the text,
 #: including inside a Python-quoted notebook-cell-source string in the builder.
@@ -40,19 +55,23 @@ def _config_path_from_text(text: str) -> str | None:
     return m.group(2) if m else None
 
 
+def _endswith_any(cfg_path: str, suffixes: tuple[str, ...]) -> bool:
+    return any(
+        cfg_path.endswith(f"/{s}") or cfg_path.endswith(f"\\{s}") for s in suffixes
+    )
+
+
 def test_builder_default_config_path_is_walkforward_optuna() -> None:
     text = _BUILDER.read_text(encoding="utf-8")
     cfg_path = _config_path_from_text(text)
     assert cfg_path is not None, (
         "_build_10_optuna_walkforward.py: no CONFIG_PATH = '...' literal found"
     )
-    assert cfg_path.endswith(f"/{_EXPECTED_DEFAULT}") or cfg_path.endswith(
-        f"\\{_EXPECTED_DEFAULT}"
-    ), (
+    assert _endswith_any(cfg_path, _ACCEPTED_DEFAULT_SUFFIXES), (
         f"_build_10_optuna_walkforward.py: CONFIG_PATH={cfg_path!r}; "
-        f"expected it to end with {_EXPECTED_DEFAULT!r} "
-        f"(the walk-forward-purpose contract-parity config that matches the "
-        f"current IEX-only lake)."
+        f"expected it to end with one of {_ACCEPTED_DEFAULT_SUFFIXES!r} "
+        f"(the walk-forward-purpose contract-parity config, or its "
+        f"workstation overlay, that matches the current IEX-only lake)."
     )
 
 
@@ -70,11 +89,9 @@ def test_notebook_default_config_path_is_walkforward_optuna() -> None:
     assert found is not None, (
         "10_optuna_walkforward.ipynb: no CONFIG_PATH literal found in any cell"
     )
-    assert found.endswith(f"/{_EXPECTED_DEFAULT}") or found.endswith(
-        f"\\{_EXPECTED_DEFAULT}"
-    ), (
+    assert _endswith_any(found, _ACCEPTED_DEFAULT_SUFFIXES), (
         f"10_optuna_walkforward.ipynb: CONFIG_PATH={found!r}; "
-        f"expected it to end with {_EXPECTED_DEFAULT!r}. "
+        f"expected it to end with one of {_ACCEPTED_DEFAULT_SUFFIXES!r}. "
         f"Re-run notebooks/_build_10_optuna_walkforward.py to regenerate."
     )
 
@@ -91,11 +108,16 @@ def test_notebook_default_config_path_is_an_optuna_yml() -> None:
         cfg_path = _config_path_from_text(src)
         if cfg_path is None:
             continue
-        assert cfg_path.endswith("_optuna.yml"), (
+        # Accept either the base optuna config OR a workstation overlay that
+        # carries the same optuna.walkforward block.
+        ok = cfg_path.endswith("_optuna.yml") or cfg_path.endswith(
+            "_optuna.workstation.yml"
+        ) or bool(re.search(r"_optuna\.workstation_\d+w\.yml$", cfg_path))
+        assert ok, (
             f"10_optuna_walkforward.ipynb: CONFIG_PATH={cfg_path!r} must point "
-            f"at a *_optuna.yml file (walk-forward-purpose, with an "
-            f"optuna.walkforward block); a single-window backtest config "
-            f"produces 0 walk-forward splits."
+            f"at a *_optuna.yml (or *_optuna.workstation*.yml) file "
+            f"(walk-forward-purpose, with an optuna.walkforward block); a "
+            f"single-window backtest config produces 0 walk-forward splits."
         )
         return
     raise AssertionError("no CONFIG_PATH cell found in the generated notebook")

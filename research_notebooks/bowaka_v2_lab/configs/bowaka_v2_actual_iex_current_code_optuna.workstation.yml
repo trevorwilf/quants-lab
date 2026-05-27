@@ -72,6 +72,21 @@ market_data:
   require_split_adjustment: true
 optuna:
   acceleration:
+    # Speedup report v2 hotfix 2026-05-26: flipped on in the workstation
+    # overlay after the live notebook 10 run hit 9+ hours of wall-clock
+    # per trial with all three default-off. Parity tests for each
+    # (tests/parity/test_batch_daily_cache_*.py,
+    #  tests/unit/data/test_dq_cache_invalidation.py,
+    #  tests/parity/test_session_minute_window_*.py) prove byte / 1e-9
+    # equivalence vs the legacy paths — the "benchmark-only" caveat in
+    # the report was about the workstation wall-clock win; correctness
+    # is locked.
+    batch_daily_cache:
+      enabled: true
+    startup_dq_cache:
+      enabled: true
+    session_minute_window_cache:
+      enabled: true
     scan_matrix:
       allow_full_history_matrix: false
       build_if_missing: false
