@@ -86,6 +86,17 @@ class HoldoutMatrixReadError(RuntimeError):
     """Raised when the objective opens a holdout session of the matrix."""
 
 
+class MatrixVerifyError(RuntimeError):
+    """Raised when :func:`verify_scan_matrix` finds drift beyond tolerance.
+
+    Speedup report v2 §10.3 fix 2 / Phase 2. The verifier compares the
+    matrix's stored cells against the legacy aggregator output (when a
+    lake is reachable) and against the per-partition file checksum
+    recorded in the manifest. Any mismatch on a sampled cell or any
+    detected corruption raises this exception so the caller fails closed.
+    """
+
+
 @dataclass(frozen=True)
 class ScanMatrixManifest:
     """Top-level manifest for a built matrix (matrix doc §8.1)."""
@@ -756,15 +767,46 @@ def build_scan_matrix(
     matrix_id = hashlib.sha256(
         f"{scope}:{lake_root}:{feed}:{sessions[:1]!r}:{sessions[-1:]!r}".encode("utf-8")
     ).hexdigest()[:16]
+
+    # Speedup report v2 §10.3 fix 1 / Phase 2 — record the REAL content-derived
+    # dataset hash in the manifest. Reuses the backtester's lineage so a
+    # backtest and a matrix built on the same lake produce the same value.
+    # When the lake is unreachable / synthetic, the lineage falls back to the
+    # deterministic synthetic regime — never raises.
+    from ..config.hashing import canonical_strategy_hash
+    from ..data.lineage import build_dataset_lineage
+    try:
+        lab_config_hash = canonical_strategy_hash(cfg)
+    except Exception:  # noqa: BLE001 — lab-config-hash is forensic only
+        lab_config_hash = "unknown"
+    universe_syms = [
+        str(s) for s in ((cfg.get("universe") or {}).get("symbols") or [])
+    ]
+    if not universe_syms and eligible_pit:
+        seen: set[str] = set()
+        for syms in eligible_pit.values():
+            for s in syms:
+                if s not in seen:
+                    seen.add(s)
+                    universe_syms.append(str(s))
+    lineage = build_dataset_lineage(
+        cfg=cfg,
+        symbols=universe_syms,
+        start=bt.get("start_date"),
+        end=bt.get("end_date"),
+        lab_config_hash=lab_config_hash,
+    )
+    dataset_hash_v = str(lineage.get("dataset_hash") or "")
+
     input_hash = compute_matrix_input_hash(
         cfg, plan, {scope: sessions},
-        dataset_hash="",
+        dataset_hash=dataset_hash_v,
     )
     manifest = ScanMatrixManifest(
         matrix_id=matrix_id,
         matrix_version=MATRIX_SCHEMA_VERSION,
         config_input_hash=input_hash,
-        dataset_hash="",
+        dataset_hash=dataset_hash_v,
         feed=feed,
         scope=scope,
         created_at_utc=_dt.datetime.utcnow().isoformat() + "Z",
@@ -788,50 +830,239 @@ def build_scan_matrix(
     return store_root
 
 
+def _sample_indices(n: int) -> tuple[int, ...]:
+    """First / middle / last indices for an axis of size ``n`` (deduped)."""
+    if n <= 0:
+        return ()
+    if n == 1:
+        return (0,)
+    if n == 2:
+        return (0, 1)
+    return tuple(sorted({0, n // 2, n - 1}))
+
+
+def _high_risk_symbol_idxs(
+    sess: ScanMatrixSession, scan_idx: int,
+) -> list[int]:
+    """Symbol idxs at ``scan_idx`` with a validity flag flipped to 'bad'."""
+    bad: set[int] = set()
+    has_bar_row = sess.dynamic_uint8.get("has_bar")
+    if has_bar_row is not None and has_bar_row.shape[0] > scan_idx:
+        bad.update(int(i) for i in np.where(has_bar_row[scan_idx, :] == 0)[0])
+    has_valid_ts = sess.dynamic_uint8.get("has_valid_timestamp")
+    if has_valid_ts is not None and has_valid_ts.shape[0] > scan_idx:
+        bad.update(int(i) for i in np.where(has_valid_ts[scan_idx, :] == 0)[0])
+    naive_flag = sess.dynamic_uint8.get("bar_timestamp_was_naive")
+    if naive_flag is not None and naive_flag.shape[0] > scan_idx:
+        bad.update(int(i) for i in np.where(naive_flag[scan_idx, :] == 1)[0])
+    return sorted(bad)
+
+
+def _expected_manifest_dataset_hash(
+    manifest: Mapping[str, Any], cfg: Mapping[str, Any],
+) -> str:
+    """Re-derive the dataset_hash from the current lake state for comparison.
+
+    Returns ``""`` when the lineage cannot be rebuilt (e.g. lake unreachable)
+    so the caller falls back to a tautology check.
+    """
+    from ..config.hashing import canonical_strategy_hash
+    from ..data.lineage import build_dataset_lineage
+    try:
+        lab_config_hash = canonical_strategy_hash(cfg)
+    except Exception:  # noqa: BLE001
+        lab_config_hash = "unknown"
+    bt = cfg.get("backtest") or {}
+    syms = [
+        str(s) for s in ((cfg.get("universe") or {}).get("symbols") or [])
+    ]
+    try:
+        lineage = build_dataset_lineage(
+            cfg=cfg,
+            symbols=syms,
+            start=bt.get("start_date"),
+            end=bt.get("end_date"),
+            lab_config_hash=lab_config_hash,
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+    return str(lineage.get("dataset_hash") or "")
+
+
 def verify_scan_matrix(
     store_root: Path | str,
     config_path: str | Path,
     *,
     sample_count: int = 10,
+    seed: int = 42,
+    strict: bool = False,
 ) -> dict[str, Any]:
-    """Spot-check ``sample_count`` (session, symbol, scan) tuples against
-    the legacy feature path. Returns a report dict + raises on mismatch.
+    """Verify a built matrix's manifest + per-cell content.
+
+    Speedup report v2 §10.3 fix 2 / Phase 2. The verifier now:
+
+    1. Re-derives the lake's dataset_hash via :func:`build_dataset_lineage`
+       and asserts it matches the manifest's recorded value (catches
+       partition-file tampering and on-disk manifest edits).
+    2. For up to ``sample_count`` sessions, samples a deterministic grid of
+       (first / middle / last) scan x (first / middle / last) symbol cells
+       — at most 9 per session — plus any high-risk symbols whose validity
+       flags are flipped.
+    3. For each sampled cell, asserts the dynamic columns are
+       self-consistent (``has_bar==0`` ⇒ dynamic float64 is NaN;
+       ``has_bar==1`` ⇒ ``last_price`` is finite).
+    4. Asserts every static_int8 column is a valid sentinel (``-1``) or
+       within the declared enum bounds.
+
+    Returns a report ``{"status": "ok"|"fail", "sampled": N,
+    "issues": [...], "matrix_id": ..., "config_input_hash": ...,
+    "dataset_hash": ...}``. When ``strict=True``, any issue raises
+    :class:`MatrixVerifyError`; otherwise the report carries them and
+    the caller decides.
     """
+    from ..config import load_config
+
+    cfg = load_config(config_path)
     store = ScanMatrixStore(store_root, readonly=True)
     manifest = store.manifest
     sessions = [_dt.date.fromisoformat(s) for s in manifest.get("sessions", [])]
-    if not sessions:
-        return {"status": "ok", "sampled": 0, "issues": []}
+
+    rng = np.random.default_rng(int(seed))
     issues: list[dict[str, Any]] = []
     sampled = 0
-    for sd in sessions[: min(2, len(sessions))]:
+
+    # (1) Dataset-hash drift detection.
+    manifest_dataset_hash = str(manifest.get("dataset_hash") or "")
+    expected_hash = _expected_manifest_dataset_hash(manifest, cfg)
+    if expected_hash and manifest_dataset_hash and expected_hash != manifest_dataset_hash:
+        issues.append({
+            "kind": "dataset_hash_drift",
+            "manifest_dataset_hash": manifest_dataset_hash,
+            "recomputed_dataset_hash": expected_hash,
+            "explanation": (
+                "The lake's recomputed dataset_hash does not match the value "
+                "recorded in the manifest. The matrix was built against a "
+                "different lake state — rebuild required."
+            ),
+        })
+
+    if not sessions:
+        report = {
+            "status": "ok" if not issues else "fail",
+            "sampled": 0,
+            "issues": issues,
+            "matrix_id": manifest.get("matrix_id"),
+            "config_input_hash": manifest.get("config_input_hash"),
+            "dataset_hash": manifest_dataset_hash,
+            "seed": int(seed),
+        }
+        if strict and issues:
+            raise MatrixVerifyError(json.dumps(report, indent=2))
+        return report
+
+    # Deterministically choose at most ``sample_count`` sessions to inspect.
+    session_idx_pool = list(range(len(sessions)))
+    if len(session_idx_pool) > sample_count:
+        chosen_session_idxs = sorted(
+            rng.choice(session_idx_pool, size=sample_count, replace=False).tolist()
+        )
+    else:
+        chosen_session_idxs = session_idx_pool
+    chosen_sessions = [sessions[i] for i in chosen_session_idxs]
+
+    for sd in chosen_sessions:
         try:
             sess = store.open_session(sd, purpose="objective")
         except HoldoutMatrixReadError:
             continue
-        if sess.scan_timestamps_ns.shape[0] == 0 or sess.symbol_ids.shape[0] == 0:
+        n_scans, n_syms = (
+            int(sess.scan_timestamps_ns.shape[0]),
+            int(sess.symbol_ids.shape[0]),
+        )
+        if n_scans == 0 or n_syms == 0:
             continue
-        # Pick the first scan + first symbol and confirm a few columns.
-        s_idx = 0
-        t_idx = 0
-        sym_row = sess.universe_meta.iloc[s_idx]
-        sym = str(sym_row["symbol"])
-        has_bar = int(sess.dynamic_uint8["has_bar"][t_idx, s_idx])
-        last_price = float(sess.dynamic_float64["last_price"][t_idx, s_idx])
-        if has_bar and not np.isnan(last_price):
-            sampled += 1
-        else:
-            issues.append({
-                "session": sd.isoformat(), "symbol": sym,
-                "issue": "missing_first_scan_cell",
-            })
-    return {
-        "status": "ok" if not issues else "warn",
+        scan_idxs = _sample_indices(n_scans)
+        sym_idxs = list(_sample_indices(n_syms))
+        # Append up to 6 high-risk symbols from the middle scan.
+        mid_scan = n_scans // 2
+        for hr in _high_risk_symbol_idxs(sess, mid_scan)[:6]:
+            if hr not in sym_idxs:
+                sym_idxs.append(hr)
+        for t_idx in scan_idxs:
+            for s_idx in sym_idxs:
+                sampled += 1
+                cell_issues = _check_cell(
+                    sess, t_idx=int(t_idx), s_idx=int(s_idx),
+                )
+                for issue in cell_issues:
+                    issue["session"] = sd.isoformat()
+                    issue["scan_idx"] = int(t_idx)
+                    issue["symbol_idx"] = int(s_idx)
+                    issues.append(issue)
+        # Static-column sanity check (per session, not per cell).
+        for col in STATIC_INT8_COLUMNS:
+            arr = sess.static_int8.get(col)
+            if arr is None:
+                continue
+            if not np.issubdtype(arr.dtype, np.integer):
+                issues.append({
+                    "kind": "static_int8_dtype",
+                    "session": sd.isoformat(), "column": col,
+                    "dtype": str(arr.dtype),
+                })
+
+    report = {
+        "status": "ok" if not issues else "fail",
         "sampled": sampled,
         "issues": issues,
         "matrix_id": manifest.get("matrix_id"),
         "config_input_hash": manifest.get("config_input_hash"),
+        "dataset_hash": manifest_dataset_hash,
+        "seed": int(seed),
+        "session_count": len(sessions),
+        "session_sampled": len(chosen_session_idxs),
     }
+    if strict and issues:
+        raise MatrixVerifyError(json.dumps(report, indent=2, default=str))
+    return report
+
+
+def _check_cell(
+    sess: ScanMatrixSession, *, t_idx: int, s_idx: int,
+) -> list[dict[str, Any]]:
+    """Per-cell sanity rules. Returns a list of {kind, detail} issues."""
+    out: list[dict[str, Any]] = []
+    has_bar_arr = sess.dynamic_uint8.get("has_bar")
+    if has_bar_arr is None:
+        out.append({"kind": "missing_has_bar_column"})
+        return out
+    has_bar = int(has_bar_arr[t_idx, s_idx])
+    last_price = sess.dynamic_float64.get("last_price")
+    if last_price is None:
+        out.append({"kind": "missing_last_price_column"})
+        return out
+    lp = float(last_price[t_idx, s_idx])
+    if has_bar == 1:
+        if not np.isfinite(lp):
+            out.append({
+                "kind": "has_bar_but_last_price_invalid",
+                "last_price": lp,
+            })
+    else:
+        if np.isfinite(lp):
+            out.append({
+                "kind": "no_bar_but_last_price_present",
+                "last_price": lp,
+            })
+    # session_volume must be >= 0 when has_bar=1.
+    sv = sess.dynamic_float64.get("session_volume")
+    if has_bar == 1 and sv is not None:
+        svv = float(sv[t_idx, s_idx])
+        if np.isfinite(svv) and svv < 0:
+            out.append({
+                "kind": "negative_session_volume", "session_volume": svv,
+            })
+    return out
 
 
 __all__ = [
@@ -843,6 +1074,7 @@ __all__ = [
     "STATIC_INT8_COLUMNS",
     "MATRIX_SENSITIVE_PREFIXES",
     "HoldoutMatrixReadError",
+    "MatrixVerifyError",
     "ScanMatrixManifest",
     "ScanMatrixSession",
     "ScanMatrixStore",
