@@ -87,6 +87,27 @@ class ProfileCounters:
     # (legacy + matrix paths both bump this so a benchmark can compare
     # per-scan symbol-eval work directly).
     scanner_symbol_evals: int = 0
+    # Speedup report v2 §9.4 / Phase 6 prep — scanner subphase timers and
+    # skip-reason counters. Bumped per-symbol inside evaluate_one_scan when
+    # _profile_counters_enabled() is True; zero-overhead when disabled.
+    scanner_symbols_seen: int = 0
+    scanner_skip_already_entered: int = 0
+    scanner_skip_no_baseline: int = 0
+    scanner_skip_no_bars: int = 0
+    scanner_skip_stale_bar: int = 0
+    scanner_skip_cooldown: int = 0
+    scanner_skip_same_symbol_cap: int = 0
+    scanner_gate_failures: int = 0
+    scanner_candidates_built: int = 0
+    scanner_candidates_capped: int = 0
+    scanner_time_bars_supplier_seconds: float = 0.0
+    scanner_time_stale_check_seconds: float = 0.0
+    scanner_time_aggregate_seconds: float = 0.0
+    scanner_time_features_seconds: float = 0.0
+    scanner_time_gates_seconds: float = 0.0
+    scanner_time_score_seconds: float = 0.0
+    scanner_time_event_builder_seconds: float = 0.0
+    scanner_time_sort_rank_seconds: float = 0.0
 
     extra: dict[str, Any] = field(default_factory=dict)
 

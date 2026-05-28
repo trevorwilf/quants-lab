@@ -30,6 +30,7 @@ from __future__ import annotations
 import enum
 import hashlib
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -73,6 +74,21 @@ class ScanSkipReason(str, enum.Enum):
     STALE_BAR = "stale_bar"
     GATE_FAILED = "gate_failed"
     MAX_ENTRIES_CAP = "max_entries_cap"
+
+
+# Speedup report v2 §9.4 / Phase 1 — skip-reason -> ProfileCounters field name.
+# Only the per-skip causes have dedicated counters; GATE_FAILED bumps
+# ``scanner_gate_failures`` from the gate-evaluation branch (not _record_skip),
+# and MAX_ENTRIES_CAP bumps ``scanner_candidates_capped`` from the post-sort
+# cap branch. ``BARS_FETCH_FAILED`` falls back to the unmapped path.
+_SCAN_SKIP_COUNTER_FIELD: dict[str, str] = {
+    ScanSkipReason.ALREADY_ENTERED_TODAY.value: "scanner_skip_already_entered",
+    ScanSkipReason.SYMBOL_COOLDOWN.value: "scanner_skip_cooldown",
+    ScanSkipReason.SAME_SYMBOL_DAY_CAP.value: "scanner_skip_same_symbol_cap",
+    ScanSkipReason.NO_BASELINES.value: "scanner_skip_no_baseline",
+    ScanSkipReason.NO_BARS.value: "scanner_skip_no_bars",
+    ScanSkipReason.STALE_BAR.value: "scanner_skip_stale_bar",
+}
 
 
 @dataclass
@@ -233,18 +249,43 @@ def evaluate_one_scan(
 
     def _record_skip(symbol: str, reason: ScanSkipReason, **extra: Any) -> None:
         """Append the per-symbol gate-dump row OR bump a rejection counter
-        depending on ``collect_gate_dump`` (speedup report §5.4 / Phase 4)."""
+        depending on ``collect_gate_dump`` (speedup report §5.4 / Phase 4).
+
+        Speedup report v2 §9.4 / Phase 1 — additionally bump the per-reason
+        ``scanner_skip_*`` ProfileCounters field when counters are enabled.
+        """
         if collect_gate_dump:
             result.gate_dump.append(_skip(symbol, reason, **extra))
         else:
             result.rejection_counts[reason.value] = (
                 int(result.rejection_counts.get(reason.value, 0)) + 1
             )
+        # Phase 1 skip-reason counter (no-op when counters are disabled).
+        if _profile_counters_enabled():
+            field_name = _SCAN_SKIP_COUNTER_FIELD.get(reason.value)
+            if field_name is not None:
+                try:
+                    _profile_counters_current().inc(**{field_name: 1})
+                except LookupError:
+                    pass
     passing: list[tuple[float, dict[str, Any]]] = []
     # Gate-dump rows for symbols that passed gates — finalised after ranking so
     # rank / candidate_emitted reflect the per-scan cap.
     passing_rows: dict[str, dict[str, Any]] = {}
+    # Speedup report v2 §9.4 / Phase 1 — cache the enabled flag once per scan
+    # so the per-symbol fast path is a single boolean check.
+    _counters_on = _profile_counters_enabled()
+
+    def _bump(**kwargs: Any) -> None:
+        """No-op when counters are disabled; otherwise inc the current bag."""
+        if _counters_on:
+            try:
+                _profile_counters_current().inc(**kwargs)
+            except LookupError:
+                pass
+
     for symbol, meta in universe_meta_by_sym.items():
+        _bump(scanner_symbols_seen=1)
         if symbol in entered:
             _record_skip(symbol, ScanSkipReason.ALREADY_ENTERED_TODAY)
             continue
@@ -302,40 +343,63 @@ def evaluate_one_scan(
             )
 
         # Fetch minute bars.
+        _t0 = time.perf_counter() if _counters_on else 0.0
         try:
             bars = bars_supplier(symbol, scan_ts_obj)
         except Exception as e:
+            if _counters_on:
+                _bump(scanner_time_bars_supplier_seconds=time.perf_counter() - _t0)
             _record_skip(symbol, ScanSkipReason.BARS_FETCH_FAILED, error=str(e)[:200])
             continue
+        if _counters_on:
+            _bump(scanner_time_bars_supplier_seconds=time.perf_counter() - _t0)
         if bars is None or len(bars) == 0:
             _record_skip(symbol, ScanSkipReason.NO_BARS)
             continue
 
         # STALE BAR CHECK — per [Report §15.1 P0], BEFORE feature compute.
+        _t_stale = time.perf_counter() if _counters_on else 0.0
         ts_col = None
         for c in bars.columns:
             if c.lower() in ("timestamp", "ts"):
                 ts_col = c
                 break
+        stale_skipped = False
         if ts_col is not None:
             last_bar_ts = pd.Timestamp(bars[ts_col].iloc[-1])
             if last_bar_ts.tzinfo is None:
                 # Reject naive — same policy as features module.
+                if _counters_on:
+                    _bump(scanner_time_stale_check_seconds=time.perf_counter() - _t_stale)
                 _record_skip(
                     symbol, ScanSkipReason.STALE_BAR, reason="naive_timestamp",
                 )
-                continue
-            age_seconds = (scan_ts_obj - last_bar_ts).total_seconds()
-            if age_seconds > max_bar_age_seconds:
-                _record_skip(
-                    symbol, ScanSkipReason.STALE_BAR,
-                    bar_age_seconds=float(age_seconds),
-                    max_bar_age_seconds=max_bar_age_seconds,
-                )
-                continue
+                stale_skipped = True
+            else:
+                age_seconds = (scan_ts_obj - last_bar_ts).total_seconds()
+                if age_seconds > max_bar_age_seconds:
+                    if _counters_on:
+                        _bump(scanner_time_stale_check_seconds=time.perf_counter() - _t_stale)
+                    _record_skip(
+                        symbol, ScanSkipReason.STALE_BAR,
+                        bar_age_seconds=float(age_seconds),
+                        max_bar_age_seconds=max_bar_age_seconds,
+                    )
+                    stale_skipped = True
+        if stale_skipped:
+            continue
+        if _counters_on and ts_col is not None:
+            _bump(scanner_time_stale_check_seconds=time.perf_counter() - _t_stale)
 
+        _t_agg = time.perf_counter() if _counters_on else 0.0
         sess = aggregate_forming_session_bar(bars)
+        if _counters_on:
+            _bump(scanner_time_aggregate_seconds=time.perf_counter() - _t_agg)
+        _t_feat = time.perf_counter() if _counters_on else 0.0
         feats = compute_forming_session_features(sess, baselines, vcf)
+        if _counters_on:
+            _bump(scanner_time_features_seconds=time.perf_counter() - _t_feat)
+        _t_gate = time.perf_counter() if _counters_on else 0.0
         ok, gates = apply_v2_gates(
             feats, signals_cfg,
             price=sess.get("last_price"),
@@ -344,10 +408,55 @@ def evaluate_one_scan(
             ema_slope_prior=ema_slope,
             instrument_class=meta.get("instrument_class"),
         )
-        score = compute_signal_strength(feats, score_cfg, ema_slope_prior=ema_slope) if ok else None
+        if _counters_on:
+            _bump(scanner_time_gates_seconds=time.perf_counter() - _t_gate)
+        if ok:
+            _t_score = time.perf_counter() if _counters_on else 0.0
+            score = compute_signal_strength(feats, score_cfg, ema_slope_prior=ema_slope)
+            if _counters_on:
+                _bump(scanner_time_score_seconds=time.perf_counter() - _t_score)
+        else:
+            score = None
+        if not ok:
+            # Speedup report v2 §9.5 / Phase 1 — defer the dump_row allocation
+            # in the objective-minimal path (the dominant code path). When
+            # collect_gate_dump=True, build the full row as before; when
+            # False, only bump the rejection counter and skip the dict build.
+            _bump(scanner_gate_failures=1)
+            if collect_gate_dump:
+                dump_row = _row(
+                    symbol,
+                    ok=False,
+                    failing_gates=sorted(k for k, v in (gates or {}).items() if not v),
+                    gate_results=gates,
+                    features=feats,
+                    baselines={
+                        "prior_close": baselines.get("prior_close"),
+                        "prior_atr_pct": prior_atr_pct,
+                        "ema_slope_prior": ema_slope,
+                        "avg_dollar_volume_20d": adv,
+                    },
+                    session_bar=sess,
+                    volume_curve_fraction=vcf,
+                    instrument_class=meta.get("instrument_class"),
+                    score=score,
+                )
+                dump_row["rejection_reason"] = ScanSkipReason.GATE_FAILED.value
+                dump_row["skipped"] = ScanSkipReason.GATE_FAILED.value
+                result.gate_dump.append(dump_row)
+            else:
+                result.rejection_counts[ScanSkipReason.GATE_FAILED.value] = (
+                    int(result.rejection_counts.get(ScanSkipReason.GATE_FAILED.value, 0)) + 1
+                )
+            continue
+
+        # Passing branch: the row is needed by the post-sort emit/cap pass for
+        # passing_rows[symbol] mutations (rank, candidate_emitted, etc.) — so
+        # we keep building it even when ``collect_gate_dump=False``. (Per the
+        # speedup report v2 §9.5 conservative recommendation.)
         dump_row = _row(
             symbol,
-            ok=bool(ok),
+            ok=True,
             failing_gates=sorted(k for k, v in (gates or {}).items() if not v),
             gate_results=gates,
             features=feats,
@@ -362,17 +471,8 @@ def evaluate_one_scan(
             instrument_class=meta.get("instrument_class"),
             score=score,
         )
-        if not ok:
-            dump_row["rejection_reason"] = ScanSkipReason.GATE_FAILED.value
-            dump_row["skipped"] = ScanSkipReason.GATE_FAILED.value
-            if collect_gate_dump:
-                result.gate_dump.append(dump_row)
-            else:
-                result.rejection_counts[ScanSkipReason.GATE_FAILED.value] = (
-                    int(result.rejection_counts.get(ScanSkipReason.GATE_FAILED.value, 0)) + 1
-                )
-            continue
 
+        _t_event = time.perf_counter() if _counters_on else 0.0
         ev = build_candidate_event(
             symbol=symbol,
             universe_meta=meta,
@@ -388,16 +488,22 @@ def evaluate_one_scan(
             scan_ts=scan_ts_obj,
             signal_strength=score,
         )
+        if _counters_on:
+            _bump(scanner_time_event_builder_seconds=time.perf_counter() - _t_event)
         passing.append((score, ev))
         passing_rows[symbol] = dump_row
 
+    _t_sort = time.perf_counter() if _counters_on else 0.0
     passing.sort(key=lambda x: -x[0])
+    if _counters_on:
+        _bump(scanner_time_sort_rank_seconds=time.perf_counter() - _t_sort)
     for rank, (score, ev) in enumerate(passing, start=1):
         ev["candidate_rank"] = rank
         row = passing_rows[ev["symbol"]]
         row["rank"] = rank
         if rank <= effective_cap:
             result.emitted.append(ev)
+            _bump(scanner_candidates_built=1)
             row["candidate_emitted"] = True
             state.setdefault("in_play_pool", {})[ev["symbol"]] = {
                 "last_signal_ts": ev["scan_timestamp"],
@@ -413,6 +519,7 @@ def evaluate_one_scan(
             signal_emits_per_symbol[ev["symbol"]] = signal_emits_per_symbol.get(ev["symbol"], 0) + 1
         else:
             # Passed gates but capped by max_entries_per_scan.
+            _bump(scanner_candidates_capped=1)
             row["rejection_reason"] = ScanSkipReason.MAX_ENTRIES_CAP.value
             row["skipped"] = ScanSkipReason.MAX_ENTRIES_CAP.value
             row["effective_cap"] = effective_cap
