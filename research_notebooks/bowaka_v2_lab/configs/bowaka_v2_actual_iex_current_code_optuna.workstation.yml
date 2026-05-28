@@ -5,6 +5,16 @@
 # is locked to 8 threads — start here; 10/12/16-worker overlays are
 # benchmark-only until a workstation benchmark proves wall-clock
 # improvement and zero correctness drift vs the 8-worker baseline.
+#
+# Speedup report v2 §7.3 / Phase 2.5 (2026-05-27): the worker-count
+# benchmark scripts (scripts/benchmark_worker_count_matrix.py +
+# check_worker_count_parity.py + select_worker_count_winner.py) ship in
+# this phase but the live benchmark is operator-driven — it needs the
+# Optuna PostgreSQL container up + several hours of wall time. Until
+# the operator runs it and writes
+# artifacts/benchmarks/worker_count_winner.txt, this config STAYS at
+# n_jobs=8 (the documented safe baseline). The benchmark artifact +
+# the new selection rules drive any future override.
 # ------------------------------------------------------------------
 artifacts:
   write_jsonl: true
