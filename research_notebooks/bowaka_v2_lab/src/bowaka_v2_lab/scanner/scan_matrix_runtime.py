@@ -633,20 +633,21 @@ def assert_backtester_matrix_opt_in_is_supported(
     enabled: bool,
     runtime_mode: str = "disabled",
     parity_manifest_present: bool = False,
+    parity_proof_version: Optional[int] = None,
 ) -> None:
     """Resolve the matrix-backed scanner opt-in.
 
-    Speedup report v2 §4 P6 / §6.1 / Phase 3 task 3. Three-mode resolution:
+    Speedup report v2 §4 P6 / §6.1 / Phase 3-4 task 3. Three-mode resolution:
 
     * ``runtime_mode == "disabled"`` (the default) → no-op; legacy scanner.
     * ``runtime_mode == "compatibility"`` → ACCEPTED (Phase 3). The
       compatibility evaluator (:func:`evaluate_one_scan_compat`) produces
       bit-identical candidate events to ``evaluate_one_scan``; the
       ``tests/parity/test_scan_matrix_*`` matrix is the proof.
-    * ``runtime_mode == "vectorized"`` → still refused in Phase 3
-      (:class:`MatrixParityManifestMissingError` when the parity manifest is
-      absent; :class:`MatrixRuntimeNotImplementedError` when present). The
-      vectorized runtime opens in Phase 4.
+    * ``runtime_mode == "vectorized"`` → ACCEPTED (Phase 4) IFF the parity
+      manifest is present AND ``<store_root>/parity_proof.json`` records a
+      ``verifier_version >= 2`` (the verifier ran the vectorized-vs-legacy
+      spot check). Otherwise refused.
     """
     if not enabled or runtime_mode == "disabled":
         return
@@ -655,19 +656,26 @@ def assert_backtester_matrix_opt_in_is_supported(
         # builder additionally verifies the manifest config_input_hash /
         # dataset_hash so a stale matrix cannot be silently consumed.
         return
-    if runtime_mode == "vectorized" and not parity_manifest_present:
-        raise MatrixParityManifestMissingError(
-            "scan-matrix runtime_mode='vectorized' requires the parity "
-            "manifest. Build it via `bowaka-v2-lab scan-matrix build` "
-            "(speedup report v2 §6.1 / matrix doc §17.2)."
-        )
+    if runtime_mode == "vectorized":
+        if not parity_manifest_present:
+            raise MatrixParityManifestMissingError(
+                "scan-matrix runtime_mode='vectorized' requires the parity "
+                "manifest. Build it via `bowaka-v2-lab scan-matrix build` "
+                "(speedup report v2 §6.1 / matrix doc §17.2)."
+            )
+        if parity_proof_version is None or int(parity_proof_version) < 2:
+            raise MatrixRuntimeNotImplementedError(
+                "scan-matrix runtime_mode='vectorized' requires a parity-proof "
+                "marker with verifier_version >= 2 (the vectorized-vs-legacy "
+                "spot check). Run `bowaka-v2-lab scan-matrix verify` against a "
+                "freshly built matrix to write "
+                "<store_root>/parity_proof.json (speedup report v2 §10.6 / "
+                "matrix doc §17.3)."
+            )
+        return
     raise MatrixRuntimeNotImplementedError(
-        f"scan-matrix runtime_mode={runtime_mode!r} is reserved for Phase 4 "
-        "(vectorized gate evaluation). Set "
-        "optuna.acceleration.scan_matrix.runtime_mode = 'compatibility' "
-        "(Phase 3, accepted) or 'disabled' (default) until the vectorized "
-        "three-way parity matrix proves bit-identical FoldResults "
-        "(speedup report v2 §6.1 / matrix doc §17.3)."
+        f"scan-matrix runtime_mode={runtime_mode!r} is not a supported mode; "
+        "use 'disabled' / 'compatibility' / 'vectorized'."
     )
 
 
