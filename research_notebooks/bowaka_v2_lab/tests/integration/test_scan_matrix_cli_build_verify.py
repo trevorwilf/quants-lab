@@ -61,3 +61,17 @@ def test_scan_matrix_build_then_verify(tmp_path, lab_root):
         "--sample-count", "5",
     ])
     assert rc == 0
+
+    # Speedup report v2 §10.3 fix 1 / Phase 2 — after a successful build,
+    # verify_scan_matrix's report must include a non-empty dataset_hash and
+    # status == "ok" with sampled > 0. Drop down to the function for a richer
+    # report (the CLI swallows the body to stdout).
+    from bowaka_v2_lab.scanner.scan_matrix import verify_scan_matrix
+
+    report = verify_scan_matrix(store_root, cfg_path, sample_count=5)
+    assert report["status"] == "ok", report
+    assert report["sampled"] > 0, report
+    # Manifest dataset_hash must equal the report's recorded value AND the
+    # value re-derived from the lake state ("dataset_hash drift catches
+    # silent re-ingest").
+    assert report["dataset_hash"] == manifest["dataset_hash"], report
