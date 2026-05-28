@@ -1,0 +1,148 @@
+  
+  #############################################################
+  PowerShell (simplest):
+  while ($true) {
+      Clear-Host
+      Write-Host "[$(Get-Date -Format HH:mm:ss)] Optuna trial state:"
+      docker exec ql-optuna-postgres psql -U optuna -d optuna -c "SELECT state, COUNT(*) FROM trials WHERE study_id = 
+  (SELECT MAX(study_id) FROM studies) GROUP BY state;"
+      Start-Sleep -Seconds 30
+  }
+
+#############################################################
+  PowerShell one-liner (no clear, just appends):
+  while ($true) { docker exec ql-optuna-postgres psql -U optuna -d optuna -c "SELECT state, COUNT(*) FROM trials WHERE
+  study_id = (SELECT MAX(study_id) FROM studies) GROUP BY state;"; Start-Sleep 30 }
+
+#############################################################
+  cmd.exe:
+  :loop
+  cls
+  docker exec ql-optuna-postgres psql -U optuna -d optuna -c "SELECT state, COUNT(*) FROM trials WHERE study_id =
+  (SELECT MAX(study_id) FROM studies) GROUP BY state;"
+  timeout /t 30 /nobreak
+  goto loop
+
+#############################################################
+  Git Bash (you already use it):
+  while true; do
+    clear
+    echo "[$(date +%H:%M:%S)]"
+    docker exec ql-optuna-postgres psql -U optuna -d optuna -c "SELECT state, COUNT(*) FROM trials WHERE study_id =
+  (SELECT MAX(study_id) FROM studies) GROUP BY state;"
+    sleep 30
+  done
+
+#############################################################
+  To stop any of these: Ctrl+C.
+
+#############################################################
+  If you want a richer view (which trials are running + for how long), this PowerShell snippet adds elapsed time:
+
+  while ($true) {
+      Clear-Host
+      Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')]"
+      docker exec ql-optuna-postgres psql -U optuna -d optuna -c @"
+  WITH s AS (SELECT MAX(study_id) AS id FROM studies)
+  SELECT '== study ==' AS section, study_name FROM studies WHERE study_id = (SELECT id FROM s);
+
+  WITH s AS (SELECT MAX(study_id) AS id FROM studies)
+  SELECT state, COUNT(*) AS count,
+         MIN(EXTRACT(EPOCH FROM (NOW() - datetime_start)))::INT AS oldest_age_s,
+         MAX(EXTRACT(EPOCH FROM (NOW() - datetime_complete)))::INT AS newest_age_s
+    FROM trials WHERE study_id = (SELECT id FROM s) GROUP BY state ORDER BY state;
+
+  WITH s AS (SELECT MAX(study_id) AS id FROM studies)
+  SELECT trial_id, number,
+         EXTRACT(EPOCH FROM (NOW() - datetime_start))::INT AS age_s,
+         TO_CHAR(datetime_start, 'HH24:MI:SS') AS started
+    FROM trials WHERE study_id = (SELECT id FROM s) AND state = 'RUNNING' ORDER BY datetime_start;
+
+  WITH s AS (SELECT MAX(study_id) AS id FROM studies),
+       valid AS (SELECT * FROM trials WHERE study_id = (SELECT id FROM s)
+                 AND state = 'COMPLETE' AND value > -999998.0)
+  SELECT MAX(value)::NUMERIC(10,4) AS best_value,
+         MIN(value)::NUMERIC(10,4) AS worst_value,
+         AVG(value)::NUMERIC(10,4) AS avg_value,
+         COUNT(*) AS valid_completed FROM valid;
+
+  WITH s AS (SELECT MAX(study_id) AS id FROM studies)
+  SELECT trial_id, number, state, value::NUMERIC(10,4) AS value,
+         EXTRACT(EPOCH FROM (datetime_complete - datetime_start))::INT AS dur_s,
+         TO_CHAR(datetime_complete, 'HH24:MI:SS') AS done
+    FROM trials WHERE study_id = (SELECT id FROM s)
+     AND state IN ('COMPLETE','FAIL','PRUNED') AND datetime_complete IS NOT NULL
+   ORDER BY datetime_complete DESC LIMIT 5;
+  "@
+      Start-Sleep -Seconds 30
+  }
+
+  ##########################################################
+  git bash rich view
+
+   while true; do
+    clear
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')]"
+    docker exec ql-optuna-postgres psql -U optuna -d optuna -c "
+  WITH s AS (SELECT MAX(study_id) AS id FROM studies)
+  SELECT '== study ==' AS section, study_name FROM studies WHERE study_id = (SELECT id FROM s);
+
+  WITH s AS (SELECT MAX(study_id) AS id FROM studies)
+  SELECT state,
+         COUNT(*)                                     AS count,
+         MIN(EXTRACT(EPOCH FROM (NOW() - datetime_start)))::INT AS oldest_age_s,
+         MAX(EXTRACT(EPOCH FROM (NOW() - datetime_complete)))::INT AS newest_age_s
+    FROM trials
+   WHERE study_id = (SELECT id FROM s)
+   GROUP BY state
+   ORDER BY state;
+
+  WITH s AS (SELECT MAX(study_id) AS id FROM studies)
+  SELECT trial_id,
+         number,
+         EXTRACT(EPOCH FROM (NOW() - datetime_start))::INT AS age_s,
+         TO_CHAR(datetime_start, 'HH24:MI:SS')             AS started
+    FROM trials
+   WHERE study_id = (SELECT id FROM s)
+     AND state = 'RUNNING'
+   ORDER BY datetime_start;
+
+  WITH s AS (SELECT MAX(study_id) AS id FROM studies),
+       valid AS (
+         SELECT t.trial_id, t.datetime_start, t.datetime_complete, tv.value
+           FROM trials t
+           JOIN trial_values tv
+             ON tv.trial_id = t.trial_id
+            AND tv.objective = 0
+          WHERE t.study_id = (SELECT id FROM s)
+            AND t.state = 'COMPLETE'
+            AND tv.value > -999998.0
+       )
+  SELECT MAX(value)::NUMERIC(10,4) AS best_value,
+         MIN(value)::NUMERIC(10,4) AS worst_value,
+         AVG(value)::NUMERIC(10,4) AS avg_value,
+         AVG(EXTRACT(EPOCH FROM (datetime_complete - datetime_start)))::NUMERIC(10,1)      AS avg_dur_s,
+         (AVG(EXTRACT(EPOCH FROM (datetime_complete - datetime_start)))/60)::NUMERIC(10,2) AS avg_dur_m,
+         COUNT(*)                  AS valid_completed
+    FROM valid;
+
+  WITH s AS (SELECT MAX(study_id) AS id FROM studies)
+  SELECT t.trial_id,
+         t.number,
+         t.state,
+         tv.value::NUMERIC(10,4)                                                            AS value,
+         EXTRACT(EPOCH FROM (t.datetime_complete - t.datetime_start))::INT                  AS dur_s,
+         (EXTRACT(EPOCH FROM (t.datetime_complete - t.datetime_start))/60)::NUMERIC(10,2)   AS dur_m,
+         TO_CHAR(t.datetime_complete, 'HH24:MI:SS')                                         AS done
+    FROM trials t
+    LEFT JOIN trial_values tv
+      ON tv.trial_id = t.trial_id
+     AND tv.objective = 0
+   WHERE t.study_id = (SELECT id FROM s)
+     AND t.state IN ('COMPLETE','FAIL','PRUNED')
+     AND t.datetime_complete IS NOT NULL
+   ORDER BY t.datetime_complete DESC
+   LIMIT 5;
+  "
+    sleep 30
+done
