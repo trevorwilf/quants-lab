@@ -638,6 +638,13 @@ def run_backtest(
     # to the legacy full rebuild with a logged warning. Default ``None``
     # preserves the legacy path verbatim.
     startup_dq_report: Optional[Mapping[str, Any]] = None,
+    # Speedup report v2 §6.1 / Phase 3 — when supplied AND the resolved
+    # runtime_mode is "compatibility", the SCAN handler reads per-symbol
+    # features from this read-only scan-matrix store (per session partition)
+    # instead of re-fetching/aggregating bars, then runs the EXISTING gate /
+    # score / event-builder path so candidate events are bit-identical to the
+    # legacy scanner. Default ``None`` preserves the legacy path verbatim.
+    scan_matrix_store: Optional[Any] = None,
 ) -> BacktestResult:
     """Run a complete v2 backtest.
 
@@ -850,16 +857,17 @@ def run_backtest(
         ((cfg_dict.get("optuna") or {}).get("acceleration") or {})
         .get("scan_matrix", {}).get("enabled", False)
     )
+    _runtime_mode = "disabled"
     if _matrix_enabled_flag:
         from ..scanner.scan_matrix_runtime import (
             assert_backtester_matrix_opt_in_is_supported,
             resolve_runtime_mode,
         )
 
-        # Speedup report v2 §4 P6 / §6.1 / Phase 6 — three-mode resolution.
+        # Speedup report v2 §4 P6 / §6.1 / Phase 3 — three-mode resolution.
         # ``runtime_mode='disabled'`` (the default) lets the matrix be built
-        # for inspection without firing the runtime path. Non-disabled
-        # modes are refused by the guard until parity proof lands.
+        # for inspection without firing the runtime path. ``compatibility``
+        # is accepted in Phase 3; ``vectorized`` is refused until Phase 4.
         _runtime_mode = resolve_runtime_mode(cfg_dict)
         _parity_present = bool(
             ((cfg_dict.get("optuna") or {}).get("acceleration") or {})
@@ -870,6 +878,11 @@ def run_backtest(
             runtime_mode=_runtime_mode,
             parity_manifest_present=_parity_present,
         )
+    # Speedup report v2 §6.1 / Phase 3 — the compatibility runtime is active
+    # only when a matrix store was supplied AND runtime_mode=="compatibility".
+    _matrix_compat_active = (
+        scan_matrix_store is not None and _runtime_mode == "compatibility"
+    )
 
     # Realism remediation 2 Phase 6 (audit P0-007) — protected-position
     # lifecycle. The state machine wires PARENT_FILL → OCO_ATTACH_ATTEMPT →
@@ -938,6 +951,19 @@ def run_backtest(
             cfg_dict, daily_cache, universe, session_scan_times,
             volume_curve=volume_curve, collect_gate_dump=collect_gate_dump,
         )
+        # Speedup report v2 §6.1 / Phase 3 — open this session's matrix
+        # partition when the compatibility runtime is active. A holdout
+        # session opened under purpose="objective" raises
+        # HoldoutMatrixReadError (propagated — never caught). A missing
+        # partition falls back to the legacy scanner for that session.
+        matrix_session_partition = None
+        if _matrix_compat_active:
+            try:
+                matrix_session_partition = scan_matrix_store.open_session(
+                    session_date, purpose="objective",
+                )
+            except FileNotFoundError:
+                matrix_session_partition = None
 
         # Realism remediation 2 Phase 4: ROUTING by simulation mode.
         # ``smoke_fixture`` retains the pre-Phase-4 batch-scan-then-exits flow
@@ -1213,6 +1239,22 @@ def run_backtest(
                 stopout kill switches gate this scan correctly.
                 """
                 scan_ts = event.timestamp
+                # Speedup report v2 §6.1 / Phase 3 — dispatch the SCAN to the
+                # matrix compatibility evaluator when active for this session.
+                # The result is a ScanResult bit-identical to the legacy path;
+                # the consumer loop is shared via run_one_scan's override.
+                _matrix_scan_result = None
+                if matrix_session_partition is not None:
+                    from ..scanner.scan_matrix_runtime import (
+                        evaluate_one_scan_compat,
+                    )
+                    _matrix_scan_result = evaluate_one_scan_compat(
+                        cfg=cfg_dict, matrix_session=matrix_session_partition,
+                        scan_ts=scan_ts, state=state,
+                        scan_context=scan_session_ctx,
+                        universe_snapshot=universe, volume_curve=volume_curve,
+                        collect_gate_dump=collect_gate_dump,
+                    )
                 scan_result, consumer_results = run_one_scan(
                     cfg=cfg_dict, universe_snapshot=universe, daily_cache=daily_cache,
                     volume_curve=volume_curve, state=state, scan_ts=scan_ts,
@@ -1222,6 +1264,7 @@ def run_backtest(
                     status_supplier=status_supplier,
                     scan_context=scan_session_ctx,
                     collect_gate_dump=collect_gate_dump,
+                    scan_result_override=_matrix_scan_result,
                 )
                 sess_acc.candidate_events.extend(scan_result.emitted)
                 sess_acc.gate_dump.extend(scan_result.gate_dump)

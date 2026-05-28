@@ -1,9 +1,11 @@
-"""Backtester opt-in refuses every non-disabled mode (scaffolding).
+"""Backtester opt-in: compatibility accepted (Phase 3), vectorized refused.
 
-Speedup report v2 §6.1 / Phase 6. The compatibility-mode parity bridge
-and the vectorized gate evaluator are scaffolding-only in this build;
-the backtester opt-in refuses both. Only ``runtime_mode='disabled'``
-(the default in every committed config) is admissible.
+Speedup report v2 §6.1. Phase 3 SHIPS the compatibility-mode parity bridge,
+so the backtester opt-in now ACCEPTS ``runtime_mode='compatibility'`` (the
+``tests/parity/test_scan_matrix_*`` matrix is the proof). The vectorized
+gate evaluator is still scaffolding-only and refused until Phase 4. Only
+``runtime_mode='disabled'`` (the default) and ``'compatibility'`` are
+admissible at this revision.
 """
 from __future__ import annotations
 
@@ -42,8 +44,7 @@ def test_vectorized_without_parity_manifest_raises_manifest_error() -> None:
 
 
 def test_vectorized_with_manifest_still_refused_pending_parity_proof() -> None:
-    """The compatibility / vectorized runtime modes are scaffolding-only
-    until the parity proof against the legacy scanner lands."""
+    """The vectorized runtime mode is scaffolding-only until Phase 4."""
     with pytest.raises(MatrixRuntimeNotImplementedError):
         assert_backtester_matrix_opt_in_is_supported(
             enabled=True, runtime_mode="vectorized",
@@ -51,19 +52,27 @@ def test_vectorized_with_manifest_still_refused_pending_parity_proof() -> None:
         )
 
 
-def test_compatibility_mode_refused_at_backtester_boundary() -> None:
-    with pytest.raises(MatrixRuntimeNotImplementedError):
-        assert_backtester_matrix_opt_in_is_supported(
-            enabled=True, runtime_mode="compatibility",
-            parity_manifest_present=True,
-        )
+def test_compatibility_mode_accepted_at_backtester_boundary() -> None:
+    """Phase 3 — the compatibility runtime is admissible (no raise)."""
+    assert_backtester_matrix_opt_in_is_supported(
+        enabled=True, runtime_mode="compatibility",
+        parity_manifest_present=True,
+    )
+    # Also accepted without a parity manifest present — the parity tests are
+    # the proof and the fold-context builder verifies the manifest hashes.
+    assert_backtester_matrix_opt_in_is_supported(
+        enabled=True, runtime_mode="compatibility",
+        parity_manifest_present=False,
+    )
 
 
-def test_compatibility_class_construction_admitted_but_evaluator_refused() -> None:
-    """Constructing the class is OK (parity tests target the surface)."""
+def test_compatibility_class_without_partition_refuses() -> None:
+    """Constructing with no partition is OK; evaluating without one refuses."""
     compat = MatrixRuntimeCompatibilityMode(matrix_partition=None, cfg={})
     with pytest.raises(MatrixRuntimeNotImplementedError):
-        compat.evaluate_one_scan_compat(None, [])
+        compat.evaluate_one_scan_compat(
+            None, [], state={}, scan_context=None, universe_snapshot={},
+        )
 
 
 def test_legacy_evaluator_stubs_still_refuse() -> None:

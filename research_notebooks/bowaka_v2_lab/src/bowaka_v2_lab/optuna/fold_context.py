@@ -109,6 +109,13 @@ class FoldRuntimeContext:
     holdout_guard: HoldoutGuard
     startup_dq_report: Optional[dict[str, Any]] = None
     startup_dq_failure: Optional[str] = None
+    # Speedup report v2 §6.1 / Phase 3 task 1 — the read-only scan-matrix
+    # store for this fold's scope, opened ONCE at context build when
+    # ``optuna.acceleration.scan_matrix.enabled`` is True AND
+    # ``runtime_mode in ("compatibility", "vectorized")``. ``None`` keeps the
+    # legacy scanner path. The per-trial ``run_backtest`` reads per-session
+    # partitions from it via the compatibility runtime.
+    scan_matrix_store: Optional[Any] = None
 
 
 def assert_search_space_does_not_affect_context(
@@ -341,6 +348,30 @@ def _build_one_fold_context(
             startup_dq_report = None
             startup_dq_failure = None
 
+    # Speedup report v2 §6.1 / Phase 3 task 1 — open the read-only scan-matrix
+    # store for this fold's scope ONCE, when the matrix runtime is active. A
+    # missing store_root / manifest degrades to the legacy scanner (None).
+    # Correctness is gated downstream: the compat evaluator requires an EXACT
+    # ns-aligned scan index per (session, scan_ts), raising on any cadence
+    # mismatch, and ``bowaka-v2-lab scan-matrix verify`` writes the
+    # parity_proof marker the backtester opt-in guard reads.
+    scan_matrix_store = None
+    accel = (cfg.get("optuna") or {}).get("acceleration") or {}
+    sm_cfg = accel.get("scan_matrix") or {}
+    if bool(sm_cfg.get("enabled", False)):
+        from ..scanner.scan_matrix_runtime import resolve_runtime_mode
+
+        _rt_mode = resolve_runtime_mode(cfg)
+        if _rt_mode in ("compatibility", "vectorized"):
+            store_root = sm_cfg.get("store_root")
+            if store_root:
+                try:
+                    from ..scanner.scan_matrix import ScanMatrixStore
+
+                    scan_matrix_store = ScanMatrixStore(store_root, readonly=True)
+                except Exception:  # noqa: BLE001 — missing/corrupt store -> legacy
+                    scan_matrix_store = None
+
     return FoldRuntimeContext(
         fold_id=fold_id,
         val_start=val_start, val_end=val_end,
@@ -360,6 +391,7 @@ def _build_one_fold_context(
         holdout_guard=holdout_guard,
         startup_dq_report=startup_dq_report,
         startup_dq_failure=startup_dq_failure,
+        scan_matrix_store=scan_matrix_store,
     )
 
 

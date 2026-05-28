@@ -444,6 +444,11 @@ def run_one_scan(
     # behaviour for every existing caller.
     scan_context: Any = None,
     collect_gate_dump: bool = True,
+    # Speedup report v2 §6.1 / Phase 3 — when supplied, this ScanResult is
+    # used INSTEAD of calling ``evaluate_one_scan`` (the matrix compatibility
+    # runtime computes it upstream). The downstream consumer loop is shared
+    # verbatim. ``None`` preserves the legacy path.
+    scan_result_override: Optional[ScanResult] = None,
 ) -> tuple[ScanResult, list[StrategyConsumerResult]]:
     """Run one scan tick and consume each emitted candidate.
 
@@ -455,12 +460,15 @@ def run_one_scan(
     venue-status data for the audit P0-009 halt gate; ``None`` is fail-open under
     ``current_code_parity`` and a hard reject under ``intended_realism``.
     """
-    scan_result = evaluate_one_scan(
-        cfg=cfg, universe_snapshot=universe_snapshot, daily_cache=daily_cache,
-        volume_curve=volume_curve, state=state, scan_ts=scan_ts,
-        bars_supplier=bars_supplier,
-        scan_context=scan_context, collect_gate_dump=collect_gate_dump,
-    )
+    if scan_result_override is not None:
+        scan_result = scan_result_override
+    else:
+        scan_result = evaluate_one_scan(
+            cfg=cfg, universe_snapshot=universe_snapshot, daily_cache=daily_cache,
+            volume_curve=volume_curve, state=state, scan_ts=scan_ts,
+            bars_supplier=bars_supplier,
+            scan_context=scan_context, collect_gate_dump=collect_gate_dump,
+        )
     max_quote_age = int((cfg.get("execution") or {}).get("max_quote_age_seconds", 5))
     consumer_results: list[StrategyConsumerResult] = []
     for ev in scan_result.emitted:
