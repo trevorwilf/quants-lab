@@ -25,22 +25,27 @@ def test_assert_disabled_passes():
     assert_backtester_matrix_opt_in_is_supported(enabled=False)
 
 
-def test_assert_enabled_with_non_disabled_runtime_mode_raises():
-    """Speedup report v2 §6.1 / Phase 6: ``runtime_mode != 'disabled'`` raises.
+def test_assert_enabled_with_vectorized_runtime_mode_raises():
+    """Speedup report v2 §6.1 / Phase 4 boundary: ``vectorized`` still raises.
 
-    Phase 6 refactored the guard to a three-mode resolution. ``enabled=True``
-    alone with the default ``runtime_mode='disabled'`` no longer raises (the
-    matrix can be built for inspection without firing the runtime path).
-    Non-disabled modes — compatibility / vectorized — are still
-    scaffolding-only and refused with an actionable message.
+    Phase 3 ACCEPTS ``runtime_mode='compatibility'`` (the compatibility
+    parity bridge shipped). The vectorized runtime is still scaffolding-only
+    and refused with an actionable message until Phase 4.
     """
     with pytest.raises(MatrixRuntimeNotImplementedError) as info:
         assert_backtester_matrix_opt_in_is_supported(
-            enabled=True, runtime_mode="compatibility", parity_manifest_present=True,
+            enabled=True, runtime_mode="vectorized", parity_manifest_present=True,
         )
     msg = str(info.value)
     assert "runtime_mode" in msg or "scan-matrix" in msg or "scan_matrix" in msg
-    assert "disabled" in msg.lower() or "parity" in msg.lower()
+    assert "disabled" in msg.lower() or "parity" in msg.lower() or "phase 4" in msg.lower()
+
+
+def test_assert_enabled_with_compatibility_runtime_mode_is_accepted():
+    """Phase 3 — ``runtime_mode='compatibility'`` is admissible (no raise)."""
+    assert_backtester_matrix_opt_in_is_supported(
+        enabled=True, runtime_mode="compatibility", parity_manifest_present=True,
+    )
 
 
 def test_assert_enabled_with_default_runtime_mode_is_a_no_op():
@@ -67,7 +72,8 @@ def test_vectorized_evaluator_raises_scaffolding_error():
 
 
 def test_backtester_refuses_matrix_enabled_at_run_start(tmp_path):
-    """``run_backtest`` raises when the scan_matrix.enabled flag is true."""
+    """``run_backtest`` raises when scan_matrix.enabled + runtime_mode is
+    vectorized (still refused in Phase 3 — opens in Phase 4)."""
     import datetime as _dt
     from pathlib import Path
 
@@ -113,9 +119,10 @@ def test_backtester_refuses_matrix_enabled_at_run_start(tmp_path):
         "run": {"kind": "backtest", "seed": 1337},
         "optuna": {"acceleration": {"scan_matrix": {
             "enabled": True,
-            # Speedup report v2 §6.1 / Phase 6 — force runtime_mode=
-            # "compatibility" so the backtester opt-in guard fires.
-            "runtime_mode": "compatibility",
+            # Speedup report v2 §6.1 / Phase 4 boundary — force runtime_mode=
+            # "vectorized" so the backtester opt-in guard fires (compatibility
+            # is accepted as of Phase 3; vectorized still refuses).
+            "runtime_mode": "vectorized",
             "require_parity_manifest": True,
         }}},
     }

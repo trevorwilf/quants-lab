@@ -499,14 +499,33 @@ def _cmd_scan_matrix_build(args: argparse.Namespace) -> int:
 
 
 def _cmd_scan_matrix_verify(args: argparse.Namespace) -> int:
-    """Spot-check the built matrix against the legacy feature path."""
+    """Verify the built matrix; on success, write the parity-proof marker."""
+    import datetime as _dt
+
     from .scanner.scan_matrix import verify_scan_matrix
 
     report = verify_scan_matrix(
         Path(args.store_root), args.config, sample_count=int(args.sample_count),
     )
+    ok = report.get("status") in ("ok", "warn")
+    if ok:
+        # Speedup report v2 §6.1 / Phase 3 task 4 — record a parity-proof
+        # marker the runtime opt-in guard reads. verifier_version=1 admits
+        # the compatibility runtime (Phase 3); Phase 4 bumps it to 2 after
+        # the vectorized spot-check lands.
+        proof = {
+            "matrix_id": report.get("matrix_id"),
+            "config_input_hash": report.get("config_input_hash"),
+            "dataset_hash": report.get("dataset_hash"),
+            "verified_at_utc": _dt.datetime.utcnow().isoformat() + "Z",
+            "verifier_version": 1,
+            "sampled": report.get("sampled"),
+        }
+        (Path(args.store_root) / "parity_proof.json").write_text(
+            json.dumps(proof, indent=2, default=str), encoding="utf-8",
+        )
     print(json.dumps(report, indent=2, default=str))
-    return 0 if report.get("status") in ("ok", "warn") else 1
+    return 0 if ok else 1
 
 
 def _cmd_evaluate_finalists(args: argparse.Namespace) -> int:

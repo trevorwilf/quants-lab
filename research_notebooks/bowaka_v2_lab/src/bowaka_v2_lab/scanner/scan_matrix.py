@@ -383,6 +383,24 @@ def _save_memmap(path: Path, arr: np.ndarray) -> None:
     np.save(path, arr, allow_pickle=False)
 
 
+def _none_to_nan(v: Any) -> float:
+    """``None`` / NaN -> ``np.nan``; everything else -> ``float(v)``.
+
+    Speedup report v2 §6.1 / Phase 3 — preserves a legitimate ``0.0`` feature
+    value instead of the old ``v or np.nan`` idiom (which collapsed ``0.0``
+    to NaN because ``0.0`` is falsy). The compat runtime reconstructs the
+    matrix cell back to ``None`` only when it is actually NaN, so storing a
+    real ``0.0`` here is required for bit-parity with the legacy scanner.
+    """
+    if v is None:
+        return float("nan")
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return float("nan")
+    return fv
+
+
 def build_session_partition(
     session_date: _dt.date,
     cfg: Mapping[str, Any],
@@ -529,41 +547,43 @@ def build_session_partition(
                     pass
             if baselines:
                 dyn_u8["has_baseline"][t_idx, s_idx] = 1
-                feats = compute_forming_session_features(
-                    sess, baselines,
-                    compute_volume_curve_fraction(
-                        None, scan_ts_obj,
-                        adv_bucket(baselines.get("avg_dollar_volume_20d"), bucket_edges),
-                        fallback_opening_15m_share=fallback_share,
-                    ),
+                vcf_value = compute_volume_curve_fraction(
+                    None, scan_ts_obj,
+                    adv_bucket(baselines.get("avg_dollar_volume_20d"), bucket_edges),
+                    fallback_opening_15m_share=fallback_share,
                 )
-                dyn_f64["volume_curve_fraction"][t_idx, s_idx] = float(
-                    feats.get("volume_curve_fraction", np.nan) or np.nan
+                feats = compute_forming_session_features(sess, baselines, vcf_value)
+                # Speedup report v2 §6.1 / Phase 3 — store None as NaN but keep
+                # legitimate 0.0 values (the old ``feats.get(x) or np.nan``
+                # mapped a real 0.0 feature to NaN, which the compat runtime
+                # would then reconstruct as None, breaking bit-parity with the
+                # legacy scanner on close_location / ema_distance / gap = 0.0).
+                # ``volume_curve_fraction`` is the INPUT scalar (not a key
+                # returned by compute_forming_session_features), so store it
+                # directly.
+                dyn_f64["volume_curve_fraction"][t_idx, s_idx] = _none_to_nan(vcf_value)
+                dyn_f64["expected_volume_until_scan"][t_idx, s_idx] = _none_to_nan(
+                    feats.get("expected_volume_until_scan")
                 )
-                dyn_f64["expected_volume_until_scan"][t_idx, s_idx] = float(
-                    feats.get("expected_volume_until_scan", np.nan) or np.nan
+                dyn_f64["rvol_so_far"][t_idx, s_idx] = _none_to_nan(
+                    feats.get("rvol_so_far")
                 )
-                dyn_f64["rvol_so_far"][t_idx, s_idx] = float(
-                    feats.get("rvol_so_far", np.nan) or np.nan
+                dyn_f64["projected_full_day_rvol"][t_idx, s_idx] = _none_to_nan(
+                    feats.get("projected_full_day_rvol")
                 )
-                dyn_f64["projected_full_day_rvol"][t_idx, s_idx] = float(
-                    feats.get("projected_full_day_rvol", np.nan) or np.nan
+                dyn_f64["range_expansion_so_far"][t_idx, s_idx] = _none_to_nan(
+                    feats.get("range_expansion_so_far")
                 )
-                dyn_f64["range_expansion_so_far"][t_idx, s_idx] = float(
-                    feats.get("range_expansion_so_far", np.nan) or np.nan
+                dyn_f64["close_location_so_far"][t_idx, s_idx] = _none_to_nan(
+                    feats.get("close_location_so_far")
                 )
-                dyn_f64["close_location_so_far"][t_idx, s_idx] = float(
-                    feats.get("close_location_so_far", np.nan) or np.nan
+                dyn_f64["ema_distance"][t_idx, s_idx] = _none_to_nan(
+                    feats.get("ema_distance")
                 )
-                dyn_f64["ema_distance"][t_idx, s_idx] = float(
-                    feats.get("ema_distance", np.nan) or np.nan
+                dyn_f64["current_return_pct"][t_idx, s_idx] = _none_to_nan(
+                    feats.get("current_return_pct")
                 )
-                dyn_f64["current_return_pct"][t_idx, s_idx] = float(
-                    feats.get("current_return_pct", np.nan) or np.nan
-                )
-                dyn_f64["gap_pct"][t_idx, s_idx] = float(
-                    feats.get("gap_pct", np.nan) or np.nan
-                )
+                dyn_f64["gap_pct"][t_idx, s_idx] = _none_to_nan(feats.get("gap_pct"))
 
     tmp_dir = store_root / ".tmp" / f"session={session_date.isoformat()}"
     if tmp_dir.exists():

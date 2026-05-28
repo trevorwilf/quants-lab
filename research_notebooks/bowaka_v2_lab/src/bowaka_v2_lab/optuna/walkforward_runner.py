@@ -477,6 +477,7 @@ def _run_fold_backtest(
             paths=paths,
             run_dir=run_dir,
             startup_dq_report=_cached_dq,
+            scan_matrix_store=(ctx.scan_matrix_store if ctx is not None else None),
         )
         summary = dict(result.summary)
         if return_report:
@@ -576,6 +577,7 @@ def _run_fold_backtest_objective(
             run_dir=run_dir,
             artifact_mode="objective_minimal",
             startup_dq_report=_cached_dq,
+            scan_matrix_store=(ctx.scan_matrix_store if ctx is not None else None),
         )
         return result
     finally:
