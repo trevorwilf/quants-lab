@@ -32,7 +32,9 @@ _EXPECTED: dict[tuple[str, str], object] = {
     ("sizing", "equal_slice_bankroll_fraction"): 0.80,
     ("risk", "daily_loss_pct"): 0.03,
     ("risk", "max_lots_per_symbol"): 3,
-    ("exits", "stop_pct"): 0.08,
+    # Speedup report v2 §1.2 / Phase 0 — tightened from 0.08 to 0.025
+    # per-stock per operator on 2026-05-26.
+    ("exits", "stop_pct"): 0.025,
     ("exits", "target_pct"): 0.15,
     ("exits", "max_hold_days"): 3,
 }

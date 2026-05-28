@@ -38,7 +38,7 @@ def test_config_parity_cli_clean_on_generated_intended_realism(capsys) -> None:
 def test_config_parity_cli_fails_on_undeclared_diff(tmp_path: Path, capsys) -> None:
     """A config that changes stop_pct with no sidecar -> non-zero exit + listing."""
     base = yaml.safe_load(_INTENDED.read_text(encoding="utf-8"))
-    base["exits"]["stop_pct"] = 0.05  # contract is 0.08
+    base["exits"]["stop_pct"] = 0.05  # contract is 0.025 (Phase 0 2026-05-27)
     diverged = tmp_path / "diverged.yml"
     diverged.write_text(yaml.safe_dump(base), encoding="utf-8")
 
@@ -61,7 +61,7 @@ def test_config_parity_cli_clean_when_diff_is_declared(tmp_path: Path, capsys) -
         [
             ParitySidecar(
                 field_path="exits.stop_pct",
-                actual_value=0.08,
+                actual_value=0.025,
                 lab_value=0.05,
                 reason="experimental tighter stop — declared for the parity test",
                 risk_classification="scoped",

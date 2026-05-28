@@ -63,7 +63,7 @@ exits:
       hard: 0.5
       soft: 0.34
     telemetry_time: '16:05'
-  stop_pct: 0.08
+  stop_pct: 0.025
   target_pct: 0.15
   time_stop:
     enabled: true
@@ -182,8 +182,8 @@ source_manifest:
     bytes: 18296
     sha256: fadcab9fdd4df194d457bfde5d23ad703bac9e3df12723afaf296d54a85999fd
   bowaka_v2_config.yaml:
-    bytes: 9428
-    sha256: 9fc858962ac85c80f237d09a738aea9d9e592e50cfa82b97cafddcdc9014b7a5
+    bytes: 9551
+    sha256: c60400be271db76f1b8e6ebc515677a4a5e363ba2116a97786a353dcb954a803
   bowaka_v2_features.py:
     bytes: 22027
     sha256: 5e252097c2e807d2889cbfa8ceb834d06fae1192f0f044973db3bfe3f5d7c6e1
@@ -199,8 +199,8 @@ source_manifest:
   bowaka_v2_strategy.py:
     bytes: 72798
     sha256: f729f3165b9c2028f0ed85e8162b0b41dbe047ebd61cf6625afbf7cf0ea15845
-source_manifest_hash: a3af8b332d67e24e3d7a02eabe2b4805cd0724f45745da70a04922300d2d4a1a
-source_sha256: 9fc858962ac85c80f237d09a738aea9d9e592e50cfa82b97cafddcdc9014b7a5
+source_manifest_hash: 6f22d8554a10258b1e0fcef31cfabbcfb1ad8028886248249e99371aab4fc548
+source_sha256: c60400be271db76f1b8e6ebc515677a4a5e363ba2116a97786a353dcb954a803
 universe:
   allowed_exchanges:
   - NASDAQ

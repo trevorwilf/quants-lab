@@ -46,7 +46,7 @@ exits:
       hard: 0.5
       soft: 0.34
     telemetry_time: '16:05'
-  stop_pct: 0.08
+  stop_pct: 0.025
   target_pct: 0.15
   time_stop:
     enabled: true

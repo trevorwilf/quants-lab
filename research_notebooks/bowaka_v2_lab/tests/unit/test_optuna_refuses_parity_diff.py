@@ -35,7 +35,7 @@ def _require_contract() -> None:
 def _diverged_config(tmp_path: Path, name: str = "diverged.yml") -> Path:
     """An intended-realism config whose stop_pct diverges from the contract."""
     base = yaml.safe_load(_INTENDED.read_text(encoding="utf-8"))
-    base["exits"]["stop_pct"] = 0.05  # contract is 0.08
+    base["exits"]["stop_pct"] = 0.05  # contract is 0.025 (Phase 0 2026-05-27)
     dest = tmp_path / name
     dest.write_text(yaml.safe_dump(base), encoding="utf-8")
     return dest
@@ -65,7 +65,7 @@ def test_parity_gate_passes_when_diff_is_declared(tmp_path: Path) -> None:
         [
             ParitySidecar(
                 field_path="exits.stop_pct",
-                actual_value=0.08,
+                actual_value=0.025,
                 lab_value=0.05,
                 reason="experimental tighter stop — declared for the parity test",
                 risk_classification="scoped",
