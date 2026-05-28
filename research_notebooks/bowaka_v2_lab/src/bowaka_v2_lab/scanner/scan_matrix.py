@@ -303,6 +303,11 @@ def compute_matrix_input_hash(
 # ---- matrix-sensitive search-space guard ----------------------------------
 
 
+# Speedup report v2 §15.4 / Phase 0 — exits.* keys are intentionally OUTSIDE
+# this list. Exit logic runs AFTER the scanner emits a candidate, so tuning
+# ``exits.stop_pct`` (or any other ``exits.*`` knob) does NOT invalidate the
+# precomputed scan matrix. Keep this list strictly limited to keys that
+# affect the per-(session, scan_ts, symbol) features the matrix bakes in.
 MATRIX_SENSITIVE_PREFIXES: tuple[str, ...] = (
     "session.scanner_start",
     "session.scanner_end",

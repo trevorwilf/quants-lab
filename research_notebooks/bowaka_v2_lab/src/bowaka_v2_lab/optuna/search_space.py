@@ -83,7 +83,7 @@ SEARCH_SPACE_SPEC: dict[str, tuple] = {
     "execution.max_quote_age_seconds":     ("int", 1, 120),              # live 15
     "execution.max_spread_bps":            ("int", 5, 200),              # live 0.01 frac = 100 bps
     # ---- exits ---------------------------------------------------------
-    "exits.stop_pct":                      ("uniform", 0.01, 0.20),      # live 0.08
+    "exits.stop_pct":                      ("uniform", 0.01, 0.20),      # live 0.025
     "exits.target_pct":                    ("uniform", 0.02, 0.40),      # live 0.15
     "exits.max_hold_days":                 ("int", 1, 10),               # live 3
     "exits.time_stop.exit_time":           ("categorical", list(TIME_STOP_EXIT_TIME_CHOICES)),
