@@ -460,6 +460,12 @@ def build_parser() -> argparse.ArgumentParser:
     smv.add_argument("--store-root", required=True)
     smv.add_argument("--config", required=True)
     smv.add_argument("--sample-count", type=int, default=10)
+    smv.add_argument(
+        "--vectorized-check", action="store_true",
+        help="Also run the Phase 4 vectorized-vs-scalar score spot check; on "
+             "success the parity_proof marker records verifier_version=2 "
+             "(required to enable runtime_mode='vectorized').",
+    )
     smv.set_defaults(func=_cmd_scan_matrix_verify)
 
     # Speedup report v2 §1.4 / §8.3 / §9 / Phase 5 — finalist evaluation CLI.
@@ -504,21 +510,24 @@ def _cmd_scan_matrix_verify(args: argparse.Namespace) -> int:
 
     from .scanner.scan_matrix import verify_scan_matrix
 
+    vectorized_check = bool(getattr(args, "vectorized_check", False))
     report = verify_scan_matrix(
         Path(args.store_root), args.config, sample_count=int(args.sample_count),
+        vectorized_check=vectorized_check,
     )
     ok = report.get("status") in ("ok", "warn")
     if ok:
-        # Speedup report v2 §6.1 / Phase 3 task 4 — record a parity-proof
-        # marker the runtime opt-in guard reads. verifier_version=1 admits
-        # the compatibility runtime (Phase 3); Phase 4 bumps it to 2 after
-        # the vectorized spot-check lands.
+        # Speedup report v2 §6.1 / §10.6 — record a parity-proof marker the
+        # runtime opt-in guard reads. verifier_version=1 admits the
+        # compatibility runtime (Phase 3); verifier_version=2 (the vectorized
+        # spot check ran clean) additionally admits the vectorized runtime.
+        verifier_version = 2 if (vectorized_check and report.get("vectorized_checked")) else 1
         proof = {
             "matrix_id": report.get("matrix_id"),
             "config_input_hash": report.get("config_input_hash"),
             "dataset_hash": report.get("dataset_hash"),
             "verified_at_utc": _dt.datetime.utcnow().isoformat() + "Z",
-            "verifier_version": 1,
+            "verifier_version": verifier_version,
             "sampled": report.get("sampled"),
         }
         (Path(args.store_root) / "parity_proof.json").write_text(

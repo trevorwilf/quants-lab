@@ -909,6 +909,53 @@ def _expected_manifest_dataset_hash(
     return str(lineage.get("dataset_hash") or "")
 
 
+def _vectorized_cell_spot_check(
+    sess: ScanMatrixSession, cfg: Mapping[str, Any],
+    scan_idxs: Sequence[int], sym_idxs: Sequence[int],
+) -> list[dict[str, Any]]:
+    """Phase 4 — compare the vectorized score helper to the scalar one.
+
+    For each sampled cell, reconstructs the forming-feature dict from the
+    matrix and asserts ``compute_signal_strength_vectorized`` (1-element
+    arrays) equals the scalar ``compute_signal_strength`` to 1e-9. This is
+    the in-verifier proof that the vectorized math matches the legacy math;
+    the end-to-end three-way parity tests are the stronger gate.
+    """
+    from ..features import compute_signal_strength
+    from .scan_matrix_runtime import _reconstruct_forming_feats
+    from .scan_matrix_vectorized import compute_signal_strength_vectorized
+
+    score_cfg = cfg.get("score") or {}
+    out: list[dict[str, Any]] = []
+    ema_slope_col = sess.static_float64.get("ema_slope_prior")
+    for t_idx in scan_idxs:
+        for s_idx in sym_idxs:
+            if int(sess.dynamic_uint8["has_bar"][t_idx, s_idx]) == 0:
+                continue
+            feats = _reconstruct_forming_feats(sess, int(t_idx), int(s_idx))
+            es = None
+            if ema_slope_col is not None:
+                ev = float(ema_slope_col[s_idx])
+                es = None if np.isnan(ev) else ev
+            scalar = compute_signal_strength(feats, score_cfg, ema_slope_prior=es)
+            vec = float(compute_signal_strength_vectorized(
+                rvol_so_far=np.array([feats.get("rvol_so_far") if feats.get("rvol_so_far") is not None else np.nan]),
+                range_expansion_so_far=np.array([feats.get("range_expansion_so_far") if feats.get("range_expansion_so_far") is not None else np.nan]),
+                close_location_so_far=np.array([feats.get("close_location_so_far") if feats.get("close_location_so_far") is not None else np.nan]),
+                ema_distance=np.array([feats.get("ema_distance") if feats.get("ema_distance") is not None else np.nan]),
+                ema_slope_prior=np.array([es if es is not None else np.nan]),
+                gap_pct=np.array([feats.get("gap_pct") if feats.get("gap_pct") is not None else np.nan]),
+                score_cfg=score_cfg,
+            )[0])
+            if abs(scalar - vec) > 1e-9:
+                out.append({
+                    "kind": "vectorized_score_mismatch",
+                    "scan_idx": int(t_idx), "symbol_idx": int(s_idx),
+                    "scalar": scalar, "vectorized": vec,
+                })
+    return out
+
+
 def verify_scan_matrix(
     store_root: Path | str,
     config_path: str | Path,
@@ -916,6 +963,7 @@ def verify_scan_matrix(
     sample_count: int = 10,
     seed: int = 42,
     strict: bool = False,
+    vectorized_check: bool = False,
 ) -> dict[str, Any]:
     """Verify a built matrix's manifest + per-cell content.
 
@@ -1031,6 +1079,15 @@ def verify_scan_matrix(
                     "dtype": str(arr.dtype),
                 })
 
+        # Phase 4 — vectorized-vs-scalar score spot check on the sampled grid.
+        if vectorized_check:
+            vec_issues = _vectorized_cell_spot_check(
+                sess, cfg, scan_idxs, sym_idxs,
+            )
+            for issue in vec_issues:
+                issue["session"] = sd.isoformat()
+                issues.append(issue)
+
     report = {
         "status": "ok" if not issues else "fail",
         "sampled": sampled,
@@ -1041,6 +1098,7 @@ def verify_scan_matrix(
         "seed": int(seed),
         "session_count": len(sessions),
         "session_sampled": len(chosen_session_idxs),
+        "vectorized_checked": bool(vectorized_check),
     }
     if strict and issues:
         raise MatrixVerifyError(json.dumps(report, indent=2, default=str))

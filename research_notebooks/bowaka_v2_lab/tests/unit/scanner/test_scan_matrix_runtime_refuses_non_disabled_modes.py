@@ -19,9 +19,6 @@ from bowaka_v2_lab.scanner.scan_matrix_runtime import (
     evaluate_one_scan_from_matrix,
     evaluate_one_scan_from_matrix_vectorized,
 )
-from bowaka_v2_lab.scanner.scan_matrix_vectorized import (
-    evaluate_one_scan_vectorized,
-)
 
 
 def test_disabled_is_a_no_op() -> None:
@@ -75,8 +72,11 @@ def test_compatibility_class_without_partition_refuses() -> None:
         )
 
 
-def test_legacy_evaluator_stubs_still_refuse() -> None:
-    """The Phase 9 ``evaluate_one_scan_from_matrix`` stubs continue to refuse."""
+def test_legacy_consumer_evaluator_stubs_still_refuse() -> None:
+    """The Phase-9 consumer-based ``evaluate_one_scan_from_matrix`` stubs
+    (a different, unused integration shape) continue to refuse. The real
+    runtime path uses ``evaluate_one_scan_compat`` (Phase 3) and
+    ``scan_matrix_vectorized.evaluate_one_scan_vectorized`` (Phase 4)."""
     with pytest.raises(MatrixRuntimeNotImplementedError):
         evaluate_one_scan_from_matrix(
             cfg=None, matrix_session=None, state={}, scan_idx=0, consumer=None,
@@ -85,5 +85,3 @@ def test_legacy_evaluator_stubs_still_refuse() -> None:
         evaluate_one_scan_from_matrix_vectorized(
             cfg=None, matrix_session=None, state={}, scan_idx=0, consumer=None,
         )
-    with pytest.raises(MatrixRuntimeNotImplementedError):
-        evaluate_one_scan_vectorized(None, [], None, {})

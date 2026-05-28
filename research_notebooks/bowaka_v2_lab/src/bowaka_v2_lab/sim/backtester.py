@@ -864,24 +864,37 @@ def run_backtest(
             resolve_runtime_mode,
         )
 
-        # Speedup report v2 §4 P6 / §6.1 / Phase 3 — three-mode resolution.
+        # Speedup report v2 §4 P6 / §6.1 / Phase 3-4 — three-mode resolution.
         # ``runtime_mode='disabled'`` (the default) lets the matrix be built
         # for inspection without firing the runtime path. ``compatibility``
-        # is accepted in Phase 3; ``vectorized`` is refused until Phase 4.
+        # is accepted in Phase 3; ``vectorized`` is accepted in Phase 4 when
+        # the parity proof records verifier_version >= 2.
         _runtime_mode = resolve_runtime_mode(cfg_dict)
         _parity_present = bool(
             ((cfg_dict.get("optuna") or {}).get("acceleration") or {})
             .get("scan_matrix", {}).get("require_parity_manifest", True)
         )
+        _parity_proof_version: Optional[int] = None
+        if scan_matrix_store is not None:
+            try:
+                _proof_path = Path(scan_matrix_store.root) / "parity_proof.json"
+                if _proof_path.is_file():
+                    _proof = json.loads(_proof_path.read_text(encoding="utf-8"))
+                    _parity_proof_version = int(_proof.get("verifier_version", 0))
+            except Exception:  # noqa: BLE001 — missing/corrupt proof -> None
+                _parity_proof_version = None
         assert_backtester_matrix_opt_in_is_supported(
             enabled=True,
             runtime_mode=_runtime_mode,
             parity_manifest_present=_parity_present,
+            parity_proof_version=_parity_proof_version,
         )
-    # Speedup report v2 §6.1 / Phase 3 — the compatibility runtime is active
-    # only when a matrix store was supplied AND runtime_mode=="compatibility".
+    # Speedup report v2 §6.1 / Phase 3-4 — the matrix runtime is active only
+    # when a matrix store was supplied AND runtime_mode is compatibility or
+    # vectorized.
     _matrix_compat_active = (
-        scan_matrix_store is not None and _runtime_mode == "compatibility"
+        scan_matrix_store is not None
+        and _runtime_mode in ("compatibility", "vectorized")
     )
 
     # Realism remediation 2 Phase 6 (audit P0-007) — protected-position
@@ -1245,16 +1258,28 @@ def run_backtest(
                 # the consumer loop is shared via run_one_scan's override.
                 _matrix_scan_result = None
                 if matrix_session_partition is not None:
-                    from ..scanner.scan_matrix_runtime import (
-                        evaluate_one_scan_compat,
-                    )
-                    _matrix_scan_result = evaluate_one_scan_compat(
-                        cfg=cfg_dict, matrix_session=matrix_session_partition,
-                        scan_ts=scan_ts, state=state,
-                        scan_context=scan_session_ctx,
-                        universe_snapshot=universe, volume_curve=volume_curve,
-                        collect_gate_dump=collect_gate_dump,
-                    )
+                    if _runtime_mode == "vectorized":
+                        from ..scanner.scan_matrix_vectorized import (
+                            evaluate_one_scan_vectorized,
+                        )
+                        _matrix_scan_result = evaluate_one_scan_vectorized(
+                            cfg=cfg_dict, matrix_session=matrix_session_partition,
+                            scan_ts=scan_ts, state=state,
+                            scan_context=scan_session_ctx,
+                            universe_snapshot=universe, volume_curve=volume_curve,
+                            collect_gate_dump=collect_gate_dump,
+                        )
+                    else:
+                        from ..scanner.scan_matrix_runtime import (
+                            evaluate_one_scan_compat,
+                        )
+                        _matrix_scan_result = evaluate_one_scan_compat(
+                            cfg=cfg_dict, matrix_session=matrix_session_partition,
+                            scan_ts=scan_ts, state=state,
+                            scan_context=scan_session_ctx,
+                            universe_snapshot=universe, volume_curve=volume_curve,
+                            collect_gate_dump=collect_gate_dump,
+                        )
                 scan_result, consumer_results = run_one_scan(
                     cfg=cfg_dict, universe_snapshot=universe, daily_cache=daily_cache,
                     volume_curve=volume_curve, state=state, scan_ts=scan_ts,
