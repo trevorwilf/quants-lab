@@ -278,9 +278,80 @@ def calibrator_lookup_bps(
     return float(bin_summary.get("mean_bps", artifact.default_residual_bps))
 
 
+# --------------------------------------------------------------------------
+# Audit 2026-05-29 §9 Phase 6 — bucketed fill-error report.
+# --------------------------------------------------------------------------
+def bucket_fill_errors(
+    fills: Sequence[Mapping[str, Any]],
+    *,
+    adv_key: str = "adv_dollar",
+    error_key: str = "fill_error_bps",
+) -> pd.DataFrame:
+    """Bucket per-fill paper-vs-sim errors by ADV bucket, symbol and ToD window.
+
+    Returns a tidy DataFrame with one row per (dimension, bucket) carrying the
+    fill-count and median / mean absolute error in bps. Each ``fills`` row
+    carries at minimum ``error_key`` (signed bps) and ``adv_key``; optional
+    ``symbol`` and ``tod_bucket`` keys add the per-symbol / per-ToD rows.
+    """
+    from ..sim.adv_buckets import bucket_for_adv
+
+    rows: list[dict[str, Any]] = []
+
+    def _emit(dimension: str, bucket: str, errs: list[float]) -> None:
+        if not errs:
+            return
+        rows.append({
+            "dimension": dimension,
+            "bucket": bucket,
+            "n_fills": len(errs),
+            "median_bps": float(statistics.median(errs)),
+            "mean_abs_bps": float(statistics.mean(abs(e) for e in errs)),
+        })
+
+    by_adv: dict[str, list[float]] = {}
+    by_symbol: dict[str, list[float]] = {}
+    by_tod: dict[str, list[float]] = {}
+    for f in fills:
+        err = f.get(error_key)
+        if err is None:
+            continue
+        err = float(err)
+        bucket = bucket_for_adv(float(f.get(adv_key, 0.0) or 0.0)).name
+        by_adv.setdefault(bucket, []).append(err)
+        if f.get("symbol"):
+            by_symbol.setdefault(str(f["symbol"]), []).append(err)
+        if f.get("tod_bucket"):
+            by_tod.setdefault(str(f["tod_bucket"]), []).append(err)
+
+    for bucket, errs in by_adv.items():
+        _emit("adv_bucket", bucket, errs)
+    for sym, errs in by_symbol.items():
+        _emit("symbol", sym, errs)
+    for tod, errs in by_tod.items():
+        _emit("tod_bucket", tod, errs)
+    return pd.DataFrame(
+        rows, columns=["dimension", "bucket", "n_fills", "median_bps", "mean_abs_bps"],
+    )
+
+
+def write_bucketed_fill_error(
+    fills: Sequence[Mapping[str, Any]], path: Path | str,
+    *, adv_key: str = "adv_dollar", error_key: str = "fill_error_bps",
+) -> Path:
+    df = bucket_fill_errors(fills, adv_key=adv_key, error_key=error_key)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(path)
+    return path
+
+
 __all__ = [
     # Phase-7 helper.
     "compute_slippage_residuals",
+    # Phase 6 bucketed fill-error.
+    "bucket_fill_errors",
+    "write_bucketed_fill_error",
     # Phase-9 calibrator.
     "FillFeatureRow",
     "SlippageCalibratorArtifact",

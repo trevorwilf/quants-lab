@@ -22,6 +22,7 @@ paper data — a missing directory raises ``PaperLogsNotFoundError``.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 from dataclasses import dataclass, field
@@ -189,6 +190,31 @@ def resolve_paper_logs_root(paper_logs_root: Path | str | None) -> Path:
     return root
 
 
+def discover_sessions(paper_logs_root: Path | str) -> list[Path]:
+    """Return the sorted list of session directories under ``paper_logs_root``.
+
+    A session directory is named ``YYYY-MM-DD`` and contains at minimum a
+    ``paper_candidates.jsonl`` file (audit 2026-05-29 §9 Phase 6). A missing
+    root, non-date directories, and date dirs without the candidates file are
+    skipped — so an empty / absent root returns ``[]`` (the REAL_LOGS_DEFERRED
+    signal).
+    """
+    root = Path(paper_logs_root)
+    if not root.is_dir():
+        return []
+    sessions: list[Path] = []
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir():
+            continue
+        try:
+            _dt.datetime.strptime(entry.name, "%Y-%m-%d")
+        except ValueError:
+            continue
+        if (entry / "paper_candidates.jsonl").is_file():
+            sessions.append(entry)
+    return sessions
+
+
 def import_paper_event_logs(
     paper_logs_root: Path | str | None = None,
     *,
@@ -295,4 +321,5 @@ __all__ = [
     "PAPER_EVENT_FILES",
     "import_paper_event_logs",
     "resolve_paper_logs_root",
+    "discover_sessions",
 ]

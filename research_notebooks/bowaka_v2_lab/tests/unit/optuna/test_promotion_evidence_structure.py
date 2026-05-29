@@ -51,11 +51,15 @@ def test_valid_sip_realism_without_reconciliation_is_backtesting_only() -> None:
 
 
 def test_valid_sip_realism_with_reconciliation_can_reach_live() -> None:
+    # Phase 4 (audit §9 Phase 6): paper/live promotion requires a PASSING
+    # multi-session reconciliation report, not just the coarse artifact flag.
+    passing_recon = {"status": "ok", "n_sessions": 12,
+                     "passes_all_thresholds": True, "failing_metrics": []}
     ev = evaluate_promotion_evidence(
         study_valid=True, invalid_reasons=[], feed="sip",
         simulation_mode="intended_realism", risk_control_drift=False,
         paper_reconciliation_artifact_present=True, best_params={"a": 1},
-        requested_tier="live_candidate",
+        requested_tier="live_candidate", reconcile_report=passing_recon,
     )
     assert ev.promotable_to_paper is True
     assert ev.promotable_to_live is True
