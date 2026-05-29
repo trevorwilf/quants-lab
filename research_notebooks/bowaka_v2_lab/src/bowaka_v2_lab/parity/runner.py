@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
-_LAB_ROOT = Path(__file__).resolve().parents[2]
+_LAB_ROOT = Path(__file__).resolve().parents[3]   # src/bowaka_v2_lab/parity/runner.py -> lab root
 
 
 @dataclass(frozen=True)
