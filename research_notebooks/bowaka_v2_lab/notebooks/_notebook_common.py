@@ -27,14 +27,24 @@ if _lab_root is None:
         f"bowaka_v2_lab bootstrap: src/bowaka_v2_lab/ not found at or above {Path.cwd()}"
     )
 
-# Pin CWD to the repo root (the directory holding research_notebooks/ and the
-# Makefile) so repo-root-relative CONFIG_PATH values resolve regardless of how
-# the notebook was launched (jupyter CWD = notebook dir, scheduler = repo root).
-_repo_root = _lab_root
-for _candidate in [_lab_root, *_lab_root.parents]:
-    if (_candidate / "research_notebooks").is_dir() and (_candidate / "Makefile").is_file():
-        _repo_root = _candidate
-        break
+# Pin CWD to the repo root so repo-root-relative CONFIG_PATH values resolve
+# regardless of how the notebook was launched (jupyter CWD = notebook dir,
+# scheduler = repo root). The lab ALWAYS lives at
+# ``<repo_root>/research_notebooks/bowaka_v2_lab``, so derive the repo root from
+# that canonical layout. A marker-only heuristic ("a dir with research_notebooks/
+# AND Makefile") mis-matches the lab dir itself when it carries a Makefile and a
+# stray nested research_notebooks/ — which then chdir's one level too deep and
+# breaks every repo-root-relative path.
+if _lab_root.parent.name == "research_notebooks":
+    _repo_root = _lab_root.parent.parent
+else:
+    # Fallback: the repo root holds research_notebooks/bowaka_common (the sibling
+    # package) — a marker a stray nested research_notebooks/ inside the lab lacks.
+    _repo_root = _lab_root
+    for _candidate in [_lab_root, *_lab_root.parents]:
+        if (_candidate / "research_notebooks" / "bowaka_common").is_dir():
+            _repo_root = _candidate
+            break
 os.chdir(_repo_root)
 
 # Make the lab and its bowaka_common dependency importable from the working
