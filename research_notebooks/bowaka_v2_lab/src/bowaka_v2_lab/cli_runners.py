@@ -15,6 +15,7 @@ import pandas as pd
 
 from .config import BowakaV2Paths, load_config
 from .config.models import BowakaV2Config
+from .data.adjustment import daily_adjustment_for_config
 from .data.suppliers import (
     build_daily_cache_from_lake,
     make_forward_minute_supplier,
@@ -224,11 +225,13 @@ def run_backtest_command(
     forward_minute_supplier = None
     if _uses_lake(cfg):
         feed, root = md.get("feed", "iex"), md.get("shared_root")
+        _adj = daily_adjustment_for_config(cfg)
         minute_supplier, daily_supplier = make_lake_suppliers(
             root, feed=feed,
             intraday_window_policy=resolve_intraday_window_policy(cfg),
+            daily_adjustment=_adj,
         )
-        daily_cache = {s: build_daily_cache_from_lake(root, symbols, s, feed=feed) for s in sessions}
+        daily_cache = {s: build_daily_cache_from_lake(root, symbols, s, feed=feed, daily_adjustment=_adj) for s in sessions}
         # Realism Phase 6: historical-quote supplier + forward-minute supplier
         # (for marketable-limit timeout detection) from the same lake.
         quote_supplier = make_quote_supplier(
@@ -388,11 +391,13 @@ def replay_scanner_command(
 
     if _uses_lake(cfg):
         feed, root = md.get("feed", "iex"), md.get("shared_root")
+        _adj = daily_adjustment_for_config(cfg)
         bars_supplier, _ = make_lake_suppliers(
             root, feed=feed,
             intraday_window_policy=resolve_intraday_window_policy(cfg),
+            daily_adjustment=_adj,
         )
-        daily_cache = build_daily_cache_from_lake(root, symbols, session, feed=feed)
+        daily_cache = build_daily_cache_from_lake(root, symbols, session, feed=feed, daily_adjustment=_adj)
         data_source = "lake"
     else:
         bars_supplier, _ = _synthetic_suppliers()
@@ -481,7 +486,9 @@ def dq_report_command(
     lake_backed = _uses_lake(cfg)
     if lake_backed:
         root = md.get("shared_root")
-        minute_supplier, daily_supplier = make_lake_suppliers(root, feed=feed)
+        minute_supplier, daily_supplier = make_lake_suppliers(
+            root, feed=feed, daily_adjustment=daily_adjustment_for_config(cfg),
+        )
         store = _lake_store(md)
 
         def session_minute_supplier(symbol: str, session_date: Any):

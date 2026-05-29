@@ -37,6 +37,8 @@ from typing import Any, Iterable, Mapping, Optional
 
 import pandas as pd
 
+from ..data.adjustment import daily_adjustment_for_config
+
 # --------------------------------------------------------------------------
 # Contract-derived defaults (frozen contract `universe` block / P0-005).
 # --------------------------------------------------------------------------
@@ -315,33 +317,40 @@ class _CachedDailyHistory:
         self.close_x_volume = close_sorted * volume_sorted
 
 
-_PIT_DAILY_FULL_HISTORY_CACHE: dict[tuple[str, str, str], _CachedDailyHistory] = {}
+_PIT_DAILY_FULL_HISTORY_CACHE: dict[tuple[str, str, str, str], _CachedDailyHistory] = {}
 
 
 def _full_daily_history(
-    lake_store: Any, symbol: str, *, feed: str,
+    lake_store: Any, symbol: str, *, feed: str, daily_adjustment: str = "raw",
 ) -> _CachedDailyHistory:
     """Cached full daily history for ``symbol`` on ``lake_store``.
 
-    Reads ``lake_store.daily_bars(symbol, 1970-01-01, today, feed=feed)`` once
-    per ``(lake_root, symbol, feed)`` triple, then returns the same compact
-    payload (numpy arrays + precomputed close×volume) on subsequent calls.
-    Cache is process-local — fresh worker processes start cold (intended;
-    spawn workers cannot share the parent's cache).
+    Reads ``lake_store.daily_bars(symbol, 1970-01-01, today, feed=feed,
+    adjustment=daily_adjustment)`` once per ``(lake_root, symbol, feed,
+    adjustment)`` tuple, then returns the same compact payload (numpy arrays +
+    precomputed close×volume) on subsequent calls. Cache is process-local —
+    fresh worker processes start cold (intended; spawn workers cannot share the
+    parent's cache).
+
+    Audit 2026-05-29 §5.3 / Phase 1: ``daily_adjustment`` is part of the cache
+    key so the price-band / ADV universe filters use the same adjustment the
+    config requires (and a raw vs split_adjusted read never collide in cache).
     """
     lake_root_str = ""
     if hasattr(lake_store, "lake_root"):
         lake_root_str = str(getattr(lake_store, "lake_root"))
     elif hasattr(lake_store, "root"):
         lake_root_str = str(getattr(lake_store, "root"))
-    key = (lake_root_str, str(symbol), str(feed))
+    key = (lake_root_str, str(symbol), str(feed), str(daily_adjustment))
     cached = _PIT_DAILY_FULL_HISTORY_CACHE.get(key)
     if cached is not None:
         return cached
     full_start = _dt.date(1970, 1, 1)
     full_end = _dt.date.today()
     try:
-        df = lake_store.daily_bars(symbol, full_start, full_end, feed=feed)
+        df = lake_store.daily_bars(
+            symbol, full_start, full_end, feed=feed, adjustment=daily_adjustment
+        )
     except Exception:  # noqa: BLE001
         df = pd.DataFrame()
     payload = _CachedDailyHistory(df)
@@ -360,6 +369,7 @@ def _build_prior_baselines_map(
     lake_store: Any,
     *,
     feed: str,
+    daily_adjustment: str = "raw",
 ) -> dict[str, tuple[Optional[float], Optional[float]]]:
     """Map ``symbol -> (prior_close, prior_adv_20d)`` for one session.
 
@@ -380,7 +390,9 @@ def _build_prior_baselines_map(
     # The compute below uses ``< session_date`` so we don't need an inclusive
     # upper bound — slice everything strictly earlier.
     for symbol in symbols:
-        h = _full_daily_history(lake_store, symbol, feed=feed)
+        h = _full_daily_history(
+            lake_store, symbol, feed=feed, daily_adjustment=daily_adjustment
+        )
         if h.session_dates is None:
             out[symbol] = (None, None)
             continue
@@ -483,6 +495,10 @@ def build_pit_universe(
     ucfg = _universe_cfg(cfg)
     md = dict((cfg.get("market_data") if cfg else None) or {})
     feed = str(md.get("feed", "iex"))
+    # Audit 2026-05-29 §5.3 / Phase 1 — the price-band / ADV universe filters
+    # must use the same daily adjustment the config requires (raw close on a
+    # split stock can be 10x off and reject/admit the wrong symbols).
+    daily_adjustment = daily_adjustment_for_config(cfg)
 
     # Phase-0 unknown-instrument-class policy from the simulation contract.
     from ..config.models import SimulationConfig
@@ -500,7 +516,9 @@ def build_pit_universe(
         return {}
 
     symbols = [str(s) for s in asset_master["symbol"].tolist()]
-    baselines = _build_prior_baselines_map(symbols, session, lake_store, feed=feed)
+    baselines = _build_prior_baselines_map(
+        symbols, session, lake_store, feed=feed, daily_adjustment=daily_adjustment,
+    )
 
     records: dict[str, UniverseRecord] = {}
     for _, row in asset_master.iterrows():

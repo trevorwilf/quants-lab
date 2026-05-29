@@ -125,6 +125,7 @@ def make_lake_suppliers(
     vendor: str = "alpaca",
     daily_lookback_days: int = 400,
     intraday_window_policy: str = _DEFAULT_INTRADAY_WINDOW_POLICY,
+    daily_adjustment: str = "raw",
 ) -> tuple[Callable[[str, Any], pd.DataFrame], Callable[[str, Any], pd.DataFrame]]:
     """Return ``(minute_bars_supplier, daily_bars_supplier)`` reading the shared lake.
 
@@ -138,6 +139,13 @@ def make_lake_suppliers(
     policy-resolved local time (09:30 / 09:45 / 04:00 ET) rather than UTC
     midnight, so the forming-session bar window honours
     ``simulation.intraday_window_policy``.
+
+    Audit 2026-05-29 §5.3 / Phase 1: ``daily_adjustment`` is the lake-partition
+    adjustment for the daily reader. The store defaults to ``"raw"``; callers
+    that resolve a lab config requiring adjusted/split-adjusted bars MUST pass
+    ``daily_adjustment_for_config(cfg)`` (``"split_adjusted"``) so the daily
+    baselines (ATR%, EMA, RVOL, gaps) are computed from split-adjusted prices.
+    The default stays ``"raw"`` for back-compat with un-upgraded callers.
     """
     store = _as_store(shared_root, vendor=vendor)
 
@@ -151,7 +159,9 @@ def make_lake_suppliers(
     def daily_bars_supplier(symbol: str, session_date: Any) -> pd.DataFrame:
         end = _as_date(session_date)
         start = end - _dt.timedelta(days=daily_lookback_days)
-        return store.daily_bars(symbol, start, end, feed=feed)
+        return store.daily_bars(
+            symbol, start, end, feed=feed, adjustment=daily_adjustment
+        )
 
     return minute_bars_supplier, daily_bars_supplier
 
@@ -291,11 +301,16 @@ def build_daily_cache_from_lake(
     vol_window: int = 20,
     ema_span: int = 10,
     lookback_days: int = 400,
+    daily_adjustment: str = "raw",
 ) -> pd.DataFrame:
     """Build the v2 daily-feature cache as-of the session **before** ``session_date``.
 
     No-lookahead: every value uses only sessions strictly earlier than
     ``session_date``. Returns a DataFrame with :data:`DAILY_CACHE_COLUMNS`.
+
+    Audit 2026-05-29 §5.3 / Phase 1: ``daily_adjustment`` selects the lake
+    partition (default ``"raw"``; pass ``"split_adjusted"`` when the config
+    requires adjusted daily bars).
     """
     _count(daily_cache_builds=1)
     store = _as_store(store_or_root, vendor=vendor)
@@ -303,7 +318,8 @@ def build_daily_cache_from_lake(
     rows: list[dict[str, Any]] = []
     for symbol in symbols:
         df = store.daily_bars(
-            symbol, target - _dt.timedelta(days=lookback_days), target, feed=feed
+            symbol, target - _dt.timedelta(days=lookback_days), target,
+            feed=feed, adjustment=daily_adjustment,
         )
         _count(daily_parquet_reads=1)
         if df.empty:

@@ -61,14 +61,64 @@ def resolve_lake_root(shared_root: Optional[str] = None) -> Path:
     return _REPO_ROOT / "research_notebooks" / "market_data"
 
 
-def lake_has_bars(lake_root: Path, feed: str) -> bool:
-    """True when the lake has at least one daily-bar symbol for ``feed``."""
+def _lake_has_daily_partition(lake_root: Path, feed: str, adjustment: str) -> bool:
+    """True when the lake has >=1 daily-bar symbol for ``(feed, adjustment)``."""
     try:
         from bowaka_common.marketdata import available_symbols
 
-        return bool(available_symbols(str(lake_root), timeframe="1d", feed=feed))
-    except Exception:  # noqa: BLE001 — a probe failure means "feed not available"
+        return bool(
+            available_symbols(
+                str(lake_root), timeframe="1d", feed=feed, adjustment=adjustment
+            )
+        )
+    except Exception:  # noqa: BLE001 — a probe failure means "not available"
         return False
+
+
+def lake_has_bars(lake_root: Path, feed: str) -> bool:
+    """True when the lake has at least one daily-bar symbol for ``feed`` (raw)."""
+    return _lake_has_daily_partition(lake_root, feed, "raw")
+
+
+@dataclass(frozen=True)
+class LakeCapability:
+    """Structured lake-capability probe (audit 2026-05-29 §A.1 / Phase 1).
+
+    Replaces the bare ``lake_has_bars`` bool so callers can see not just
+    *whether* bars exist but whether the daily partition for the adjustment
+    the config REQUIRES exists. ``__bool__`` returns ``has_bars`` so existing
+    truthy callers (``if lake_has_bars(...)``) keep working when migrated.
+    """
+
+    feed: str
+    required_adjustment: str
+    has_bars: bool
+    has_required_daily_adjustment: bool
+    has_quotes: bool
+
+    def __bool__(self) -> bool:
+        return self.has_bars
+
+
+def probe_lake_capability(
+    lake_root: Path, feed: str, *, required_adjustment: str = "raw",
+) -> LakeCapability:
+    """Probe the lake for ``feed`` bars + the ``required_adjustment`` daily
+    partition + quotes. ``has_required_daily_adjustment`` is the gate the
+    full-fold preflight uses to refuse a study whose config requires
+    split-adjusted bars the lake does not hold."""
+    has_bars = (
+        _lake_has_daily_partition(lake_root, feed, "raw")
+        or _lake_has_daily_partition(lake_root, feed, required_adjustment)
+    )
+    has_required = _lake_has_daily_partition(lake_root, feed, required_adjustment)
+    return LakeCapability(
+        feed=feed,
+        required_adjustment=required_adjustment,
+        has_bars=bool(has_bars),
+        has_required_daily_adjustment=bool(has_required),
+        has_quotes=lake_has_quotes(lake_root, feed),
+    )
 
 
 def lake_has_quotes(lake_root: Path, feed: str) -> bool:
@@ -183,8 +233,10 @@ def resolve_walkforward_config(
 
 __all__ = [
     "ResolvedWalkforwardConfig",
+    "LakeCapability",
     "resolve_lake_root",
     "lake_has_bars",
+    "probe_lake_capability",
     "lake_has_quotes",
     "detect_best_feed",
     "resolve_walkforward_config",

@@ -70,6 +70,7 @@ def _load_symbol_daily(
     max_session: _dt.date,
     lookback_days: int,
     feed: str,
+    daily_adjustment: str = "raw",
 ) -> _DailySymbolFrame | None:
     """Read the symbol's daily parquet ONCE over the full lookback span.
 
@@ -82,7 +83,9 @@ def _load_symbol_daily(
     Returns ``None`` when the lake has no rows for this symbol.
     """
     start = min_session - _dt.timedelta(days=lookback_days)
-    df = store.daily_bars(symbol, start, max_session, feed=feed)
+    df = store.daily_bars(
+        symbol, start, max_session, feed=feed, adjustment=daily_adjustment
+    )
     _count(daily_parquet_reads=1)
     if df.empty:
         return None
@@ -108,6 +111,7 @@ def build_daily_cache_for_sessions_from_lake(
     vol_window: int = 20,
     ema_span: int = 10,
     lookback_days: int = 400,
+    daily_adjustment: str = "raw",
 ) -> dict[_dt.date, pd.DataFrame]:
     """Build a per-session daily-feature cache for every session in one pass.
 
@@ -143,6 +147,7 @@ def build_daily_cache_for_sessions_from_lake(
     for sym in all_symbols:
         sf = _load_symbol_daily(
             store, sym, min_session, max_session, lookback_days, feed,
+            daily_adjustment=daily_adjustment,
         )
         if sf is not None:
             daily_by_symbol[sym] = sf

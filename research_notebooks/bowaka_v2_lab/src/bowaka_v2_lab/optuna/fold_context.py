@@ -30,6 +30,7 @@ from ..data.cached_suppliers import (
     make_cached_lake_suppliers,
     make_cached_supplier_callables,
 )
+from ..data.adjustment import daily_adjustment_for_config
 from ..data.suppliers import (
     build_daily_cache_from_lake,
     make_forward_minute_supplier,
@@ -176,11 +177,19 @@ def _build_one_fold_context(
     quote_max_age = float(
         (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
     )
+    # Audit 2026-05-29 §5.3 / Phase 1 — resolve the daily-bar adjustment ONCE
+    # from the config and thread it into every daily reader on this path
+    # (cached + uncached suppliers, per-session + batch daily cache). Without
+    # this the readers default to "raw" even when the config requires
+    # split-adjusted bars, corrupting every prior-day baseline and rejecting
+    # every candidate (the §5.2 root cause of the all-zero-trade study).
+    daily_adjustment = daily_adjustment_for_config(cfg)
     if cached_suppliers:
         adapter = make_cached_lake_suppliers(
             lake_root, feed=feed,
             intraday_window_policy=intraday_policy,
             default_max_age_seconds=quote_max_age,
+            daily_adjustment=daily_adjustment,
         )
         callables = make_cached_supplier_callables(adapter)
         minute_sup = callables["minute"]
@@ -190,6 +199,7 @@ def _build_one_fold_context(
     else:
         minute_sup, daily_sup = make_lake_suppliers(
             lake_root, feed=feed, intraday_window_policy=intraday_policy,
+            daily_adjustment=daily_adjustment,
         )
         quote_sup = make_quote_supplier(
             lake_root, feed=feed, default_max_age_seconds=quote_max_age,
@@ -215,12 +225,16 @@ def _build_one_fold_context(
         eligible[s] = tuple(sess_syms)
         scan_times[s] = tuple(scan_times_for_session(s, cfg))
         if not batch_flag:
-            daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
+            daily_cache[s] = build_daily_cache_from_lake(
+                lake_root, sess_syms, s, feed=feed,
+                daily_adjustment=daily_adjustment,
+            )
     if batch_flag:
         from ..data.daily_cache_batch import build_daily_cache_for_sessions_from_lake
 
         daily_cache = build_daily_cache_for_sessions_from_lake(
             lake_root, eligible, sessions, feed=feed,
+            daily_adjustment=daily_adjustment,
         )
     # Speedup report v2 §4 P3 / §5.7 / Phase 4 — opt into the session
     # minute-window cache. ``CachedSessionMarketData`` (Phase 3) is a strict

@@ -47,6 +47,7 @@ import pandas as pd
 
 from ..config import BowakaV2Paths, SimulationConfig, load_config
 from ..promotion.suitability import tier_for_simulation_contract
+from ..data.adjustment import daily_adjustment_for_config
 from ..data.suppliers import (
     build_daily_cache_from_lake,
     make_forward_minute_supplier,
@@ -427,6 +428,7 @@ def _run_fold_backtest(
         minute_supplier, daily_supplier = make_lake_suppliers(
             lake_root, feed=feed,
             intraday_window_policy=resolve_intraday_window_policy(cfg),
+            daily_adjustment=daily_adjustment_for_config(cfg),
         )
         quote_supplier = make_quote_supplier(
             lake_root, feed=feed,
@@ -528,6 +530,7 @@ def _run_fold_backtest_objective(
         minute_supplier, daily_supplier = make_lake_suppliers(
             lake_root, feed=feed,
             intraday_window_policy=resolve_intraday_window_policy(cfg),
+            daily_adjustment=daily_adjustment_for_config(cfg),
         )
         quote_supplier = make_quote_supplier(
             lake_root, feed=feed,
@@ -1612,6 +1615,7 @@ def run_walkforward_study(
         minute_supplier, daily_supplier = make_lake_suppliers(
             lake_root, feed=feed,
             intraday_window_policy=resolve_intraday_window_policy(cfg),
+            daily_adjustment=daily_adjustment_for_config(cfg),
         )
         lineage = build_dataset_lineage(
             cfg=cfg, symbols=symbols,
@@ -1822,7 +1826,14 @@ def run_walkforward_study(
     # gates intended_realism — current_code_parity / smoke_fixture are not data
     # -prerequisite-failure-modes (the cheap preflight already records warnings).
     full_fold_preflight_result: Optional[Any] = None
-    if sim_cfg.mode == "intended_realism":
+    # Audit 2026-05-29 §5.4 / Phase 1 — the full per-fold preflight now runs for
+    # current_code_parity too (not just intended_realism). It proves daily
+    # adjustment is satisfiable, minute coverage + PIT universe exist per fold,
+    # and the folds never touch the holdout — BEFORE a multi-hour study starts.
+    # Under current_code_parity the IEX partial-tape gaps (missing quotes / SIP)
+    # are recorded as non-blocking limitations rather than hard failures.
+    iex_partial_tape_limitations: list[str] = []
+    if sim_cfg.mode in ("intended_realism", "current_code_parity"):
         from .preflight import FoldWindow, run_full_fold_preflight
 
         fold_windows = [
@@ -1844,10 +1855,17 @@ def run_walkforward_study(
             feed=feed, dataset_hash=dataset_hash, config_hash=lab_config_hash,
             scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
             min_quote_coverage_pct=float(sim_cfg.min_quote_coverage_pct),
+            mode=sim_cfg.mode,
+        )
+        iex_partial_tape_limitations = list(
+            getattr(full_fold_preflight_result, "iex_partial_tape_limitations", []) or []
         )
         log.info(
-            "full per-fold preflight passed: %d folds, %d checks",
-            len(fold_windows), len(full_fold_preflight_result.checks),
+            "full per-fold preflight passed (mode=%s): %d folds, %d checks, "
+            "%d partial-tape limitation(s): %s",
+            sim_cfg.mode, len(fold_windows),
+            len(full_fold_preflight_result.checks),
+            len(iex_partial_tape_limitations), iex_partial_tape_limitations,
         )
 
     # Audit 2026-05-23 §P1-006 — relative ``sqlite:///`` URIs resolve against
@@ -1904,6 +1922,26 @@ def run_walkforward_study(
 
     feed_caveat = _feed_caveat_for(feed)
     partial_tape = (str(feed).lower() == "iex")
+    # Audit 2026-05-29 §5.4 / §13.1 / Phase 1 — record the daily-bar adjustment
+    # the readers actually used (resolved from config) alongside what the lake's
+    # ingestion manifest declares, so a reviewer can confirm the run read
+    # split-adjusted bars when the contract required them. The full-fold
+    # preflight already hard-failed if the required partition was absent.
+    effective_daily_adjustment = daily_adjustment_for_config(cfg)
+    manifest_daily_adjustment = effective_daily_adjustment
+    try:
+        from bowaka_common.marketdata import layout as _layout
+
+        _mp = _layout.ingestion_manifest_path(Path(str(lake_root)))
+        if _mp.is_file():
+            manifest_daily_adjustment = str(
+                json.loads(_mp.read_text(encoding="utf-8")).get(
+                    "adjustment", effective_daily_adjustment
+                )
+            )
+    except Exception:  # noqa: BLE001 — a missing/unreadable manifest is non-fatal
+        pass
+
     study_metadata = {
         "dataset_hash": dataset_hash,
         "lab_config_hash": lab_config_hash,
@@ -1924,6 +1962,9 @@ def run_walkforward_study(
         "suitability_tier": suitability_tier,
         "feed": feed,
         "partial_tape": partial_tape,
+        "effective_daily_adjustment": effective_daily_adjustment,
+        "manifest_daily_adjustment": manifest_daily_adjustment,
+        "iex_partial_tape_limitations": iex_partial_tape_limitations,
         "preflight": preflight.as_dict(),
         "penalty_weights": vars(DEFAULT_PENALTY_WEIGHTS),
         "search_space_overrides": search_space_overrides,
