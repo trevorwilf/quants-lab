@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -48,8 +49,8 @@ def run_production_backtester(
     cost_stress: str = "conservative",
     ablation: str = "none",
     output_dir: Path,
-    python_exe: str = "py",
-    python_extra: Sequence[str] = ("-3.12",),
+    python_exe: str | None = None,
+    python_extra: Sequence[str] = (),
     timeout_sec: int = 600,
     prod_script: Path | None = None,
 ) -> ProductionRunResult:
@@ -59,9 +60,11 @@ def run_production_backtester(
     override to pin both sides to the same lake even if the production
     config's resolution chain differs from the lab's.
 
-    The default ``python_exe="py"`` plus ``python_extra=("-3.12",)`` matches
-    the operator's box (default ``python`` is 3.14 and missing pyarrow).
-    Tests override with the current interpreter's ``sys.executable``.
+    ``python_exe=None`` (the default) resolves to ``sys.executable`` — the
+    interpreter running this code, which is the right default on every host
+    (Linux container, Windows bare host, CI) because it inherits the same
+    site-packages and env. Operators who specifically need the Windows
+    ``py -3.12`` launcher can pass ``python_exe="py", python_extra=("-3.12",)``.
     """
     if prod_script is None:
         prod_script = (
@@ -69,8 +72,9 @@ def run_production_backtester(
             / "bowaka_v2_backtest.py"
         )
     output_dir.mkdir(parents=True, exist_ok=True)
+    exe = python_exe or sys.executable
     cmd = [
-        python_exe,
+        exe,
         *python_extra,
         str(prod_script),
         "--config", str(prod_config_path),
@@ -162,8 +166,8 @@ def run_parity(
     lake_root: Path,
     cost_stress: str = "conservative",
     run_root: Path,
-    python_exe: str = "py",
-    python_extra: Sequence[str] = ("-3.12",),
+    python_exe: str | None = None,
+    python_extra: Sequence[str] = (),
     prod_script: Path | None = None,
 ) -> Any:
     """End-to-end: run both backtesters, normalize, return a :class:`ParityReport`."""
