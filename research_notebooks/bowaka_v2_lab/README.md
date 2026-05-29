@@ -128,3 +128,25 @@ delegates to `MarketDataStore`; `market_data.shared_root` (or the
 notebooks switch between the synthetic fixture path and the lake based on the
 config. The smoke config keeps `*_source: fixture`. The lake root is **not**
 routed through `BowakaV2Paths`, so strategy isolation is unaffected.
+
+## Bayesian-optimization fix verification
+
+After the audit 2026-05-29 Phases 0-3 remediation (fail-closed study-validity
+gates, daily-adjustment threading + current-code-parity full-fold preflight,
+incumbent mapping + search-space v3, structured promotion evidence, resolved-
+config persistence + debug escalation), run the verification CLI to emit the
+operator-pasteable PASS/FAIL report:
+
+```bash
+cd research_notebooks/bowaka_v2_lab
+python -m bowaka_v2_lab.cli verify-bayesian-fix \
+    --config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml \
+    --n-trials 3
+# Prints `VERIFICATION_REPORT: <path>` and `OVERALL: PASS|FAIL`, and writes a
+# Markdown report under artifacts/verification/. Copy the report and send it to
+# the planner agent for sign-off before unblocking Phases 4-7. Add
+# `--skip-short-run` to emit only the (fast, deterministic) P0 PASS/FAIL grid
+# without the 3-trial study short-run.
+```
+
+A single FAIL anywhere blocks promotion to Phases 4-7.

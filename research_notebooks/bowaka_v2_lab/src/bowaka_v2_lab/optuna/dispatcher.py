@@ -136,6 +136,7 @@ def run_bowaka_optimization_dispatch(
     n_startup_trials: int = 25,
     strict_parallel: bool = False,
     feature_store_gib_estimate: float = 0.0,
+    callbacks: Optional[list] = None,
 ) -> optuna.Study:
     """Run ``n_trials`` against ``study`` either serially or in parallel.
 
@@ -162,7 +163,8 @@ def run_bowaka_optimization_dispatch(
 
     log = logging.getLogger("bowaka_v2_lab.optuna.dispatcher")
     if n_jobs <= 1:
-        study.optimize(objective, n_trials=n_trials, n_jobs=1)
+        study.optimize(objective, n_trials=n_trials, n_jobs=1,
+                        callbacks=list(callbacks or []))
         return study
 
     if not _is_postgres_url(storage_url):
@@ -178,7 +180,8 @@ def run_bowaka_optimization_dispatch(
             "(set strict_parallel=True to refuse instead).",
             n_jobs, storage_url,
         )
-        study.optimize(objective, n_trials=n_trials, n_jobs=1)
+        study.optimize(objective, n_trials=n_trials, n_jobs=1,
+                        callbacks=list(callbacks or []))
         return study
 
     if objective_factory_dotted is None:
@@ -204,7 +207,8 @@ def run_bowaka_optimization_dispatch(
         if strict_parallel:
             raise
         log.warning("memory budget refused parallel launch: %s; serial fallback", e)
-        study.optimize(objective, n_trials=n_trials, n_jobs=1)
+        study.optimize(objective, n_trials=n_trials, n_jobs=1,
+                        callbacks=list(callbacks or []))
         return study
 
     log.info(
