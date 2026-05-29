@@ -123,7 +123,10 @@ def probe_lake_capability(
 
 def lake_has_quotes(lake_root: Path, feed: str) -> bool:
     """True when the lake has at least one quotes partition for ``feed``."""
-    quotes = Path(lake_root) / "quotes"
+    # Hotfix 2026-05-29: resolve defensively so a None / empty upstream value
+    # cannot become Path('None') and false-positive the directory check.
+    root = resolve_lake_root(lake_root) if lake_root else resolve_lake_root(None)
+    quotes = root / "quotes"
     if not quotes.is_dir():
         return False
     try:
