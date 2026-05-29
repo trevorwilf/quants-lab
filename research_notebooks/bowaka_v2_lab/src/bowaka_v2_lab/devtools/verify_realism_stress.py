@@ -121,6 +121,98 @@ def _section13_direct() -> list[Check]:
     runbook = _LAB_ROOT / "docs" / "sip_migration_runbook.md"
     out.append(Check("13", "SIP migration runbook present",
                      "PASS" if runbook.is_file() else "FAIL"))
+    out.extend(_section13_synthetic_sip())
+    return out
+
+
+def _section13_synthetic_sip() -> list[Check]:
+    """Audit 2026-05-29 §9 Phase 7 — exercise the SIP cutover gates against the
+    committed synthetic-SIP fixture lake (real-shaped data, no SIP feed needed)."""
+    import datetime as _dt2
+    import shutil
+    import tempfile
+
+    out: list[Check] = []
+    fixture = _LAB_ROOT / "tests" / "fixtures" / "sip_synthetic_lake"
+    if not fixture.is_dir():
+        out.append(Check("13", "SIP synthetic fixture present", "FAIL"))
+        return out
+
+    from ..data.halt_feed import read_halt_events
+    from ..optuna.preflight import (
+        FoldWindow, PreflightError, check_nbbo_quote_coverage,
+        run_full_fold_preflight,
+    )
+    from ..reports.feed_divergence import compute_feed_divergence
+    from ..sim.schedule import scan_times_for_session
+
+    syms = ["AAAA", "BBBB", "CCCC", "DDDD", "EEEE"]
+    cfg = {
+        "strategy_id": "bowaka_v2",
+        "market_data": {"feed": "sip", "shared_root": str(fixture),
+                        "require_split_adjustment": True,
+                        "minute_bar_source": "alpaca", "daily_bar_source": "alpaca"},
+        "simulation": {"mode": "intended_realism", "min_quote_coverage_pct": 0.80,
+                       "quote_fallback_policy": "require_real"},
+        "universe": {"min_adv_dollars": 0, "min_price": 1.0, "max_price": 1000.0},
+        "preflight": {"min_pit_universe_per_fold": 3},
+    }
+    folds = [FoldWindow(fold_id="val_2025-08-04", kind="validation",
+                        start=_dt2.date(2025, 8, 4), end=_dt2.date(2025, 8, 22))]
+
+    try:
+        run_full_fold_preflight(
+            cfg=cfg, folds=folds, symbols=syms, lake_root=str(fixture), feed="sip",
+            dataset_hash="d" * 64, config_hash="c" * 64,
+            scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+            min_quote_coverage_pct=80.0, mode="intended_realism",
+        )
+        smoke = "PASS"
+    except Exception:  # noqa: BLE001
+        smoke = "FAIL"
+    out.append(Check("13", "SIP synthetic end-to-end smoke completes", smoke))
+
+    refuses = "FAIL"
+    with tempfile.TemporaryDirectory() as td:
+        copy = Path(td) / "no_quotes"
+        shutil.copytree(fixture, copy)
+        shutil.rmtree(copy / "quotes", ignore_errors=True)
+        try:
+            check_nbbo_quote_coverage(
+                sim_mode="intended_realism", feed="sip", lake_root=str(copy),
+                universe=syms, fold_windows=folds, min_coverage_pct=80.0,
+            )
+        except PreflightError:
+            refuses = "PASS"
+        except Exception:  # noqa: BLE001
+            refuses = "FAIL"
+    out.append(Check("13", "SIP synthetic NBBO gate refuses missing quotes", refuses))
+
+    try:
+        rep = compute_feed_divergence(
+            sip_root=fixture, iex_root=fixture, symbols=["AAAA", "BBBB"],
+            sessions=["2025-08-25", "2025-08-26"],
+        )
+        halts = read_halt_events(str(fixture), "AAAA",
+                                 _dt2.date(2025, 8, 1), _dt2.date(2025, 8, 29))
+        div_ok = rep["status"] == "ok" and rep["n_rows"] >= 2 and len(halts) >= 1
+    except Exception:  # noqa: BLE001
+        div_ok = False
+    out.append(Check("13", "SIP synthetic feed-divergence report produces data",
+                     "PASS" if div_ok else "FAIL"))
+
+    try:
+        from bowaka_common.marketdata.layout import bars_timeframe_root
+        from bowaka_common.marketdata.store import resolve_market_data_root
+        real = bars_timeframe_root(
+            resolve_market_data_root(None, create=False), "1d",
+            vendor="alpaca", feed="sip", adjustment="split_adjusted",
+        )
+        present = real.is_dir() and any(real.glob("symbol=*"))
+    except Exception:  # noqa: BLE001
+        present = False
+    out.append(Check("13", "real SIP partition present",
+                     "PASS" if present else "DEFERRED"))
     return out
 
 

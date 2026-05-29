@@ -23,8 +23,13 @@ class HaltEvent:
 
 
 def halt_events_symbol_dir(lake_root: Path | str, symbol: str, *, vendor: str = "alpaca") -> Path:
-    """``halt_events/vendor=<vendor>/symbol=<symbol>`` under the lake root."""
-    return Path(lake_root) / "halt_events" / f"vendor={vendor}" / f"symbol={symbol}"
+    """``statuses/vendor=<vendor>/symbol=<symbol>`` under the lake root.
+
+    Halt / LULD events live in the lake's per-symbol/date ``statuses`` partition
+    (``bowaka_common.marketdata.layout.statuses_symbol_dir``), NOT a separate
+    ``halt_events`` tree.
+    """
+    return Path(lake_root) / "statuses" / f"vendor={vendor}" / f"symbol={symbol}"
 
 
 def read_halt_events(
@@ -37,14 +42,15 @@ def read_halt_events(
 ) -> list[HaltEvent]:
     """Read halt events for ``symbol`` in ``[start, end]`` from the lake.
 
-    Reads every ``year=*/month=*/part.parquet`` under the symbol's halt-events
-    directory and returns the events overlapping the window. Returns ``[]`` when
-    no halt-event partition exists (the IEX-only case today).
+    Reads every ``date=*/part.parquet`` under the symbol's ``statuses``
+    directory (the lake's halt / LULD partition) and returns the events
+    overlapping the window. Returns ``[]`` when no status partition exists (the
+    IEX-only case today).
     """
     sym_dir = halt_events_symbol_dir(lake_root, symbol, vendor=vendor)
     if not sym_dir.is_dir():
         return []
-    parts = sorted(sym_dir.glob("year=*/month=*/part.parquet"))
+    parts = sorted(sym_dir.glob("date=*/part.parquet"))
     if not parts:
         return []
     start_ts = pd.Timestamp(start)

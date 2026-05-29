@@ -1,0 +1,1 @@
+{"feed": "sip", "adjustment": "split_adjusted", "lake_root": "E:\\tradingsoftware\\quants-lab\\research_notebooks\\bowaka_v2_lab\\tests\\fixtures\\sip_synthetic_lake", "assets": 5, "daily": {"symbols_written": 5}, "symbols_failed": 0, "dataset_hashes": {"lake": "sha256:synthetic_sip"}}

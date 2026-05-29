@@ -35,3 +35,39 @@ This runbook is the operator-facing procedure.
    `intended_realism`-only gates (NBBO coverage, halt-data presence) may
    surface new failures that were dormant under `current_code_parity`. Resolve
    them before promoting any parameter recommendation.
+
+## SIP cutover runbook (verified against the synthetic-SIP smoke 2026-05-29)
+
+The commands below were exercised end-to-end against
+`tests/fixtures/sip_synthetic_lake` (see
+`tests/integration/test_sip_synthetic_end_to_end_smoke.py`), so the real
+cutover is a config flip, not a debugging session.
+
+Step 1 — re-ingest with the SIP feed:
+
+    (edit) config/marketdata_backfill.yml: feed: sip
+    cd <repo root>
+    .\research_notebooks\bowaka_common\backfill_market_data.ps1
+
+Step 2 — verify SIP partition presence:
+
+    cd research_notebooks\bowaka_v2_lab
+    py -3.12 -c "from bowaka_common.marketdata.catalog import available_symbols; print(len(available_symbols(None, timeframe='1d', vendor='alpaca', feed='sip', adjustment='split_adjusted')))"
+    # expect >= 6000 once the full ingest completes; partial counts are fine for
+    # a partial ingest as long as you narrow the workstation universe to match.
+
+Step 3 — flip the workstation config:
+
+    Use the shipped `configs/bowaka_v2_actual_sip_intended_realism.yml`
+    (data.feed=sip, simulation.mode=intended_realism) in place of the IEX
+    current_code_parity config. It is consistent with the smoke fixture config
+    (same require_split_adjustment: true, quote_fallback_policy: require_real,
+    simulation.mode: intended_realism).
+
+Step 4 — run the verification CLIs:
+
+    py -3.12 -m bowaka_v2_lab.cli verify-bayesian-fix     # Section 7 stays PASS
+    py -3.12 -m bowaka_v2_lab.cli verify-realism-stress   # Section 13 'real SIP
+    # partition present' flips DEFERRED -> PASS once SIP data is on disk.
+
+Step 5 — start notebook 10 against the SIP config.
