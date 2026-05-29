@@ -1,0 +1,166 @@
+--- a/reference/source_strategy/scripts/bowaka_v2_backtest.py
++++ b/reference/source_strategy/scripts/bowaka_v2_backtest.py
+@@ -15,12 +15,31 @@
+     --output-dir /tmp/backtest_out \\
+     --cost-stress conservative \\
+     --ablation none
++
++DATA REQUIREMENTS:
++    This script reads from the bowaka_common market_data lake (same
++    layout the live scanner reads from). The lake root resolves via:
++
++      --lake-root <path>             (CLI override)
++      cfg.market_data.shared_root
++      $MARKET_DATA_ROOT              (env var)
++      <repo>/research_notebooks/market_data   (in-repo default)
++
++    For smoke testing without a lake, pass ``--synth``. Smoke-mode
++    data is deterministic synthetic and produces fictitious results;
++    a WARNING is logged to make this unmissable. The 2026-05-29
++    audit traced a 100%-win-rate "production result" to a dead-
++    ternary at the supplier selection that made the script ALWAYS
++    use the synthetic suppliers; the fix is at the call site near
++    main() and the patch artifact is at
++    docs/production_backtester_fix.patch.
+ """
+ from __future__ import annotations
+ 
+ import argparse
+ import json
+ import logging
++import os
+ import sys
+ from dataclasses import dataclass, field
+ from datetime import datetime, time, timedelta, timezone
+@@ -411,6 +430,87 @@
+     return pd.DataFrame(rows)
+ 
+ 
++def _resolve_backtest_lake_root(args, cfg) -> Path:
++    """Resolve the lake root in the same order ``bowaka_common`` does.
++
++      1. ``--lake-root <path>`` CLI override (if present).
++      2. ``cfg.market_data.shared_root`` (if the config has it).
++      3. ``$MARKET_DATA_ROOT`` env var.
++      4. In-repo default: ``<repo>/research_notebooks/market_data``.
++
++    The in-repo default is what the lab uses by default; matching it
++    lets the production backtester read the same data the lab does
++    without further configuration.
++    """
++    if getattr(args, "lake_root", None):
++        return Path(args.lake_root).resolve()
++    md = cfg.get("market_data") or {}
++    if md.get("shared_root"):
++        return Path(md["shared_root"]).resolve()
++    try:
++        # bowaka_common is on PYTHONPATH when this script runs inside the lab
++        # repo. In the LIVE production repo, bowaka_common must also be
++        # importable for the lake path to work; see the operator-facing note
++        # at the top of this script.
++        from bowaka_common.marketdata.store import resolve_market_data_root
++        return resolve_market_data_root(None, create=False)
++    except ImportError:
++        env = os.environ.get("MARKET_DATA_ROOT")
++        if env:
++            return Path(env).resolve()
++        raise RuntimeError(
++            "could not resolve market data lake root. install "
++            "bowaka_common or pass --lake-root <path>."
++        )
++
++
++def _resolve_required_adjustment(cfg) -> str:
++    """Return ``split_adjusted`` if the config requires it; else ``raw``.
++
++    Mirrors the lab's ``daily_adjustment_for_config`` resolver so the
++    production backtester reads the same adjustment partition the live
++    scanner does.
++    """
++    md = cfg.get("market_data") or {}
++    if md.get("require_split_adjustment") or md.get("require_adjusted_daily_bars"):
++        return "split_adjusted"
++    return "raw"
++
++
++def _make_lake_suppliers(*, lake_root: Path, feed: str, adjustment: str):
++    """Build the two callables ``run_backtest`` expects.
++
++    Both go through ``MarketDataStore`` so we read whatever
++    (vendor, feed, adjustment) is on disk — same path the live scanner uses.
++    """
++    from bowaka_common.marketdata.store import MarketDataStore
++    store = MarketDataStore(lake_root, vendor="alpaca")
++
++    def minute_bars(symbol: str, session_date: str) -> pd.DataFrame:
++        start = pd.Timestamp(session_date + " 09:30",
++                             tz="America/New_York").tz_convert("UTC")
++        end = pd.Timestamp(session_date + " 16:00",
++                           tz="America/New_York").tz_convert("UTC")
++        df = store.minute_bars(symbol, start, end, feed=feed)
++        # run_backtest expects ``timestamp`` to be the column name, tz-aware
++        # UTC. MarketDataStore returns that already; if the schema drifts, the
++        # integration test catches it.
++        return df
++
++    def daily_bars(symbol: str, session_date: str) -> pd.DataFrame:
++        # The strategy needs prior daily bars to compute baselines
++        # (avg_dollar_volume_20d, prior_atr_pct, ema_slope_prior). Request 30
++        # calendar days back from session_date to cover the 20-day window plus
++        # weekends/holidays.
++        end = pd.Timestamp(session_date).tz_localize("UTC") - pd.Timedelta(days=1)
++        start = end - pd.Timedelta(days=30)
++        return store.daily_bars(
++            symbol, start, end, feed=feed, adjustment=adjustment,
++        )
++
++    return minute_bars, daily_bars
++
++
+ def main(argv: list[str] | None = None) -> int:
+     parser = argparse.ArgumentParser(description="Bowaka v2 backtester")
+     parser.add_argument("--config", required=True)
+@@ -426,6 +526,12 @@
+         "--synth", action="store_true",
+         help="Use built-in synthetic bar suppliers (smoke).",
+     )
++    parser.add_argument(
++        "--lake-root", default=None,
++        help="Override the lake root. If omitted, resolves via "
++             "cfg.market_data.shared_root > $MARKET_DATA_ROOT > the in-repo "
++             "default <repo>/research_notebooks/market_data.",
++    )
+     args = parser.parse_args(argv)
+ 
+     logging.basicConfig(
+@@ -449,8 +555,28 @@
+         LOG.error("symbols file %s not found and --synth not set", symbols_file)
+         return 2
+ 
+-    minute_bars = _synth_minute_bars if args.synth else _synth_minute_bars
+-    daily_bars = _synth_daily_bars if args.synth else _synth_daily_bars
++    # 2026-05-29 fix: the original supplier-selection ternaries had both
++    # branches pointing at the synthetic helpers, so the script ALWAYS read
++    # synthetic data and reported fictitious 100%-win-rate results. The real
++    # lake suppliers go through ``bowaka_common``, mirroring the lab's data
++    # path. See docs/production_backtester_fix.md.
++    if args.synth:
++        LOG.warning(
++            "running with --synth: data is deterministic synthetic, NOT real "
++            "market data. trades / pnl reported are fictitious and must not "
++            "be cited as performance evidence."
++        )
++        minute_bars = _synth_minute_bars
++        daily_bars = _synth_daily_bars
++    else:
++        lake_root = _resolve_backtest_lake_root(args, cfg)
++        feed = str((cfg.get("data") or {}).get("feed")
++                   or (cfg.get("market_data") or {}).get("feed")
++                   or "iex")
++        adjustment = _resolve_required_adjustment(cfg)
++        minute_bars, daily_bars = _make_lake_suppliers(
++            lake_root=lake_root, feed=feed, adjustment=adjustment,
++        )
+ 
+     trades, summary = run_backtest(
+         cfg=cfg, sessions=sessions, symbols=symbols,
