@@ -73,6 +73,46 @@ def feed_divergence_report(
     }
 
 
+def compute_feed_divergence(
+    *,
+    sip_root: Any,
+    iex_root: Any,
+    symbols: Sequence[str],
+    sessions: Sequence[str],
+    timeframe: str = "1m",
+) -> dict[str, Any]:
+    """Root-path convenience wrapper over :func:`feed_divergence_report`.
+
+    Builds an IEX + a SIP :class:`MarketDataStore` from the two lake roots,
+    derives the ``[start, end]`` window from ``sessions`` (``YYYY-MM-DD``), and
+    aggregates the per-(symbol, feature) rows into a per-feature divergence map
+    (mean of the per-symbol ``max_abs_delta``). ``status`` is
+    ``SIP_DATA_UNAVAILABLE`` when the SIP root has no bars for the window.
+    """
+    from bowaka_common.marketdata import MarketDataStore
+
+    days = sorted(_dt.date.fromisoformat(str(s)[:10]) for s in sessions)
+    start, end = days[0], days[-1]
+    rep = feed_divergence_report(
+        iex_store=MarketDataStore(str(iex_root)),
+        sip_store=MarketDataStore(str(sip_root)),
+        symbols=list(symbols), start=start, end=end, timeframe=timeframe,
+    )
+    per_feature: dict[str, list[float]] = {}
+    for row in rep.get("rows", []):
+        per_feature.setdefault(str(row["feature"]), []).append(
+            abs(float(row.get("max_abs_delta", 0.0)))
+        )
+    return {
+        "status": rep["status"],
+        "n_rows": rep["n_rows"],
+        "per_feature_divergence": {
+            k: (sum(v) / len(v) if v else 0.0) for k, v in per_feature.items()
+        },
+        "rows": rep.get("rows", []),
+    }
+
+
 def write_feed_divergence_report(report: dict[str, Any], path: Path) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,4 +120,8 @@ def write_feed_divergence_report(report: dict[str, Any], path: Path) -> Path:
     return path
 
 
-__all__ = ["feed_divergence_report", "write_feed_divergence_report"]
+__all__ = [
+    "feed_divergence_report",
+    "compute_feed_divergence",
+    "write_feed_divergence_report",
+]

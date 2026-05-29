@@ -1,0 +1,1 @@
+{"run_id": "ingest_synthetic_sip", "feed": "sip", "adjustment": "split_adjusted", "symbols": ["AAAA", "BBBB", "CCCC", "DDDD", "EEEE"], "status": "complete"}

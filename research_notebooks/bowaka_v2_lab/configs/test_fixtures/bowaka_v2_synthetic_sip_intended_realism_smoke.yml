@@ -1,0 +1,154 @@
+# ------------------------------------------------------------------
+# Synthetic-SIP intended_realism SMOKE config (audit 2026-05-29 §9 Phase 7).
+#
+# NOT a production config. Points market_data.shared_root at the committed
+# synthetic-SIP fixture lake (tests/fixtures/sip_synthetic_lake) and narrows the
+# walk-forward window to the fixture's Jun-Aug 2025 span so the SIP cutover path
+# (preflight + NBBO quote gate + halt-feed reader + SIP partition layout) can be
+# exercised end-to-end against real-shaped data BEFORE the operator has SIP feed
+# access. Mirrors the shipped bowaka_v2_actual_sip_intended_realism_optuna.yml
+# (same feed=sip, require_split_adjustment, simulation.mode=intended_realism).
+# ------------------------------------------------------------------
+artifacts:
+  write_jsonl: true
+  write_parquet: true
+backtest:
+  cost_stress: conservative
+  start_date: '2025-06-02'
+  end_date: '2025-08-29'
+  entry_delay_minutes: 0
+execution:
+  limit_offset_bps: 50
+  max_quote_age_seconds: 15
+  max_spread_bps: 100
+  order_type: market
+exits:
+  max_hold_days: 3
+  signal_fade:
+    enabled: true
+    eval_time: '15:45'
+    exit_on:
+    - hard
+    - critical
+    initial_mode: telemetry_then_active_after_validation
+    marketable_limit_offset_pct: 0.005
+    order_style: marketable_limit
+    score_thresholds:
+      critical: 0.67
+      hard: 0.5
+      soft: 0.34
+    telemetry_time: '16:05'
+  stop_pct: 0.025
+  target_pct: 0.15
+  time_stop:
+    enabled: true
+    exit_time: '15:45'
+market_data:
+  allow_non_sip_for_research_only: false
+  assume_naive_timezone: false
+  daily_bar_source: alpaca
+  feed: sip
+  max_bar_age_seconds: 90
+  max_quote_age_seconds: 15
+  minute_bar_source: alpaca
+  quote_source: alpaca
+  require_adjusted_daily_bars: true
+  require_split_adjustment: true
+  shared_root: tests/fixtures/sip_synthetic_lake
+optuna:
+  cached_suppliers: true
+  cost_stress: conservative
+  n_jobs: 1
+  n_startup_trials: 1
+  n_trials: 3
+  objective_artifact_mode: objective_minimal
+  search_space_overrides: {}
+  storage: sqlite:///research_notebooks/bowaka_v2_lab/artifacts/optuna_sip_smoke.db
+  study_name_prefix: bowaka_v2_synthetic_sip_smoke
+  walkforward:
+    final_holdout_months: 1
+    train_months: 1
+    val_months: 1
+paths:
+  artifact_root: research_notebooks/bowaka_v2_lab/artifacts
+  data_root: research_notebooks/bowaka_v2_lab/data
+  lab_root: research_notebooks/bowaka_v2_lab
+preflight:
+  min_pit_universe_per_fold: 3
+risk:
+  adv_tier_caps:
+  - max_adv_dollars: 250000
+    reject_if_below: true
+  - max_adv_dollars: null
+    max_position_as_adv_frac: 0.015
+  daily_loss_pct: 0.03
+  max_gross_exposure_pct: 0.8
+  max_lots_per_symbol: 3
+  max_stopouts_per_day: 2
+  max_total_entries_per_day: 10
+  stop_trading_after_consecutive_stopouts: 2
+  strategy_slice_loss_pct: 0.025
+run:
+  kind: optuna
+  seed: 1337
+scanner:
+  debug_gate_dump: false
+  enabled: true
+  full_universe_refresh_interval_minutes: 5
+  in_play_refresh_interval_seconds: 60
+  max_candidates_per_scan: 25
+  max_entries_per_scan: 3
+  min_signal_strength: 0.0
+  require_fresh_intraday_bar: true
+  require_prior_daily_baseline: true
+  same_symbol_entries_per_day: 1
+  scan_interval_seconds: 60
+  signal_expiry_seconds: 600
+  symbol_cooldown_minutes: 390
+session:
+  calendar: XNYS
+  end: '15:55'
+  loop_interval_seconds: 5
+  scanner_end: '15:30'
+  scanner_start: 09:45
+  start: 09:30
+  timezone: America/New_York
+signals:
+  allow_unknown_instrument_class_for_research: false
+  avg_dollar_volume_max: null
+  avg_dollar_volume_min: 250000
+  close_location_so_far_min: 0.6
+  current_return_pct_max: 0.5
+  ema_distance_min: -0.05
+  ema_slope_min: -0.05
+  gap_pct_max: 0.25
+  price_max: 1000.0
+  price_min: 1.0
+  prior_atr_pct_min: 0.06
+  projected_full_day_rvol_max: 8.0
+  projected_full_day_rvol_min: 0.5
+  range_expansion_so_far_max: 2.5
+  range_expansion_so_far_min: 0.5
+  rvol_so_far_max: 8.0
+  rvol_so_far_min: 0.7
+simulation:
+  mode: intended_realism
+  min_quote_coverage_pct: 0.80
+  quote_fallback_policy: require_real
+sizing:
+  bankroll_fixed_dollars: 90000
+  equal_slice_bankroll_fraction: 0.8
+  max_concurrent_positions: 18
+  max_per_trade_dollars: null
+  min_order_notional: 500
+  sizing_mode: equal_slice
+  target_risk_dollars: 200
+strategy_id: bowaka_v2
+strategy_version: 0.1.0
+universe:
+  asset_classes:
+  - operating_equity
+  exclude_pattern_class: true
+  max_price: 1000.0
+  min_adv_dollars: 250000
+  min_price: 1.0
