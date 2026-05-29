@@ -128,6 +128,103 @@ STRESS_SLIPPAGE_BPS_OFFSETS: dict[str, int] = {
 #: ``1.5/2.0/3.0`` are the audit's stress points.
 STRESS_SPREAD_MULTIPLIERS: tuple[float, ...] = (1.0, 1.5, 2.0, 3.0)
 
+# --------------------------------------------------------------------------
+# Phase 4b (audit 2026-05-29 §8.5) — timing-adjacent stress dimensions. All
+# are OPT-IN behind explicit flags so the unstressed fill is byte-identical.
+# --------------------------------------------------------------------------
+#: No-fill policy for bars too tight to support the marketable-limit offset.
+#: A minimum ratio of bar range to (offset * mid). base=0.0 never blocks.
+STRESS_NO_FILL_BAR_RANGE_RATIO_MIN: dict[str, float] = {
+    "base":         0.0,
+    "conservative": 0.75,
+    "severe":       1.5,
+}
+
+#: Adverse-selection tiers — ``(adverse_move_in_atr, extra_bps)``. The highest
+#: tier whose breakpoint the (signed, positive=adverse) move exceeds is applied.
+STRESS_ADVERSE_SELECTION_TIERS: tuple[tuple[float, float], ...] = (
+    (0.5, 10.0),
+    (1.0, 25.0),
+    (2.0, 75.0),
+)
+
+
+def late_day_multiplier(minutes_to_close: int, cost_stress: str) -> float:
+    """Minute-of-day scaling for spread + slippage in the last 30 minutes.
+
+    1.0 until 30 minutes before close, then a linear ramp to the per-stress
+    peak at the close. ``base`` is always 1.0 (no late-day stress).
+    """
+    if str(cost_stress) == "base":
+        return 1.0
+    if minutes_to_close > 30:
+        return 1.0
+    peak = {"conservative": 1.5, "severe": 2.5}.get(str(cost_stress), 1.0)
+    return 1.0 + (peak - 1.0) * (30 - max(0, int(minutes_to_close))) / 30.0
+
+
+def _scan_bar(minute_bars: Optional[pd.DataFrame], scan_ts: Any) -> Optional[dict]:
+    """First forward bar at/after ``scan_ts`` as an ``{o,h,l,c}`` dict (or None)."""
+    if minute_bars is None or len(minute_bars) == 0 or "timestamp" not in minute_bars.columns:
+        return None
+    df = minute_bars.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    cut = pd.Timestamp(scan_ts)
+    cut = cut.tz_localize("UTC") if cut.tzinfo is None else cut.tz_convert("UTC")
+    fwd = df[df["timestamp"] >= cut].sort_values("timestamp")
+    if fwd.empty:
+        return None
+    row = fwd.iloc[0]
+    return {
+        "open": float(row.get("open", row.get("close", 0.0)) or 0.0),
+        "high": float(row.get("high", 0.0) or 0.0),
+        "low": float(row.get("low", 0.0) or 0.0),
+        "close": float(row.get("close", 0.0) or 0.0),
+    }
+
+
+def _adverse_selection_bps(adverse_move_atr: float) -> float:
+    bps = 0.0
+    for breakpoint, tier_bps in STRESS_ADVERSE_SELECTION_TIERS:
+        if adverse_move_atr >= breakpoint:
+            bps = tier_bps
+    return float(bps)
+
+
+def _apply_adverse_selection(
+    fill: FillResult, *, side: str, quote: QuoteSnapshot, bar_close: float,
+    entry_atr: float, commission_per_share: float, regulatory_fee_bps: float,
+) -> FillResult:
+    """Add an adverse-selection slippage penalty when the entry bar's close
+    moves against the trade direction by >= a tier's ATR breakpoint."""
+    if not fill.filled or entry_atr is None or entry_atr <= 0:
+        return fill
+    side_l = side.lower()
+    if side_l == "buy":
+        adverse_move = (fill.avg_fill_price - bar_close) / entry_atr
+    else:
+        adverse_move = (bar_close - fill.avg_fill_price) / entry_atr
+    bps = _adverse_selection_bps(adverse_move)
+    if bps <= 0:
+        return fill
+    ref = float(quote.mid) if quote.mid else float(quote.ask)
+    sign = 1.0 if side_l == "buy" else -1.0
+    new_price = round(fill.avg_fill_price + sign * (bps / 10_000.0) * ref, 4)
+    new_notional = round(fill.filled_qty * new_price, 4)
+    commission, regulatory = _fees(
+        new_notional, commission_per_share=commission_per_share,
+        qty=fill.filled_qty, regulatory_bps=regulatory_fee_bps,
+    )
+    slip_vs_mid = round(_bps_signed(float(quote.mid or quote.ask), new_price, side=side_l), 4)
+    slip_vs_ask = round(_bps_signed(float(quote.ask), new_price, side=side_l), 4)
+    return replace(
+        fill, avg_fill_price=new_price, notional=new_notional,
+        commission=commission, regulatory_fees=regulatory,
+        slippage_bps_total=round(abs(slip_vs_mid), 4),
+        slippage_vs_mid_bps=slip_vs_mid, slippage_vs_ask_bps=slip_vs_ask,
+        adverse_selection_bps_added=float(bps),
+    )
+
 
 def stress_slippage_multiplier(cost_stress: str) -> float:
     """Slippage multiplier for ``cost_stress`` (``base`` / ``conservative`` / ``severe``)."""
@@ -212,16 +309,22 @@ def _apply_slippage_offset(
 def _finalize_stressed_fill(
     fill: FillResult, *, side: str, quote: QuoteSnapshot, offset_bps: int,
     spread_multiplier: float, commission_per_share: float, regulatory_fee_bps: float,
+    adverse_selection_active: bool = False, entry_atr: Optional[float] = None,
+    bar_close: Optional[float] = None,
 ) -> FillResult:
-    """Apply the post-fill slippage offset and record the spread multiplier.
-
-    Both are no-ops at their defaults (``offset_bps=0``, ``spread_multiplier=1.0``)
-    so the unstressed fill is byte-identical.
+    """Apply the post-fill slippage offset, adverse-selection penalty, and
+    record the spread multiplier. All are no-ops at their defaults so the
+    unstressed fill is byte-identical.
     """
     fill = _apply_slippage_offset(
         fill, side=side, quote=quote, offset_bps=offset_bps,
         commission_per_share=commission_per_share, regulatory_fee_bps=regulatory_fee_bps,
     )
+    if adverse_selection_active and entry_atr and bar_close is not None:
+        fill = _apply_adverse_selection(
+            fill, side=side, quote=quote, bar_close=bar_close, entry_atr=entry_atr,
+            commission_per_share=commission_per_share, regulatory_fee_bps=regulatory_fee_bps,
+        )
     if spread_multiplier != 1.0:
         fill = replace(fill, spread_multiplier=spread_multiplier)
     return fill
@@ -262,6 +365,7 @@ class FillResult:
     #: Audit 2026-05-29 §8.5 stress attribution (defaults are no-op).
     slippage_bps_offset: int = 0
     spread_multiplier: float = 1.0
+    adverse_selection_bps_added: float = 0.0
 
     @property
     def total_fees(self) -> float:
@@ -658,6 +762,12 @@ def simulate_marketable_limit_fill(
     slippage_bps_offset: int = 0,
     spread_multiplier: float = 1.0,
     adv_dollar: Optional[float] = None,
+    # Phase 4b timing-adjacent stress dimensions (all opt-in / no-op default).
+    no_fill_bar_range_active: bool = False,
+    adverse_selection_active: bool = False,
+    entry_atr: Optional[float] = None,
+    late_day_active: bool = False,
+    minutes_to_close: Optional[int] = None,
 ) -> FillResult:
     """Simulate a **marketable_limit** parent-order fill — tiered model.
 
@@ -680,6 +790,11 @@ def simulate_marketable_limit_fill(
     if requested_qty <= 0:
         return _no_fill("zero_qty", order_style="marketable_limit")
 
+    # Phase 4b — late-day liquidity stress scales BOTH spread and slippage.
+    if late_day_active and minutes_to_close is not None:
+        _late = late_day_multiplier(int(minutes_to_close), cost_stress)
+        spread_multiplier = spread_multiplier * _late
+        slippage_bps_offset = int(round(slippage_bps_offset * _late))
     quote = _apply_spread_multiplier(quote, spread_multiplier)
     side_l = side.lower()
     offset = float(marketable_limit_slippage_pct)
@@ -687,6 +802,25 @@ def simulate_marketable_limit_fill(
         limit_price = round(quote.ask * (1.0 + offset), 4)
     else:
         limit_price = round(quote.bid * (1.0 - offset), 4)
+
+    # Phase 4b — no-fill when the bar's range cannot plausibly support the
+    # marketable-limit offset. base ratio is 0.0 -> never blocks.
+    if no_fill_bar_range_active:
+        _ratio = STRESS_NO_FILL_BAR_RANGE_RATIO_MIN.get(str(cost_stress), 0.0)
+        if _ratio > 0.0:
+            _bar = _scan_bar(minute_bars, scan_ts)
+            if _bar is not None:
+                _mid = float(quote.mid) if quote.mid else float(quote.ask)
+                if (_bar["high"] - _bar["low"]) < _ratio * offset * _mid:
+                    return _no_fill(
+                        "STRESS_BAR_RANGE_TOO_TIGHT", order_style="marketable_limit",
+                    )
+
+    # Phase 4b — adverse-selection reads the entry bar's close (if active).
+    _adverse_close: Optional[float] = None
+    if adverse_selection_active:
+        _ab = _scan_bar(minute_bars, scan_ts)
+        _adverse_close = _ab["close"] if _ab is not None else None
 
     tier = detect_execution_tier(
         quote=quote, minute_bars=minute_bars,
@@ -713,6 +847,8 @@ def simulate_marketable_limit_fill(
             spread_multiplier=spread_multiplier,
             commission_per_share=commission_per_share,
             regulatory_fee_bps=regulatory_fee_bps,
+            adverse_selection_active=adverse_selection_active,
+            entry_atr=entry_atr, bar_close=_adverse_close,
         )
 
     # Sub-minute timeout (T1+): the limit-walked path must not run past the
@@ -837,6 +973,8 @@ def simulate_marketable_limit_fill(
         spread_multiplier=spread_multiplier,
         commission_per_share=commission_per_share,
         regulatory_fee_bps=regulatory_fee_bps,
+        adverse_selection_active=adverse_selection_active,
+        entry_atr=entry_atr, bar_close=_adverse_close,
     )
 
 

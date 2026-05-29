@@ -237,6 +237,47 @@ def passes_stress_matrix_floor(
     return True, "ok"
 
 
+#: Phase 4b envelope dimensions (mirror of stress_matrix.ENVELOPE_DIMENSIONS;
+#: duplicated here to avoid importing stress_matrix into the gate).
+_ENVELOPE_DIMENSIONS: tuple[str, ...] = (
+    "conservative_slippage",
+    "conservative_spread",
+    "conservative_partial_fill",
+    "no_fill_policy",
+    "adverse_selection",
+    "late_day_liquidity",
+)
+
+
+def passes_stress_envelope(
+    stress_results: Sequence[Any],
+    *,
+    min_score_per_dim: float = 0.0,
+) -> tuple[bool, list[str]]:
+    """The finalist must score positive at the conservative version of EACH
+    stress dimension separately (audit 2026-05-29 §8.5 / Phase 4b).
+
+    Backward-compatible: when the results carry no per-dimension labels (the
+    Phase-1 conservative-floor-only shape), this falls back to
+    :func:`passes_stress_matrix_floor`. ``stress_results`` is duck-typed; each
+    item exposes ``.point.label`` and ``.score``.
+    """
+    labeled = {
+        getattr(r.point, "label", ""): r
+        for r in stress_results if getattr(r.point, "label", "")
+    }
+    if not any(d in labeled for d in _ENVELOPE_DIMENSIONS):
+        ok, _reason = passes_stress_matrix_floor(
+            stress_results, conservative_floor_score_min=min_score_per_dim,
+        )
+        return ok, ([] if ok else ["conservative_floor"])
+    failed = [
+        d for d in _ENVELOPE_DIMENSIONS
+        if (labeled.get(d) is None or labeled[d].score < min_score_per_dim)
+    ]
+    return (not failed, failed)
+
+
 def evaluate_promotion_evidence(
     *,
     study_valid: bool,
@@ -299,11 +340,13 @@ def evaluate_promotion_evidence(
     # stress matrix is supplied and the candidate is otherwise paper-eligible,
     # it must hold the conservative floor; otherwise paper/live are refused.
     if stress_results is not None and promotable_to_paper:
-        floor_ok, _floor_reason = passes_stress_matrix_floor(stress_results)
-        if not floor_ok:
+        env_ok, failed_dims = passes_stress_envelope(stress_results)
+        if not env_ok:
             promotable_to_paper = False
             promotable_to_live = False
             caps.append("STRESS_MATRIX_FLOOR_FAILED")
+            for _d in failed_dims:
+                caps.append(f"stress_dim:{_d}")
 
     supported = "research_only"
     if parameter_recommendation_allowed:
@@ -340,4 +383,5 @@ __all__ = [
     "PromotionEvidence",
     "evaluate_promotion_evidence",
     "passes_stress_matrix_floor",
+    "passes_stress_envelope",
 ]

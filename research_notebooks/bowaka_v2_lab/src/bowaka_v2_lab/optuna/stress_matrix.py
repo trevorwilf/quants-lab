@@ -41,6 +41,12 @@ class StressPoint:
     slippage_bps_offset: int
     spread_multiplier: float
     cost_stress: str
+    # Phase 4b timing-adjacent flags (cost_stress drives their severity).
+    no_fill_active: bool = False
+    adverse_active: bool = False
+    late_day_active: bool = False
+    #: Optional dimension label for the recommended-envelope lookup.
+    label: str = ""
 
     def as_overrides(self) -> dict[str, Any]:
         """Config overrides that materialise this stress point in the sim."""
@@ -52,6 +58,9 @@ class StressPoint:
             # cost_stress="base" every bucket caps at 1.0 so the base point is
             # still byte-identical to the unstressed run.
             "backtest.use_adv_bucket_caps": True,
+            "backtest.no_fill_bar_range_active": bool(self.no_fill_active),
+            "backtest.adverse_selection_active": bool(self.adverse_active),
+            "backtest.late_day_active": bool(self.late_day_active),
         }
 
     @property
@@ -60,7 +69,38 @@ class StressPoint:
             self.slippage_bps_offset == 0
             and self.spread_multiplier == 1.0
             and self.cost_stress == "base"
+            and not self.no_fill_active
+            and not self.adverse_active
+            and not self.late_day_active
         )
+
+
+#: Audit 2026-05-29 §8.5 / Phase 4b — the targeted ~12 points that exercise each
+#: stress dimension once at its conservative tier (one axis at a time, NOT the
+#: full Cartesian product). The envelope gate keys on these labels.
+RECOMMENDED_STRESS_POINTS: tuple[StressPoint, ...] = (
+    StressPoint(0, 1.0, "base", label="base"),
+    StressPoint(25, 1.0, "base", label="conservative_slippage"),
+    StressPoint(50, 1.0, "base", label="severe_slippage"),
+    StressPoint(0, 2.0, "base", label="conservative_spread"),
+    StressPoint(0, 3.0, "base", label="severe_spread"),
+    StressPoint(0, 1.0, "conservative", label="conservative_partial_fill"),
+    StressPoint(0, 1.0, "severe", label="severe_partial_fill"),
+    StressPoint(0, 1.0, "conservative", no_fill_active=True, label="no_fill_policy"),
+    StressPoint(0, 1.0, "conservative", adverse_active=True, label="adverse_selection"),
+    StressPoint(0, 1.0, "conservative", late_day_active=True, label="late_day_liquidity"),
+    StressPoint(50, 2.0, "conservative", label="conservative_floor"),
+)
+
+#: Dimensions the paper-candidate envelope gate requires positive.
+ENVELOPE_DIMENSIONS: tuple[str, ...] = (
+    "conservative_slippage",
+    "conservative_spread",
+    "conservative_partial_fill",
+    "no_fill_policy",
+    "adverse_selection",
+    "late_day_liquidity",
+)
 
 
 @dataclass(frozen=True)
@@ -143,6 +183,29 @@ def replay_stress_matrix(
     return results
 
 
+def replay_points(
+    *,
+    best_params: Mapping[str, Any],
+    score_with_overrides: Callable[[Mapping[str, Any], Mapping[str, Any]], tuple[float, Sequence[Any]]],
+    points: Sequence[StressPoint] = RECOMMENDED_STRESS_POINTS,
+) -> list[StressResult]:
+    """Replay a specific list of (labelled) stress points — the recommended
+    envelope rather than the full Cartesian matrix."""
+    results: list[StressResult] = []
+    for point in points:
+        _objective, folds = score_with_overrides(dict(best_params), point.as_overrides())
+        score, n_trades, fill_rate = _summarise(folds)
+        results.append(StressResult(
+            point=point, fold_metrics=_fold_metrics(folds),
+            score=score, n_trades_total=n_trades, fill_rate_total=fill_rate,
+        ))
+    return results
+
+
+def result_for_label(results: Sequence[StressResult], label: str) -> StressResult | None:
+    return next((r for r in results if getattr(r.point, "label", "") == label), None)
+
+
 def conservative_floor_result(results: Sequence[StressResult]) -> StressResult | None:
     s, m, c = CONSERVATIVE_FLOOR
     return next((r for r in results if r.matches(s, m, c)), None)
@@ -193,10 +256,14 @@ __all__ = [
     "DEFAULT_SPREAD_MULTIPLIERS",
     "DEFAULT_COST_STRESS_LEVELS",
     "CONSERVATIVE_FLOOR",
+    "RECOMMENDED_STRESS_POINTS",
+    "ENVELOPE_DIMENSIONS",
     "StressPoint",
     "StressResult",
     "iter_stress_points",
     "replay_stress_matrix",
+    "replay_points",
+    "result_for_label",
     "conservative_floor_result",
     "build_stress_matrix_payload",
     "write_stress_matrix_artifact",

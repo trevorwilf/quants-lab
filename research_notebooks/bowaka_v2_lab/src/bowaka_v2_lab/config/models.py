@@ -366,6 +366,10 @@ class BacktestConfig(_StrictBase):
     slippage_bps_offset: int = 0
     spread_multiplier: float = 1.0
     use_adv_bucket_caps: bool = False
+    # Phase 4b timing-adjacent dimensions (no-ops at defaults).
+    no_fill_bar_range_active: bool = False
+    adverse_selection_active: bool = False
+    late_day_active: bool = False
 
 
 class ArtifactsConfig(_StrictBase):
