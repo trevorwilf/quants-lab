@@ -220,6 +220,9 @@ class StrategyConsumer:
         slippage_bps_offset = int(_backtest_cfg.get("slippage_bps_offset", 0))
         spread_multiplier = float(_backtest_cfg.get("spread_multiplier", 1.0))
         use_adv_bucket_caps = bool(_backtest_cfg.get("use_adv_bucket_caps", False))
+        no_fill_bar_range_active = bool(_backtest_cfg.get("no_fill_bar_range_active", False))
+        adverse_selection_active = bool(_backtest_cfg.get("adverse_selection_active", False))
+        late_day_active = bool(_backtest_cfg.get("late_day_active", False))
 
         # Reject low signal strength early.
         min_signal_strength = float(
@@ -546,6 +549,22 @@ class StrategyConsumer:
         adv_dollar_for_caps = (
             candidate_adv if (use_adv_bucket_caps and candidate_adv > 0) else None
         )
+        # Phase 4b — compute minutes-to-close + entry ATR only when a timing
+        # stress dimension is active (all default off -> no-op / parity).
+        minutes_to_close: Optional[int] = None
+        entry_atr: Optional[float] = None
+        if late_day_active or adverse_selection_active:
+            try:
+                import pandas as _pd
+                _ts = _pd.Timestamp(ts_pts)
+                _ts = _ts.tz_localize("UTC") if _ts.tzinfo is None else _ts.tz_convert("UTC")
+                _et = _ts.tz_convert("America/New_York")
+                _close = _et.normalize() + _pd.Timedelta(hours=16)
+                minutes_to_close = max(0, int((_close - _et).total_seconds() // 60))
+            except Exception:  # noqa: BLE001 — best-effort; None disables late-day
+                minutes_to_close = None
+            _atr = candidate_event.get("atr", candidate_event.get("entry_atr"))
+            entry_atr = float(_atr) if _atr not in (None, "") else None
         if plan.order_style == "market":
             fill: FillResult = simulate_market_fill(
                 side="buy", requested_qty=qty, quote=quote,
@@ -586,6 +605,11 @@ class StrategyConsumer:
                 slippage_bps_offset=slippage_bps_offset,
                 spread_multiplier=spread_multiplier,
                 adv_dollar=adv_dollar_for_caps,
+                no_fill_bar_range_active=no_fill_bar_range_active,
+                adverse_selection_active=adverse_selection_active,
+                entry_atr=entry_atr,
+                late_day_active=late_day_active,
+                minutes_to_close=minutes_to_close,
             )
 
         # Record the fill outcome (filled or not) for the execution-quality

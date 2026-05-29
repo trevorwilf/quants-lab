@@ -234,6 +234,12 @@ class PenaltyWeights:
     #: quality terms).
     min_trade_count: int = 10
 
+    #: Audit 2026-05-29 §8.5 / Phase 4b — timing-adjacent stress penalties. Both
+    #: default to 0.0 so the unstressed objective is byte-identical; the
+    #: stress-matrix / paper-candidate path raises them to activate the penalty.
+    gap_through_stop: float = 0.0          # multiplier on gap_through_stop_penalty
+    same_minute_ambiguity: float = 0.0     # multiplier on same_minute_ambiguity_penalty
+
 
 DEFAULT_PENALTY_WEIGHTS = PenaltyWeights()
 
@@ -270,6 +276,12 @@ class FoldResult:
     #: rejected by the valid-trial filter and flags the study invalid
     #: (``DEGRADED_FOLDS_PRESENT``) — a degraded fold is not a valid datapoint.
     fold_status: str = "ok"
+    #: Audit 2026-05-29 §8.5 / Phase 4b — gap-through-stop counters (a bar that
+    #: opens past the stop fills at the open, taking the gap loss). Default 0 so
+    #: a fold without gap-through events (or built before Phase 2) is penalty-free.
+    n_gap_through_events: int = 0
+    gap_through_loss_dollars: float = 0.0
+    expected_gap_through_loss_dollars: float = 0.0
     #: Optional raw metric bag (kept for fold-by-fold reporting).
     metrics: dict[str, Any] = field(default_factory=dict)
 
@@ -409,6 +421,10 @@ def fold_result_from_backtest_result(
         quote_coverage=float(quote_cov_pct or 0.0) / 100.0,
         fill_rate=float(fill_rate if fill_rate is not None else 1.0),
         frac_trades_ge_min_profit=frac_ge_min,
+        n_gap_through_events=int(summary.get("n_gap_through_events", 0) or 0),
+        gap_through_loss_dollars=float(summary.get("gap_through_loss_dollars", 0.0) or 0.0),
+        expected_gap_through_loss_dollars=float(
+            summary.get("expected_gap_through_loss_dollars", 0.0) or 0.0),
         metrics={
             "net_return_pct": float(net_return or 0.0),
             "mtm_max_drawdown_pct": dd,
@@ -417,6 +433,7 @@ def fold_result_from_backtest_result(
             "fill_rate": float(fill_rate if fill_rate is not None else 1.0),
             "historical_quote_coverage_pct": float(quote_cov_pct or 0.0),
             "missing_quote_count": int(missing_quote or 0),
+            "n_gap_through_events": int(summary.get("n_gap_through_events", 0) or 0),
             # Per-pick quality (operator goal: each pick >= 0.5%, ideally 4%).
             "frac_trades_ge_min_profit": frac_ge_min,
             "frac_trades_ge_stretch_profit": float(
@@ -480,6 +497,10 @@ def fold_result_from_report(
         quote_coverage=float(quote_cov_pct or 0.0) / 100.0,
         fill_rate=float(fill_rate if fill_rate is not None else 1.0),
         frac_trades_ge_min_profit=frac_ge_min,
+        n_gap_through_events=int(summary.get("n_gap_through_events", 0) or 0),
+        gap_through_loss_dollars=float(summary.get("gap_through_loss_dollars", 0.0) or 0.0),
+        expected_gap_through_loss_dollars=float(
+            summary.get("expected_gap_through_loss_dollars", 0.0) or 0.0),
         metrics={
             "net_return_pct": float(net_return or 0.0),
             "mtm_max_drawdown_pct": dd,
@@ -509,6 +530,52 @@ def fold_result_from_report(
 
 
 # --------------------------------------------------------------------------
+# Audit 2026-05-29 §8.5 / Phase 4b — timing-adjacent objective penalties.
+# --------------------------------------------------------------------------
+@dataclass(frozen=True)
+class GapThroughStopMetrics:
+    n_gap_through_events: int
+    gap_through_loss_dollars_total: float
+    expected_gap_through_loss_dollars: float   # n_events * mean planned stop-loss
+
+
+def gap_through_stop_penalty(
+    metrics: GapThroughStopMetrics,
+    *,
+    max_penalty: float = 0.5,
+    expected_loss_scale: float = 1000.0,    # $1000 of excess loss = full penalty
+) -> float:
+    """Penalty proportional to the dollar loss in EXCESS of the stop-as-planned.
+
+    ``max_penalty`` (default 0.5) caps the penalty so a few gap-through events
+    do not dominate the objective.
+    """
+    excess = max(
+        0.0,
+        float(metrics.gap_through_loss_dollars_total)
+        - float(metrics.expected_gap_through_loss_dollars),
+    )
+    return float(min(max_penalty, excess / expected_loss_scale))
+
+
+@dataclass(frozen=True)
+class SameMinuteAmbiguityMetrics:
+    n_ambiguous_bars: int
+    n_resolved_as_stop: int       # conservative tie-break count
+
+
+def same_minute_ambiguity_penalty(
+    metrics: SameMinuteAmbiguityMetrics,
+    *,
+    max_penalty: float = 0.2,
+    per_event: float = 0.005,
+) -> float:
+    """Penalty proportional to the count of ambiguous (stop AND target in one
+    bar) bars. Caps at ``max_penalty``; per-event default 0.005."""
+    return float(min(max_penalty, per_event * max(0, int(metrics.n_ambiguous_bars))))
+
+
+# --------------------------------------------------------------------------
 # scoring
 # --------------------------------------------------------------------------
 def fold_penalties(
@@ -530,7 +597,7 @@ def fold_penalties(
     # penalty-free. No double-penalty for 0-trade folds — they default to 1.0.
     frac_ge_min = float(getattr(fold, "frac_trades_ge_min_profit", 1.0))
     pick_quality_shortfall = max(0.0, 1.0 - max(0.0, min(1.0, frac_ge_min)))
-    return {
+    out = {
         "drawdown": weights.drawdown * max(0.0, fold.max_drawdown),
         "cvar": weights.cvar * max(0.0, fold.worst_day_loss),
         "turnover": weights.turnover * max(0.0, fold.turnover),
@@ -541,6 +608,28 @@ def fold_penalties(
         "fill_rate": weights.fill_rate * fill_shortfall,
         "pick_quality": weights.pick_quality * pick_quality_shortfall,
     }
+    # Audit 2026-05-29 §8.5 / Phase 4b — the gap-through-stop and same-minute
+    # ambiguity terms are added ONLY when their weight is enabled (>0), so the
+    # default penalty breakdown (and the objective) is byte-identical to pre-
+    # Phase-2 for the unstressed weights.
+    if weights.gap_through_stop > 0:
+        out["gap_through_stop"] = weights.gap_through_stop * gap_through_stop_penalty(
+            GapThroughStopMetrics(
+                n_gap_through_events=int(getattr(fold, "n_gap_through_events", 0)),
+                gap_through_loss_dollars_total=float(
+                    getattr(fold, "gap_through_loss_dollars", 0.0)),
+                expected_gap_through_loss_dollars=float(
+                    getattr(fold, "expected_gap_through_loss_dollars", 0.0)),
+            )
+        )
+    if weights.same_minute_ambiguity > 0:
+        out["same_minute_ambiguity"] = weights.same_minute_ambiguity * same_minute_ambiguity_penalty(
+            SameMinuteAmbiguityMetrics(
+                n_ambiguous_bars=int(getattr(fold, "ambiguous_bar_count", 0)),
+                n_resolved_as_stop=int(getattr(fold, "ambiguous_bar_count", 0)),
+            )
+        )
+    return out
 
 
 def fold_score(
@@ -634,4 +723,8 @@ __all__ = [
     "fold_penalties",
     "fold_score",
     "compute_objective",
+    "GapThroughStopMetrics",
+    "gap_through_stop_penalty",
+    "SameMinuteAmbiguityMetrics",
+    "same_minute_ambiguity_penalty",
 ]

@@ -1633,6 +1633,18 @@ def run_backtest(
         6,
     )
 
+    # Audit 2026-05-29 §8.5 / Phase 4b — gap-through-stop counters. A bar that
+    # opens past the stop fills at the OPEN (reason "gap_stop"), taking the gap
+    # loss. Surface the event count + realized loss on losing gap-throughs so the
+    # objective's gap_through_stop penalty (default-off weight) can read them.
+    _gap_trades = [t for t in all_trades if t.get("exit_reason") == "gap_stop"]
+    summary["n_gap_through_events"] = len(_gap_trades)
+    summary["gap_through_loss_dollars"] = round(
+        sum(-float(t.get("pnl", 0.0) or 0.0)
+            for t in _gap_trades if float(t.get("pnl", 0.0) or 0.0) < 0.0),
+        6,
+    )
+
     # Realism remediation 2 Phase 6 (audit P0-007) — protection lifecycle
     # metrics. Surfaced under ``summary['protection']`` so the run-report and
     # the Phase-8 optuna objective penalty can read them without traversing
