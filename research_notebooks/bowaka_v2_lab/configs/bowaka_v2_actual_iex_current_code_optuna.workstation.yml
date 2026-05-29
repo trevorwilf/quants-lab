@@ -1,20 +1,33 @@
 # ------------------------------------------------------------------
 # WORKSTATION PROFILE (speedup report v2 §4 P2 / §5.4 / Phase 2 task 3).
 #
-# 192 GiB RAM, 18 cores; reserve 62 GiB + 2 cores for the OS. PostgreSQL
-# is locked to 8 threads — start here; 10/12/16-worker overlays are
-# benchmark-only until a workstation benchmark proves wall-clock
-# improvement and zero correctness drift vs the 8-worker baseline.
+# IMPORTANT — the memory budget is sized against the CONTAINER, not the host.
+# The host has 192 GiB / 28 cores, but Notebook 10 / studies run inside the
+# ql-jupyter container, which WSL2 caps at ~157 GiB (.wslconfig memory=160GB).
+# MemoryBudget.from_system() reads the CONTAINER total. So the effective
+# worker budget is:
+#     157.2 - 62 (reserve) - 16 (emergency) - 8 (postgres) = 71.2 GiB
+# At worker_private_gib_estimate=6.0 GiB that fits floor(71.2/6) = 11 workers.
 #
-# Speedup report v2 §7.3 / Phase 2.5 (2026-05-27): the worker-count
-# benchmark scripts (scripts/benchmark_worker_count_matrix.py +
-# check_worker_count_parity.py + select_worker_count_winner.py) ship in
-# this phase but the live benchmark is operator-driven — it needs the
-# Optuna PostgreSQL container up + several hours of wall time. Until
-# the operator runs it and writes
-# artifacts/benchmarks/worker_count_winner.txt, this config STAYS at
-# n_jobs=8 (the documented safe baseline). The benchmark artifact +
-# the new selection rules drive any future override.
+# 2026-05-28: n_jobs set to 10 (operator decision).
+#   * A 16-worker flip was attempted and REVERTED: 16*6=96 GiB > 71.2 GiB
+#     container budget, so strict_parallel hard-failed at preflight. (The
+#     earlier "16 fits" check was run on the HOST's 192 GiB by mistake, not
+#     the container's 157 GiB.)
+#   * 10 workers = 10*6 = 60 GiB <= 71.2 (~11 GiB spare) — a 25% throughput
+#     gain over 8, comfortably inside the container budget. (11 is the
+#     mathematical max but leaves only ~5 GiB spare.)
+#   * Parity is structurally guaranteed — each trial is a deterministic,
+#     independently-seeded backtest; n_jobs only changes how Optuna
+#     distributes trials, never an individual trial's result.
+# The dispatcher enforces effective_n_jobs = min(n_jobs, parallel.max_workers);
+# BOTH are set to 10 below so neither binds first.
+#
+# To go higher than 11, EITHER lower worker_private_gib_estimate after
+# MEASURING real per-worker RSS under load (the serial full-universe run
+# peaked <2 GiB, so 6 GiB is likely ~3x conservative), OR raise the WSL2
+# memory cap so the container sees more of the 192 GiB host. Do not raise
+# the count without one of those — strict_parallel will hard-fail.
 # ------------------------------------------------------------------
 artifacts:
   write_jsonl: true
@@ -113,13 +126,13 @@ optuna:
       storage_format: numpy_memmap
   cached_suppliers: true
   cost_stress: conservative
-  n_jobs: 8
+  n_jobs: 10
   n_startup_trials: 25
   n_trials: 200
   objective_artifact_mode: objective_minimal
   parallel:
     blas_thread_pin: true
-    max_workers: 8
+    max_workers: 10
     memory_reserve_gib: 62
     strict_parallel: true
   search_space_overrides: {}
