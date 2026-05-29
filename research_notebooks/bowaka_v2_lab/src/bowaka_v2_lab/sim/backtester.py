@@ -1644,6 +1644,10 @@ def run_backtest(
             for t in _gap_trades if float(t.get("pnl", 0.0) or 0.0) < 0.0),
         6,
     )
+    # Audit 2026-05-29 §9 Phase 5 — distinct entry sessions (fold-activity gate).
+    summary["n_active_days"] = len(
+        {t.get("entry_date") for t in all_trades if t.get("entry_date")}
+    )
 
     # Realism remediation 2 Phase 6 (audit P0-007) — protection lifecycle
     # metrics. Surfaced under ``summary['protection']`` so the run-report and

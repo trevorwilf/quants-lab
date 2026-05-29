@@ -15,9 +15,11 @@ half-open semantics; any true overlap still raises.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
+import functools
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Iterator, Optional
 
 
 class HoldoutGuardError(RuntimeError):
@@ -77,3 +79,66 @@ class HoldoutGuard:
             f"the final-holdout window [{self.final_holdout_start}, {self.final_holdout_end}); "
             "this would leak holdout information into hyperparameter selection"
         )
+
+
+def _coerce_date(v: object) -> Optional[_dt.date]:
+    if v is None:
+        return None
+    if isinstance(v, _dt.datetime):
+        return v.date()
+    if isinstance(v, _dt.date):
+        return v
+    try:
+        import pandas as pd
+
+        return pd.Timestamp(v).date()
+    except Exception:
+        try:
+            return _dt.date.fromisoformat(str(v)[:10])
+        except Exception:
+            return None
+
+
+@contextlib.contextmanager
+def tuning_phase_lock(
+    final_holdout_start: _dt.date, final_holdout_end: _dt.date,
+) -> Iterator[HoldoutGuard]:
+    """Process-local tuning-phase lock (audit 2026-05-29 §9 Phase 5 task 6).
+
+    While active, ANY ``MarketDataStore.daily_bars`` / ``minute_bars`` read whose
+    ``[start, end)`` overlaps the final-holdout window raises
+    :class:`HoldoutGuardError` — defence-in-depth on top of the per-fold
+    :meth:`HoldoutGuard.assert_can_read`. The originals are restored on exit, so
+    the finalist-evaluation step (run after the lock exits) can read the holdout.
+    Each ``process_parallel`` worker installs its own lock.
+    """
+    from bowaka_common.marketdata.store import MarketDataStore
+
+    guard = HoldoutGuard(final_holdout_start, final_holdout_end)
+    originals: dict[str, object] = {}
+
+    def _wrap(method_name: str):
+        orig = getattr(MarketDataStore, method_name)
+        originals[method_name] = orig
+
+        @functools.wraps(orig)
+        def wrapper(self, symbol, start, end, *args, **kwargs):  # noqa: ANN001
+            s = _coerce_date(start)
+            e = _coerce_date(end)
+            if s is not None and e is not None:
+                guard.assert_can_read(s, e)
+            return orig(self, symbol, start, end, *args, **kwargs)
+
+        setattr(MarketDataStore, method_name, wrapper)
+
+    for name in ("daily_bars", "minute_bars"):
+        if hasattr(MarketDataStore, name):
+            _wrap(name)
+    try:
+        yield guard
+    finally:
+        for name, orig in originals.items():
+            setattr(MarketDataStore, name, orig)
+
+
+__all__ = ["HoldoutGuardError", "HoldoutGuard", "tuning_phase_lock"]

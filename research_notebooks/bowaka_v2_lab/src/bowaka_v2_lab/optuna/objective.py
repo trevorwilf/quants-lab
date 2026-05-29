@@ -244,6 +244,26 @@ class PenaltyWeights:
 DEFAULT_PENALTY_WEIGHTS = PenaltyWeights()
 
 
+# --------------------------------------------------------------------------
+# Audit 2026-05-29 §9 Phase 5 — fold-level activity gates.
+# --------------------------------------------------------------------------
+@dataclass(frozen=True)
+class FoldActivityGates:
+    min_trades_per_fold: int = 5
+    min_active_days_per_fold: int = 3
+
+
+def fold_is_active_enough(
+    fold_metrics: Mapping[str, Any], gates: "FoldActivityGates" = FoldActivityGates(),
+) -> bool:
+    """True iff the fold cleared BOTH the minimum trade count and the minimum
+    distinct-active-days floor — a statistically informative fold."""
+    return (
+        int(fold_metrics.get("n_trades", 0) or 0) >= gates.min_trades_per_fold
+        and int(fold_metrics.get("n_active_days", 0) or 0) >= gates.min_active_days_per_fold
+    )
+
+
 @dataclass
 class FoldResult:
     """Per-fold realistic metrics consumed by the objective.
@@ -282,6 +302,8 @@ class FoldResult:
     n_gap_through_events: int = 0
     gap_through_loss_dollars: float = 0.0
     expected_gap_through_loss_dollars: float = 0.0
+    #: Audit 2026-05-29 §9 Phase 5 — distinct sessions with >=1 fill in the fold.
+    n_active_days: int = 0
     #: Optional raw metric bag (kept for fold-by-fold reporting).
     metrics: dict[str, Any] = field(default_factory=dict)
 
@@ -425,6 +447,7 @@ def fold_result_from_backtest_result(
         gap_through_loss_dollars=float(summary.get("gap_through_loss_dollars", 0.0) or 0.0),
         expected_gap_through_loss_dollars=float(
             summary.get("expected_gap_through_loss_dollars", 0.0) or 0.0),
+        n_active_days=int(summary.get("n_active_days", 0) or 0),
         metrics={
             "net_return_pct": float(net_return or 0.0),
             "mtm_max_drawdown_pct": dd,
@@ -501,6 +524,7 @@ def fold_result_from_report(
         gap_through_loss_dollars=float(summary.get("gap_through_loss_dollars", 0.0) or 0.0),
         expected_gap_through_loss_dollars=float(
             summary.get("expected_gap_through_loss_dollars", 0.0) or 0.0),
+        n_active_days=int(summary.get("n_active_days", 0) or 0),
         metrics={
             "net_return_pct": float(net_return or 0.0),
             "mtm_max_drawdown_pct": dd,
@@ -727,4 +751,6 @@ __all__ = [
     "gap_through_stop_penalty",
     "SameMinuteAmbiguityMetrics",
     "same_minute_ambiguity_penalty",
+    "FoldActivityGates",
+    "fold_is_active_enough",
 ]

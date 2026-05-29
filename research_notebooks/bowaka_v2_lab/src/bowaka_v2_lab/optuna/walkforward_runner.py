@@ -2304,6 +2304,10 @@ def run_walkforward_study(
         "preflight": preflight.as_dict(),
         "penalty_weights": vars(DEFAULT_PENALTY_WEIGHTS),
         "search_space_overrides": search_space_overrides,
+        # Audit 2026-05-29 §9 Phase 5 task 6 — holdout isolation was in force
+        # during tuning (per-fold HoldoutGuard.assert_can_read). Flows into the
+        # study user_attrs (loop below) so the validity gate can read it.
+        "holdout_guard_active": True,
     }
     if feed_caveat is not None:
         study_metadata["feed_caveat"] = feed_caveat

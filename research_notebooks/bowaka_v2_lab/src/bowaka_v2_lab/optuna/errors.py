@@ -61,6 +61,11 @@ REASON_CONSTANT_OBJECTIVE_SURFACE = "CONSTANT_OBJECTIVE_SURFACE"
 REASON_NO_TRADE_STUDY = "NO_TRADE_STUDY"
 REASON_INCUMBENT_MAPPING_INCOMPLETE = "INCUMBENT_MAPPING_INCOMPLETE"
 REASON_DEGRADED_FOLDS_PRESENT = "DEGRADED_FOLDS_PRESENT"
+#: Audit 2026-05-29 §9 Phase 5 — every fold is below the minimum trade / active-
+#: day floor (opt-in gate), and the tuning-phase holdout guard was not active
+#: for some worker (the holdout window could have leaked into selection).
+REASON_LOW_FOLD_ACTIVITY = "LOW_FOLD_ACTIVITY"
+REASON_HOLDOUT_GUARD_NOT_ACTIVE = "HOLDOUT_GUARD_NOT_ACTIVE"
 
 
 #: Late-bound tuple of structural exception classes. Use
@@ -106,4 +111,6 @@ __all__ = [
     "REASON_NO_TRADE_STUDY",
     "REASON_INCUMBENT_MAPPING_INCOMPLETE",
     "REASON_DEGRADED_FOLDS_PRESENT",
+    "REASON_LOW_FOLD_ACTIVITY",
+    "REASON_HOLDOUT_GUARD_NOT_ACTIVE",
 ]
