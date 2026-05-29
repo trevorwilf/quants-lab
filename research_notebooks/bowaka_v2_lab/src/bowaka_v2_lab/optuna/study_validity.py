@@ -18,7 +18,9 @@ from typing import Any, Mapping, Sequence
 from .errors import (
     REASON_CONSTANT_OBJECTIVE_SURFACE,
     REASON_DEGRADED_FOLDS_PRESENT,
+    REASON_HOLDOUT_GUARD_NOT_ACTIVE,
     REASON_INCUMBENT_MAPPING_INCOMPLETE,
+    REASON_LOW_FOLD_ACTIVITY,
     REASON_NO_TRADE_STUDY,
 )
 
@@ -87,6 +89,43 @@ def detect_degraded_folds_present(
     return False
 
 
+def detect_holdout_guard_not_active(study_user_attrs: Mapping[str, Any]) -> bool:
+    """True iff the study EXPLICITLY recorded ``holdout_guard_active: False``.
+
+    Absent (legacy / not recorded) is treated as no evidence — only an explicit
+    False from a worker that ran without the tuning-phase holdout lock flags the
+    study (audit 2026-05-29 §9 Phase 5 task 6).
+    """
+    if "holdout_guard_active" not in study_user_attrs:
+        return False
+    return not bool(study_user_attrs.get("holdout_guard_active"))
+
+
+def detect_low_fold_activity(
+    fold_metrics_per_trial: Sequence[Sequence[Mapping[str, Any]]],
+    *,
+    min_trades_per_fold: int = 5,
+    min_active_days_per_fold: int = 3,
+) -> bool:
+    """True iff EVERY fold that recorded ``n_active_days`` is below the activity
+    floor (and at least one such fold exists).
+
+    Only folds carrying ``n_active_days`` are judged, so a legacy fold-metric
+    payload (no such key) contributes no evidence — this keeps the gate from
+    firing on inputs built before Phase 5.
+    """
+    judged = False
+    for trial in fold_metrics_per_trial:
+        for fm in trial:
+            if "n_active_days" not in fm:
+                continue
+            judged = True
+            if (int(fm.get("n_trades", 0) or 0) >= min_trades_per_fold
+                    and int(fm.get("n_active_days", 0) or 0) >= min_active_days_per_fold):
+                return False
+    return judged
+
+
 def evaluate_study_validity(
     *,
     trial_values: Sequence[float],
@@ -126,6 +165,21 @@ def evaluate_study_validity(
             if any(s != "ok" for s in fs)
         )
 
+    # Audit 2026-05-29 §9 Phase 5 — the tuning-phase holdout guard must have
+    # been active; an explicit False (any worker) flags the study.
+    if detect_holdout_guard_not_active(study_user_attrs):
+        reasons.append(REASON_HOLDOUT_GUARD_NOT_ACTIVE)
+        detail["holdout_guard_active"] = study_user_attrs.get("holdout_guard_active")
+
+    # Fold-activity floor is OPT-IN (default off) so existing studies / fixtures
+    # with naturally-sparse folds are unaffected.
+    if cfg_optuna.get("enforce_fold_activity_floor", False) and detect_low_fold_activity(
+        fold_metrics_per_trial,
+        min_trades_per_fold=int(cfg_optuna.get("min_trades_per_fold", 5)),
+        min_active_days_per_fold=int(cfg_optuna.get("min_active_days_per_fold", 3)),
+    ):
+        reasons.append(REASON_LOW_FOLD_ACTIVITY)
+
     return StudyValidityResult(
         valid=not reasons,
         invalid_reasons=tuple(reasons),
@@ -139,5 +193,7 @@ __all__ = [
     "detect_no_trade_study",
     "detect_padded_incumbent",
     "detect_degraded_folds_present",
+    "detect_holdout_guard_not_active",
+    "detect_low_fold_activity",
     "evaluate_study_validity",
 ]
