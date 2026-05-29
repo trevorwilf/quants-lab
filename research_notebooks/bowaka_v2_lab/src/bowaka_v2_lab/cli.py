@@ -193,6 +193,38 @@ def _cmd_verify_bayesian_fix(args: argparse.Namespace) -> int:
     return int(_vbf_main(argv))
 
 
+def _cmd_stress_matrix(args: argparse.Namespace) -> int:
+    """Replay the audit 2026-05-29 §8.5 execution stress matrix (Phase 4a) over
+    a study's finalist params; write ``stress_matrix.json`` and, with
+    ``--gate``, exit non-zero when the conservative floor fails."""
+    from .optuna.stress_matrix import (
+        conservative_floor_result,
+        replay_stress_matrix,
+        write_stress_matrix_artifact,
+    )
+    from .optuna.walkforward_runner import build_validation_scorer
+
+    if args.best_params:
+        best_params = json.loads(Path(args.best_params).read_text(encoding="utf-8"))
+    else:
+        from .optuna.walkforward_runner import _incumbent_baseline_params
+        best_params = _incumbent_baseline_params()
+
+    scorer = build_validation_scorer(args.config)
+    results = replay_stress_matrix(best_params=best_params, score_with_overrides=scorer)
+    out_path = Path(args.out) if args.out else (Path("artifacts") / "optuna" / "stress_matrix.json")
+    write_stress_matrix_artifact(results, out_path, best_params=best_params)
+    print(f"STRESS_MATRIX: {out_path}")
+    cf = conservative_floor_result(results)
+    print(f"CONSERVATIVE_FLOOR_SCORE: {cf.score if cf else None}")
+    if args.gate:
+        from .optuna.promotion_gates import passes_stress_matrix_floor
+        ok, reason = passes_stress_matrix_floor(results)
+        print(f"STRESS_MATRIX_GATE: {'PASS' if ok else 'FAIL'} ({reason})")
+        return 0 if ok else 1
+    return 0
+
+
 def _cmd_verify_lake(args: argparse.Namespace) -> int:
     """Verify the shared market-data lake's completeness against the realism contract.
 
@@ -456,6 +488,24 @@ def build_parser() -> argparse.ArgumentParser:
                           "sections (Section 4, Section 1 row 3, Section 5 "
                           "sentinel/manifest, Section 8)")
     vbf.set_defaults(func=_cmd_verify_bayesian_fix)
+
+    # Audit 2026-05-29 §8.5 / Phase 4a — execution stress-matrix replay.
+    smx = sub.add_parser(
+        "stress-matrix",
+        help="replay the §8.5 execution stress matrix (slippage / spread / "
+             "ADV partial-fill) over a study's finalist params; --gate exits "
+             "non-zero on a conservative-floor failure",
+    )
+    smx.add_argument("--config", required=True,
+                     help="v2 lab config whose walk-forward folds are replayed")
+    smx.add_argument("--best-params", default=None,
+                     help="JSON file of flat dotted finalist params; defaults "
+                          "to the incumbent baseline")
+    smx.add_argument("--out", default=None,
+                     help="output path for stress_matrix.json")
+    smx.add_argument("--gate", action="store_true",
+                     help="exit non-zero if the conservative-floor gate fails")
+    smx.set_defaults(func=_cmd_stress_matrix)
 
     rec = sub.add_parser(
         "reconcile",

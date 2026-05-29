@@ -209,6 +209,34 @@ class PromotionEvidence:
     caps_applied: tuple[str, ...]   # IEX_PARTIAL_TAPE, RISK_POLICY_EXPERIMENT, ...
 
 
+def passes_stress_matrix_floor(
+    stress_results: Sequence[Any],
+    *,
+    conservative_floor_score_min: float = 0.0,
+    robust_to_severe: bool = False,
+) -> tuple[bool, str]:
+    """The finalist must remain in-the-black at the conservative floor
+    (slippage_bps_offset=50, spread_multiplier=2.0, cost_stress=conservative).
+
+    Audit 2026-05-29 §8.5 / Phase 4a. Severe-tier robustness is optional and
+    reported but does not block paper-candidate promotion under this contract.
+    ``stress_results`` is duck-typed: each item exposes ``.point`` (with
+    ``slippage_bps_offset`` / ``spread_multiplier`` / ``cost_stress``) and
+    ``.score``.
+    """
+    cf = next((r for r in stress_results
+               if r.point.slippage_bps_offset == 50
+               and r.point.spread_multiplier == 2.0
+               and r.point.cost_stress == "conservative"), None)
+    if cf is None:
+        return False, "missing_conservative_floor_result"
+    if cf.score < conservative_floor_score_min:
+        return (False,
+                f"conservative_floor_score={cf.score:.4f} < "
+                f"min={conservative_floor_score_min:.4f}")
+    return True, "ok"
+
+
 def evaluate_promotion_evidence(
     *,
     study_valid: bool,
@@ -219,6 +247,7 @@ def evaluate_promotion_evidence(
     paper_reconciliation_artifact_present: bool,
     best_params: Mapping[str, Any] | None,
     requested_tier: str,
+    stress_results: Optional[Sequence[Any]] = None,
 ) -> PromotionEvidence:
     """Compute structured promotion evidence. Rules (audit §10.4):
 
@@ -266,6 +295,16 @@ def evaluate_promotion_evidence(
     )
     promotable_to_live = promotable_to_paper and not risk_control_drift
 
+    # Audit 2026-05-29 §8.5 / Phase 4a — the finalist robustness gate. When a
+    # stress matrix is supplied and the candidate is otherwise paper-eligible,
+    # it must hold the conservative floor; otherwise paper/live are refused.
+    if stress_results is not None and promotable_to_paper:
+        floor_ok, _floor_reason = passes_stress_matrix_floor(stress_results)
+        if not floor_ok:
+            promotable_to_paper = False
+            promotable_to_live = False
+            caps.append("STRESS_MATRIX_FLOOR_FAILED")
+
     supported = "research_only"
     if parameter_recommendation_allowed:
         supported = "backtesting_only"
@@ -300,4 +339,5 @@ __all__ = [
     "evaluate_promotion",
     "PromotionEvidence",
     "evaluate_promotion_evidence",
+    "passes_stress_matrix_floor",
 ]

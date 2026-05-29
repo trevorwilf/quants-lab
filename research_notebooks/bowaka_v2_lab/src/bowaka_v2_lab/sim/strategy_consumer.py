@@ -214,7 +214,12 @@ class StrategyConsumer:
         market_data_cfg = cfg.get("market_data") or {}
         scanner_cfg = cfg.get("scanner") or {}
         symbol = candidate_event["symbol"]
-        cost_stress = str((cfg.get("backtest") or {}).get("cost_stress", "conservative"))
+        _backtest_cfg = cfg.get("backtest") or {}
+        cost_stress = str(_backtest_cfg.get("cost_stress", "conservative"))
+        # Audit 2026-05-29 §8.5 stress-matrix dimensions (no-ops at defaults).
+        slippage_bps_offset = int(_backtest_cfg.get("slippage_bps_offset", 0))
+        spread_multiplier = float(_backtest_cfg.get("spread_multiplier", 1.0))
+        use_adv_bucket_caps = bool(_backtest_cfg.get("use_adv_bucket_caps", False))
 
         # Reject low signal strength early.
         min_signal_strength = float(
@@ -538,6 +543,9 @@ class StrategyConsumer:
         commission_per_share = float(execution_cfg.get("commission_per_share", 0.0))
         regulatory_fee_bps = float(execution_cfg.get("regulatory_fee_bps", 0.0))
 
+        adv_dollar_for_caps = (
+            candidate_adv if (use_adv_bucket_caps and candidate_adv > 0) else None
+        )
         if plan.order_style == "market":
             fill: FillResult = simulate_market_fill(
                 side="buy", requested_qty=qty, quote=quote,
@@ -547,6 +555,9 @@ class StrategyConsumer:
                 min_order_notional=min_order_notional,
                 commission_per_share=commission_per_share,
                 regulatory_fee_bps=regulatory_fee_bps,
+                slippage_bps_offset=slippage_bps_offset,
+                spread_multiplier=spread_multiplier,
+                adv_dollar=adv_dollar_for_caps,
             )
         else:  # marketable_limit (and "limit" — treated as marketable_limit here)
             fill = simulate_marketable_limit_fill(
@@ -572,6 +583,9 @@ class StrategyConsumer:
                 minute_volume_participation_frac=float(
                     execution_cfg.get("minute_volume_participation_frac", 0.10)
                 ),
+                slippage_bps_offset=slippage_bps_offset,
+                spread_multiplier=spread_multiplier,
+                adv_dollar=adv_dollar_for_caps,
             )
 
         # Record the fill outcome (filled or not) for the execution-quality
