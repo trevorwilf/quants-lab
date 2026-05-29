@@ -592,6 +592,40 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Directory for finalist_report.json")
     ef.set_defaults(func=_cmd_evaluate_finalists)
 
+    # Phase 1 — production-vs-lab parity (audit 2026-05-29 §14.5).
+    par = sub.add_parser(
+        "parity",
+        help="Run the production-vs-lab parity check and emit a paste-back report.",
+    )
+    par.add_argument("--start-date", required=True,
+                     help="ISO date — inclusive start of the parity window")
+    par.add_argument("--end-date", required=True,
+                     help="ISO date — inclusive end of the parity window")
+    par.add_argument("--prod-config",
+                     default=str(
+                         Path("research_notebooks") / "bowaka_v2_lab"
+                         / "reference" / "source_strategy" / "scripts"
+                         / "bowaka_v2_config.yaml"),
+                     help="Production backtester config (default: the mirrored YAML)")
+    par.add_argument("--lab-config",
+                     default=str(
+                         Path("research_notebooks") / "bowaka_v2_lab"
+                         / "configs" / "bowaka_v2_actual_iex_current_code.yml"),
+                     help="Lab config (default: the IEX current-code research config)")
+    par.add_argument("--lake-root", default=None,
+                     help="Override the lake root (default: bowaka_common resolution)")
+    par.add_argument("--symbols", default=None,
+                     help="Comma-separated symbol list; default = first 5 IEX "
+                          "split_adjusted symbols on disk")
+    par.add_argument("--cost-stress", default="conservative",
+                     choices=["conservative", "baseline", "aggressive"],
+                     help="Cost-stress label passed identically to both sides")
+    par.add_argument("--output-dir", default=None,
+                     help="Output dir; default = artifacts/parity/lab_vs_production/<UTC>")
+    par.add_argument("--python-exe", default=None,
+                     help="Production subprocess interpreter; default = sys.executable")
+    par.set_defaults(func=_cmd_parity)
+
     return p
 
 
@@ -889,6 +923,78 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
         "out_dir": str(out_dir),
     }, indent=2, sort_keys=True))
     return 0
+
+
+def _cmd_parity(args: argparse.Namespace) -> int:
+    """Production-vs-lab parity check (audit 2026-05-29 §14.5)."""
+    import datetime as _dt
+
+    from .parity import render_markdown_report, run_parity
+
+    start_date = _dt.date.fromisoformat(args.start_date)
+    end_date = _dt.date.fromisoformat(args.end_date)
+
+    if args.symbols:
+        symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    else:
+        from bowaka_common.marketdata.catalog import available_symbols
+        from bowaka_common.marketdata.store import resolve_market_data_root
+        lake_root_for_default = (
+            Path(args.lake_root).resolve() if args.lake_root
+            else resolve_market_data_root(None, create=False)
+        )
+        symbols = available_symbols(
+            lake_root_for_default, timeframe="1d", vendor="alpaca",
+            feed="iex", adjustment="split_adjusted",
+        )[:5]
+        if not symbols:
+            print(json.dumps({
+                "status": "error",
+                "error": "no IEX split_adjusted symbols available on disk; "
+                         "pass --symbols explicitly",
+            }), file=sys.stderr)
+            return 2
+
+    if args.lake_root:
+        lake_root = Path(args.lake_root).resolve()
+    else:
+        from bowaka_common.marketdata.store import resolve_market_data_root
+        lake_root = resolve_market_data_root(None, create=False)
+
+    if args.output_dir:
+        out_dir = Path(args.output_dir).resolve()
+    else:
+        ts = _dt.datetime.now(_dt.UTC).strftime("%Y%m%dT%H%M%SZ")
+        out_dir = (
+            Path("research_notebooks") / "bowaka_v2_lab"
+            / "artifacts" / "parity" / "lab_vs_production" / ts
+        ).resolve()
+
+    python_exe = args.python_exe or sys.executable
+    report = run_parity(
+        start_date=start_date,
+        end_date=end_date,
+        symbols=symbols,
+        prod_config_path=Path(args.prod_config),
+        lab_config_path=Path(args.lab_config),
+        lake_root=lake_root,
+        cost_stress=args.cost_stress,
+        run_root=out_dir,
+        python_exe=python_exe,
+        python_extra=(),
+    )
+    md_path = out_dir / "parity_report.md"
+    render_markdown_report(report, output_path=md_path)
+    print(json.dumps({
+        "status": "ok",
+        "command": "parity",
+        "report_path": str(md_path),
+        "prod_n_trades": report.prod_n_trades,
+        "lab_n_trades": report.lab_n_trades,
+        "passes_audit_thresholds": bool(report.passes_audit_thresholds),
+        "failing_metrics": list(report.failing_metrics),
+    }, indent=2))
+    return 0 if report.passes_audit_thresholds else 1
 
 
 def main(argv: Sequence[str] | None = None) -> int:
