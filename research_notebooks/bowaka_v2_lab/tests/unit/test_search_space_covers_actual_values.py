@@ -69,14 +69,28 @@ _CONTRACT_MAP: dict[str, tuple[str, Callable[[Any], Any]]] = {
         "execution.quote_gate.max_spread_pct", lambda v: float(v) * 10_000.0),
     # exits.
     "exits.stop_pct":                      ("exits.stop_pct", float),
-    "exits.target_pct":                    ("exits.target_pct", float),
     "exits.max_hold_days":                 ("exits.max_hold_days", int),
     "exits.signal_fade.score_thresholds.soft": (
         "exits.signal_fade.score_thresholds.soft", float),
-    "exits.signal_fade.score_thresholds.hard": (
-        "exits.signal_fade.score_thresholds.hard", float),
-    "exits.signal_fade.score_thresholds.critical": (
-        "exits.signal_fade.score_thresholds.critical", float),
+}
+
+
+#: Audit 2026-05-29 §6.8 — v3 derived (gap/ratio) search-space keys have no
+#: single contract path; their live value is computed from multiple contract
+#: fields. Each entry maps a search key to a function of the contract that
+#: yields the live derived value the bounds must cover.
+_DERIVED_MAP: dict[str, Callable[[dict], float]] = {
+    "exits.signal_fade.score_thresholds.hard_gap": lambda c: (
+        float(_dig(c, "exits.signal_fade.score_thresholds.hard"))
+        - float(_dig(c, "exits.signal_fade.score_thresholds.soft"))
+    ),
+    "exits.signal_fade.score_thresholds.critical_gap": lambda c: (
+        float(_dig(c, "exits.signal_fade.score_thresholds.critical"))
+        - float(_dig(c, "exits.signal_fade.score_thresholds.hard"))
+    ),
+    "exits.reward_risk_ratio": lambda c: (
+        float(_dig(c, "exits.target_pct")) / float(_dig(c, "exits.stop_pct"))
+    ),
 }
 
 
@@ -86,10 +100,25 @@ def test_every_numeric_search_key_is_mapped_to_the_contract() -> None:
         name for name, spec in SEARCH_SPACE_SPEC.items()
         if spec[0] in ("uniform", "log_uniform", "int")
     }
-    unmapped = numeric - set(_CONTRACT_MAP)
+    unmapped = numeric - set(_CONTRACT_MAP) - set(_DERIVED_MAP)
     assert not unmapped, (
         f"numeric search-space keys not mapped to the contract: {sorted(unmapped)} "
-        f"— add them to _CONTRACT_MAP so coverage is verified"
+        f"— add them to _CONTRACT_MAP (direct) or _DERIVED_MAP (computed) so "
+        f"coverage is verified"
+    )
+
+
+@pytest.mark.parametrize("search_key", sorted(_DERIVED_MAP))
+def test_search_bounds_cover_derived_live_value(search_key: str) -> None:
+    """v3 gap/ratio keys: the live derived contract value lies in the bounds."""
+    contract = load_actual_contract()
+    live_value = _DERIVED_MAP[search_key](contract)
+    spec = SEARCH_SPACE_SPEC[search_key]
+    kind, lo, hi = spec[0], spec[1], spec[2]
+    assert kind in ("uniform", "log_uniform", "int")
+    assert lo <= live_value <= hi, (
+        f"{search_key}: live derived value {live_value} is outside the search "
+        f"bounds [{lo}, {hi}] — the optimizer cannot reproduce the live config"
     )
 
 

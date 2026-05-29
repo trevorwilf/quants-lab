@@ -12,7 +12,8 @@ them caps the tier.
 """
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping, Optional
+from dataclasses import dataclass
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 
 #: Risk-control fields the promotion gate watches. Any drift beyond the
@@ -184,8 +185,119 @@ def evaluate_promotion(
     }
 
 
+# --------------------------------------------------------------------------
+# Structured promotion evidence (audit 2026-05-29 §6.8 / §10.4 / Appendix E.6).
+#
+# The single ``promotable`` bool conflated "the study ran", "the study is
+# valid", "the result is reviewable", and "the result is a parameter
+# recommendation". A completed-but-invalid study and a valid IEX research run
+# could both surface ``promotable: true`` to a reviewer who did not read the
+# partial-tape cap. These separate booleans make each question explicit.
+# --------------------------------------------------------------------------
+@dataclass(frozen=True)
+class PromotionEvidence:
+    study_execution_completed: bool
+    study_valid: bool
+    invalid_reasons: tuple[str, ...]
+    reviewable_for_research: bool
+    parameter_recommendation_allowed: bool
+    promotable_to_paper: bool
+    promotable_to_live: bool
+    best_params: dict | None
+    effective_tier: str       # research_only | backtesting_only | paper_candidate | live_candidate
+    requested_tier: str
+    caps_applied: tuple[str, ...]   # IEX_PARTIAL_TAPE, RISK_POLICY_EXPERIMENT, ...
+
+
+def evaluate_promotion_evidence(
+    *,
+    study_valid: bool,
+    invalid_reasons: Sequence[str],
+    feed: str,                 # "iex" | "sip"
+    simulation_mode: str,      # "current_code_parity" | "intended_realism" | "smoke_fixture"
+    risk_control_drift: bool,
+    paper_reconciliation_artifact_present: bool,
+    best_params: Mapping[str, Any] | None,
+    requested_tier: str,
+) -> PromotionEvidence:
+    """Compute structured promotion evidence. Rules (audit §10.4):
+
+    - Invalid study -> every promotion bool False; ``best_params`` None;
+      ``effective_tier`` research_only.
+    - IEX feed -> caps at research_only: reviewable_for_research True but
+      parameter_recommendation_allowed / promotable_* all False.
+    - SIP + intended_realism + valid + no risk drift -> parameter
+      recommendation allowed.
+    - paper requires the paper-reconciliation artifact; live requires paper
+      eligibility AND no risk drift.
+    - ``effective_tier`` is the highest supported tier, capped by
+      ``requested_tier`` (never raised above the request).
+    """
+    reasons = tuple(invalid_reasons or ())
+    if not study_valid:
+        return PromotionEvidence(
+            study_execution_completed=True,
+            study_valid=False,
+            invalid_reasons=reasons,
+            reviewable_for_research=False,
+            parameter_recommendation_allowed=False,
+            promotable_to_paper=False,
+            promotable_to_live=False,
+            best_params=None,
+            effective_tier="research_only",
+            requested_tier=requested_tier,
+            caps_applied=(),
+        )
+
+    is_iex = str(feed).lower() == "iex"
+    is_realism = simulation_mode == "intended_realism"
+    caps: list[str] = []
+    if is_iex:
+        caps.append("IEX_PARTIAL_TAPE")
+    if risk_control_drift:
+        caps.append("RISK_POLICY_EXPERIMENT")
+
+    reviewable_for_research = True
+    parameter_recommendation_allowed = (
+        is_realism and not is_iex and not risk_control_drift
+    )
+    promotable_to_paper = (
+        parameter_recommendation_allowed and bool(paper_reconciliation_artifact_present)
+    )
+    promotable_to_live = promotable_to_paper and not risk_control_drift
+
+    supported = "research_only"
+    if parameter_recommendation_allowed:
+        supported = "backtesting_only"
+    if promotable_to_paper:
+        supported = "paper_candidate"
+    if promotable_to_live:
+        supported = "live_candidate"
+    # Cap to the requested tier (never raise above the request).
+    if _tier_rank(requested_tier) >= 0 and _tier_rank(supported) > _tier_rank(requested_tier):
+        effective_tier = requested_tier
+    else:
+        effective_tier = supported
+
+    return PromotionEvidence(
+        study_execution_completed=True,
+        study_valid=True,
+        invalid_reasons=reasons,
+        reviewable_for_research=reviewable_for_research,
+        parameter_recommendation_allowed=parameter_recommendation_allowed,
+        promotable_to_paper=promotable_to_paper,
+        promotable_to_live=promotable_to_live,
+        best_params=dict(best_params) if best_params is not None else None,
+        effective_tier=effective_tier,
+        requested_tier=requested_tier,
+        caps_applied=tuple(caps),
+    )
+
+
 __all__ = [
     "HARD_RISK_CONTROL_FIELDS",
     "risk_control_drift",
     "evaluate_promotion",
+    "PromotionEvidence",
+    "evaluate_promotion_evidence",
 ]

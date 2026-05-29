@@ -33,7 +33,13 @@ from typing import Any
 
 #: Bump this on EVERY change to ``SEARCH_SPACE_SPEC`` (or to the discrete value
 #: sets below that feed it). The versioned-fixture test fails otherwise.
-SEARCH_SPACE_VERSION = 2
+#: v3 (audit 2026-05-29 §6.8): replaced the three independent signal-fade
+#: thresholds with ``soft`` + ``hard_gap`` + ``critical_gap`` (so
+#: ``soft < hard < critical`` ALWAYS holds) and ``exits.target_pct`` with
+#: ``exits.reward_risk_ratio`` (so ``target_pct > stop_pct`` ALWAYS holds). The
+#: derived ``hard`` / ``critical`` / ``target_pct`` are computed in
+#: ``apply_trial_params``.
+SEARCH_SPACE_VERSION = 3
 
 #: Discrete option set for ``exits.time_stop.exit_time`` — the live contract
 #: value is ``15:45``; the set brackets it with nearby end-of-session cutoffs.
@@ -84,13 +90,21 @@ SEARCH_SPACE_SPEC: dict[str, tuple] = {
     "execution.max_spread_bps":            ("int", 5, 200),              # live 0.01 frac = 100 bps
     # ---- exits ---------------------------------------------------------
     "exits.stop_pct":                      ("uniform", 0.01, 0.20),      # live 0.025
-    "exits.target_pct":                    ("uniform", 0.02, 0.40),      # live 0.15
+    # Audit 2026-05-29 §6.8 — reward/risk ratio replaces the independent
+    # ``target_pct`` so ``target_pct = stop_pct * ratio > stop_pct`` ALWAYS.
+    # live target_pct/stop_pct = 0.15/0.025 = 6.0. ``exits.target_pct`` is
+    # DERIVED from this in ``apply_trial_params`` (clamped to <= 0.40).
+    "exits.reward_risk_ratio":             ("uniform", 1.5, 8.0),        # live 6.0
     "exits.max_hold_days":                 ("int", 1, 10),               # live 3
     "exits.time_stop.exit_time":           ("categorical", list(TIME_STOP_EXIT_TIME_CHOICES)),
-    # signal-fade score thresholds (soft < hard < critical); live 0.34/0.5/0.67
-    "exits.signal_fade.score_thresholds.soft":     ("uniform", 0.10, 0.50),
-    "exits.signal_fade.score_thresholds.hard":     ("uniform", 0.30, 0.70),
-    "exits.signal_fade.score_thresholds.critical": ("uniform", 0.50, 0.90),
+    # Audit 2026-05-29 §6.8 — signal-fade thresholds as soft + gaps so
+    # ``soft < hard < critical`` ALWAYS holds. ``hard = soft + hard_gap`` and
+    # ``critical = hard + critical_gap`` are DERIVED in ``apply_trial_params``
+    # (clamped to <= 0.70 / <= 0.90). live soft/hard/critical = 0.34/0.5/0.67
+    # -> soft=0.34, hard_gap=0.16, critical_gap=0.17.
+    "exits.signal_fade.score_thresholds.soft":         ("uniform", 0.10, 0.50),
+    "exits.signal_fade.score_thresholds.hard_gap":     ("uniform", 0.01, 0.30),
+    "exits.signal_fade.score_thresholds.critical_gap": ("uniform", 0.01, 0.30),
 }
 
 
