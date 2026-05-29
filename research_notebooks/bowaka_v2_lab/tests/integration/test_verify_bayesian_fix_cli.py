@@ -39,7 +39,11 @@ def _smoke_cfg(tmp_path: Path, lab_root: Path) -> Path:
 def test_cli_passes_after_remediation(tmp_path: Path, lab_root: Path) -> None:
     cfg = _smoke_cfg(tmp_path, lab_root)
     report = tmp_path / "report.md"
-    rc = verify_main(["--config", str(cfg), "--n-trials", "3", "--out", str(report)])
+    # --checks-only keeps this fast: it still runs the Section 7 short-run
+    # against the tiny lake, but skips the test-backed sections (Section 4 /
+    # Section 8) that shell out to pytest subprocesses.
+    rc = verify_main(["--config", str(cfg), "--n-trials", "3",
+                      "--out", str(report), "--checks-only"])
     assert rc == 0
     text = report.read_text(encoding="utf-8")
     assert "OVERALL: PASS" in text
@@ -75,7 +79,7 @@ def test_cli_fails_when_unfixed(tmp_path: Path, lab_root: Path, monkeypatch) -> 
         walkforward_runner, "_incumbent_baseline_params", _padded_incumbent,
     )
     rc = verify_main(["--config", "configs/x.yml", "--n-trials", "3",
-                      "--out", str(report), "--skip-short-run"])
+                      "--out", str(report), "--skip-short-run", "--checks-only"])
     assert rc != 0
     text = report.read_text(encoding="utf-8")
     assert "OVERALL: FAIL" in text
