@@ -516,8 +516,9 @@ def build_parser() -> argparse.ArgumentParser:
                           "$BOWAKA_V2_PAPER_LOGS_ROOT, then reconcile.paper_logs_root "
                           "in --config. Absent everywhere -> a scaffolding-only "
                           "report is written and the command exits 0.")
-    rec.add_argument("--session-date", required=True,
-                     help="the paper trading session to reconcile (YYYY-MM-DD)")
+    rec.add_argument("--session-date", default=None,
+                     help="single paper session to reconcile (YYYY-MM-DD); omit "
+                          "to run the multi-session orchestrator over the whole root")
     rec.add_argument("--config", default=None,
                      help="v2 lab config; the lab is replayed in current_code_parity "
                           "mode. Required to run a real reconciliation.")
@@ -727,6 +728,42 @@ def _cmd_promotion_gate(args: argparse.Namespace) -> int:
     return 0 if (out["p0_passed"] and bundle_status == "ok") else 1
 
 
+def _cmd_reconcile_multi(args: argparse.Namespace) -> int:
+    """Multi-session reconciliation orchestrator (audit 2026-05-29 §9 Phase 6).
+
+    Exit codes: 0 = all thresholds pass; 1 = a threshold failed;
+    2 = REAL_LOGS_DEFERRED or BELOW_MIN_SESSIONS (deferred, not a defect).
+    """
+    from .reconcile.orchestrator import run_reconciliation
+
+    cfg: dict = {}
+    if args.config:
+        cfg = load_config(args.config)
+    paper_logs_root = (
+        args.paper_logs_root
+        or os.environ.get("BOWAKA_V2_PAPER_LOGS_ROOT")
+        or ((cfg.get("reconcile") or {}).get("paper_logs_root"))
+        or "data/paper_logs"
+    )
+    report = run_reconciliation(paper_logs_root=paper_logs_root, cfg=cfg)
+    payload = {
+        "command": "reconcile", "status": report.status,
+        "n_sessions": report.n_sessions, "aggregate": dict(report.aggregate),
+        "passes_all_thresholds": report.passes_all_thresholds,
+        "failing_metrics": report.failing_metrics, "thresholds": dict(report.thresholds),
+    }
+    out = Path(args.out) if args.out else (
+        Path("artifacts") / "reconcile" / "reconciliation_report.json"
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str),
+                   encoding="utf-8")
+    print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+    if report.status in ("REAL_LOGS_DEFERRED", "BELOW_MIN_SESSIONS"):
+        return 2
+    return 0 if report.passes_all_thresholds else 1
+
+
 def _cmd_reconcile(args: argparse.Namespace) -> int:
     """Paper-vs-lab reconciliation (Phase 10 — scaffolding only).
 
@@ -737,7 +774,13 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
     with a clear message — it never fabricates paper data (the Phase-10
     operator constraint). When paper logs ARE resolved and a config is given,
     it replays the session against the lab in ``current_code_parity`` mode.
+
+    When ``--session-date`` is omitted, the multi-session orchestrator runs over
+    every session under the paper-logs root and exits 0 (all thresholds pass) /
+    1 (a threshold failed) / 2 (REAL_LOGS_DEFERRED or BELOW_MIN_SESSIONS).
     """
+    if not getattr(args, "session_date", None):
+        return _cmd_reconcile_multi(args)
     from .reconcile.replay import replay_paper_session
     from .reconcile.report import build_reconcile_report, render_realism_reconciliation_report
 

@@ -278,6 +278,17 @@ def passes_stress_envelope(
     return (not failed, failed)
 
 
+def _rr_get(reconcile_report: Any, attr: str, default: Any = None) -> Any:
+    """Duck-typed accessor for a ReconcileReport (dataclass or mapping)."""
+    if reconcile_report is None:
+        return default
+    if hasattr(reconcile_report, attr):
+        return getattr(reconcile_report, attr)
+    if isinstance(reconcile_report, Mapping):
+        return reconcile_report.get(attr, default)
+    return default
+
+
 def evaluate_promotion_evidence(
     *,
     study_valid: bool,
@@ -289,6 +300,7 @@ def evaluate_promotion_evidence(
     best_params: Mapping[str, Any] | None,
     requested_tier: str,
     stress_results: Optional[Sequence[Any]] = None,
+    reconcile_report: Optional[Any] = None,
 ) -> PromotionEvidence:
     """Compute structured promotion evidence. Rules (audit §10.4):
 
@@ -347,6 +359,30 @@ def evaluate_promotion_evidence(
             caps.append("STRESS_MATRIX_FLOOR_FAILED")
             for _d in failed_dims:
                 caps.append(f"stress_dim:{_d}")
+
+    # Audit 2026-05-29 §8.7 / Phase 6 — paper / live promotion REQUIRES a
+    # passing multi-session paper-reconciliation report. The reconcile gate
+    # only engages for the paper / live tiers, so research_only / backtesting
+    # callers are unaffected.
+    if requested_tier in ("paper_candidate", "live_candidate"):
+        paper_ok_pre = promotable_to_paper
+        promotable_to_paper = False
+        if reconcile_report is None:
+            caps.append("RECONCILE_MISSING")
+        else:
+            rr_status = _rr_get(reconcile_report, "status", "ok")
+            if rr_status == "REAL_LOGS_DEFERRED":
+                caps.append("REAL_LOGS_DEFERRED")
+            elif rr_status == "BELOW_MIN_SESSIONS":
+                caps.append(
+                    f"BELOW_MIN_SESSIONS ({_rr_get(reconcile_report, 'n_sessions', 0)} sessions)"
+                )
+            elif not _rr_get(reconcile_report, "passes_all_thresholds", False):
+                failing = list(_rr_get(reconcile_report, "failing_metrics", []) or [])
+                caps.append(f"RECONCILE_THRESHOLDS_FAILED: {failing}")
+            else:
+                promotable_to_paper = paper_ok_pre
+        promotable_to_live = promotable_to_paper and not risk_control_drift
 
     supported = "research_only"
     if parameter_recommendation_allowed:

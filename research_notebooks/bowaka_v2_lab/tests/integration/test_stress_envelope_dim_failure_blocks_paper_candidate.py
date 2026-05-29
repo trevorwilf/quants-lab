@@ -22,12 +22,18 @@ def _labeled(adverse_score: float) -> list[StressResult]:
     return out
 
 
+# Paper promotion also requires a passing reconciliation report (Phase 4).
+_PASSING_RECON = {"status": "ok", "passes_all_thresholds": True,
+                  "n_sessions": 12, "failing_metrics": []}
+
+
 def _evidence(stress_results):
     return evaluate_promotion_evidence(
         study_valid=True, invalid_reasons=[], feed="sip",
         simulation_mode="intended_realism", risk_control_drift=False,
         paper_reconciliation_artifact_present=True, best_params={"a": 1},
         requested_tier="paper_candidate", stress_results=stress_results,
+        reconcile_report=_PASSING_RECON,
     )
 
 
