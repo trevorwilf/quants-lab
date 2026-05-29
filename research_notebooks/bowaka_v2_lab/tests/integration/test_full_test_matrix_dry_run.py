@@ -6,7 +6,6 @@ imports nothing and invokes no pytest — so it is safe to call from a test.
 """
 from __future__ import annotations
 
-import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,22 +17,22 @@ _SCRIPT = _LAB_ROOT / "scripts" / "run_full_test_matrix.sh"
 
 
 def _wsl_available() -> bool:
-    """True iff a working ``bash`` is reachable from this host.
+    """True iff ``bash -c 'echo ok'`` actually returns 'ok'.
 
-    The matrix test invokes ``scripts/run_full_test_matrix.sh`` through
-    ``bash.EXE``. On Windows hosts without a registered WSL distro,
-    ``shutil.which("bash")`` still resolves the WSL launcher stub, which then
-    fails with ``execvpe(/bin/bash) ... No such file or directory`` and exits
-    1. Detect a *real* bash so the test skips cleanly in that case — the
-    underlying matrix has its own coverage via the integration suite directly.
+    The previous probe (``wsl -l -q``) returned True on boxes where a WSL distro
+    is *registered* but its rootfs is incomplete — the actual ``/bin/bash``
+    invocation then fails with ``execvpe(/bin/bash) failed: No such file or
+    directory``. This probe runs the same command path the test itself uses and
+    checks the output, catching that broken-distro state.
     """
-    if platform.system() != "Windows":
-        return shutil.which("bash") is not None
+    if shutil.which("bash") is None:
+        return False
     try:
         r = subprocess.run(
-            ["wsl", "-l", "-q"], capture_output=True, text=True, timeout=5,
+            ["bash", "-c", "echo ok"],
+            capture_output=True, text=True, timeout=10,
         )
-        return r.returncode == 0 and bool(r.stdout.strip())
+        return r.returncode == 0 and r.stdout.strip() == "ok"
     except Exception:
         return False
 

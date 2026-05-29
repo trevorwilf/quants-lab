@@ -42,6 +42,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
+from bowaka_common.marketdata.store import (
+    resolve_market_data_root as _resolve_market_data_root,
+)
+
+
+def _coerce_lake_root(lake_root: Any) -> Path:
+    """Hotfix 2026-05-29 — defensive lake-root resolution.
+
+    ``Path(str(None))`` becomes the literal directory ``None`` on disk and makes
+    the partition gates false-positive. Always resolve via the standard chain
+    (explicit > ``$MARKET_DATA_ROOT`` > in-repo default) so a ``None`` / empty /
+    whitespace upstream value can never reach a glob / ``is_dir`` consumer.
+    ``resolve_market_data_root`` treats a blank string as unset.
+    """
+    return _resolve_market_data_root(lake_root, create=False)
+
+
 #: Pointer to the canonical data-lake layout doc; surfaced in every SIP-data
 #: refusal so the operator knows exactly which partitions are missing.
 _DATA_LAKE_LAYOUT_DOC = "docs/data_lake_layout.md"
@@ -849,7 +866,7 @@ def run_full_fold_preflight(
         from .autoconfig import probe_lake_capability
 
         cap = probe_lake_capability(
-            Path(str(lake_root)), feed, required_adjustment=required_adj,
+            _coerce_lake_root(lake_root), feed, required_adjustment=required_adj,
         )
         if not cap.has_required_daily_adjustment:
             all_passed = False
@@ -893,7 +910,7 @@ def run_full_fold_preflight(
     if sim_mode == "current_code_parity":
         from .autoconfig import lake_has_quotes
 
-        if not lake_has_quotes(Path(str(lake_root)), feed):
+        if not lake_has_quotes(_coerce_lake_root(lake_root), feed):
             limitations.append("missing_historical_quotes")
         if str(feed) != "sip":
             limitations.append("missing_sip")
@@ -1008,6 +1025,7 @@ __all__ = [
     "PreflightCheck",
     "PreflightResult",
     "FoldWindow",
+    "_coerce_lake_root",
     "NbboCoverageResult",
     "check_nbbo_quote_coverage",
     "DEFAULT_MIN_QUOTE_COVERAGE_PCT",

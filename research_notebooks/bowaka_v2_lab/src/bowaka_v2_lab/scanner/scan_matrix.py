@@ -697,7 +697,10 @@ def build_scan_matrix(
     paths = BowakaV2Paths.from_config(cfg, repo_root=repo_root)
     md = cfg.get("market_data") or {}
     feed = str(md.get("feed", "iex"))
-    lake_root = md.get("shared_root")
+    # Hotfix 2026-05-29: resolve via the standard chain (md.get("shared_root")
+    # is None for every shipping config -> Path(str(None)) false-positives).
+    from ..data.lineage import resolve_lake_root
+    lake_root = resolve_lake_root(cfg)
 
     bt = cfg.get("backtest") or {}
     wf = (cfg.get("optuna") or {}).get("walkforward") or {}

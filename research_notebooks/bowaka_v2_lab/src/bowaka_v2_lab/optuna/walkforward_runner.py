@@ -48,6 +48,7 @@ import pandas as pd
 from ..config import BowakaV2Paths, SimulationConfig, load_config
 from ..promotion.suitability import tier_for_simulation_contract
 from ..data.adjustment import daily_adjustment_for_config
+from ..data.lineage import resolve_lake_root
 from ..data.suppliers import (
     build_daily_cache_from_lake,
     make_forward_minute_supplier,
@@ -835,7 +836,11 @@ def build_validation_scorer(
         final_holdout_months=int(wf.get("final_holdout_months", 1)),
     )
     feed = str(md.get("feed", "iex"))
-    lake_root = md.get("shared_root")
+    # Hotfix 2026-05-29: resolve via the standard chain (explicit override >
+    # $MARKET_DATA_ROOT > in-repo default). md.get("shared_root") is None for
+    # every shipping config, and Path(str(None)) == Path('None') downstream
+    # false-positives the partition gates.
+    lake_root = resolve_lake_root(cfg)
     symbols = _resolve_symbols(cfg, md, sim_mode=sim_cfg.mode, plan=plan)
     holdout_guard = HoldoutGuard(plan.final_holdout_start, plan.final_holdout_end)
     _log = log or logging.getLogger("bowaka_v2_lab.stress_matrix")
@@ -903,7 +908,11 @@ def make_walkforward_objective_for_worker(
         final_holdout_months=int(wf.get("final_holdout_months", 1)),
     )
     feed = str(md.get("feed", "iex"))
-    lake_root = md.get("shared_root")
+    # Hotfix 2026-05-29: resolve via the standard chain (explicit override >
+    # $MARKET_DATA_ROOT > in-repo default). md.get("shared_root") is None for
+    # every shipping config, and Path(str(None)) == Path('None') downstream
+    # false-positives the partition gates.
+    lake_root = resolve_lake_root(cfg)
     symbols = _resolve_symbols(cfg, md, sim_mode=sim_cfg.mode, plan=plan)
     holdout_guard = HoldoutGuard(plan.final_holdout_start, plan.final_holdout_end)
     assert_search_space_does_not_affect_context(search_space_overrides)
@@ -1861,7 +1870,11 @@ def run_walkforward_study(
         )
 
     feed = str(md.get("feed", "iex"))
-    lake_root = md.get("shared_root")
+    # Hotfix 2026-05-29: resolve via the standard chain (explicit override >
+    # $MARKET_DATA_ROOT > in-repo default). md.get("shared_root") is None for
+    # every shipping config, and Path(str(None)) == Path('None') downstream
+    # false-positives the partition gates.
+    lake_root = resolve_lake_root(cfg)
     # Audit 2026-05-23 §6.6 / Phase 1 — under ``intended_realism`` resolve
     # the preflight symbol set against the full per-fold PIT union (not the
     # 100-symbol cap). Parity / smoke / explicit-waiver runs keep the cap.
@@ -2103,7 +2116,6 @@ def run_walkforward_study(
     try:
         from ..data.lineage import (
             content_addressed_dataset_hash,
-            resolve_lake_root,
             uses_lake,
         )
 
@@ -2247,7 +2259,9 @@ def run_walkforward_study(
     try:
         from bowaka_common.marketdata import layout as _layout
 
-        _mp = _layout.ingestion_manifest_path(Path(str(lake_root)))
+        from .preflight import _coerce_lake_root
+
+        _mp = _layout.ingestion_manifest_path(_coerce_lake_root(lake_root))
         if _mp.is_file():
             manifest_daily_adjustment = str(
                 json.loads(_mp.read_text(encoding="utf-8")).get(
