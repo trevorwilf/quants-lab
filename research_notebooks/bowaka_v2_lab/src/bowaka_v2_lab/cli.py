@@ -188,6 +188,8 @@ def _cmd_verify_bayesian_fix(args: argparse.Namespace) -> int:
         argv += ["--out", args.out]
     if getattr(args, "skip_short_run", False):
         argv += ["--skip-short-run"]
+    if getattr(args, "checks_only", False):
+        argv += ["--checks-only"]
     return int(_vbf_main(argv))
 
 
@@ -449,6 +451,10 @@ def build_parser() -> argparse.ArgumentParser:
     vbf.add_argument("--out", default=None)
     vbf.add_argument("--skip-short-run", action="store_true",
                      help="skip Section 7 (the 3-trial study short-run)")
+    vbf.add_argument("--checks-only", action="store_true",
+                     help="run only the fast direct checks; skip the test-backed "
+                          "sections (Section 4, Section 1 row 3, Section 5 "
+                          "sentinel/manifest, Section 8)")
     vbf.set_defaults(func=_cmd_verify_bayesian_fix)
 
     rec = sub.add_parser(
