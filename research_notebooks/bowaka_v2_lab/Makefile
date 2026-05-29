@@ -6,11 +6,15 @@
 # explicitly. See docs/audits/2026-05-22_realism_audit.md §P1-007.
 
 .PHONY: install test test-fast test-unit test-parity test-integration \
-        test-reconcile test-live test-all smoke notebooks clean
+        test-reconcile test-live test-all smoke notebooks verify-bayesian-fix clean
 
 # bowaka_common lives one directory up; both must be importable for the suite.
 PYTHONPATH := src:../bowaka_common/src
-PYTEST := PYTHONPATH=$(PYTHONPATH) python -m pytest
+# Interpreter override: the lab's runtime deps (optuna/pandas/pyarrow/...) must
+# be importable. If your default `python` lacks them (e.g. a bare 3.14), pass an
+# explicit one, e.g. `make verify-bayesian-fix PYTHON=C:/Python312/python.exe`.
+PYTHON ?= python
+PYTEST := PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m pytest
 # Markers excluded from every non-live run.
 NOT_LIVE := not live_alpaca and not live_paper and not live_mongo
 
@@ -68,6 +72,13 @@ smoke:
 
 notebooks:
 	@echo "Notebooks are built by notebooks/_build_*.py scripts; run individually after Phase 5/6/7."
+
+# verify-bayesian-fix — emit the audit 2026-05-29 Phase 3 verification report
+# (operator-pasteable PASS/FAIL grid). Sets PYTHONPATH like the test targets so
+# the lab is importable without an editable install. Pass extra flags via ARGS,
+# e.g. `make verify-bayesian-fix ARGS="--skip-short-run"`.
+verify-bayesian-fix:
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m bowaka_v2_lab.cli verify-bayesian-fix $(ARGS)
 
 clean:
 	rm -rf .pytest_cache .ruff_cache build dist *.egg-info src/*.egg-info

@@ -137,16 +137,31 @@ incumbent mapping + search-space v3, structured promotion evidence, resolved-
 config persistence + debug escalation), run the verification CLI to emit the
 operator-pasteable PASS/FAIL report:
 
+The lab is run WITHOUT an editable install, so `bowaka_v2_lab` is importable
+only with `PYTHONPATH` set (same as the test targets), and the interpreter must
+be one that has the lab's runtime deps (optuna / pandas / pyarrow). The Makefile
+target handles both:
+
 ```bash
 cd research_notebooks/bowaka_v2_lab
-python -m bowaka_v2_lab.cli verify-bayesian-fix \
-    --config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml \
-    --n-trials 3
-# Prints `VERIFICATION_REPORT: <path>` and `OVERALL: PASS|FAIL`, and writes a
-# Markdown report under artifacts/verification/. Copy the report and send it to
-# the planner agent for sign-off before unblocking Phases 4-7. Add
-# `--skip-short-run` to emit only the (fast, deterministic) P0 PASS/FAIL grid
-# without the 3-trial study short-run.
+# fast P0 PASS/FAIL grid only (no 3-trial short-run):
+make verify-bayesian-fix ARGS="--skip-short-run"
+# full report incl. the 3-trial short-run against the workstation config:
+make verify-bayesian-fix \
+    ARGS="--config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml --n-trials 3"
+# if your default `python` lacks the deps, pass an explicit one:
+make verify-bayesian-fix PYTHON=C:/Python312/python.exe ARGS="--skip-short-run"
 ```
 
-A single FAIL anywhere blocks promotion to Phases 4-7.
+Equivalently, invoke the module directly (PowerShell, from this directory) —
+note `python` must be the interpreter with the lab deps, NOT a bare 3.14:
+
+```powershell
+$env:PYTHONPATH = "src;../bowaka_common/src"
+C:\Python312\python.exe -m bowaka_v2_lab.cli verify-bayesian-fix --skip-short-run
+```
+
+It prints `VERIFICATION_REPORT: <path>` and `OVERALL: PASS|FAIL`, and writes a
+Markdown report under `artifacts/verification/`. Copy the report and send it to
+the planner agent for sign-off before unblocking Phases 4-7. A single FAIL
+anywhere blocks promotion.
