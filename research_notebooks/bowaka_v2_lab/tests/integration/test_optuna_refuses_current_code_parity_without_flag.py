@@ -129,6 +129,16 @@ def _write_parity_cfg(tmp_path: Path, lab_root: Path) -> Path:
     cfg_doc.setdefault("market_data", {})
     cfg_doc["market_data"]["require_adjusted_daily_bars"] = False
     cfg_doc["market_data"]["require_split_adjustment"] = False
+    # Audit 2026-05-29 §5.4 / Phase 1: the full-fold preflight now runs for
+    # current_code_parity too. The synthetic lake has no asset master (empty
+    # PIT universe by design -> a fast, candidate-free plumbing backtest), so
+    # set the PIT-universe floor to 0 to disable that gate for this fixture.
+    # This test exercises the parity ADMISSION gate, not the universe-size gate
+    # (covered by
+    # test_current_code_parity_full_fold_preflight_blocks_empty_pit_universe).
+    # ``scanner`` and other contract fields are parity-locked and must not be
+    # altered here (doing so trips the config-parity gate).
+    cfg_doc["preflight"] = {"min_pit_universe_per_fold": 0}
     cfg_path.write_text(yaml.safe_dump(cfg_doc), encoding="utf-8")
     return cfg_path
 

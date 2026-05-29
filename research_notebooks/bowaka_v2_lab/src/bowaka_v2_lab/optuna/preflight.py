@@ -63,6 +63,12 @@ class PreflightCheck:
 class PreflightResult:
     passed: bool
     checks: list[PreflightCheck]
+    #: Audit 2026-05-29 §5.4 / Phase 1 — non-blocking IEX/current_code_parity
+    #: partial-tape limitations (e.g. ``missing_historical_quotes``,
+    #: ``missing_sip``). Recorded in the run manifest so a reviewer can never
+    #: mistake an IEX parity run for a SIP-grade run. Empty for intended_realism
+    #: (where the same gaps are hard fails).
+    iex_partial_tape_limitations: list[str] = field(default_factory=list)
 
     @property
     def failures(self) -> list[PreflightCheck]:
@@ -76,6 +82,7 @@ class PreflightResult:
                  "evidence": c.evidence}
                 for c in self.checks
             ],
+            "iex_partial_tape_limitations": list(self.iex_partial_tape_limitations),
         }
 
 
@@ -83,6 +90,12 @@ class PreflightResult:
 #: refused. Mirrors ``SimulationConfig.min_quote_coverage_pct`` but is read from
 #: the config so a study can lower it for an explicitly-degraded research run.
 DEFAULT_MIN_QUOTE_COVERAGE_PCT = 95.0
+
+#: Audit 2026-05-29 §5.4 / Phase 1 — a fold whose point-in-time universe
+#: resolves to fewer than this many eligible symbols cannot produce a
+#: statistically meaningful objective; the full-fold preflight refuses it.
+#: Overridable via ``cfg["preflight"]["min_pit_universe_per_fold"]``.
+DEFAULT_MIN_PIT_UNIVERSE_PER_FOLD = 25
 
 
 def _check_smoke(sim_mode: str, allow_smoke: bool) -> PreflightCheck:
@@ -546,10 +559,12 @@ def _probe_fold(
     feed: str,
     scan_times_per_session: Callable[[_dt.date], list[Any]],
     min_quote_coverage_pct: float,
+    min_pit_universe: int = DEFAULT_MIN_PIT_UNIVERSE_PER_FOLD,
 ) -> "PreflightResult":
     """Build a DQ report + probe quote coverage for ``fold`` and run preflight."""
     # Local imports avoid a circular import — these modules consume optuna
     # symbols at module load.
+    from ..data.adjustment import daily_adjustment_for_config
     from ..data.data_quality import build_data_quality_report
     from ..data.lineage import build_dataset_lineage
     from ..data.suppliers import (
@@ -605,6 +620,7 @@ def _probe_fold(
         minute_supplier, daily_supplier = make_lake_suppliers(
             lake_root, feed=feed,
             intraday_window_policy=resolve_intraday_window_policy(cfg),
+            daily_adjustment=daily_adjustment_for_config(cfg),
         )
         lineage = build_dataset_lineage(
             cfg=cfg, symbols=symbols,
@@ -696,7 +712,91 @@ def _probe_fold(
             evidence={**c.evidence, "kind": fold.kind,
                       "start": fold.start.isoformat(), "end": fold.end.isoformat()},
         ))
-    return PreflightResult(passed=result.passed, checks=relabeled)
+    fold_passed = result.passed
+
+    # Audit 2026-05-29 §5.4 / Phase 1 — extra hard-fail gates that apply to BOTH
+    # intended_realism AND current_code_parity (skipped for smoke_fixture). The
+    # legacy run_preflight is quote/DQ-centric and is tolerant under parity; a
+    # parity study against a fold with NO minute bars or an empty PIT universe
+    # is still un-runnable, so these gates fail closed regardless of mode.
+    if str(sim_mode) in ("intended_realism", "current_code_parity"):
+        # (a) Minute coverage — does a minute partition exist for any
+        # (sampled symbol, fold-month)? A partition-existence probe (not an
+        # in-window supplier call) is robust to the forming-window policy and
+        # DST shifts, and matches the audit's "missing minute bars for the
+        # entire fold window" intent: no minute data at all for the fold.
+        saw_minute = True  # default to present; only fail on a clean negative
+        try:
+            from bowaka_common.marketdata import MarketDataStore as _MDS
+            from bowaka_common.marketdata import layout as _layout
+
+            _store = lake_root if isinstance(lake_root, _MDS) else _MDS(lake_root)
+            months = sorted({(s.year, s.month) for s in sessions})
+            saw_minute = False
+            for sym in symbols[:25]:
+                for (yr, mo) in months:
+                    if _layout.minute_bars_path(
+                        _store.root, sym, yr, mo, feed=feed
+                    ).is_file():
+                        saw_minute = True
+                        break
+                if saw_minute:
+                    break
+        except Exception:  # noqa: BLE001 — a probe error must not false-fail the fold
+            saw_minute = True
+        if not saw_minute:
+            fold_passed = False
+            relabeled.append(PreflightCheck(
+                name=f"fold:{fold.fold_id}:missing_minute_coverage",
+                status="fail",
+                detail=(
+                    f"fold {fold.fold_id} has no forming-session minute bars for "
+                    f"any probed (symbol, scan_ts) in [{fold.start}, {fold.end}); "
+                    "the scanner cannot evaluate candidates."
+                ),
+                evidence={"kind": fold.kind, "simulation_mode": str(sim_mode)},
+            ))
+
+        # (b) PIT universe — refuse a fold whose point-in-time universe resolves
+        # to fewer than ``min_pit_universe`` eligible symbols on its best session.
+        pit_count = 0
+        try:
+            from bowaka_common.marketdata import MarketDataStore as _MDS
+
+            from ..universe.builder import (
+                build_pit_universe_for_sessions as _bpit,
+                eligible_symbols as _elig,
+            )
+
+            pit = _bpit(list(sessions), dict(cfg), _MDS(lake_root))
+            for s in sessions:
+                n_elig = len(_elig(pit.get(s, {})) or ())
+                if n_elig > pit_count:
+                    pit_count = n_elig
+        except Exception as exc:  # noqa: BLE001 — a PIT build error is itself a fold failure
+            fold_passed = False
+            relabeled.append(PreflightCheck(
+                name=f"fold:{fold.fold_id}:pit_universe_error",
+                status="fail",
+                detail=f"fold {fold.fold_id} PIT universe build failed: {exc}",
+                evidence={"kind": fold.kind, "simulation_mode": str(sim_mode)},
+            ))
+        else:
+            if pit_count < int(min_pit_universe):
+                fold_passed = False
+                relabeled.append(PreflightCheck(
+                    name=f"fold:{fold.fold_id}:empty_pit_universe",
+                    status="fail",
+                    detail=(
+                        f"fold {fold.fold_id} PIT universe has {pit_count} eligible "
+                        f"symbol(s) on its best session, below the required "
+                        f"minimum {int(min_pit_universe)}."
+                    ),
+                    evidence={"kind": fold.kind, "pit_universe_count": pit_count,
+                              "min_pit_universe": int(min_pit_universe)},
+                ))
+
+    return PreflightResult(passed=fold_passed, checks=relabeled)
 
 
 def run_full_fold_preflight(
@@ -710,6 +810,7 @@ def run_full_fold_preflight(
     config_hash: str,
     scan_times_per_session: Callable[[_dt.date], list[Any]],
     min_quote_coverage_pct: float,
+    mode: Optional[str] = None,
     raise_on_fail: bool = True,
 ) -> "PreflightResult":
     """Run preflight against EVERY validation + holdout window (audit §P1-006).
@@ -717,9 +818,86 @@ def run_full_fold_preflight(
     Cached by ``(dataset_hash, fold_id, config_hash)``: re-running with identical
     inputs is free. Raises :class:`PreflightError` (when ``raise_on_fail``) when
     any fold fails its preflight.
+
+    Audit 2026-05-29 §5.4 / Phase 1 — also runs under ``current_code_parity``
+    (not just ``intended_realism``). Adds study-level hard fails for a
+    config-required split-adjusted partition the lake lacks and for
+    validation/holdout window overlap, and — under ``current_code_parity`` only
+    — records non-blocking IEX partial-tape limitations (missing quotes / SIP)
+    instead of failing on them (those remain hard fails under intended_realism).
     """
+    sim_mode = str(mode or (cfg.get("simulation") or {}).get("mode") or "intended_realism")
+    _min_pit_cfg = (cfg.get("preflight") or {}).get("min_pit_universe_per_fold")
+    # NB: use an is-None check, not ``or`` — an explicit 0 (disable the floor)
+    # is falsy and must not silently fall back to the default.
+    min_pit = int(
+        DEFAULT_MIN_PIT_UNIVERSE_PER_FOLD if _min_pit_cfg is None else _min_pit_cfg
+    )
     aggregated: list[PreflightCheck] = []
+    limitations: list[str] = []
     all_passed = True
+
+    # ---- study-level gate 1: required daily-adjustment partition exists -------
+    # Hard-fail (both modes) when the config requires split_adjusted daily bars
+    # but the lake has no split_adjusted daily partition on disk. This runs
+    # BEFORE any fold probe so a multi-hour study never starts on a lake that
+    # cannot satisfy the strategy's adjustment contract.
+    from ..data.adjustment import daily_adjustment_for_config
+
+    required_adj = daily_adjustment_for_config(cfg)
+    if required_adj and required_adj != "raw":
+        from .autoconfig import probe_lake_capability
+
+        cap = probe_lake_capability(
+            Path(str(lake_root)), feed, required_adjustment=required_adj,
+        )
+        if not cap.has_required_daily_adjustment:
+            all_passed = False
+            aggregated.append(PreflightCheck(
+                name="daily_adjustment_partition",
+                status="fail",
+                detail=(
+                    f"config requires {required_adj} daily bars but the lake has "
+                    f"no {required_adj} daily partition on disk for feed={feed!r}. "
+                    "Re-ingest the adjusted partition or correct "
+                    "market_data.require_*_adjustment."
+                ),
+                evidence={"required_adjustment": required_adj, "feed": feed,
+                          "has_required_daily_adjustment": False},
+            ))
+
+    # ---- study-level gate 2: validation windows must not touch the holdout ----
+    holdouts = [f for f in folds if f.kind == "holdout"]
+    for ho in holdouts:
+        for vf in folds:
+            if vf.kind != "validation":
+                continue
+            # half-open overlap test on [start, end)
+            if vf.start < ho.end and ho.start < vf.end:
+                all_passed = False
+                aggregated.append(PreflightCheck(
+                    name=f"holdout_overlap:{vf.fold_id}",
+                    status="fail",
+                    detail=(
+                        f"validation fold {vf.fold_id} [{vf.start}, {vf.end}) "
+                        f"overlaps the final-holdout window [{ho.start}, {ho.end}); "
+                        "tuning must never read the holdout."
+                    ),
+                    evidence={"validation_fold": vf.fold_id, "holdout_fold": ho.fold_id},
+                ))
+
+    # ---- study-level gate 3 (current_code_parity only): IEX partial-tape -----
+    # Record (do NOT fail on) the limitations that make an IEX parity run a
+    # research-only run. Under intended_realism the per-fold quote gate fails
+    # on these instead (preserved below).
+    if sim_mode == "current_code_parity":
+        from .autoconfig import lake_has_quotes
+
+        if not lake_has_quotes(Path(str(lake_root)), feed):
+            limitations.append("missing_historical_quotes")
+        if str(feed) != "sip":
+            limitations.append("missing_sip")
+
     for fold in folds:
         cache_key = (str(dataset_hash), fold.fold_id, str(config_hash))
         cached = _FULL_FOLD_PREFLIGHT_CACHE.get(cache_key)
@@ -728,12 +906,16 @@ def run_full_fold_preflight(
                 cfg=cfg, fold=fold, symbols=symbols, lake_root=lake_root,
                 feed=feed, scan_times_per_session=scan_times_per_session,
                 min_quote_coverage_pct=min_quote_coverage_pct,
+                min_pit_universe=min_pit,
             )
             _FULL_FOLD_PREFLIGHT_CACHE[cache_key] = cached
         if not cached.passed:
             all_passed = False
         aggregated.extend(cached.checks)
-    result = PreflightResult(passed=all_passed, checks=aggregated)
+    result = PreflightResult(
+        passed=all_passed, checks=aggregated,
+        iex_partial_tape_limitations=limitations,
+    )
     if raise_on_fail and not result.passed:
         failures = [c for c in aggregated if c.status == "fail"]
         reasons = "; ".join(f"[{c.name}] {c.detail}" for c in failures)

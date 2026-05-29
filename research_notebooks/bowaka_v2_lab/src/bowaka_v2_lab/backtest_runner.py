@@ -103,12 +103,14 @@ def resolve_suppliers(cfg: dict):
     """
     md = cfg.get("market_data", {}) or {}
     if uses_lake(cfg):
+        from .data.adjustment import daily_adjustment_for_config
         from .data.suppliers import make_lake_suppliers, resolve_intraday_window_policy
 
         return make_lake_suppliers(
             md.get("shared_root"),
             feed=md.get("feed", "iex"),
             intraday_window_policy=resolve_intraday_window_policy(cfg),
+            daily_adjustment=daily_adjustment_for_config(cfg),
         )
     return _synthetic_suppliers()
 
@@ -117,10 +119,12 @@ def resolve_daily_cache(cfg: dict, symbols: list[str], session: _dt.date) -> pd.
     """Daily-feature cache for ``session`` — lake-backed or synthetic per config."""
     md = cfg.get("market_data", {}) or {}
     if uses_lake(cfg):
+        from .data.adjustment import daily_adjustment_for_config
         from .data.suppliers import build_daily_cache_from_lake
 
         return build_daily_cache_from_lake(
-            md.get("shared_root"), symbols, session, feed=md.get("feed", "iex")
+            md.get("shared_root"), symbols, session, feed=md.get("feed", "iex"),
+            daily_adjustment=daily_adjustment_for_config(cfg),
         )
     return synthetic_daily_cache(symbols)
 

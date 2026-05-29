@@ -85,6 +85,7 @@ class CachedSessionMarketData:
         default_max_age_seconds: float = 60.0,
         window_minutes: int = 5,
         daily_lookback_days: int = 400,
+        daily_adjustment: str = "raw",
     ):
         self.store = store
         self.feed = feed
@@ -92,6 +93,10 @@ class CachedSessionMarketData:
         self.default_max_age_seconds = float(default_max_age_seconds)
         self.window_minutes = int(window_minutes)
         self.daily_lookback_days = int(daily_lookback_days)
+        # Audit 2026-05-29 §5.3 / Phase 1 — lake-partition adjustment for the
+        # daily reader (default "raw"; "split_adjusted" when the config
+        # requires adjusted daily bars).
+        self.daily_adjustment = str(daily_adjustment)
         self._minute_cache: _LRU = _LRU(max_partition_entries)
         self._quote_cache: _LRU = _LRU(max_partition_entries)
         self._missing_quote_partitions: set[tuple[str, int, int]] = set()
@@ -272,12 +277,16 @@ class CachedSessionMarketData:
         """
         end = _to_date(session_date)
         start = end - _dt.timedelta(days=self.daily_lookback_days)
-        # Daily caching: bucket by (symbol, end_date) so a fold reusing the
-        # same lookback window does not re-read the parquet on every call.
-        key = (symbol, end, self.feed)
+        # Daily caching: bucket by (symbol, end_date, feed, adjustment) so a
+        # fold reusing the same lookback window does not re-read the parquet on
+        # every call, and a raw vs split_adjusted read never collide in cache.
+        key = (symbol, end, self.feed, self.daily_adjustment)
 
         def _load() -> pd.DataFrame:
-            return self.store.daily_bars(symbol, start, end, feed=self.feed)
+            return self.store.daily_bars(
+                symbol, start, end, feed=self.feed,
+                adjustment=self.daily_adjustment,
+            )
 
         return self._daily_cache.get_or_set(key, _load)
 
@@ -292,8 +301,13 @@ def make_cached_lake_suppliers(
     default_max_age_seconds: float = 60.0,
     window_minutes: int = 5,
     max_partition_entries: int = 4096,
+    daily_adjustment: str = "raw",
 ) -> CachedSessionMarketData:
-    """Construct a :class:`CachedSessionMarketData` for ``lake_root``."""
+    """Construct a :class:`CachedSessionMarketData` for ``lake_root``.
+
+    Audit 2026-05-29 §5.3 / Phase 1: ``daily_adjustment`` selects the daily
+    lake partition (default ``"raw"``).
+    """
     store = (
         lake_root if isinstance(lake_root, MarketDataStore)
         else MarketDataStore(lake_root, vendor=vendor)
@@ -305,6 +319,7 @@ def make_cached_lake_suppliers(
         default_max_age_seconds=default_max_age_seconds,
         window_minutes=window_minutes,
         max_partition_entries=max_partition_entries,
+        daily_adjustment=daily_adjustment,
     )
 
 
