@@ -29,22 +29,49 @@ def _require_contract() -> None:
 
 
 def test_incumbent_baseline_params_reads_contract_values() -> None:
-    """Every contract-projected key maps to its value from the frozen contract."""
+    """Every incumbent key matches the MAPPED lab config (audit 2026-05-29 §6.7).
+
+    Post-Phase-2 the incumbent reads the mapped lab config (flat execution keys,
+    derived signal-fade gap + reward/risk ratio), NOT a raw-contract dotted
+    lookup. Directly-mapped keys equal the mapped config; the v3 gap/ratio keys
+    equal the value derived from the mapped config's absolute thresholds.
+    """
+    import pytest
+
+    from bowaka_v2_lab.reference.import_config import build_config_from_contract
+
     params = _incumbent_baseline_params()
-    contract = reference.load_actual_contract()
-    # At minimum the strategy contract carries enough signal/sizing/risk/exits
-    # values that several search-space keys are populated. The exact count
-    # depends on the contract content; assert "non-empty + every value matches".
+    cfg = build_config_from_contract(
+        reference.load_actual_contract(),
+        feed="iex", mode="current_code_parity", feed_thresholds="actual",
+    )
     assert params, "incumbent baseline must be non-empty against a real contract"
-    for name, value in params.items():
-        # Dotted-path lookup against the contract reproduces the same value.
-        parts = name.split(".")
-        node = contract
-        for p in parts:
+
+    sf = "exits.signal_fade.score_thresholds."
+    derived_keys = {sf + "hard_gap", sf + "critical_gap", "exits.reward_risk_ratio"}
+
+    def _dig(d: dict, dotted: str):
+        node = d
+        for p in dotted.split("."):
             node = node[p]
-        assert node == value, (
-            f"incumbent[{name}]={value!r} does not match contract value {node!r}"
+        return node
+
+    # Directly-mapped keys equal the mapped lab config value.
+    for name, value in params.items():
+        if name in derived_keys:
+            continue
+        assert _dig(cfg, name) == value, (
+            f"incumbent[{name}]={value!r} does not match mapped config "
+            f"{_dig(cfg, name)!r}"
         )
+
+    # v3 gap/ratio keys are derived from the mapped config's absolute fields.
+    st = _dig(cfg, "exits.signal_fade.score_thresholds")
+    assert params[sf + "hard_gap"] == pytest.approx(st["hard"] - st["soft"])
+    assert params[sf + "critical_gap"] == pytest.approx(st["critical"] - st["hard"])
+    assert params["exits.reward_risk_ratio"] == pytest.approx(
+        _dig(cfg, "exits.target_pct") / _dig(cfg, "exits.stop_pct")
+    )
 
 
 def test_incumbent_keys_are_subset_of_search_space() -> None:

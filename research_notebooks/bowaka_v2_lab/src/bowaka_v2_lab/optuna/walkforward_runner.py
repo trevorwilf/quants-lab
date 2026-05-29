@@ -61,7 +61,11 @@ from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
 from .calendar_sessions import calendar_sessions_half_open
 from ..utils.memory_guard import MemoryBudget
 from .dispatcher import OptunaStudy, run_bowaka_optimization_dispatch
-from .errors import OptunaStudyInvalidError, structural_exceptions
+from .errors import (
+    REASON_INCUMBENT_MAPPING_INCOMPLETE,
+    OptunaStudyInvalidError,
+    structural_exceptions,
+)
 from .fold_context import (
     FoldRuntimeContext,
     assert_search_space_does_not_affect_context,
@@ -367,6 +371,51 @@ def _resolve_symbols(
     return ["AAA", "BBB", "CCC"]
 
 
+_SF = "exits.signal_fade.score_thresholds."
+
+
+def _derived_strategy_fields(params: Mapping[str, Any]) -> dict[str, Any]:
+    """Audit 2026-05-29 §6.8 — the actual-strategy fields derived from the
+    gap/ratio search-space keys: ``...hard``, ``...critical``, ``target_pct``.
+
+    Returns only the derived fields (empty when the gap/ratio keys are absent),
+    clamped to the outer legal ranges of the pre-v3 search space so the derived
+    values stay bounded regardless of how the gaps/ratio were sampled.
+    """
+    out: dict[str, Any] = {}
+    soft = params.get(_SF + "soft")
+    hard_gap = params.get(_SF + "hard_gap")
+    critical_gap = params.get(_SF + "critical_gap")
+    if soft is not None and hard_gap is not None:
+        hard = min(0.70, float(soft) + float(hard_gap))
+        out[_SF + "hard"] = hard
+        if critical_gap is not None:
+            out[_SF + "critical"] = min(0.90, hard + float(critical_gap))
+    stop_pct = params.get("exits.stop_pct")
+    ratio = params.get("exits.reward_risk_ratio")
+    if stop_pct is not None and ratio is not None:
+        out["exits.target_pct"] = min(0.40, float(stop_pct) * float(ratio))
+    return out
+
+
+def _derive_strategy_params(params: Mapping[str, Any]) -> dict[str, Any]:
+    """Return ``params`` with the gap/ratio internal keys replaced by the
+    derived actual-strategy fields (the strategy has no gap/ratio fields).
+
+    Idempotent: a params dict without gap/ratio keys is returned unchanged, so
+    a neighbour set or an already-derived params dict is safe to pass.
+    """
+    derived = _derived_strategy_fields(params)
+    if not derived:
+        return dict(params)
+    out = dict(params)
+    out.pop(_SF + "hard_gap", None)
+    out.pop(_SF + "critical_gap", None)
+    out.pop("exits.reward_risk_ratio", None)
+    out.update(derived)
+    return out
+
+
 def apply_trial_params(base_cfg: dict, params: dict[str, Any]) -> dict:
     """Return a deep copy of ``base_cfg`` with dotted trial params applied.
 
@@ -379,7 +428,18 @@ def apply_trial_params(base_cfg: dict, params: dict[str, Any]) -> dict:
             -> cfg["exits"]["time_stop"]["exit_time"] = "15:45"
         "exits.signal_fade.score_thresholds.hard": 0.5
             -> cfg["exits"]["signal_fade"]["score_thresholds"]["hard"] = 0.5
+
+    Audit 2026-05-29 §6.8 / Phase 2 — the search space samples gap/ratio keys
+    (``...soft`` + ``...hard_gap`` + ``...critical_gap`` and
+    ``exits.reward_risk_ratio``) so the constraints ``soft < hard < critical``
+    and ``target_pct > stop_pct`` ALWAYS hold. Here those internal keys are
+    converted to the actual-strategy fields the simulator reads
+    (``...hard`` / ``...critical`` / ``exits.target_pct``) and the gap/ratio
+    keys are dropped (the strategy has no such fields). The derived values are
+    clamped to the OUTER legal ranges of the old search space (hard <= 0.70,
+    critical <= 0.90, target_pct <= 0.40) so post-clamp samples stay bounded.
     """
+    params = _derive_strategy_params(params)
     cfg = copy.deepcopy(base_cfg)
     for dotted, value in params.items():
         parts = dotted.split(".")
@@ -1074,34 +1134,129 @@ def _enqueue_incumbent_trial(
     return clamped
 
 
-def _incumbent_baseline_params() -> dict[str, Any]:
-    """Read the actual-contract parameter set used as trial 0 (the incumbent).
+_MISSING = object()
 
-    Reads the frozen contract via :mod:`bowaka_v2_lab.reference` and projects
-    every search-space key to the equivalent contract value (dotted-path lookup).
-    A parameter not present in the contract (e.g. a lab-only knob) is omitted
-    from the returned dict — the optimizer will sample it normally for trial 0.
+#: Search-space keys with NO actual-strategy equivalent in the mapped lab
+#: config. Audit 2026-05-29 §6.7 requires that NOTHING is silently padded — any
+#: key listed here is an explicit, justified exclusion from the incumbent
+#: comparison. Empty today: every search-space key maps to the mapped contract
+#: config (the gap/ratio keys are derived in import_config's mapping).
+_LAB_ONLY_SEARCH_KEYS: set[str] = set()
+
+
+def _dotted_lookup(d: Mapping[str, Any], dotted: str, default: Any = None) -> Any:
+    node: Any = d
+    for p in dotted.split("."):
+        if isinstance(node, Mapping) and p in node:
+            node = node[p]
+        else:
+            return default
+    return node
+
+
+def _incumbent_gap_ratio_from_config(cfg: Mapping[str, Any]) -> dict[str, Any]:
+    """Audit 2026-05-29 §6.8 — the v3 gap/ratio incumbent values computed from
+    the mapped config's RAW exits fields (the inverse of
+    :func:`_derived_strategy_fields`).
+
+    The config stores absolute thresholds (soft/hard/critical, stop/target);
+    the search space samples soft + hard_gap + critical_gap and
+    reward_risk_ratio. Computing these here (rather than storing them in the
+    config) keeps the strict ``extra="forbid"`` exits schema clean.
+    """
+    out: dict[str, Any] = {}
+    sf = _dotted_lookup(cfg, "exits.signal_fade.score_thresholds", default={}) or {}
+    if isinstance(sf, Mapping) and {"soft", "hard", "critical"} <= set(sf):
+        out[_SF + "hard_gap"] = float(sf["hard"]) - float(sf["soft"])
+        out[_SF + "critical_gap"] = float(sf["critical"]) - float(sf["hard"])
+    stop_pct = _dotted_lookup(cfg, "exits.stop_pct")
+    target_pct = _dotted_lookup(cfg, "exits.target_pct")
+    if stop_pct not in (None, 0, 0.0) and target_pct is not None:
+        out["exits.reward_risk_ratio"] = float(target_pct) / float(stop_pct)
+    return out
+
+
+def _incumbent_baseline_params(
+    *, lab_config: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Trial 0 incumbent built from the MAPPED actual lab config.
+
+    Audit 2026-05-29 §6.7 / Appendix E.3: the previous implementation did a
+    dotted lookup of search-space keys against the *raw frozen contract*, which
+    nests keys like ``execution.quote_gate.max_quote_age_seconds``. The search
+    space uses flat keys like ``execution.max_quote_age_seconds``, so the lookup
+    failed and the caller padded with search-space midpoints (the WARNING in the
+    pasted Notebook 10 output). That padding produced an incumbent that was NOT
+    the actual strategy.
+
+    The new implementation reads from the mapped lab config (the same shape the
+    shipping configs use, via :func:`reference.import_config.build_config_from_contract`)
+    where the nested ``execution.quote_gate.*`` has been folded into the flat
+    ``execution.max_quote_age_seconds`` / ``execution.max_spread_bps`` and the
+    signal-fade / reward-risk gap/ratio keys have been derived. NOTHING is
+    padded: a search-space key missing from the mapped config raises
+    :class:`OptunaStudyInvalidError` (``INCUMBENT_MAPPING_INCOMPLETE``) unless
+    it is an explicit :data:`_LAB_ONLY_SEARCH_KEYS` exclusion.
     """
     from ..reference import contract_available, load_actual_contract
+    from ..reference.import_config import build_config_from_contract
     from .search_space import SEARCH_SPACE_SPEC
 
-    if not contract_available():
-        return {}
-    contract = load_actual_contract()
+    if lab_config is None:
+        if not contract_available():
+            return {}
+        lab_config = build_config_from_contract(
+            load_actual_contract(),
+            feed="iex", mode="current_code_parity", feed_thresholds="actual",
+        )
+    # The v3 gap/ratio search keys are computed from the mapped config's raw
+    # exits fields (the config stores absolute thresholds).
+    gap_ratio = _incumbent_gap_ratio_from_config(lab_config)
+    missing: list[str] = []
     out: dict[str, Any] = {}
     for name in SEARCH_SPACE_SPEC:
-        parts = name.split(".")
-        node: Any = contract
-        ok = True
-        for p in parts:
-            if isinstance(node, dict) and p in node:
-                node = node[p]
-            else:
-                ok = False
-                break
-        if ok and node is not None:
-            out[name] = node
+        if name in _LAB_ONLY_SEARCH_KEYS:
+            continue
+        if name in gap_ratio:
+            out[name] = gap_ratio[name]
+            continue
+        value = _dotted_lookup(lab_config, name, default=_MISSING)
+        if value is _MISSING or value is None:
+            missing.append(name)
+        else:
+            out[name] = value
+    if missing:
+        raise OptunaStudyInvalidError(
+            f"{REASON_INCUMBENT_MAPPING_INCOMPLETE}: search-space keys missing "
+            f"from the mapped lab config: {sorted(missing)}. Either map the keys "
+            f"in reference/import_config.build_config_from_contract, or list each "
+            f"in _LAB_ONLY_SEARCH_KEYS with a comment explaining why it has no "
+            f"actual-strategy equivalent."
+        )
     return out
+
+
+def assert_search_space_version_compatible(
+    study_user_attrs: Mapping[str, Any],
+    *,
+    study_name: str = "",
+    current_version: int = SEARCH_SPACE_VERSION,
+) -> None:
+    """Audit 2026-05-29 §6.8 — refuse reuse of a study created under a different
+    search-space version.
+
+    Optuna's ``load_if_exists`` reuses a study by name; its trials were sampled
+    from a DIFFERENT bound set, so mixing them with current-version trials is
+    meaningless. A fresh study (no stored ``search_space_version``) passes.
+    """
+    prior = study_user_attrs.get("search_space_version")
+    if prior is not None and int(prior) != int(current_version):
+        raise OptunaStudyInvalidError(
+            f"SEARCH_SPACE_HASH_MISMATCH: study {study_name!r} was created under "
+            f"search_space_version={prior} but the current version is "
+            f"{current_version}; a study created under a different search space "
+            f"must not be reused — start a new study."
+        )
 
 
 def _hash(payload: Any) -> str:
@@ -1971,6 +2126,12 @@ def run_walkforward_study(
     }
     if feed_caveat is not None:
         study_metadata["feed_caveat"] = feed_caveat
+    # Audit 2026-05-29 §6.8 / Appendix E.6 — refuse to reuse a study created
+    # under a DIFFERENT search-space version. Runs BEFORE the user_attr loop
+    # below overwrites the stored version with the current one.
+    assert_search_space_version_compatible(
+        study.study.user_attrs, study_name=study.study.study_name,
+    )
     for key, value in study_metadata.items():
         study.study.set_user_attr(key, value)
 
@@ -1994,42 +2155,15 @@ def run_walkforward_study(
     # "dynamic value space" errors on every subsequent trial).
     incumbent_params: Optional[dict[str, Any]] = None
     if incumbent_trial:
+        # Audit 2026-05-29 §6.7 — _incumbent_baseline_params reads the MAPPED
+        # actual lab config and raises INCUMBENT_MAPPING_INCOMPLETE if any
+        # search-space key is missing (NO silent padding — the old midpoint
+        # padding produced a Trial 0 that was NOT the actual strategy). An empty
+        # dict means the frozen contract is unavailable (e.g. a smoke run with
+        # no generated contract); trial 0 then falls back to a TPE-startup
+        # sample.
         incumbent_params = _incumbent_baseline_params()
         if incumbent_params:
-            # The frozen contract carries only a subset of every search-space
-            # key (lab-only knobs like ``execution.max_quote_age_seconds`` are
-            # not in the contract). The strict enqueue helper refuses on
-            # missing keys; fill the contract gap with the search-space
-            # midpoint default so the enqueue still pins trial 0 to the
-            # incumbent for contract-covered keys without spuriously failing
-            # the study. ``_padded_count`` is recorded on the study so the
-            # operator can audit the gap.
-            from .search_space import resolve_search_space as _resolve_ss
-
-            _spec = _resolve_ss(search_space_overrides)
-            _padded: dict[str, Any] = {}
-            for _name, _entry in _spec.items():
-                if _name in incumbent_params:
-                    continue
-                _kind = _entry[0]
-                if _kind == "uniform":
-                    incumbent_params[_name] = (float(_entry[1]) + float(_entry[2])) / 2.0
-                elif _kind == "log_uniform":
-                    incumbent_params[_name] = (float(_entry[1]) * float(_entry[2])) ** 0.5
-                elif _kind == "int":
-                    incumbent_params[_name] = (int(_entry[1]) + int(_entry[2])) // 2
-                elif _kind == "categorical":
-                    incumbent_params[_name] = list(_entry[1])[0]
-                else:  # pragma: no cover — defensive
-                    continue
-                _padded[_name] = incumbent_params[_name]
-            if _padded:
-                log.warning(
-                    "incumbent baseline padded %d search-space key(s) absent "
-                    "from the contract with search-space defaults: %s",
-                    len(_padded), sorted(_padded.keys()),
-                )
-                study.study.set_user_attr("incumbent_padded_from_search_space", _padded)
             clamped = _enqueue_incumbent_trial(
                 study.study, incumbent_params,
                 search_space_overrides=search_space_overrides,
@@ -2041,10 +2175,11 @@ def run_walkforward_study(
                     "bounds: %s",
                     len(clamped), sorted(clamped.keys()),
                 )
-            log.info("incumbent baseline: enqueued trial 0 with %d params "
-                     "(%d from contract, %d padded from search space)",
-                     len(incumbent_params),
-                     len(incumbent_params) - len(_padded), len(_padded))
+            log.info(
+                "incumbent baseline: enqueued trial 0 with %d params "
+                "(all from the mapped actual contract; no padding)",
+                len(incumbent_params),
+            )
         else:
             log.warning("incumbent baseline requested but no contract available; "
                         "trial 0 will be a regular TPE-startup sample")
@@ -2485,6 +2620,15 @@ def run_walkforward_study(
         "stable": True, "max_cv": 0.0, "param_cvs": {},
     }
 
+    # Audit 2026-05-29 §6.8 / Phase 2 — export BOTH the internal (gap/ratio)
+    # search-space keys AND the derived actual-strategy fields (hard / critical
+    # / target_pct) in best_params, so downstream tooling can consume either
+    # shape. ``derived_keys`` lists the derived names.
+    _best_internal = (dict(best.params) if best else {})
+    _best_derived = _derived_strategy_fields(_best_internal) if _best_internal else {}
+    best_params_export = {**_best_internal, **_best_derived}
+    best_derived_keys = sorted(_best_derived.keys())
+
     out = {
         "status": "ok",
         "study_name": study.study.study_name,
@@ -2527,7 +2671,8 @@ def run_walkforward_study(
         ],
         "final_holdout_scored": False,  # Phase 9: only `--final-holdout` scores it.
         "best_value": (best.value if best else None),
-        "best_params": (dict(best.params) if best else {}),
+        "best_params": best_params_export,
+        "derived_keys": best_derived_keys,
         # Realism remediation 2 Phase 8 — the overridden median-minus-stability
         # best, kept alongside Optuna's best_trial for reference. They normally
         # agree (the objective IS median-minus-stability); they diverge only if
@@ -2636,8 +2781,27 @@ def run_walkforward_study(
         suitability_tier = effective_tier
         out["suitability_tier"] = suitability_tier
 
+    # Audit 2026-05-29 §6.8 / §10.4 — structured promotion evidence. Separate
+    # booleans so a reviewer can never mistake a valid IEX research run (or a
+    # completed-but-invalid study) for a parameter recommendation. This is a
+    # success-path study (study_valid=True); IEX caps recommendation at
+    # research_only regardless.
+    from .promotion_gates import evaluate_promotion_evidence as _eval_evidence
+
+    _evidence = _eval_evidence(
+        study_valid=True,
+        invalid_reasons=[],
+        feed=feed,
+        simulation_mode=sim_cfg.mode,
+        risk_control_drift=bool(promotion_decision["risk_policy_experiment"]),
+        # Paper-reconciliation evidence is produced by a later phase; absent here.
+        paper_reconciliation_artifact_present=False,
+        best_params=best_params_export,
+        requested_tier=str(promotion_decision["requested_tier"]),
+    )
+
     promotion_evidence: dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "study_name": study.study.study_name,
         "simulation_contract": simulation_contract,
         "suitability_tier": suitability_tier,
@@ -2653,7 +2817,19 @@ def run_walkforward_study(
         "code_hash": code_hash,
         "best_trial_number": (best.number if best is not None else None),
         "best_value": (best.value if best is not None else None),
-        "best_params": (dict(best.params) if best is not None else {}),
+        "best_params": best_params_export,
+        "derived_keys": best_derived_keys,
+        # Audit 2026-05-29 §6.8 / §10.4 — structured promotion booleans (flat so
+        # a reviewer / the verification CLI reads them directly). These are the
+        # authoritative answers; ``promotable`` below is a back-compat alias.
+        "study_execution_completed": _evidence.study_execution_completed,
+        "study_valid": _evidence.study_valid,
+        "invalid_reasons": list(_evidence.invalid_reasons),
+        "reviewable_for_research": _evidence.reviewable_for_research,
+        "parameter_recommendation_allowed": _evidence.parameter_recommendation_allowed,
+        "promotable_to_paper": _evidence.promotable_to_paper,
+        "promotable_to_live": _evidence.promotable_to_live,
+        "caps_applied": list(_evidence.caps_applied),
         "fold_dispersion": fold_dispersion,
         "worst_fold": worst_fold,
         "parameter_stability": clustering,
