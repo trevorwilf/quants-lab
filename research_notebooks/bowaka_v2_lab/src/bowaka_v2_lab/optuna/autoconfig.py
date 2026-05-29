@@ -213,7 +213,17 @@ def resolve_walkforward_config(
     if out_path is not None:
         dest = Path(out_path)
     else:
-        dest = Path(tempfile.mkdtemp(prefix="bowaka_wf_autocfg_")) / "walkforward_resolved.yml"
+        # Audit 2026-05-29 §8.1 / Phase 3 — persist the resolved config under the
+        # lab's artifacts (durable lineage), not volatile /tmp. Falls back to a
+        # temp dir only when the config declares no artifact_root.
+        _artifact_root = ((cfg.get("paths") or {}).get("artifact_root"))
+        if _artifact_root:
+            dest = Path(_artifact_root) / "resolved_configs" / "walkforward_resolved.yml"
+        else:
+            dest = (
+                Path(tempfile.mkdtemp(prefix="bowaka_wf_autocfg_"))
+                / "walkforward_resolved.yml"
+            )
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
     return ResolvedWalkforwardConfig(

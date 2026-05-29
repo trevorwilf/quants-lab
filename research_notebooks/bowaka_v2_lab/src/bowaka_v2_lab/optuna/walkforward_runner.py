@@ -880,6 +880,81 @@ def make_walkforward_objective_for_worker(
     )
 
 
+def _write_trial_debug_artifact(
+    *, paths: BowakaV2Paths, trial: Any, folds: list, result: Any,
+    params: Mapping[str, Any], reason: str, log: logging.Logger,
+) -> None:
+    """Persist a per-trial debug telemetry record (audit 2026-05-29 §6.10 /
+    Phase 3) under ``artifacts/optuna/debug/trial_<N>.json``, even under
+    objective_minimal, so an escalated trial is diagnosable without re-running.
+    """
+    try:
+        tn = int(getattr(trial, "number", -1))
+        out = {
+            "trial_number": tn,
+            "escalation_reason": reason,
+            "incumbent_trial": trial.user_attrs.get("incumbent_trial") is True,
+            "params": dict(params),
+            "objective": float(result.objective),
+            "fold_scores": list(result.fold_scores),
+            "fold_metrics": [
+                {"fold_id": f.fold_id, "n_trades": int(f.n_trades),
+                 "fold_status": f.fold_status, **f.metrics}
+                for f in folds
+            ],
+            "penalty_breakdown": dict(result.penalty_breakdown),
+        }
+        dbg_dir = Path(paths.artifact_root) / "optuna" / "debug"
+        dbg_dir.mkdir(parents=True, exist_ok=True)
+        (dbg_dir / f"trial_{tn:04d}.json").write_text(
+            json.dumps(out, indent=2, default=str), encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001 — debug telemetry must never fail a trial
+        log.warning("could not write trial debug artifact: %s", exc)
+
+
+def make_constant_surface_escalation_callback(
+    log: logging.Logger, *, n_startup_trials: int, epsilon: float = 1e-6,
+) -> Callable[[Any, Any], None]:
+    """Audit 2026-05-29 §6.10 / Phase 3 (b) — best-effort constant-surface
+    escalation. An Optuna callback that logs when the last
+    ``K = max(10, n_startup_trials)`` completed trial values are all within
+    ``epsilon`` (a suspected constant_objective_surface), so the operator sees
+    the escalation mid-run. Best-effort: under process-parallel mode children
+    see a stale study view, so the log may lag by a trial or two.
+    """
+    K = max(10, int(n_startup_trials))
+    state = {"last_logged_for": -1}
+
+    def _cb(study: Any, trial: Any) -> None:
+        try:
+            import optuna as _optuna_mod
+
+            completed = [
+                t for t in study.get_trials(deepcopy=False)
+                if t.state == _optuna_mod.trial.TrialState.COMPLETE
+                and t.value is not None
+            ]
+            if len(completed) < K:
+                return
+            recent = [float(t.value) for t in completed[-K:]]
+            v0 = recent[0]
+            if all(abs(v - v0) <= epsilon for v in recent):
+                next_trial = len(study.get_trials(deepcopy=False))
+                if state["last_logged_for"] != next_trial:
+                    state["last_logged_for"] = next_trial
+                    log.info(
+                        "objective_artifact_mode escalated to full_debug for "
+                        "trial %d: last %d trial values within %g of each other "
+                        "(suspect constant_objective_surface)",
+                        next_trial, K, epsilon,
+                    )
+        except Exception:  # noqa: BLE001 — a callback must never abort the study
+            pass
+
+    return _cb
+
+
 def make_walkforward_objective(
     base_cfg: dict,
     plan,
@@ -929,6 +1004,15 @@ def make_walkforward_objective(
         pruning_cfg.get("min_completed_trials_before_pruning", 30)
     )
     catastrophic_floor = float(pruning_cfg.get("catastrophic_floor", -0.5))
+
+    # Audit 2026-05-29 §6.10 / §P0-007 / Phase 3 — debug artifact escalation.
+    # Trial 0 (incumbent), the first ``debug_first_n_trials`` sampled trials, and
+    # any operator-forced trial number persist a per-trial debug telemetry record
+    # even under objective_minimal, so a degenerate (all-tie / no-trade) run can
+    # be diagnosed without re-running the study.
+    _dbg_cfg = (base_cfg.get("optuna") or {})
+    debug_first_n_trials = int(_dbg_cfg.get("debug_first_n_trials", 3))
+    debug_trials_force = {int(x) for x in (_dbg_cfg.get("debug_trials_force") or [])}
 
     def objective(trial: Any) -> float:
         try:
@@ -1017,6 +1101,20 @@ def make_walkforward_objective(
                 trial.set_user_attr("config_hash", config_hash)
             if code_hash is not None:
                 trial.set_user_attr("code_hash", code_hash)
+            # Debug escalation (audit 2026-05-29 §6.10 / Phase 3) — persist a
+            # per-trial telemetry record for the incumbent, the first N sampled
+            # trials, and any operator-forced trial number.
+            _is_incumbent = trial.user_attrs.get("incumbent_trial") is True
+            _tn = int(getattr(trial, "number", -1))
+            if _is_incumbent or _tn < debug_first_n_trials or _tn in debug_trials_force:
+                _reason = (
+                    "incumbent" if _is_incumbent
+                    else ("forced" if _tn in debug_trials_force else "first_n")
+                )
+                _write_trial_debug_artifact(
+                    paths=paths, trial=trial, folds=folds, result=result,
+                    params=params, reason=_reason, log=log,
+                )
             return result.objective
         except structural:
             raise
@@ -2097,6 +2195,25 @@ def run_walkforward_study(
     except Exception:  # noqa: BLE001 — a missing/unreadable manifest is non-fatal
         pass
 
+    # Audit 2026-05-29 §7 / §8.1 / Phase 3 — persist the RESOLVED config under
+    # artifacts (not volatile /tmp) so the run's exact inputs are reproducible,
+    # and record its SHA-256 in the manifest. The resolved config is the
+    # in-memory cfg minus the loader's ``_source_path`` annotation.
+    import yaml as _yaml
+
+    _resolved_cfg = {k: v for k, v in cfg.items() if k != "_source_path"}
+    _resolved_bytes = _yaml.safe_dump(_resolved_cfg, sort_keys=True).encode("utf-8")
+    resolved_config_sha256 = hashlib.sha256(_resolved_bytes).hexdigest()
+    resolved_config_path = (
+        Path(paths.artifact_root) / "resolved_configs"
+        / f"{study.study.study_name}__resolved.yml"
+    )
+    try:
+        resolved_config_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_config_path.write_bytes(_resolved_bytes)
+    except Exception as exc:  # noqa: BLE001 — persistence is best-effort lineage
+        log.warning("could not persist resolved config: %s", exc)
+
     study_metadata = {
         "dataset_hash": dataset_hash,
         "lab_config_hash": lab_config_hash,
@@ -2120,6 +2237,8 @@ def run_walkforward_study(
         "effective_daily_adjustment": effective_daily_adjustment,
         "manifest_daily_adjustment": manifest_daily_adjustment,
         "iex_partial_tape_limitations": iex_partial_tape_limitations,
+        "resolved_config_sha256": resolved_config_sha256,
+        "resolved_config_path": str(resolved_config_path),
         "preflight": preflight.as_dict(),
         "penalty_weights": vars(DEFAULT_PENALTY_WEIGHTS),
         "search_space_overrides": search_space_overrides,
@@ -2355,6 +2474,13 @@ def run_walkforward_study(
             sampler_seed=1337,
             n_startup_trials=startup,
             strict_parallel=strict_parallel_flag,
+            # Audit 2026-05-29 §6.10 / Phase 3 (b) — best-effort constant-surface
+            # escalation log (serial path only; harmless under parallel).
+            callbacks=[
+                make_constant_surface_escalation_callback(
+                    log, n_startup_trials=startup,
+                )
+            ],
         )
     except structural as struct_exc:
         failure_reason = (

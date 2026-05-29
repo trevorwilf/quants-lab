@@ -178,6 +178,19 @@ def _cmd_config_parity(args: argparse.Namespace) -> int:
     return 0 if not undeclared else 1
 
 
+def _cmd_verify_bayesian_fix(args: argparse.Namespace) -> int:
+    """Emit the Bayesian-optimization-fix verification report (audit 2026-05-29
+    Phase 3). Exit 0 only when every PASS/FAIL row is PASS."""
+    from .devtools.verify_bayesian_fix import main as _vbf_main
+
+    argv = ["--config", args.config, "--n-trials", str(args.n_trials)]
+    if args.out:
+        argv += ["--out", args.out]
+    if getattr(args, "skip_short_run", False):
+        argv += ["--skip-short-run"]
+    return int(_vbf_main(argv))
+
+
 def _cmd_verify_lake(args: argparse.Namespace) -> int:
     """Verify the shared market-data lake's completeness against the realism contract.
 
@@ -421,6 +434,22 @@ def build_parser() -> argparse.ArgumentParser:
                          "contract requires bars + quotes + statuses + corporate "
                          "actions + asset snapshots + non-raw adjustment)")
     vl.set_defaults(func=_cmd_verify_lake)
+
+    # Audit 2026-05-29 Appendix B + F (Phase 3) — Bayesian-fix verification report.
+    vbf = sub.add_parser(
+        "verify-bayesian-fix",
+        help="emit the operator-pasteable Bayesian-optimization-fix verification "
+             "report (PASS/FAIL grid for each P0 finding); exit non-zero on any FAIL",
+    )
+    vbf.add_argument(
+        "--config",
+        default="configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml",
+    )
+    vbf.add_argument("--n-trials", type=int, default=3)
+    vbf.add_argument("--out", default=None)
+    vbf.add_argument("--skip-short-run", action="store_true",
+                     help="skip Section 7 (the 3-trial study short-run)")
+    vbf.set_defaults(func=_cmd_verify_bayesian_fix)
 
     rec = sub.add_parser(
         "reconcile",
