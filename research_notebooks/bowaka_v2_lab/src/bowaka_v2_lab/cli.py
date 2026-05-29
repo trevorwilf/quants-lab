@@ -193,6 +193,19 @@ def _cmd_verify_bayesian_fix(args: argparse.Namespace) -> int:
     return int(_vbf_main(argv))
 
 
+def _cmd_verify_realism_stress(args: argparse.Namespace) -> int:
+    """Emit the Phases 1-5 realism/methodology verification report (audit
+    2026-05-29). Exit 0 iff every row is PASS or DEFERRED."""
+    from .devtools.verify_realism_stress import main as _vrs_main
+
+    argv: list[str] = []
+    if args.out:
+        argv += ["--out", args.out]
+    if getattr(args, "skip_suite", False):
+        argv += ["--skip-suite"]
+    return int(_vrs_main(argv))
+
+
 def _cmd_stress_matrix(args: argparse.Namespace) -> int:
     """Replay the audit 2026-05-29 §8.5 execution stress matrix (Phase 4a) over
     a study's finalist params; write ``stress_matrix.json`` and, with
@@ -488,6 +501,18 @@ def build_parser() -> argparse.ArgumentParser:
                           "sections (Section 4, Section 1 row 3, Section 5 "
                           "sentinel/manifest, Section 8)")
     vbf.set_defaults(func=_cmd_verify_bayesian_fix)
+
+    # Audit 2026-05-29 Phases 1-5 — realism / methodology verification report.
+    vrs = sub.add_parser(
+        "verify-realism-stress",
+        help="emit the Phases 1-5 (realism / methodology / paper-recon / "
+             "SIP-readiness) PASS/FAIL/DEFERRED grid; exit non-zero on any FAIL",
+    )
+    vrs.add_argument("--out", default=None)
+    vrs.add_argument("--skip-suite", action="store_true",
+                     help="run only the fast direct + deferred rows (skip the "
+                          "test-backed section batches + Section 14)")
+    vrs.set_defaults(func=_cmd_verify_realism_stress)
 
     # Audit 2026-05-29 §8.5 / Phase 4a — execution stress-matrix replay.
     smx = sub.add_parser(

@@ -931,11 +931,85 @@ def _clear_full_fold_preflight_cache() -> None:
     _FULL_FOLD_PREFLIGHT_CACHE.clear()
 
 
+@dataclass
+class NbboCoverageResult:
+    """Outcome of :func:`check_nbbo_quote_coverage` (audit 2026-05-29 §9 Phase 7)."""
+
+    mode: str
+    feed: str
+    coverage_pct: float
+    passed: bool
+    limitations: list
+
+
+def check_nbbo_quote_coverage(
+    *,
+    sim_mode: str,
+    feed: str,
+    lake_root,
+    universe,
+    fold_windows,
+    min_coverage_pct: float,
+) -> "NbboCoverageResult":
+    """NBBO (SIP top-of-book quote) coverage gate (audit 2026-05-29 §9 Phase 7).
+
+    Behaviour by (mode, feed):
+      - ``intended_realism`` + ``sip`` — hard-fail (PreflightError) if mean
+        per-fold coverage < ``min_coverage_pct``.
+      - ``intended_realism`` + ``iex`` — hard-fail with NBBO_NOT_AVAILABLE_ON_IEX
+        (IEX is a partial tape and cannot provide NBBO).
+      - ``current_code_parity`` — warn only; records the IEX partial-tape
+        limitation ``"missing_historical_quotes"`` on the result.
+      - ``smoke_fixture`` — skipped (always passes).
+    """
+    mode = str(sim_mode)
+    fd = str(feed).lower()
+    if mode == "smoke_fixture":
+        return NbboCoverageResult(mode, fd, 100.0, True, [])
+    if mode == "intended_realism" and fd == "iex":
+        raise PreflightError(
+            "NBBO_NOT_AVAILABLE_ON_IEX: intended_realism requires SIP NBBO "
+            "quotes; feed='iex' is a partial tape and cannot provide them"
+        )
+
+    from bowaka_common.marketdata import MarketDataStore
+
+    store = MarketDataStore(str(lake_root))
+    total = 0
+    covered = 0
+    for fw in fold_windows:
+        for sym in universe:
+            total += 1
+            try:
+                q = store.quotes(sym, fw.start, fw.end, feed="sip")
+            except Exception:  # noqa: BLE001 — a missing partition is no-coverage
+                q = None
+            if q is not None and not getattr(q, "empty", True):
+                covered += 1
+    coverage_pct = (100.0 * covered / total) if total else 0.0
+
+    if mode == "intended_realism" and fd == "sip":
+        if coverage_pct < float(min_coverage_pct):
+            raise PreflightError(
+                f"NBBO quote coverage {coverage_pct:.2f}% < required "
+                f"{float(min_coverage_pct):.2f}% under intended_realism+sip"
+            )
+        return NbboCoverageResult(mode, fd, coverage_pct, True, [])
+
+    # current_code_parity (and any other research mode) — warn, never block.
+    limitations: list = []
+    if coverage_pct < float(min_coverage_pct):
+        limitations.append("missing_historical_quotes")
+    return NbboCoverageResult(mode, fd, coverage_pct, True, limitations)
+
+
 __all__ = [
     "PreflightError",
     "PreflightCheck",
     "PreflightResult",
     "FoldWindow",
+    "NbboCoverageResult",
+    "check_nbbo_quote_coverage",
     "DEFAULT_MIN_QUOTE_COVERAGE_PCT",
     "run_preflight",
     "run_full_fold_preflight",
