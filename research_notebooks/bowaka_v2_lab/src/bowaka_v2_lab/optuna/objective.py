@@ -15,6 +15,20 @@ good while being un-tradeable.
                    - turnover_penalty
                    - concentration_penalty
                    - fill_rate_penalty
+                   - pick_quality_penalty       (frac of trades below the
+                                                 0.5% per-pick minimum)
+
+Per-pick quality
+----------------
+``net_return`` is the portfolio's fold return (overall PnL) and stays the
+primary positive driver. The ``pick_quality`` penalty additionally subtracts
+``weight x (fraction of trades that did NOT clear the per-trade minimum
+profit bar`` (``metrics.PICK_QUALITY_MIN_PCT`` = 0.5%), so a config whose
+individual picks are weak is penalized even when a few large winners prop up
+``net_return``. The 4% "ideal" upside (``PICK_QUALITY_STRETCH_PCT``) is left
+to ``net_return`` (bigger winners -> bigger PnL) and surfaced in the metrics
+for review, rather than scored separately, to avoid pushing the optimizer
+into ultra-selectivity.
 
 Mark-to-market drawdown
 -----------------------
@@ -195,9 +209,30 @@ class PenaltyWeights:
     fill_rate: float = 0.5         # x (1 - fill_rate) shortfall
     fold_variance: float = 0.5     # x stdev of fold scores
 
+    #: Per-pick quality (operator goal 2026-05-28): each pick should clear a
+    #: minimum profit bar (0.5%, see ``metrics.PICK_QUALITY_MIN_PCT``). This
+    #: weight x the fraction of trades that FAIL that bar is subtracted from
+    #: the fold score, so a config whose picks are individually weak is
+    #: penalized even when a few big winners prop up ``net_return``. Kept
+    #: modest so ``net_return`` (overall PnL) stays the primary driver and the
+    #: optimizer is not pushed into ultra-selectivity (the 4% upside is
+    #: already rewarded through ``net_return``). Tune here if you want pick
+    #: quality to weigh more / less.
+    pick_quality: float = 0.10     # x fraction of trades below the min profit bar
+
     #: A fold with fewer than this many trades is statistically uninformative;
     #: the low-trade-count penalty ramps to its max as n_trades -> 0.
-    min_trade_count: int = 30
+    #:
+    #: 2026-05-28 (operator): lowered 30 -> 10 to match the live strategy's
+    #: natural selectivity. The strategy trades ~1-6 names/day; a validation
+    #: fold is one month (~21 sessions), so even the LOW end of normal
+    #: (1/day) is ~21 trades/fold. A floor of 10 (~0.5/day) leaves the entire
+    #: 1-6/day range unpenalized and only flags genuinely degenerate configs
+    #: (gates so tight the strategy barely trades). Trade COUNT is a
+    #: statistical-significance floor only — per-pick profitability + overall
+    #: PnL are carried by ``net_return`` (and, if enabled, the per-trade
+    #: quality terms).
+    min_trade_count: int = 10
 
 
 DEFAULT_PENALTY_WEIGHTS = PenaltyWeights()
@@ -225,6 +260,10 @@ class FoldResult:
     quote_coverage: float = 1.0
     #: Fraction of orders that reached the fill stage and actually filled, 0..1.
     fill_rate: float = 1.0
+    #: Fraction of closed trades whose per-trade return cleared the minimum
+    #: profit bar (``metrics.PICK_QUALITY_MIN_PCT`` = 0.5%), 0..1. Defaults to
+    #: 1.0 (no quality penalty) when unknown / no trades.
+    frac_trades_ge_min_profit: float = 1.0
     #: Optional raw metric bag (kept for fold-by-fold reporting).
     metrics: dict[str, Any] = field(default_factory=dict)
 
@@ -350,6 +389,7 @@ def fold_result_from_backtest_result(
 
     dd = mark_to_market_drawdown(bankroll)
     wd = worst_day_loss(bankroll)
+    frac_ge_min = float(summary.get("frac_trades_ge_min_profit", 1.0) or 1.0)
     return FoldResult(
         fold_id=fold_id,
         net_return=float(net_return or 0.0),
@@ -362,6 +402,7 @@ def fold_result_from_backtest_result(
         worst_day_loss=wd,
         quote_coverage=float(quote_cov_pct or 0.0) / 100.0,
         fill_rate=float(fill_rate if fill_rate is not None else 1.0),
+        frac_trades_ge_min_profit=frac_ge_min,
         metrics={
             "net_return_pct": float(net_return or 0.0),
             "mtm_max_drawdown_pct": dd,
@@ -370,6 +411,16 @@ def fold_result_from_backtest_result(
             "fill_rate": float(fill_rate if fill_rate is not None else 1.0),
             "historical_quote_coverage_pct": float(quote_cov_pct or 0.0),
             "missing_quote_count": int(missing_quote or 0),
+            # Per-pick quality (operator goal: each pick >= 0.5%, ideally 4%).
+            "frac_trades_ge_min_profit": frac_ge_min,
+            "frac_trades_ge_stretch_profit": float(
+                summary.get("frac_trades_ge_stretch_profit", 0.0) or 0.0
+            ),
+            "avg_trade_return_pct": float(summary.get("avg_trade_return_pct", 0.0) or 0.0),
+            "median_trade_return_pct": float(
+                summary.get("median_trade_return_pct", 0.0) or 0.0
+            ),
+            "win_rate": float(summary.get("win_rate", 0.0) or 0.0),
         },
     )
 
@@ -402,6 +453,14 @@ def fold_result_from_report(
 
     dd = mark_to_market_drawdown(daily)
     wd = worst_day_loss(daily)
+    # Per-pick quality: prefer the report's trade_performance metric, fall back
+    # to the summary (which build_summary always populates), default 1.0.
+    frac_ge_min = float(
+        _metric_value(
+            tp_metrics, "frac_trades_ge_min_profit",
+            summary.get("frac_trades_ge_min_profit", 1.0),
+        ) or 1.0
+    )
     return FoldResult(
         fold_id=fold_id,
         net_return=float(net_return or 0.0),
@@ -414,6 +473,7 @@ def fold_result_from_report(
         worst_day_loss=wd,
         quote_coverage=float(quote_cov_pct or 0.0) / 100.0,
         fill_rate=float(fill_rate if fill_rate is not None else 1.0),
+        frac_trades_ge_min_profit=frac_ge_min,
         metrics={
             "net_return_pct": float(net_return or 0.0),
             "mtm_max_drawdown_pct": dd,
@@ -422,6 +482,22 @@ def fold_result_from_report(
             "fill_rate": float(fill_rate if fill_rate is not None else 1.0),
             "historical_quote_coverage_pct": float(quote_cov_pct or 0.0),
             "missing_quote_count": int(missing_quote or 0),
+            "frac_trades_ge_min_profit": frac_ge_min,
+            "frac_trades_ge_stretch_profit": float(
+                _metric_value(
+                    tp_metrics, "frac_trades_ge_stretch_profit",
+                    summary.get("frac_trades_ge_stretch_profit", 0.0),
+                ) or 0.0
+            ),
+            "avg_trade_return_pct": float(
+                _metric_value(
+                    tp_metrics, "avg_trade_return_pct",
+                    summary.get("avg_trade_return_pct", 0.0),
+                ) or 0.0
+            ),
+            "win_rate": float(
+                _metric_value(tp_metrics, "win_rate", summary.get("win_rate", 0.0)) or 0.0
+            ),
         },
     )
 
@@ -443,6 +519,11 @@ def fold_penalties(
 
     coverage_shortfall = max(0.0, 1.0 - fold.quote_coverage)
     fill_shortfall = max(0.0, 1.0 - fold.fill_rate)
+    # Per-pick quality: penalize the fraction of trades that did NOT clear the
+    # minimum profit bar. ``getattr`` default keeps stub folds (no such field)
+    # penalty-free. No double-penalty for 0-trade folds — they default to 1.0.
+    frac_ge_min = float(getattr(fold, "frac_trades_ge_min_profit", 1.0))
+    pick_quality_shortfall = max(0.0, 1.0 - max(0.0, min(1.0, frac_ge_min)))
     return {
         "drawdown": weights.drawdown * max(0.0, fold.max_drawdown),
         "cvar": weights.cvar * max(0.0, fold.worst_day_loss),
@@ -452,6 +533,7 @@ def fold_penalties(
         "missing_quote": weights.missing_quote * max(0, fold.missing_quote_count),
         "missing_coverage": weights.missing_coverage * coverage_shortfall,
         "fill_rate": weights.fill_rate * fill_shortfall,
+        "pick_quality": weights.pick_quality * pick_quality_shortfall,
     }
 
 
