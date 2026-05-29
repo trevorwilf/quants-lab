@@ -617,9 +617,10 @@ def build_parser() -> argparse.ArgumentParser:
     par.add_argument("--symbols", default=None,
                      help="Comma-separated symbol list; default = first 5 IEX "
                           "split_adjusted symbols on disk")
-    par.add_argument("--cost-stress", default="conservative",
-                     choices=["conservative", "baseline", "aggressive"],
-                     help="Cost-stress label passed identically to both sides")
+    par.add_argument("--cost-stress", default="base",
+                     choices=["base", "conservative", "severe"],
+                     help="Cost-stress label passed identically to both sides; "
+                          "values match the production CLI + lab BacktestConfig.cost_stress")
     par.add_argument("--output-dir", default=None,
                      help="Output dir; default = artifacts/parity/lab_vs_production/<UTC>")
     par.add_argument("--python-exe", default=None,
