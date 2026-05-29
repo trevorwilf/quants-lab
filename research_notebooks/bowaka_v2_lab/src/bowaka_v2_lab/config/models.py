@@ -360,6 +360,12 @@ class BacktestConfig(_StrictBase):
     end_date: str
     cost_stress: Literal["base", "conservative", "severe"] = "base"
     entry_delay_minutes: int = 0
+    #: Audit 2026-05-29 §8.5 stress-matrix dimensions (no-ops at defaults). Set
+    #: by the stress-matrix replay runner per combination; a plain backtest
+    #: leaves them at the defaults so its fills are byte-identical to pre-Phase-1.
+    slippage_bps_offset: int = 0
+    spread_multiplier: float = 1.0
+    use_adv_bucket_caps: bool = False
 
 
 class ArtifactsConfig(_StrictBase):

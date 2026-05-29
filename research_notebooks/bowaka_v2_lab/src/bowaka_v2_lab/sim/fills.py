@@ -36,7 +36,7 @@ so a 30-second timeout is honoured exactly.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Iterable, Optional
 
@@ -112,14 +112,119 @@ COST_STRESS_FILL_RATE_CAP: dict[str, float] = {
 }
 
 
+#: Audit 2026-05-29 §8.5 — ADDITIVE slippage offsets (bps applied at fill
+#: regardless of the base ``slippage_bps`` from cost_model). Part of the
+#: stress-replay used to gate paper-candidate parameters. Keys are the labels
+#: written into stress-matrix.json.
+STRESS_SLIPPAGE_BPS_OFFSETS: dict[str, int] = {
+    "none":      0,
+    "plus_25":  25,
+    "plus_50":  50,
+    "plus_100": 100,
+}
+
+#: Audit 2026-05-29 §8.5 — spread stress multipliers. Applied to the spread
+#: BEFORE the marketable-limit price calculation. ``1.0`` is the base case;
+#: ``1.5/2.0/3.0`` are the audit's stress points.
+STRESS_SPREAD_MULTIPLIERS: tuple[float, ...] = (1.0, 1.5, 2.0, 3.0)
+
+
 def stress_slippage_multiplier(cost_stress: str) -> float:
     """Slippage multiplier for ``cost_stress`` (``base`` / ``conservative`` / ``severe``)."""
     return COST_STRESS_SLIPPAGE_MULT.get(str(cost_stress), COST_STRESS_SLIPPAGE_MULT["conservative"])
 
 
 def stress_fill_rate_cap(cost_stress: str) -> float:
-    """Fill-rate cap for ``cost_stress`` — fraction of the liquidity proxy usable."""
+    """Fill-rate cap for ``cost_stress`` — fraction of the liquidity proxy usable.
+
+    This is the LEGACY (non-ADV-aware) cap used when no ADV-dollar context is
+    supplied to a fill. The ADV-bucket-aware cap lives in
+    :func:`bowaka_v2_lab.sim.adv_buckets.fill_cap_for` and is engaged only when
+    a caller passes ``adv_dollar`` (the stress matrix opts in; the normal
+    backtest does not, so its behaviour is unchanged).
+    """
     return COST_STRESS_FILL_RATE_CAP.get(str(cost_stress), COST_STRESS_FILL_RATE_CAP["conservative"])
+
+
+def _resolve_fill_rate_cap(cost_stress: str, adv_dollar: Optional[float]) -> float:
+    """ADV-bucket cap when ``adv_dollar`` is supplied; legacy cap otherwise.
+
+    At ``cost_stress="base"`` both paths return ``1.0`` (the ADV-bucket base
+    cap is the parity anchor), so engaging the bucket path never changes the
+    unstressed fill.
+    """
+    if adv_dollar is None:
+        return stress_fill_rate_cap(cost_stress)
+    from .adv_buckets import fill_cap_for
+    return fill_cap_for(float(adv_dollar), cost_stress)
+
+
+def _apply_spread_multiplier(quote: QuoteSnapshot, spread_multiplier: float) -> QuoteSnapshot:
+    """Widen ``quote``'s bid/ask around its mid by ``spread_multiplier``.
+
+    A no-op (returns the original object) at ``1.0`` so the unstressed fill is
+    byte-identical. At ``2.0`` the half-spread paid doubles.
+    """
+    if spread_multiplier == 1.0:
+        return quote
+    mid = float(quote.mid)
+    new_ask = mid + spread_multiplier * (float(quote.ask) - mid)
+    new_bid = mid - spread_multiplier * (mid - float(quote.bid))
+    spread_pct = (new_ask - new_bid) / mid if mid > 0 else quote.spread_pct
+    return replace(
+        quote, ask=round(new_ask, 4), bid=round(new_bid, 4), spread_pct=spread_pct,
+    )
+
+
+def _apply_slippage_offset(
+    fill: FillResult, *, side: str, quote: QuoteSnapshot, offset_bps: int,
+    commission_per_share: float, regulatory_fee_bps: float,
+) -> FillResult:
+    """Shift a filled order's price by an ADDITIVE ``offset_bps`` of the mid.
+
+    A no-op (returns ``fill`` unchanged) when ``offset_bps == 0`` or the order
+    did not fill. For a buy the price moves UP (worse) by ``offset_bps`` of the
+    mid; for a sell, DOWN. Notional, fees and signed slippage are recomputed
+    and the offset is recorded for downstream attribution.
+    """
+    if offset_bps == 0 or not fill.filled:
+        return fill
+    side_l = side.lower()
+    sign = 1.0 if side_l == "buy" else -1.0
+    ref = float(quote.mid) if quote.mid else float(quote.ask)
+    new_price = round(fill.avg_fill_price + sign * (offset_bps / 10_000.0) * ref, 4)
+    new_notional = round(fill.filled_qty * new_price, 4)
+    commission, regulatory = _fees(
+        new_notional, commission_per_share=commission_per_share,
+        qty=fill.filled_qty, regulatory_bps=regulatory_fee_bps,
+    )
+    slip_vs_mid = round(_bps_signed(float(quote.mid or quote.ask), new_price, side=side_l), 4)
+    slip_vs_ask = round(_bps_signed(float(quote.ask), new_price, side=side_l), 4)
+    return replace(
+        fill, avg_fill_price=new_price, notional=new_notional,
+        commission=commission, regulatory_fees=regulatory,
+        slippage_bps_total=round(abs(slip_vs_mid), 4),
+        slippage_vs_mid_bps=slip_vs_mid, slippage_vs_ask_bps=slip_vs_ask,
+        slippage_bps_offset=int(offset_bps),
+    )
+
+
+def _finalize_stressed_fill(
+    fill: FillResult, *, side: str, quote: QuoteSnapshot, offset_bps: int,
+    spread_multiplier: float, commission_per_share: float, regulatory_fee_bps: float,
+) -> FillResult:
+    """Apply the post-fill slippage offset and record the spread multiplier.
+
+    Both are no-ops at their defaults (``offset_bps=0``, ``spread_multiplier=1.0``)
+    so the unstressed fill is byte-identical.
+    """
+    fill = _apply_slippage_offset(
+        fill, side=side, quote=quote, offset_bps=offset_bps,
+        commission_per_share=commission_per_share, regulatory_fee_bps=regulatory_fee_bps,
+    )
+    if spread_multiplier != 1.0:
+        fill = replace(fill, spread_multiplier=spread_multiplier)
+    return fill
 
 
 @dataclass
@@ -154,6 +259,9 @@ class FillResult:
     slippage_vs_mid_bps: float = 0.0
     slippage_vs_ask_bps: float = 0.0
     fill_time_seconds: float = 0.0
+    #: Audit 2026-05-29 §8.5 stress attribution (defaults are no-op).
+    slippage_bps_offset: int = 0
+    spread_multiplier: float = 1.0
 
     @property
     def total_fees(self) -> float:
@@ -190,6 +298,9 @@ def simulate_market_fill(
     min_order_notional: float = 0.0,
     commission_per_share: float = 0.0,
     regulatory_fee_bps: float = 0.0,
+    slippage_bps_offset: int = 0,
+    spread_multiplier: float = 1.0,
+    adv_dollar: Optional[float] = None,
 ) -> FillResult:
     """Simulate a **market** parent-order fill.
 
@@ -198,12 +309,17 @@ def simulate_market_fill(
     partial fill capped at that liquidity. A partial whose filled notional falls
     below ``min_order_notional`` becomes a no-fill with reason
     ``partial_below_min``.
+
+    Audit 2026-05-29 §8.5 stress dimensions (all no-ops at their defaults):
+    ``spread_multiplier`` widens the quote, ``adv_dollar`` engages the ADV-bucket
+    partial-fill cap, and ``slippage_bps_offset`` adds bps of the mid post-fill.
     """
     if requested_qty <= 0:
         return _no_fill("zero_qty", order_style="market")
 
+    quote = _apply_spread_multiplier(quote, spread_multiplier)
     side_l = side.lower()
-    cap = stress_fill_rate_cap(cost_stress)
+    cap = _resolve_fill_rate_cap(cost_stress, adv_dollar)
     if liquidity_proxy_shares is not None:
         usable = max(0, int(float(liquidity_proxy_shares) * cap))
         filled = min(int(requested_qty), usable)
@@ -238,12 +354,17 @@ def simulate_market_fill(
         if liquidity_proxy_shares
         else 0.0
     )
-    return FillResult(
+    fill = FillResult(
         filled=True, filled_qty=filled, avg_fill_price=price,
         slippage_bps_total=round(bp, 4), notional=round(notional, 4),
         commission=commission, regulatory_fees=regulatory,
         is_partial=is_partial, reason="partial_fill" if is_partial else None,
         order_style="market", liquidity_participation_frac=round(participation, 6),
+        spread_multiplier=spread_multiplier,
+    )
+    return _apply_slippage_offset(
+        fill, side=side_l, quote=quote, offset_bps=slippage_bps_offset,
+        commission_per_share=commission_per_share, regulatory_fee_bps=regulatory_fee_bps,
     )
 
 
@@ -356,6 +477,7 @@ def _t1_fill(
     commission_per_share: float,
     regulatory_fee_bps: float,
     tier: ExecutionTier,
+    adv_dollar: Optional[float] = None,
 ) -> FillResult:
     """T1: real top-of-book fill. Audit P0-006.
 
@@ -372,7 +494,7 @@ def _t1_fill(
         size_at_touch = float(quote.bid_size or 0.0)
     if touch <= 0:
         return _no_fill("no_liquidity", order_style="marketable_limit", execution_tier=tier)
-    cap = stress_fill_rate_cap(cost_stress)
+    cap = _resolve_fill_rate_cap(cost_stress, adv_dollar)
     usable_at_touch = max(0, int(size_at_touch * cap))
     if usable_at_touch <= 0:
         # Quote with zero displayed size — fall back to limit-price fill.
@@ -453,6 +575,7 @@ def _t0_fill(
     timeout_seconds: int,
     simulation_mode: str,
     offset: float,
+    adv_dollar: Optional[float] = None,
 ) -> FillResult:
     """T0: legacy synthetic-quote fill. Audit P0-006.
 
@@ -471,7 +594,7 @@ def _t0_fill(
         return _no_fill(
             "marketable_limit_timeout", order_style="marketable_limit", execution_tier=tier
         )
-    cap = stress_fill_rate_cap(cost_stress)
+    cap = _resolve_fill_rate_cap(cost_stress, adv_dollar)
     if liquidity_proxy_shares is not None:
         usable = max(0, int(float(liquidity_proxy_shares) * cap))
         filled = min(int(requested_qty), usable)
@@ -532,6 +655,9 @@ def simulate_marketable_limit_fill(
     has_nbbo_depth: bool = False,
     has_calibration_artifact: bool = False,
     slippage_calibrator: Optional[Any] = None,
+    slippage_bps_offset: int = 0,
+    spread_multiplier: float = 1.0,
+    adv_dollar: Optional[float] = None,
 ) -> FillResult:
     """Simulate a **marketable_limit** parent-order fill — tiered model.
 
@@ -554,6 +680,7 @@ def simulate_marketable_limit_fill(
     if requested_qty <= 0:
         return _no_fill("zero_qty", order_style="marketable_limit")
 
+    quote = _apply_spread_multiplier(quote, spread_multiplier)
     side_l = side.lower()
     offset = float(marketable_limit_slippage_pct)
     if side_l == "buy":
@@ -568,7 +695,7 @@ def simulate_marketable_limit_fill(
     )
 
     if tier == ExecutionTier.T0_NO_QUOTES:
-        return _t0_fill(
+        t0 = _t0_fill(
             side=side_l, requested_qty=requested_qty, quote=quote,
             limit_price=limit_price, cost_stress=cost_stress,
             min_order_notional=min_order_notional,
@@ -579,6 +706,13 @@ def simulate_marketable_limit_fill(
             timeout_seconds=int(marketable_limit_timeout_seconds),
             simulation_mode=simulation_mode,
             offset=offset,
+            adv_dollar=adv_dollar,
+        )
+        return _finalize_stressed_fill(
+            t0, side=side_l, quote=quote, offset_bps=slippage_bps_offset,
+            spread_multiplier=spread_multiplier,
+            commission_per_share=commission_per_share,
+            regulatory_fee_bps=regulatory_fee_bps,
         )
 
     # Sub-minute timeout (T1+): the limit-walked path must not run past the
@@ -599,6 +733,7 @@ def simulate_marketable_limit_fill(
         commission_per_share=commission_per_share,
         regulatory_fee_bps=regulatory_fee_bps,
         tier=tier,
+        adv_dollar=adv_dollar,
     )
     if not fill.filled:
         return fill
@@ -697,7 +832,12 @@ def simulate_marketable_limit_fill(
                 slippage_vs_ask_bps=slip_vs_ask,
                 fill_time_seconds=fill.fill_time_seconds,
             )
-    return fill
+    return _finalize_stressed_fill(
+        fill, side=side_l, quote=quote, offset_bps=slippage_bps_offset,
+        spread_multiplier=spread_multiplier,
+        commission_per_share=commission_per_share,
+        regulatory_fee_bps=regulatory_fee_bps,
+    )
 
 
 def simulate_fill(

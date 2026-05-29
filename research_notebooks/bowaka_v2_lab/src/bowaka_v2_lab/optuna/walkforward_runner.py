@@ -802,6 +802,68 @@ def _score_param_set(
     return compute_objective(folds).objective, folds
 
 
+def build_validation_scorer(
+    config_path: str | Path,
+    *,
+    objective_artifact_mode: str = "objective_minimal",
+    log: Optional[logging.Logger] = None,
+) -> Callable[..., tuple[float, list[FoldResult]]]:
+    """Build a ``score_with_overrides(params, overrides) -> (objective, folds)``
+    closure from a config (audit 2026-05-29 §8.5 / Phase 4a stress matrix).
+
+    Mirrors the plan / supplier / holdout setup of
+    :func:`make_walkforward_objective_for_worker`. ``params`` is the finalist's
+    flat dotted trial params (run through :func:`apply_trial_params`, so
+    gap/ratio derivation happens); ``overrides`` is a flat dotted-key dict
+    applied to the config AFTER the params (e.g.
+    ``{"backtest.slippage_bps_offset": 50}``) — it bypasses the search-space
+    derivation so non-trial keys like ``backtest.*`` reach the right place.
+    """
+    cfg = load_config(config_path)
+    repo_root = Path(__file__).resolve().parents[5]
+    paths = BowakaV2Paths.from_config(cfg, repo_root=repo_root)
+    sim_cfg = SimulationConfig.model_validate(cfg.get("simulation") or {})
+    optuna_cfg = cfg.get("optuna", {}) or {}
+    wf = optuna_cfg.get("walkforward", {}) or {}
+    bt = cfg.get("backtest", {}) or {}
+    md = cfg.get("market_data", {}) or {}
+    plan = build_walkforward_splits(
+        full_start=_to_date(bt["start_date"]),
+        full_end=_to_date(bt["end_date"]),
+        train_months=int(wf.get("train_months", 6)),
+        val_months=int(wf.get("val_months", 1)),
+        final_holdout_months=int(wf.get("final_holdout_months", 1)),
+    )
+    feed = str(md.get("feed", "iex"))
+    lake_root = md.get("shared_root")
+    symbols = _resolve_symbols(cfg, md, sim_mode=sim_cfg.mode, plan=plan)
+    holdout_guard = HoldoutGuard(plan.final_holdout_start, plan.final_holdout_end)
+    _log = log or logging.getLogger("bowaka_v2_lab.stress_matrix")
+
+    def score_with_overrides(
+        params: Mapping[str, Any], overrides: Optional[Mapping[str, Any]] = None,
+    ) -> tuple[float, list[FoldResult]]:
+        trial_cfg = apply_trial_params(cfg, dict(params))
+        for dotted, val in (overrides or {}).items():
+            parts = dotted.split(".")
+            node: Any = trial_cfg
+            for key in parts[:-1]:
+                child = node.get(key)
+                if not isinstance(child, dict):
+                    child = {}
+                    node[key] = child
+                node = child
+            node[parts[-1]] = val
+        folds = _run_validation_folds(
+            trial_cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
+            paths=paths, holdout_guard=holdout_guard, log=_log,
+            objective_artifact_mode=objective_artifact_mode,
+        )
+        return compute_objective(folds).objective, folds
+
+    return score_with_overrides
+
+
 def make_walkforward_objective_for_worker(
     config_path: str,
     *,
