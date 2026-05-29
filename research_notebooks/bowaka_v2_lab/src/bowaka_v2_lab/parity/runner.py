@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -19,6 +20,33 @@ from pathlib import Path
 from typing import Any, Sequence
 
 _LAB_ROOT = Path(__file__).resolve().parents[3]   # src/bowaka_v2_lab/parity/runner.py -> lab root
+_BOWAKA_COMMON_SRC = (_LAB_ROOT.parent / "bowaka_common" / "src").resolve()
+
+
+def _build_subprocess_env(extra_paths: Sequence[Path] = ()) -> dict[str, str]:
+    """Build a subprocess env that pins PYTHONPATH to the lab + bowaka_common.
+
+    The notebook bootstrap inserts the right entries into ``sys.path`` for the
+    current process but does **not** export ``PYTHONPATH`` to the environment,
+    so subprocess children (the production backtester) don't inherit it. Inject
+    explicitly so ``import bowaka_common`` resolves inside the subprocess.
+
+    Existing ``PYTHONPATH`` entries (if any) are preserved and appended after
+    ours so caller-set paths still win for collisions on their own packages.
+    """
+    paths: list[str] = []
+    for p in [_LAB_ROOT / "src", _BOWAKA_COMMON_SRC, *extra_paths]:
+        s = str(Path(p).resolve())
+        if s not in paths:
+            paths.append(s)
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    if existing:
+        for chunk in existing.split(os.pathsep):
+            if chunk and chunk not in paths:
+                paths.append(chunk)
+    env["PYTHONPATH"] = os.pathsep.join(paths)
+    return env
 
 
 @dataclass(frozen=True)
@@ -89,6 +117,7 @@ def run_production_backtester(
         cmd.extend(["--lake-root", str(lake_root)])
     proc = subprocess.run(
         cmd, capture_output=True, text=True, timeout=timeout_sec, check=False,
+        env=_build_subprocess_env(),
     )
     summary_path = output_dir / "summary.json"
     summary: dict = {}
@@ -120,39 +149,110 @@ def run_lab_backtester(
     cost_stress: str = "conservative",
     run_dir: Path | None = None,
 ) -> Any:
-    """Call the lab's ``run_config_backtest`` in-process.
+    """Run the lab backtester in-process against a small parity universe.
 
-    Symbols are injected by mutating the loaded config's ``universe.symbols``
-    (the same field ``resolve_symbols`` reads first). The window is injected
-    via ``sessions=[date, ...]`` so ``config_sessions`` is not consulted —
-    the call works regardless of what the config's ``backtest.start_date`` /
-    ``backtest.end_date`` happen to be.
+    For non-smoke configs (``simulation.mode != 'smoke_fixture'``), the lab
+    refuses synthetic universes — it requires the point-in-time universe built
+    from the lake asset snapshot + prior-day bars. ``run_config_backtest``
+    always wraps symbols in :func:`synthetic_universe`, so it can't be used
+    here; this function instead replicates ``cli_runners.run_backtest_command``'s
+    PIT-aware path and then intersects the PIT records with the parity
+    ``symbols`` set so both sides see the same small universe.
 
-    ``cost_stress`` is wired through ``param_overrides`` so the same stress
-    label both sides see picks the same cost-model row. The config's default
-    stress label remains in effect when ``cost_stress`` is None or unset.
+    ``cost_stress`` is threaded through ``apply_overrides`` so the same stress
+    label both sides see picks the same cost-model row. The window is
+    materialized to ``sessions=[date, ...]`` so ``config_sessions`` is not
+    consulted.
     """
     import exchange_calendars as xcals
     import pandas as pd
 
-    from ..backtest_runner import run_config_backtest
-    from ..config import load_config
+    from ..backtest_runner import apply_overrides
+    from ..cli_runners import _is_smoke, _lake_store, _uses_lake
+    from ..config import BowakaV2Paths, load_config
+    from ..config.models import BowakaV2Config
+    from ..data.adjustment import daily_adjustment_for_config
+    from ..data.suppliers import (
+        build_daily_cache_from_lake,
+        make_forward_minute_supplier,
+        make_lake_suppliers,
+        make_quote_supplier,
+        resolve_intraday_window_policy,
+    )
+    from ..sim.backtester import run_backtest
+    from ..sim.replay_fixtures import synthetic_daily_cache, synthetic_universe
+    from ..sim.schedule import scan_times_for_session
+    from ..universe.builder import build_pit_universe_for_sessions
 
     cfg = load_config(lab_config_path)
-    cfg.setdefault("universe", {})["symbols"] = [str(s) for s in symbols]
+    if cost_stress:
+        cfg = apply_overrides(cfg, {"backtest": {"cost_stress": cost_stress}})
+    validated = BowakaV2Config.model_validate(cfg)
+    repo_root = Path(__file__).resolve().parents[4]
+    paths = BowakaV2Paths.from_config(validated, repo_root=repo_root)
+    paths.assert_strategy_isolation()
+    md = cfg.get("market_data", {}) or {}
+
     cal = xcals.get_calendar("XNYS")
     sessions = [
         pd.Timestamp(s).date()
         for s in cal.sessions_in_range(pd.Timestamp(start_date), pd.Timestamp(end_date))
     ] or [start_date]
-    overrides: dict[str, Any] | None = None
-    if cost_stress:
-        overrides = {"cost_model": {"stress_label": cost_stress}}
-    return run_config_backtest(
-        cfg,
-        param_overrides=overrides,
+    parity_syms = sorted({str(s) for s in symbols})
+
+    quote_supplier = None
+    forward_minute_supplier = None
+    if _uses_lake(cfg):
+        feed = md.get("feed", "iex")
+        root = md.get("shared_root")
+        adjustment = daily_adjustment_for_config(cfg)
+        minute_supplier, daily_supplier = make_lake_suppliers(
+            root, feed=feed,
+            intraday_window_policy=resolve_intraday_window_policy(cfg),
+            daily_adjustment=adjustment,
+        )
+        daily_cache = {
+            s: build_daily_cache_from_lake(
+                root, parity_syms, s, feed=feed, daily_adjustment=adjustment,
+            )
+            for s in sessions
+        }
+        quote_supplier = make_quote_supplier(
+            root, feed=feed,
+            default_max_age_seconds=float(
+                (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
+            ),
+        )
+        forward_minute_supplier = make_forward_minute_supplier(root, feed=feed)
+    else:
+        from ..backtest_runner import resolve_suppliers
+        minute_supplier, daily_supplier = resolve_suppliers(cfg)
+        daily_cache = {s: synthetic_daily_cache(parity_syms) for s in sessions}
+
+    if _is_smoke(validated):
+        universe = {s: synthetic_universe(parity_syms) for s in sessions}
+    else:
+        store = _lake_store(md)
+        full_pit = build_pit_universe_for_sessions(sessions, cfg, store)
+        parity_set = set(parity_syms)
+        universe = {
+            s: {sym: rec for sym, rec in (full_pit.get(s) or {}).items() if sym in parity_set}
+            for s in sessions
+        }
+
+    return run_backtest(
+        cfg=cfg,
         sessions=sessions,
-        run_dir=run_dir,
+        scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+        universe_snapshot_by_session=universe,
+        daily_cache_by_session=daily_cache,
+        minute_bars_supplier=minute_supplier,
+        daily_bars_supplier=daily_supplier,
+        quote_supplier=quote_supplier,
+        forward_minute_supplier=forward_minute_supplier,
+        initial_bankroll=100_000.0,
+        paths=paths,
+        run_dir=Path(run_dir) if run_dir else None,
     )
 
 
