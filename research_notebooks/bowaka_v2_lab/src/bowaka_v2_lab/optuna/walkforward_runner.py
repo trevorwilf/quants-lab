@@ -613,11 +613,18 @@ def _fold_result(fold_id: str, summary: dict) -> FoldResult:
 
 def _degraded_fold(fold_id: str) -> FoldResult:
     """The worst-possible fold result — used when a fold's backtest raises, so
-    one bad fold can never lift a trial's objective."""
+    one bad fold can never lift a trial's objective.
+
+    Audit 2026-05-29 §A.5 / Phase 0 task 6: tagged ``fold_status="degraded"``
+    so the valid-trial filter can reject any trial that contains one. A
+    degraded fold is the swallowed-exception sentinel, NOT a real zero-trade
+    backtest, and must never be accepted as a finite datapoint.
+    """
     return FoldResult(
         fold_id=fold_id, net_return=-1.0, max_drawdown=1.0,
         turnover=0.0, concentration=0.0, n_trades=0,
         worst_day_loss=1.0, quote_coverage=0.0, fill_rate=0.0,
+        fold_status="degraded",
     )
 
 
@@ -919,9 +926,27 @@ def make_walkforward_objective(
             # breakdown for every trial; downstream tooling can read the
             # contribution of every objective term.
             trial.set_user_attr("objective_terms", result.objective_terms)
+            # Audit 2026-05-29 §6.5 / §A.5 / Phase 0 — carry n_trades and
+            # fold_status in every fold_metrics row, plus a flat fold_statuses
+            # list, so the post-study validity gates (no-trade + degraded-fold
+            # detection) can read them after study.optimize without re-running
+            # any backtest. This is the per-fold-status threading the audit
+            # requires for the process-parallel path (workers set their own
+            # trial user_attrs, so the data must live on the trial, not in
+            # parent-process closures).
             trial.set_user_attr(
-                "fold_metrics", [{"fold_id": f.fold_id, **f.metrics} for f in folds]
+                "fold_metrics",
+                [
+                    {
+                        "fold_id": f.fold_id,
+                        "n_trades": int(f.n_trades),
+                        "fold_status": f.fold_status,
+                        **f.metrics,
+                    }
+                    for f in folds
+                ],
             )
+            trial.set_user_attr("fold_statuses", [f.fold_status for f in folds])
             # Realism remediation 2 Phase 8 (audit §P1-005) — per-trial lineage.
             if dataset_hash is not None:
                 trial.set_user_attr("dataset_hash", dataset_hash)
@@ -1223,6 +1248,8 @@ def _write_failed_study_artifact(
     pit_union_symbol_count: Optional[int] = None,
     preflight_coverage_fraction: Optional[float] = None,
     research_waiver_capped_symbols: bool = False,
+    invalid_reasons: Optional[list[str]] = None,
+    validity_detail: Optional[dict[str, Any]] = None,
 ) -> Path:
     """Write a study results JSON with ``status: "failed"`` for forensic review.
 
@@ -1237,6 +1264,12 @@ def _write_failed_study_artifact(
     out = {
         "status": "failed",
         "failure_reason": failure_reason,
+        # Audit 2026-05-29 §6.5 / Appendix E — study-validity reason codes (e.g.
+        # CONSTANT_OBJECTIVE_SURFACE, NO_TRADE_STUDY, INCUMBENT_MAPPING_INCOMPLETE,
+        # DEGRADED_FOLDS_PRESENT) + supporting detail. Empty for the §P0-001
+        # all-sentinel failure path (which sets only ``failure_reason``).
+        "invalid_reasons": list(invalid_reasons or []),
+        "validity_detail": dict(validity_detail or {}),
         "study_name": study_name,
         "simulation_mode": sim_cfg.mode,
         "simulation_contract": simulation_contract,
@@ -2214,7 +2247,98 @@ def run_walkforward_study(
         if len(fold_scores) != len(plan.splits) or len(fold_metrics) != len(plan.splits):
             invalid_trials.append((t, "missing_fold_metrics"))
             continue
+        # Audit 2026-05-29 §A.5 / Phase 0 task 6 — a trial with ANY degraded
+        # fold is not a valid datapoint. ``_run_validation_folds`` appends a
+        # ``_degraded_fold`` (fold_status="degraded") on broad non-structural
+        # exceptions; previously the filter accepted its finite sentinel score.
+        # Read the per-fold status threaded through trial user_attrs (works in
+        # the process-parallel path, where workers set their own attrs).
+        fold_statuses = t.user_attrs.get("fold_statuses") or [
+            str(fm.get("fold_status", "ok")) for fm in fold_metrics
+        ]
+        if any(s != "ok" for s in fold_statuses):
+            invalid_trials.append((t, "degraded_fold"))
+            continue
         valid_trials.append(t)
+
+    # Audit 2026-05-29 §6.5 / Appendix E — post-study validity gates. Runs
+    # BEFORE the §P0-001 zero-valid check below so the specific audit reason
+    # (e.g. DEGRADED_FOLDS_PRESENT) surfaces even when the per-trial filter
+    # already emptied ``valid_trials``. A study can have finite, non-sentinel
+    # "valid" trials and STILL be scientifically invalid: every trial tied at
+    # the same penalty (no TPE signal — the constant -1.5 surface from the
+    # pasted Notebook 10 run), no trial generated a single trade, the incumbent
+    # baseline was silently padded with search-space midpoints (fixed at the
+    # root in Phase 2), or a fold degraded. These fail closed: write a failed
+    # artifact and raise so Notebook 10 sees an exception, never a "best trial"
+    # recommendation built on no signal. Opt-out flags
+    # (optuna.allow_constant_objective_surface / allow_no_trade_study /
+    # allow_padded_incumbent) exist for diagnostic runs only.
+    from .study_validity import evaluate_study_validity as _evaluate_study_validity
+
+    _validity = _evaluate_study_validity(
+        trial_values=[float(t.value) for t in completed if t.value is not None],
+        fold_metrics_per_trial=[
+            list(t.user_attrs.get("fold_metrics") or []) for t in completed
+        ],
+        fold_status_per_trial=[
+            list(
+                t.user_attrs.get("fold_statuses")
+                or [
+                    str(fm.get("fold_status", "ok"))
+                    for fm in (t.user_attrs.get("fold_metrics") or [])
+                ]
+            )
+            for t in completed
+        ],
+        study_user_attrs=dict(study.study.user_attrs),
+        cfg_optuna=(cfg.get("optuna") or {}),
+    )
+    if not _validity.valid:
+        failure_reason = "study_invalid"
+        log.error(
+            "walk-forward study %s INVALID: %s (detail=%s)",
+            study.study.study_name,
+            ", ".join(_validity.invalid_reasons),
+            _validity.detail,
+        )
+        _write_failed_study_artifact(
+            paths=paths,
+            study_name=study.study.study_name,
+            study_metadata=study_metadata,
+            failure_reason=failure_reason,
+            sim_cfg=sim_cfg,
+            simulation_contract=simulation_contract,
+            suitability_tier=suitability_tier,
+            feed=feed,
+            partial_tape=partial_tape,
+            feed_caveat=feed_caveat,
+            plan=plan,
+            trials_requested=trials,
+            startup=startup,
+            universe_pit_sample=universe_pit_sample,
+            preflight_symbol_count=len(symbols),
+            log=log,
+            n_trials_completed=len(completed),
+            n_invalid_trials=len(invalid_trials),
+            pit_union_symbol_count=pit_union_symbol_count,
+            preflight_coverage_fraction=preflight_coverage_fraction,
+            research_waiver_capped_symbols=research_waiver_capped_symbols,
+            invalid_reasons=list(_validity.invalid_reasons),
+            validity_detail=dict(_validity.detail),
+        )
+        try:
+            _write_phase_profile_json(
+                paths=paths, study_name=study.study.study_name,
+                profile=_phase_profile, counters=_counters_inst.snapshot(),
+                config_hash=lab_config_hash, dataset_hash=dataset_hash,
+                code_hash=code_hash, log=log,
+            )
+        finally:
+            _counters_cm.__exit__(None, None, None)
+        raise OptunaStudyInvalidError(
+            f"study_invalid: {', '.join(_validity.invalid_reasons)}"
+        )
 
     if completed and not valid_trials:
         failures = ", ".join(

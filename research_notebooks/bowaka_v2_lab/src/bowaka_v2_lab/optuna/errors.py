@@ -50,6 +50,19 @@ class MissingLakePartitionError(RuntimeError):
     """
 
 
+# Audit 2026-05-29 §6.5 / Appendix E — invalid-study reason codes. A study can
+# finish (RDB has COMPLETE trials) yet be scientifically invalid: every trial
+# ties at the same penalty (no TPE signal), no trial generated a single trade,
+# the incumbent baseline was silently padded with search-space midpoints
+# instead of the actual lab config, or every trial had a degraded fold. These
+# string constants name those failure modes so ``study_validity`` and the
+# failed-artifact writer surface a stable, greppable reason.
+REASON_CONSTANT_OBJECTIVE_SURFACE = "CONSTANT_OBJECTIVE_SURFACE"
+REASON_NO_TRADE_STUDY = "NO_TRADE_STUDY"
+REASON_INCUMBENT_MAPPING_INCOMPLETE = "INCUMBENT_MAPPING_INCOMPLETE"
+REASON_DEGRADED_FOLDS_PRESENT = "DEGRADED_FOLDS_PRESENT"
+
+
 #: Late-bound tuple of structural exception classes. Use
 #: :func:`structural_exceptions` to read; this name exists for back-compat with
 #: ``from .errors import STRUCTURAL_EXCEPTIONS`` callers that do not need the
@@ -89,4 +102,8 @@ __all__ = [
     "MissingLakePartitionError",
     "STRUCTURAL_EXCEPTIONS",
     "structural_exceptions",
+    "REASON_CONSTANT_OBJECTIVE_SURFACE",
+    "REASON_NO_TRADE_STUDY",
+    "REASON_INCUMBENT_MAPPING_INCOMPLETE",
+    "REASON_DEGRADED_FOLDS_PRESENT",
 ]

@@ -264,6 +264,12 @@ class FoldResult:
     #: profit bar (``metrics.PICK_QUALITY_MIN_PCT`` = 0.5%), 0..1. Defaults to
     #: 1.0 (no quality penalty) when unknown / no trades.
     frac_trades_ge_min_profit: float = 1.0
+    #: Fold health (audit 2026-05-29 §A.5 / Phase 0 task 6). ``"ok"`` for a
+    #: fold whose backtest ran; ``"degraded"`` when a non-structural exception
+    #: forced :func:`_degraded_fold`. A trial with ANY non-``"ok"`` fold is
+    #: rejected by the valid-trial filter and flags the study invalid
+    #: (``DEGRADED_FOLDS_PRESENT``) — a degraded fold is not a valid datapoint.
+    fold_status: str = "ok"
     #: Optional raw metric bag (kept for fold-by-fold reporting).
     metrics: dict[str, Any] = field(default_factory=dict)
 

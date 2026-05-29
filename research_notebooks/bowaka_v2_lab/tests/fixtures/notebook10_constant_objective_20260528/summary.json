@@ -1,0 +1,20 @@
+{
+  "fixture_source": "raw_output.log",
+  "parsed_trials": 80,
+  "trial_numbers_min": 0,
+  "trial_numbers_max": 79,
+  "missing_trial_numbers": [],
+  "unique_objective_values": [
+    -1.5
+  ],
+  "incumbent_padded_keys": [
+    "execution.max_quote_age_seconds",
+    "execution.max_spread_bps"
+  ],
+  "has_dynamic_categorical_error": false,
+  "soft_gt_hard_count": 13,
+  "hard_gt_critical_count": 1,
+  "target_le_stop_count": 16,
+  "trial_0_max_quote_age_seconds": 60,
+  "trial_0_max_spread_bps": 102
+}
