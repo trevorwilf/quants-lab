@@ -93,6 +93,19 @@ def write_walkforward_test_config(
     raw.setdefault("universe", {})["symbols"] = list(symbols)
     raw["optuna"]["n_trials"] = n_trials
     raw["optuna"]["n_jobs"] = 1
+    # Audit 2026-05-29 §6.5 / Phase 0 — the synthetic flat lake is, by
+    # construction, a no-trade study: the bars have ~2% range, far below the
+    # signal gates, so every fold records zero trades and every trial ties at
+    # the no-trade penalty. With ``--incumbent-trial`` the incumbent is also
+    # padded (the Phase-2 mapping fix is what removes that). These plumbing
+    # tests exercise the runner machinery, NOT signal generation, so they opt
+    # out of the post-study validity gates that (correctly) fail-close a real
+    # no-trade / constant-objective / padded-incumbent run. Shipping configs do
+    # NOT carry these flags and so still fail closed in production. A test that
+    # specifically asserts a gate FIRES overrides the relevant flag back off.
+    raw["optuna"]["allow_no_trade_study"] = True
+    raw["optuna"]["allow_constant_objective_surface"] = True
+    raw["optuna"]["allow_padded_incumbent"] = True
     raw["optuna"]["walkforward"] = {
         "train_months": 1, "val_months": 1, "final_holdout_months": 1,
     }
