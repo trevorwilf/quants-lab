@@ -264,6 +264,21 @@ def _source_file_hashes(src_root: Path) -> dict[str, str]:
     }
 
 
+def _hashable_lake_root_str(cfg: Mapping[str, Any]) -> str:
+    """Resolved lake-root string for inclusion in the matrix-input hash.
+
+    Routes through :func:`resolve_lake_root` so configs without an explicit
+    ``market_data.shared_root`` still hash a deterministic value (the env
+    fallback / in-repo default) instead of the pre-fix empty string that
+    came from the empty-string fallback in the pre-fix code. Note: this changes the
+    matrix-input-hash for configs that relied on the pre-fix empty string
+    — that's intentional, the old hash was computed from a buggy value.
+    """
+    from ..data.lineage import _coerce_lake_root, resolve_lake_root
+
+    return str(_coerce_lake_root(resolve_lake_root(cfg)))
+
+
 def compute_matrix_input_hash(
     cfg: Mapping[str, Any],
     plan: Any,
@@ -290,7 +305,7 @@ def compute_matrix_input_hash(
         "feed": md.get("feed"),
         "vendor": md.get("vendor"),
         "adjustment": md.get("adjustment"),
-        "lake_root": str(md.get("shared_root") or ""),
+        "lake_root": _hashable_lake_root_str(cfg),
         "dataset_hash": dataset_hash,
         "backtest_range": [bt.get("start_date"), bt.get("end_date")],
         "walkforward": (cfg.get("optuna") or {}).get("walkforward"),
@@ -697,7 +712,7 @@ def build_scan_matrix(
     paths = BowakaV2Paths.from_config(cfg, repo_root=repo_root)
     md = cfg.get("market_data") or {}
     feed = str(md.get("feed", "iex"))
-    # Hotfix 2026-05-29: resolve via the standard chain (md.get("shared_root")
+    # Hotfix 2026-05-29: resolve via the standard chain (the raw cfg lookup
     # is None for every shipping config -> Path(str(None)) false-positives).
     from ..data.lineage import resolve_lake_root
     lake_root = resolve_lake_root(cfg)

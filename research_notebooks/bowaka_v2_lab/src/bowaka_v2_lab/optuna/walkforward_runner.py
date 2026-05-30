@@ -345,10 +345,12 @@ def _resolve_symbols(
     is_lake = str(md.get("minute_bar_source", "fixture")) in ("alpaca", "shared")
 
     if sim_mode == "intended_realism" and plan is not None and is_lake and not research_waiver:
+        from ..data.lineage import _coerce_lake_root, resolve_lake_root
         from .pit_universe import plan_pit_symbol_union
 
+        lake_root = _coerce_lake_root(resolve_lake_root(cfg))
         union = plan_pit_symbol_union(
-            md.get("shared_root"), feed=md.get("feed", "iex"),
+            lake_root, feed=md.get("feed", "iex"),
             plan=plan, cfg=cfg, include_holdout=True,
         )
         if not union:
@@ -358,16 +360,17 @@ def _resolve_symbols(
             from bowaka_common.marketdata import available_symbols
 
             return available_symbols(
-                md.get("shared_root"), timeframe="1d",
-                feed=md.get("feed", "iex"),
+                lake_root, timeframe="1d", feed=md.get("feed", "iex"),
             )
         return sorted(union)
 
     if is_lake:
+        from ..data.lineage import _coerce_lake_root, resolve_lake_root
         from bowaka_common.marketdata import available_symbols
 
         return available_symbols(
-            md.get("shared_root"), timeframe="1d", feed=md.get("feed", "iex")
+            _coerce_lake_root(resolve_lake_root(cfg)),
+            timeframe="1d", feed=md.get("feed", "iex"),
         )[:cap]
     return ["AAA", "BBB", "CCC"]
 
@@ -837,7 +840,7 @@ def build_validation_scorer(
     )
     feed = str(md.get("feed", "iex"))
     # Hotfix 2026-05-29: resolve via the standard chain (explicit override >
-    # $MARKET_DATA_ROOT > in-repo default). md.get("shared_root") is None for
+    # $MARKET_DATA_ROOT > in-repo default). The raw cfg lookup is None for
     # every shipping config, and Path(str(None)) == Path('None') downstream
     # false-positives the partition gates.
     lake_root = resolve_lake_root(cfg)
@@ -909,7 +912,7 @@ def make_walkforward_objective_for_worker(
     )
     feed = str(md.get("feed", "iex"))
     # Hotfix 2026-05-29: resolve via the standard chain (explicit override >
-    # $MARKET_DATA_ROOT > in-repo default). md.get("shared_root") is None for
+    # $MARKET_DATA_ROOT > in-repo default). The raw cfg lookup is None for
     # every shipping config, and Path(str(None)) == Path('None') downstream
     # false-positives the partition gates.
     lake_root = resolve_lake_root(cfg)
@@ -1871,7 +1874,7 @@ def run_walkforward_study(
 
     feed = str(md.get("feed", "iex"))
     # Hotfix 2026-05-29: resolve via the standard chain (explicit override >
-    # $MARKET_DATA_ROOT > in-repo default). md.get("shared_root") is None for
+    # $MARKET_DATA_ROOT > in-repo default). The raw cfg lookup is None for
     # every shipping config, and Path(str(None)) == Path('None') downstream
     # false-positives the partition gates.
     lake_root = resolve_lake_root(cfg)

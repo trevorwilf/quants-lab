@@ -555,17 +555,17 @@ def _build_dq_report_with_optional_cache(
     symbols_hash = _hashlib.sha256(
         ",".join(sorted(requested_symbols)).encode("utf-8")
     ).hexdigest()[:16]
-    # Speedup hotfix 2026-05-27 — resolve via the same helper the fold-
-    # context stamper uses; matching string semantics is what gates the
-    # Phase 3 cache from spuriously rebuilding every trial.
-    try:
-        from ..data.lineage import resolve_lake_root as _resolve_lake_root_for_cache
+    # Lake-root hotfix 2026-05-29 — route through the helper so the
+    # dataset_lineage fallback honoured for replay paths is coerced;
+    # a buggy value (None or Path('None')) raises here instead of silently
+    # producing empty suppliers downstream. Avoids touching
+    # cfg['market_data'].get('shared_root') in this module so the AST
+    # regression test in tests/unit/optuna/ keeps catching new bypasses.
+    from ..data.lineage import resolve_lake_root_with_dataset_lineage_fallback
 
-        lake_root_str = str(_resolve_lake_root_for_cache(cfg))
-    except Exception:  # noqa: BLE001
-        lake_root_str = str(
-            md.get("shared_root") or dataset_lineage.get("lake_root") or ""
-        )
+    lake_root_str = str(
+        resolve_lake_root_with_dataset_lineage_fallback(cfg, dataset_lineage)
+    )
     expected_key = {
         "lake_root": lake_root_str,
         "feed": str(md.get("feed", "iex")),

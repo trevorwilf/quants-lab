@@ -94,7 +94,7 @@ def score_final_holdout(
         final_holdout_months=int(wf.get("final_holdout_months", 1)),
     )
     feed = str(md.get("feed", "iex"))
-    # Hotfix 2026-05-29: resolve via the standard chain (md.get("shared_root")
+    # Hotfix 2026-05-29: resolve via the standard chain (the raw cfg lookup
     # is None for every shipping config -> Path(str(None)) false-positives).
     lake_root = resolve_lake_root(cfg)
     symbols = _resolve_symbols(cfg, md)

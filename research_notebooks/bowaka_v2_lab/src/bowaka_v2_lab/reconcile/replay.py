@@ -245,7 +245,11 @@ def run_lab_parity_session(lab_cfg: Any, session_date: Any, *, run_dir: Path | s
         from ..universe.builder import build_pit_universe
 
         md = cfg.get("market_data") or {}
-        store = MarketDataStore(md.get("shared_root"), vendor=md.get("vendor", "alpaca"))
+        from ..data.lineage import _coerce_lake_root, resolve_lake_root
+        store = MarketDataStore(
+            _coerce_lake_root(resolve_lake_root(cfg)),
+            vendor=md.get("vendor", "alpaca"),
+        )
         universe = {session: build_pit_universe(session, cfg, store)}
     else:
         # No lake — fixture / smoke path. A synthetic universe is only legal in
