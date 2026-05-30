@@ -29,7 +29,8 @@ def main() -> None:
             "LAKE_ROOT  = None              # default = bowaka_common.resolve_market_data_root()\n"
             "COST_STRESS = 'base'           # passed to both sides identically; matches prod default\n"
             "RUN_LABEL  = None              # default = UTC timestamp folder name\n"
-            "TIMEOUT_SEC = 1800             # production subprocess timeout (seconds)\n"
+            "TIMEOUT_SEC = 1800             # production subprocess timeout (seconds, per session in chunked mode)\n"
+            "CHUNK_PER_SESSION = True       # True: per-session timing prints; False: single subprocess, canonical numerics\n"
         )},
         {"type": "markdown", "source": (
             "# 13 — Production-vs-Lab Parity\n\n"
@@ -45,6 +46,13 @@ def main() -> None:
             "are pointed at, so both monitor the same universe the live strategy would.\n\n"
             "Override knobs: `SYMBOLS=[...]` to pass an explicit list (debugging);\n"
             "`MAX_UNIVERSE_SIZE=N` to cap the screened universe to N symbols (fast smoke).\n\n"
+            "**Progress visibility.** With `CHUNK_PER_SESSION=True` (default) the runner\n"
+            "iterates session-by-session and prints `[i/N] DATE prod=Xs lab=Ys avg=... eta=...`\n"
+            "after each session, so you can see it's not hung. Trade-off: each lab session\n"
+            "starts at `initial_bankroll` (no carry-forward equity), so sizing-dependent\n"
+            "trade quantities can differ from the full-window run. Trade counts, entry/exit\n"
+            "times, and exit reasons are unaffected. For canonical numerics on a chosen\n"
+            "window, flip to `CHUNK_PER_SESSION=False`.\n\n"
             "**Requires Phase 0's fix landed** — pre-fix the production side always read\n"
             "deterministic synthetic data and the parity metrics are meaningless."
         )},
@@ -118,6 +126,7 @@ def main() -> None:
             "    cost_stress=COST_STRESS,\n"
             "    run_root=_run_root,\n"
             "    timeout_sec=int(TIMEOUT_SEC),\n"
+            "    chunk_per_session=bool(CHUNK_PER_SESSION),\n"
             ")\n"
             "print(f'prod_n_trades={report.prod_n_trades}  lab_n_trades={report.lab_n_trades}')\n"
             "print(f'trade_intersection_rate={report.trade_intersection_rate:.4f}')\n"
