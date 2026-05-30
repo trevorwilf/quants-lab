@@ -99,12 +99,21 @@ def test_chunked_mode_prints_one_line_per_session_and_fires_callback(
         )
 
     captured = capsys.readouterr().out
-    # One status line per session — the ``[i/N] DATE prod= lab= avg= eta=`` shape.
-    lines = [
+    # Each session emits 3 status lines: start-prod, prod-done/start-lab, done.
+    start_lines = [
         ln for ln in captured.splitlines()
-        if re.search(r"\[\s*\d+/\s*\d+\] 20\d\d-\d\d-\d\d prod=", ln)
+        if re.search(r"\[\s*\d+/\s*\d+\] 20\d\d-\d\d-\d\d  prod: starting", ln)
     ]
-    assert len(lines) == 3, f"expected 3 status lines, got {len(lines)}:\n{captured}"
+    done_lines = [
+        ln for ln in captured.splitlines()
+        if re.search(r"\[\s*\d+/\s*\d+\] 20\d\d-\d\d-\d\d  done: prod=.*lab=.*eta=", ln)
+    ]
+    assert len(start_lines) == 3, (
+        f"expected 3 'prod: starting' lines, got {len(start_lines)}:\n{captured}"
+    )
+    assert len(done_lines) == 3, (
+        f"expected 3 'done:' status lines, got {len(done_lines)}:\n{captured}"
+    )
     # Callback fired once per session with the right structure.
     assert len(callback_calls) == 3
     for idx, payload in enumerate(callback_calls, start=1):
