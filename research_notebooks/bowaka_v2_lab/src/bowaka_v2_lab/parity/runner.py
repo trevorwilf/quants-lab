@@ -468,11 +468,28 @@ def run_parity(
     all_lab_cands: list = []
     timings: list[tuple[float, float]] = []
     overall_t0 = time.monotonic()
+
+    def _emit(line: str) -> None:
+        """Print + force-flush. Jupyter's stdout shim usually flushes per-print,
+        but explicit flushing guards against buffering when a subprocess.run
+        blocks the main thread for many minutes between status lines."""
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+
     if print_progress:
-        print(f"[parity] chunked mode: {len(sessions)} sessions x prod subprocess + lab run")
-        print(f"[parity] universe={len(list(symbols))} symbols  timeout/session={timeout_sec}s")
+        _emit(f"[parity] chunked mode: {len(sessions)} sessions x prod subprocess + lab run")
+        _emit(f"[parity] universe={len(list(symbols))} symbols  timeout/session={timeout_sec}s")
+        if len(sessions) > 0:
+            _emit(
+                f"[parity] starting session 1/{len(sessions)} "
+                f"({sessions[0].isoformat()}) — first line tells you we're live"
+            )
+    width = max(1, len(str(len(sessions))))
     for i, sd in enumerate(sessions):
         session_iso = sd.isoformat()
+        tag = f"  [{i + 1:>{width}}/{len(sessions):<{width}}] {session_iso}"
+        if print_progress:
+            _emit(f"{tag}  prod: starting subprocess at {_dt.datetime.now().strftime('%H:%M:%S')}")
         t0 = time.monotonic()
         prod = run_production_backtester(
             start_date=sd, end_date=sd,
@@ -490,6 +507,11 @@ def run_parity(
                 f"(exit {prod.returncode}):\n"
                 f"STDOUT (tail): {prod.stdout[-2000:]}\n"
                 f"STDERR (tail): {prod.stderr[-2000:]}"
+            )
+        if print_progress:
+            _emit(
+                f"{tag}  prod done in {prod_secs:5.1f}s  "
+                f"lab: starting in-process at {_dt.datetime.now().strftime('%H:%M:%S')}"
             )
 
         t1 = time.monotonic()
@@ -524,15 +546,11 @@ def run_parity(
             "est_remaining_seconds": eta_seconds,
         }
         if print_progress:
-            width = len(str(len(sessions)))
-            print(
-                f"  [{i + 1:>{width}}/{len(sessions):<{width}}] "
-                f"{session_iso} "
-                f"prod={prod_secs:5.1f}s lab={lab_secs:5.1f}s "
+            _emit(
+                f"{tag}  done: prod={prod_secs:5.1f}s lab={lab_secs:5.1f}s "
                 f"avg=p{avg_prod:.1f}/l{avg_lab:.1f} "
                 f"ptrades={len(pt)} ltrades={len(lt)} "
-                f"eta={_fmt_eta(eta_seconds)}",
-                flush=True,
+                f"eta={_fmt_eta(eta_seconds)}"
             )
         if progress_callback is not None:
             progress_callback(prog)
@@ -541,10 +559,9 @@ def run_parity(
         elapsed = time.monotonic() - overall_t0
         total_pt = len(all_prod_trades)
         total_lt = len(all_lab_trades)
-        print(
+        _emit(
             f"[parity] done in {_fmt_eta(elapsed)}: "
-            f"prod_trades={total_pt} lab_trades={total_lt}",
-            flush=True,
+            f"prod_trades={total_pt} lab_trades={total_lt}"
         )
 
     return compute_parity_metrics(
