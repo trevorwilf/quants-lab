@@ -15,9 +15,10 @@ import json
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 _LAB_ROOT = Path(__file__).resolve().parents[3]   # src/bowaka_v2_lab/parity/runner.py -> lab root
 _BOWAKA_COMMON_SRC = (_LAB_ROOT.parent / "bowaka_common" / "src").resolve()
@@ -340,6 +341,27 @@ def run_lab_backtester(
     )
 
 
+def _fmt_eta(seconds: float) -> str:
+    """Compact ETA string: ``45s``, ``12m05s``, ``1h08m``."""
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m{int(seconds % 60):02d}s"
+    return f"{int(seconds // 3600)}h{int((seconds % 3600) // 60):02d}m"
+
+
+def _xnys_sessions(start_date: _dt.date, end_date: _dt.date) -> list[_dt.date]:
+    import exchange_calendars as xcals
+    import pandas as pd
+
+    cal = xcals.get_calendar("XNYS")
+    sessions = [
+        pd.Timestamp(s).date()
+        for s in cal.sessions_in_range(pd.Timestamp(start_date), pd.Timestamp(end_date))
+    ]
+    return sessions or [start_date]
+
+
 def run_parity(
     *,
     start_date: _dt.date,
@@ -354,8 +376,38 @@ def run_parity(
     python_extra: Sequence[str] = (),
     prod_script: Path | None = None,
     timeout_sec: int = 1800,
+    chunk_per_session: bool = False,
+    print_progress: bool = True,
+    progress_callback: Callable[[dict], None] | None = None,
 ) -> Any:
-    """End-to-end: run both backtesters, normalize, return a :class:`ParityReport`."""
+    """End-to-end: run both backtesters, normalize, return a :class:`ParityReport`.
+
+    Two modes:
+
+    - ``chunk_per_session=False`` (default): one prod subprocess and one lab
+      run_backtest cover the whole window. Canonical numerics — portfolio
+      state carries across sessions on the lab side. **No progress visibility
+      until both finish.**
+
+    - ``chunk_per_session=True``: the window is iterated session-by-session.
+      Each session is a 1-day prod subprocess + a 1-day lab run, timed
+      independently. After every session the runner prints
+
+          [  5/255] 2026-05-19 prod= 12.3s lab=  8.7s avg=p12.5/l8.9 \\
+                    ptrades=2 ltrades=1 eta=1h08m
+
+      and invokes ``progress_callback`` (if given) with the same metrics in
+      a dict shape. **Trade-off**: each lab session starts at the
+      ``initial_bankroll`` instead of carry-forward equity, so sizing-
+      dependent trade quantities can differ from the full-window run. Trade
+      counts, entry/exit times, and exit reasons are unaffected — the
+      strategy decisions don't depend on bankroll. Use this when you need
+      progress visibility on a long parity run; flip back to ``False`` for
+      sign-off numerics on the same window.
+
+    Either way, this returns a single :class:`ParityReport` covering the
+    full window — the chunking is purely an execution-shape concern.
+    """
     from .metrics import compute_parity_metrics
     from .normalizers import normalize_lab_output, normalize_production_output
 
@@ -364,53 +416,151 @@ def run_parity(
     symbols_file = run_root / "universe.txt"
     symbols_file.write_text("\n".join(str(s) for s in symbols) + "\n", encoding="utf-8")
 
-    prod = run_production_backtester(
-        start_date=start_date,
-        end_date=end_date,
-        symbols_file=symbols_file,
-        prod_config_path=Path(prod_config_path),
-        lake_root=Path(lake_root) if lake_root is not None else None,
-        cost_stress=cost_stress,
-        output_dir=run_root / "production",
-        python_exe=python_exe,
-        python_extra=python_extra,
-        prod_script=prod_script,
-        timeout_sec=timeout_sec,
-    )
-    if prod.returncode != 0:
-        raise RuntimeError(
-            "production backtester failed "
-            f"(exit {prod.returncode}):\n"
-            f"STDOUT (tail): {prod.stdout[-2000:]}\n"
-            f"STDERR (tail): {prod.stderr[-2000:]}"
+    if not chunk_per_session:
+        prod = run_production_backtester(
+            start_date=start_date,
+            end_date=end_date,
+            symbols_file=symbols_file,
+            prod_config_path=Path(prod_config_path),
+            lake_root=Path(lake_root) if lake_root is not None else None,
+            cost_stress=cost_stress,
+            output_dir=run_root / "production",
+            python_exe=python_exe,
+            python_extra=python_extra,
+            prod_script=prod_script,
+            timeout_sec=timeout_sec,
+        )
+        if prod.returncode != 0:
+            raise RuntimeError(
+                "production backtester failed "
+                f"(exit {prod.returncode}):\n"
+                f"STDOUT (tail): {prod.stdout[-2000:]}\n"
+                f"STDERR (tail): {prod.stderr[-2000:]}"
+            )
+
+        lab = run_lab_backtester(
+            start_date=start_date,
+            end_date=end_date,
+            symbols=symbols,
+            lab_config_path=Path(lab_config_path),
+            cost_stress=cost_stress,
+            run_dir=run_root / "lab",
         )
 
-    lab = run_lab_backtester(
-        start_date=start_date,
-        end_date=end_date,
-        symbols=symbols,
-        lab_config_path=Path(lab_config_path),
-        cost_stress=cost_stress,
-        run_dir=run_root / "lab",
-    )
+        prod_trades, prod_cands = normalize_production_output(prod)
+        lab_trades, lab_cands = normalize_lab_output(lab)
+        return compute_parity_metrics(
+            window_start=start_date,
+            window_end=end_date,
+            universe_size=len(list(symbols)),
+            prod_trades=prod_trades,
+            prod_candidates=prod_cands,
+            lab_trades=lab_trades,
+            lab_candidates=lab_cands,
+            prod_summary=prod.summary,
+            lab_result=lab,
+        )
 
-    prod_trades, prod_cands = normalize_production_output(prod)
-    lab_trades, lab_cands = normalize_lab_output(lab)
+    # Per-session chunked path.
+    sessions = _xnys_sessions(start_date, end_date)
+    all_prod_trades: list = []
+    all_lab_trades: list = []
+    all_lab_cands: list = []
+    timings: list[tuple[float, float]] = []
+    overall_t0 = time.monotonic()
+    if print_progress:
+        print(f"[parity] chunked mode: {len(sessions)} sessions x prod subprocess + lab run")
+        print(f"[parity] universe={len(list(symbols))} symbols  timeout/session={timeout_sec}s")
+    for i, sd in enumerate(sessions):
+        session_iso = sd.isoformat()
+        t0 = time.monotonic()
+        prod = run_production_backtester(
+            start_date=sd, end_date=sd,
+            symbols_file=symbols_file, prod_config_path=Path(prod_config_path),
+            lake_root=Path(lake_root) if lake_root is not None else None,
+            cost_stress=cost_stress,
+            output_dir=run_root / "production" / session_iso,
+            python_exe=python_exe, python_extra=python_extra,
+            prod_script=prod_script, timeout_sec=timeout_sec,
+        )
+        prod_secs = time.monotonic() - t0
+        if prod.returncode != 0:
+            raise RuntimeError(
+                f"production backtester failed on session {session_iso} "
+                f"(exit {prod.returncode}):\n"
+                f"STDOUT (tail): {prod.stdout[-2000:]}\n"
+                f"STDERR (tail): {prod.stderr[-2000:]}"
+            )
+
+        t1 = time.monotonic()
+        lab = run_lab_backtester(
+            start_date=sd, end_date=sd, symbols=symbols,
+            lab_config_path=Path(lab_config_path),
+            cost_stress=cost_stress, run_dir=run_root / "lab" / session_iso,
+        )
+        lab_secs = time.monotonic() - t1
+
+        pt, _ = normalize_production_output(prod)
+        lt, lc = normalize_lab_output(lab)
+        all_prod_trades.extend(pt)
+        all_lab_trades.extend(lt)
+        all_lab_cands.extend(lc)
+        timings.append((prod_secs, lab_secs))
+        avg_prod = sum(p for p, _ in timings) / len(timings)
+        avg_lab = sum(l for _, l in timings) / len(timings)
+        remaining_sessions = len(sessions) - (i + 1)
+        eta_seconds = remaining_sessions * (avg_prod + avg_lab)
+        prog = {
+            "session_idx": i + 1,
+            "total_sessions": len(sessions),
+            "session_date": sd,
+            "prod_seconds": prod_secs,
+            "lab_seconds": lab_secs,
+            "prod_trades_this_session": len(pt),
+            "lab_trades_this_session": len(lt),
+            "avg_prod_seconds": avg_prod,
+            "avg_lab_seconds": avg_lab,
+            "elapsed_seconds": time.monotonic() - overall_t0,
+            "est_remaining_seconds": eta_seconds,
+        }
+        if print_progress:
+            width = len(str(len(sessions)))
+            print(
+                f"  [{i + 1:>{width}}/{len(sessions):<{width}}] "
+                f"{session_iso} "
+                f"prod={prod_secs:5.1f}s lab={lab_secs:5.1f}s "
+                f"avg=p{avg_prod:.1f}/l{avg_lab:.1f} "
+                f"ptrades={len(pt)} ltrades={len(lt)} "
+                f"eta={_fmt_eta(eta_seconds)}",
+                flush=True,
+            )
+        if progress_callback is not None:
+            progress_callback(prog)
+
+    if print_progress:
+        elapsed = time.monotonic() - overall_t0
+        total_pt = len(all_prod_trades)
+        total_lt = len(all_lab_trades)
+        print(
+            f"[parity] done in {_fmt_eta(elapsed)}: "
+            f"prod_trades={total_pt} lab_trades={total_lt}",
+            flush=True,
+        )
+
     return compute_parity_metrics(
         window_start=start_date,
         window_end=end_date,
         universe_size=len(list(symbols)),
-        prod_trades=prod_trades,
-        prod_candidates=prod_cands,
-        lab_trades=lab_trades,
-        lab_candidates=lab_cands,
-        prod_summary=prod.summary,
-        lab_result=lab,
+        prod_trades=all_prod_trades,
+        prod_candidates=[],
+        lab_trades=all_lab_trades,
+        lab_candidates=all_lab_cands,
     )
 
 
 __all__ = [
     "ProductionRunResult",
+    "build_parity_universe",
     "run_production_backtester",
     "run_lab_backtester",
     "run_parity",

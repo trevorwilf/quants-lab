@@ -633,6 +633,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Production subprocess timeout in seconds (default: 1800). "
                           "Large windows or unfiltered PIT universes may need 3600+. "
                           "On timeout, the runner reports the progress-log tail.")
+    par.add_argument("--chunk-per-session", action="store_true",
+                     help="Run prod + lab session-by-session and print per-session "
+                          "timing + ETA. Trade-off: each lab session starts at "
+                          "initial_bankroll (no carry-forward). Use for progress "
+                          "visibility on long parity runs; omit for canonical numerics.")
     par.set_defaults(func=_cmd_parity)
 
     return p
@@ -991,6 +996,7 @@ def _cmd_parity(args: argparse.Namespace) -> int:
         python_exe=python_exe,
         python_extra=(),
         timeout_sec=args.timeout_sec,
+        chunk_per_session=bool(args.chunk_per_session),
     )
     md_path = out_dir / "parity_report.md"
     render_markdown_report(report, output_path=md_path)
