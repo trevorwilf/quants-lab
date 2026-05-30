@@ -18,6 +18,7 @@ from .normalizers import normalize_lab_output, normalize_production_output
 from .report import render_markdown_report
 from .runner import (
     ProductionRunResult,
+    build_parity_universe,
     run_lab_backtester,
     run_parity,
     run_production_backtester,
@@ -31,6 +32,7 @@ __all__ = (
     "normalize_production_output",
     "normalize_lab_output",
     "ProductionRunResult",
+    "build_parity_universe",
     "run_production_backtester",
     "run_lab_backtester",
     "run_parity",

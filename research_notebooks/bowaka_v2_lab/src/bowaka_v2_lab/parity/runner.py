@@ -23,6 +23,62 @@ _LAB_ROOT = Path(__file__).resolve().parents[3]   # src/bowaka_v2_lab/parity/run
 _BOWAKA_COMMON_SRC = (_LAB_ROOT.parent / "bowaka_common" / "src").resolve()
 
 
+def build_parity_universe(
+    *,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    lab_config_path: Path,
+    lake_root: Path | None = None,
+    max_universe_size: int | None = None,
+) -> list[str]:
+    """Resolve the symbols both sides should monitor — the bowaka v2 PIT screen.
+
+    Bowaka v2's actual flow is **screen the universe via PIT (asset master +
+    prior-day baselines) → monitor the survivors intraday**. To make the
+    parity check mirror that, this helper:
+
+      1. Loads the lab config (PIT criteria live under ``universe:``).
+      2. Resolves the XNYS sessions in ``[start_date, end_date]``.
+      3. Builds the PIT records for each session via
+         :func:`build_pit_universe_for_sessions`.
+      4. Reduces to ``eligible_for_bowaka_equity_bucket`` (the survivors of
+         the strategy's universe screen) via :func:`eligible_symbols`.
+      5. Returns the **union** of eligibles across the window, sorted.
+
+    The production side then takes that exact symbol list via ``--symbols``
+    and the lab side intersects its own PIT records with it. Both sides
+    therefore monitor the same universe — what the live strategy would.
+
+    ``max_universe_size`` (default None) caps the result for fast smoke
+    runs; ``None`` returns the full PIT-resolved universe and is the right
+    default for a "real" parity run.
+    """
+    import exchange_calendars as xcals
+    import pandas as pd
+
+    from ..cli_runners import _lake_store
+    from ..config import load_config
+    from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
+
+    cfg = load_config(lab_config_path)
+    if lake_root is not None:
+        cfg.setdefault("market_data", {})["shared_root"] = str(lake_root)
+    cal = xcals.get_calendar("XNYS")
+    sessions = [
+        pd.Timestamp(s).date()
+        for s in cal.sessions_in_range(pd.Timestamp(start_date), pd.Timestamp(end_date))
+    ] or [start_date]
+    store = _lake_store(cfg.get("market_data") or {})
+    by_session = build_pit_universe_for_sessions(sessions, cfg, store)
+    union: set[str] = set()
+    for records in by_session.values():
+        union.update(eligible_symbols(records))
+    out = sorted(union)
+    if max_universe_size is not None and max_universe_size > 0:
+        out = out[:max_universe_size]
+    return out
+
+
 def _build_subprocess_env(extra_paths: Sequence[Path] = ()) -> dict[str, str]:
     """Build a subprocess env that pins PYTHONPATH to the lab + bowaka_common.
 

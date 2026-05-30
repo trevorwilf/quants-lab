@@ -49,6 +49,7 @@ def test_papermill_executes_notebook_and_writes_report(tmp_path: Path) -> None:
          str(_NOTEBOOK), str(out_nb),
          "-p", "START_DATE", "2026-05-19",
          "-p", "END_DATE", "2026-05-19",
+         "-p", "MAX_UNIVERSE_SIZE", "5",
          "-p", "RUN_LABEL", label],
         cwd=str(_REPO_ROOT),
         capture_output=True, text=True, timeout=720, check=False,
