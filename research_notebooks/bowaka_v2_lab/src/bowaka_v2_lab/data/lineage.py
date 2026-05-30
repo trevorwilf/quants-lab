@@ -68,6 +68,73 @@ def resolve_lake_root(cfg: Mapping[str, Any]) -> Path:
     return resolve_market_data_root(md.get("shared_root"), create=False)
 
 
+def resolve_lake_root_with_dataset_lineage_fallback(
+    cfg: Mapping[str, Any],
+    dataset_lineage: Mapping[str, Any] | None,
+) -> Path:
+    """Resolve the lake root honouring a dataset_lineage fallback.
+
+    Replay paths (paper-vs-sim reconciliation; cached fold artifacts) carry a
+    ``dataset_lineage`` dict that may stamp a ``lake_root`` distinct from the
+    cfg's — usually because the replay was recorded against a different lake
+    mount. We honour that fallback (``cfg.market_data.shared_root`` > the
+    lineage's ``lake_root`` > the resolver chain), then coerce the result so
+    a buggy value (None or ``Path('None')``) raises loudly instead of
+    silently producing empty suppliers downstream.
+
+    The dataset-lineage callsites must not duplicate the
+    ``cfg['market_data'].get('shared_root')`` pattern in their own code (the
+    AST regression test refuses it outside ``data/lineage.py``).
+    """
+    md = cfg.get("market_data", {}) or {}
+    explicit = md.get("shared_root")
+    if explicit:
+        return _coerce_lake_root(explicit)
+    if dataset_lineage:
+        lineage_root = dataset_lineage.get("lake_root") if isinstance(dataset_lineage, Mapping) else None
+        if lineage_root:
+            return _coerce_lake_root(lineage_root)
+    return _coerce_lake_root(resolve_lake_root(cfg))
+
+
+def _coerce_lake_root(value: Any) -> Path:
+    """Defensive helper: reject obviously-bad lake-root values at the boundary.
+
+    Returns the value as a normalised, absolute :class:`Path` if it represents
+    a real path. Raises :class:`RuntimeError` if the value is ``None``,
+    ``Path("None")``, an empty string, or otherwise non-resolvable.
+
+    Use this anywhere a ``lake_root`` crosses an API boundary into code that
+    reads parquet — particularly subprocess worker entry points, where a
+    silently-empty supplier produces zero candidates and looks like a regime
+    issue rather than a bug.
+
+    The 2026-05-29 diagnostic traced "constant -1.5 objective" / "0 candidates"
+    / "100% quote coverage" walkforward studies to ``md.get("shared_root")``
+    returning ``None`` for shipping configs and being passed downstream as
+    ``Path("None")``. This helper is the boundary guard so any future
+    bypass of :func:`resolve_lake_root` fails loudly instead of silently.
+    """
+    if value is None:
+        raise RuntimeError(
+            "lake_root resolved to None. Use "
+            "bowaka_v2_lab.data.lineage.resolve_lake_root(cfg) "
+            "instead of cfg['market_data'].get('shared_root')."
+        )
+    coerced = Path(str(value)).resolve()
+    sep = "\\" if "\\" in str(coerced) else "/"
+    if coerced.name == "None" or str(coerced).endswith(f"{sep}None"):
+        raise RuntimeError(
+            f"lake_root coerced to {coerced!r}, which is the "
+            "Path-stringification of None. Use "
+            "bowaka_v2_lab.data.lineage.resolve_lake_root(cfg) "
+            "instead of cfg['market_data'].get('shared_root')."
+        )
+    if str(coerced) == "" or str(value) == "":
+        raise RuntimeError("lake_root coerced to empty Path.")
+    return coerced
+
+
 def load_lake_manifest(lake_root: Path) -> Optional[dict[str, Any]]:
     """Load the lake's ``_ingestion/manifest.json``; ``None`` if absent or unreadable."""
     path = _layout.ingestion_manifest_path(lake_root)
@@ -508,7 +575,9 @@ __all__ = [
     "build_dataset_lineage",
     "content_addressed_dataset_hash",
     "load_lake_manifest",
+    "_coerce_lake_root",
     "resolve_lake_root",
+    "resolve_lake_root_with_dataset_lineage_fallback",
     "uses_lake",
     "symbol_universe_hash",
     "lake_provider",

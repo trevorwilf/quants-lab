@@ -16,6 +16,7 @@ from typing import Any
 import pandas as pd
 
 from .config import BowakaV2Paths, load_config
+from .data.lineage import _coerce_lake_root, resolve_lake_root
 from .sim.backtester import BacktestResult, run_backtest
 from .sim.replay_fixtures import synthetic_daily_cache, synthetic_universe
 from .sim.schedule import scan_times_for_session
@@ -61,7 +62,8 @@ def resolve_symbols(cfg: dict, *, cap: int = 100) -> list[str]:
         from bowaka_common.marketdata import available_symbols
 
         return available_symbols(
-            md.get("shared_root"), timeframe="1d", feed=md.get("feed", "iex")
+            _coerce_lake_root(resolve_lake_root(cfg)),
+            timeframe="1d", feed=md.get("feed", "iex"),
         )[:cap]
     return ["AAA", "BBB", "CCC"]
 
@@ -107,7 +109,7 @@ def resolve_suppliers(cfg: dict):
         from .data.suppliers import make_lake_suppliers, resolve_intraday_window_policy
 
         return make_lake_suppliers(
-            md.get("shared_root"),
+            _coerce_lake_root(resolve_lake_root(cfg)),
             feed=md.get("feed", "iex"),
             intraday_window_policy=resolve_intraday_window_policy(cfg),
             daily_adjustment=daily_adjustment_for_config(cfg),
@@ -123,7 +125,8 @@ def resolve_daily_cache(cfg: dict, symbols: list[str], session: _dt.date) -> pd.
         from .data.suppliers import build_daily_cache_from_lake
 
         return build_daily_cache_from_lake(
-            md.get("shared_root"), symbols, session, feed=md.get("feed", "iex"),
+            _coerce_lake_root(resolve_lake_root(cfg)), symbols, session,
+            feed=md.get("feed", "iex"),
             daily_adjustment=daily_adjustment_for_config(cfg),
         )
     return synthetic_daily_cache(symbols)

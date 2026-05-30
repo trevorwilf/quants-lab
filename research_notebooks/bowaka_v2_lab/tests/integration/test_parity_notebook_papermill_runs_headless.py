@@ -44,6 +44,10 @@ def test_papermill_executes_notebook_and_writes_report(tmp_path: Path) -> None:
 
     label = "papermill_smoke_" + _dt.datetime.now(_dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     out_nb = tmp_path / "out.ipynb"
+    # Run papermill from inside the lab dir so the notebook bootstrap can
+    # walk UP from cwd to find ``src/bowaka_v2_lab/__init__.py``. The
+    # bootstrap then chdirs to the repo root before any CONFIG_PATH
+    # resolution, so the repo-root-relative defaults still work.
     proc = subprocess.run(
         [sys.executable, "-m", "papermill",
          str(_NOTEBOOK), str(out_nb),
@@ -51,7 +55,7 @@ def test_papermill_executes_notebook_and_writes_report(tmp_path: Path) -> None:
          "-p", "END_DATE", "2026-05-19",
          "-p", "MAX_UNIVERSE_SIZE", "5",
          "-p", "RUN_LABEL", label],
-        cwd=str(_REPO_ROOT),
+        cwd=str(_LAB),
         capture_output=True, text=True, timeout=720, check=False,
     )
     assert proc.returncode == 0, (

@@ -16,6 +16,7 @@ import pandas as pd
 from .config import BowakaV2Paths, load_config
 from .config.models import BowakaV2Config
 from .data.adjustment import daily_adjustment_for_config
+from .data.lineage import _coerce_lake_root, resolve_lake_root
 from .data.suppliers import (
     build_daily_cache_from_lake,
     make_forward_minute_supplier,
@@ -87,7 +88,8 @@ def _resolve_symbols(cfg: dict, md: dict, *, cap: int = 100) -> list[str]:
         from bowaka_common.marketdata import available_symbols
 
         return available_symbols(
-            md.get("shared_root"), timeframe="1d", feed=md.get("feed", "iex")
+            _coerce_lake_root(resolve_lake_root(cfg)),
+            timeframe="1d", feed=md.get("feed", "iex"),
         )[:cap]
     return ["AAA", "BBB", "CCC"]
 
@@ -124,11 +126,17 @@ def _synthetic_suppliers():
     return minute_supplier, daily_supplier
 
 
-def _lake_store(md: dict):
-    """A ``MarketDataStore`` over the configured shared-lake root."""
+def _lake_store(cfg: dict):
+    """A ``MarketDataStore`` over the configured shared-lake root.
+
+    Routes through :func:`resolve_lake_root` + :func:`_coerce_lake_root` so
+    a config without ``market_data.shared_root`` still resolves via the
+    standard chain (env var > in-repo default) instead of silently passing
+    ``None`` to the store (the 2026-05-29 silent-zero-output bug).
+    """
     from bowaka_common.marketdata import MarketDataStore
 
-    return MarketDataStore(md.get("shared_root"))
+    return MarketDataStore(_coerce_lake_root(resolve_lake_root(cfg)))
 
 
 def _is_smoke(validated: BowakaV2Config) -> bool:
@@ -144,7 +152,7 @@ def _build_pit_universe_by_session(
     Realism Phase 3: a non-smoke run must consume the PIT universe built from
     the lake asset snapshot + prior-day bars — never the synthetic fixture.
     """
-    store = _lake_store(md)
+    store = _lake_store(cfg)
     return build_pit_universe_for_sessions(sessions, cfg, store)
 
 
@@ -224,7 +232,8 @@ def run_backtest_command(
     quote_supplier = None
     forward_minute_supplier = None
     if _uses_lake(cfg):
-        feed, root = md.get("feed", "iex"), md.get("shared_root")
+        feed = md.get("feed", "iex")
+        root = _coerce_lake_root(resolve_lake_root(cfg))
         _adj = daily_adjustment_for_config(cfg)
         minute_supplier, daily_supplier = make_lake_suppliers(
             root, feed=feed,
@@ -297,7 +306,7 @@ def build_universe_command(config_path: str | Path, *, out_path: str | Path | No
 
     if not _is_smoke(validated):
         # Point-in-time universe from the lake asset master + prior-day bars.
-        records = build_pit_universe(session, cfg, _lake_store(md))
+        records = build_pit_universe(session, cfg, _lake_store(cfg))
         snapshot = to_scanner_snapshot(records)
         snapshot["session_date"] = session.isoformat()
         snapshot["funnel"] = universe_funnel(records)
@@ -341,7 +350,8 @@ def build_volume_curve_command(config_path: str | Path, *, out_path: str | Path 
     source = "synthetic_default"
     curve = synthesize_default_curve()
     if _uses_lake(cfg):
-        feed, root = md.get("feed", "iex"), md.get("shared_root")
+        feed = md.get("feed", "iex")
+        root = _coerce_lake_root(resolve_lake_root(cfg))
         from bowaka_common.marketdata import MarketDataStore
 
         store = MarketDataStore(root)
@@ -390,7 +400,8 @@ def replay_scanner_command(
     scan_ts = scan_times_for_session(session, cfg)
 
     if _uses_lake(cfg):
-        feed, root = md.get("feed", "iex"), md.get("shared_root")
+        feed = md.get("feed", "iex")
+        root = _coerce_lake_root(resolve_lake_root(cfg))
         _adj = daily_adjustment_for_config(cfg)
         bars_supplier, _ = make_lake_suppliers(
             root, feed=feed,
@@ -485,11 +496,11 @@ def dq_report_command(
 
     lake_backed = _uses_lake(cfg)
     if lake_backed:
-        root = md.get("shared_root")
+        root = _coerce_lake_root(resolve_lake_root(cfg))
         minute_supplier, daily_supplier = make_lake_suppliers(
             root, feed=feed, daily_adjustment=daily_adjustment_for_config(cfg),
         )
-        store = _lake_store(md)
+        store = _lake_store(cfg)
 
         def session_minute_supplier(symbol: str, session_date: Any):
             """The FULL regular-session minute frame for the session checks."""

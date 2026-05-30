@@ -288,8 +288,10 @@ def run_lab_backtester(
     quote_supplier = None
     forward_minute_supplier = None
     if _uses_lake(cfg):
+        from ..data.lineage import _coerce_lake_root, resolve_lake_root
+
         feed = md.get("feed", "iex")
-        root = md.get("shared_root")
+        root = _coerce_lake_root(resolve_lake_root(cfg))
         adjustment = daily_adjustment_for_config(cfg)
         minute_supplier, daily_supplier = make_lake_suppliers(
             root, feed=feed,
