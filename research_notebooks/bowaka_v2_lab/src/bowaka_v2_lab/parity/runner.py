@@ -135,8 +135,9 @@ def run_production_backtester(
     output_dir: Path,
     python_exe: str | None = None,
     python_extra: Sequence[str] = (),
-    timeout_sec: int = 600,
+    timeout_sec: int = 1800,
     prod_script: Path | None = None,
+    progress_log: Path | None = None,
 ) -> ProductionRunResult:
     """Shell out to the production backtester via subprocess.
 
@@ -171,10 +172,37 @@ def run_production_backtester(
     ]
     if lake_root is not None:
         cmd.extend(["--lake-root", str(lake_root)])
-    proc = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout_sec, check=False,
-        env=_build_subprocess_env(),
-    )
+    # Default a progress log inside the output dir so long runs are observable
+    # via ``tail -f`` while the subprocess is still running.
+    if progress_log is None:
+        progress_log = output_dir / "production.stderr.log"
+    progress_log = Path(progress_log)
+    progress_log.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with progress_log.open("w", encoding="utf-8", buffering=1) as stderr_fh:
+            proc = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=stderr_fh,
+                text=True,
+                timeout=timeout_sec,
+                check=False,
+                env=_build_subprocess_env(),
+            )
+        stderr_text = progress_log.read_text(encoding="utf-8", errors="replace")
+    except subprocess.TimeoutExpired as exc:
+        tail = ""
+        if progress_log.is_file():
+            tail = progress_log.read_text(encoding="utf-8", errors="replace")
+        raise RuntimeError(
+            f"production backtester timed out after {timeout_sec}s. "
+            f"For a real-universe window this is normal — reduce the window or "
+            f"set MAX_UNIVERSE_SIZE / --max-universe-size to cap the screened "
+            f"universe for a fast smoke first. Raise the cap with "
+            f"`timeout_sec=` (run_parity) or `--timeout-sec` (CLI).\n"
+            f"PROGRESS LOG TAIL (last 2000 chars at {progress_log}):\n"
+            f"{tail[-2000:]}"
+        ) from exc
     summary_path = output_dir / "summary.json"
     summary: dict = {}
     if summary_path.is_file():
@@ -191,8 +219,8 @@ def run_production_backtester(
         summary=summary,
         trades_path=trades_path,
         returncode=proc.returncode,
-        stdout=proc.stdout,
-        stderr=proc.stderr,
+        stdout=proc.stdout if proc.stdout is not None else "",
+        stderr=stderr_text,
     )
 
 
@@ -325,6 +353,7 @@ def run_parity(
     python_exe: str | None = None,
     python_extra: Sequence[str] = (),
     prod_script: Path | None = None,
+    timeout_sec: int = 1800,
 ) -> Any:
     """End-to-end: run both backtesters, normalize, return a :class:`ParityReport`."""
     from .metrics import compute_parity_metrics
@@ -346,6 +375,7 @@ def run_parity(
         python_exe=python_exe,
         python_extra=python_extra,
         prod_script=prod_script,
+        timeout_sec=timeout_sec,
     )
     if prod.returncode != 0:
         raise RuntimeError(
