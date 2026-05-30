@@ -629,6 +629,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Output dir; default = artifacts/parity/lab_vs_production/<UTC>")
     par.add_argument("--python-exe", default=None,
                      help="Production subprocess interpreter; default = sys.executable")
+    par.add_argument("--timeout-sec", type=int, default=1800,
+                     help="Production subprocess timeout in seconds (default: 1800). "
+                          "Large windows or unfiltered PIT universes may need 3600+. "
+                          "On timeout, the runner reports the progress-log tail.")
     par.set_defaults(func=_cmd_parity)
 
     return p
@@ -986,6 +990,7 @@ def _cmd_parity(args: argparse.Namespace) -> int:
         run_root=out_dir,
         python_exe=python_exe,
         python_extra=(),
+        timeout_sec=args.timeout_sec,
     )
     md_path = out_dir / "parity_report.md"
     render_markdown_report(report, output_path=md_path)
