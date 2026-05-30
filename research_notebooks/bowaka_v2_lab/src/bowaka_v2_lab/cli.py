@@ -615,8 +615,12 @@ def build_parser() -> argparse.ArgumentParser:
     par.add_argument("--lake-root", default=None,
                      help="Override the lake root (default: bowaka_common resolution)")
     par.add_argument("--symbols", default=None,
-                     help="Comma-separated symbol list; default = first 5 IEX "
-                          "split_adjusted symbols on disk")
+                     help="Comma-separated symbol list. Default (None) builds the "
+                          "PIT-screened universe via the lab config's universe: "
+                          "criteria, mirroring what bowaka_v2 does live.")
+    par.add_argument("--max-universe-size", type=int, default=None,
+                     help="Cap the PIT-screened universe to N symbols (fast smoke "
+                          "runs). Has no effect when --symbols is passed.")
     par.add_argument("--cost-stress", default="base",
                      choices=["base", "conservative", "severe"],
                      help="Cost-stress label passed identically to both sides; "
@@ -935,32 +939,31 @@ def _cmd_parity(args: argparse.Namespace) -> int:
     start_date = _dt.date.fromisoformat(args.start_date)
     end_date = _dt.date.fromisoformat(args.end_date)
 
-    if args.symbols:
-        symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
-    else:
-        from bowaka_common.marketdata.catalog import available_symbols
-        from bowaka_common.marketdata.store import resolve_market_data_root
-        lake_root_for_default = (
-            Path(args.lake_root).resolve() if args.lake_root
-            else resolve_market_data_root(None, create=False)
-        )
-        symbols = available_symbols(
-            lake_root_for_default, timeframe="1d", vendor="alpaca",
-            feed="iex", adjustment="split_adjusted",
-        )[:5]
-        if not symbols:
-            print(json.dumps({
-                "status": "error",
-                "error": "no IEX split_adjusted symbols available on disk; "
-                         "pass --symbols explicitly",
-            }), file=sys.stderr)
-            return 2
-
     if args.lake_root:
         lake_root = Path(args.lake_root).resolve()
     else:
         from bowaka_common.marketdata.store import resolve_market_data_root
         lake_root = resolve_market_data_root(None, create=False)
+
+    if args.symbols:
+        symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+        symbols_source = "explicit"
+    else:
+        from .parity import build_parity_universe
+        symbols = build_parity_universe(
+            start_date=start_date, end_date=end_date,
+            lab_config_path=Path(args.lab_config),
+            lake_root=lake_root,
+            max_universe_size=args.max_universe_size,
+        )
+        symbols_source = "pit_screen_capped" if args.max_universe_size else "pit_screen"
+        if not symbols:
+            print(json.dumps({
+                "status": "error",
+                "error": "parity universe is empty after screening — check the window "
+                         "and lab config; pass --symbols explicitly to override",
+            }), file=sys.stderr)
+            return 2
 
     if args.output_dir:
         out_dir = Path(args.output_dir).resolve()
@@ -990,6 +993,8 @@ def _cmd_parity(args: argparse.Namespace) -> int:
         "status": "ok",
         "command": "parity",
         "report_path": str(md_path),
+        "universe_size": len(symbols),
+        "universe_source": symbols_source,
         "prod_n_trades": report.prod_n_trades,
         "lab_n_trades": report.lab_n_trades,
         "passes_audit_thresholds": bool(report.passes_audit_thresholds),
