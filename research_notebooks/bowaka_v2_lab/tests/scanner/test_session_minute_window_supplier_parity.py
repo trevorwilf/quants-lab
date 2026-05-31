@@ -59,13 +59,6 @@ _FEED = "iex"
 _POLICY = "scanner_start_to_scan"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Phase 4 supplier returns empty bars / column mismatch — root cause "
-        "pending Phase 2; see PHASE_NOTES/session_minute_window_supplier_parity_fix.md"
-    ),
-)
 def test_phase4_supplier_matches_cached_forming_minutes_on_real_lake():
     """Byte-parity: ``make_session_minute_window_supplier`` must produce
     the same frame ``CachedSessionMarketData.forming_minutes`` does for
