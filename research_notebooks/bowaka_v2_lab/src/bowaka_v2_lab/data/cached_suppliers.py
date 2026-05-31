@@ -174,6 +174,11 @@ class CachedSessionMarketData:
 
         Identical to the legacy ``minute_bars_supplier(symbol, cutoff)``
         (audit P0-006).
+
+        Parity with :func:`bowaka_v2_lab.scanner.session_minute_window_supplier.make_session_minute_window_supplier`
+        is enforced by ``tests/scanner/test_session_minute_window_supplier_parity.py``
+        — do not modify either implementation's boundary semantics
+        without updating that test.
         """
         _count(minute_supplier_calls=1)
         from .suppliers import intraday_window_start

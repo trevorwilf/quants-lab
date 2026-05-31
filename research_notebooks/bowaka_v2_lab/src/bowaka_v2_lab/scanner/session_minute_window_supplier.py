@@ -38,6 +38,11 @@ def make_session_minute_window_supplier(
     On a session-cache miss for the resolved session (symbol absent from
     ``symbols_by_session[session]``), the supplier returns the canonical
     empty minute frame — same as the legacy supplier.
+
+    Parity with :meth:`bowaka_v2_lab.data.cached_suppliers.CachedSessionMarketData.forming_minutes`
+    is enforced by ``tests/scanner/test_session_minute_window_supplier_parity.py``
+    — do not modify either implementation's boundary semantics or the
+    canonical empty-frame schema without updating that test.
     """
     cache_by_session: dict[_dt.date, SessionMinuteWindowCache] = {}
     sessions_set = {pd.Timestamp(s).date() if not isinstance(s, _dt.date) else s
