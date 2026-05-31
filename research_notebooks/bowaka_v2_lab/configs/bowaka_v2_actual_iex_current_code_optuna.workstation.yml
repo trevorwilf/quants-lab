@@ -100,10 +100,20 @@ optuna:
     # per trial with all three default-off. Parity tests for each
     # (tests/parity/test_batch_daily_cache_*.py,
     #  tests/unit/data/test_dq_cache_invalidation.py,
-    #  tests/parity/test_session_minute_window_*.py) prove byte / 1e-9
-    # equivalence vs the legacy paths — the "benchmark-only" caveat in
-    # the report was about the workstation wall-clock win; correctness
-    # is locked.
+    #  tests/parity/test_session_minute_window_*.py +
+    #  tests/scanner/test_session_minute_window_supplier_parity.py) prove
+    # byte / 1e-9 equivalence vs the legacy paths — the "benchmark-only"
+    # caveat in the report was about the workstation wall-clock win;
+    # correctness is locked.
+    #
+    # session_minute_window_cache: re-enabled 2026-05-30 after the parity
+    # fix in src/bowaka_v2_lab/scanner/session_minute_window_cache.py
+    # (Phase 2 of the session-minute-window-supplier parity fix — see
+    # PHASE_NOTES/session_minute_window_supplier_parity_fix.md). Guarded
+    # by tests/scanner/test_session_minute_window_supplier_parity.py
+    # (supplier-level, 8 cases) AND
+    # tests/integration/test_session_window_supplier_walkforward_parity.py
+    # (end-to-end via build_fold_contexts, 1 case).
     batch_daily_cache:
       enabled: true
     startup_dq_cache:
