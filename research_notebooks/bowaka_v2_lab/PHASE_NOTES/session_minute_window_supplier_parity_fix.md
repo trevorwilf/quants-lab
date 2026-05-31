@@ -211,3 +211,63 @@ must agree on the empty shape, period. The prompt's "canonical columns
 **Timing.** Total wall-clock for the 8 cases in the parity file: **1.48 s**
 on the operator's Windows host with the real lake — well under the
 prompt's 30 s budget.
+
+---
+
+## Phase 4 — Re-enable flag + walkforward smoke — 2026-05-30
+
+**Branch:** `fix/phase4-minute-supplier-reenable` (off `dev` after Phase 3).
+
+**Flag state.** `optuna.acceleration.session_minute_window_cache.enabled`
+was already `true` in `configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml`
+when this branch was cut — the operator had re-enabled it after seeing
+the Phase 2 fix on `dev`. The comment block at lines 97-126 was updated
+to record the 2026-05-30 fix-date, point at the new
+`tests/scanner/test_session_minute_window_supplier_parity.py` guard, and
+point at the new end-to-end walkforward parity test added in this phase.
+
+**Walkforward smoke** at
+`tests/integration/test_session_window_supplier_walkforward_parity.py`:
+
+- Skip-guarded the same way as the supplier parity tests (lake AAL probe
+  via `bowaka_common.marketdata.store.default_market_data_root()`).
+- Builds a synthetic 1-session `WalkForwardPlan` (val_start=2025-08-27,
+  val_end=2025-08-28; train [2025-08-26, 2025-08-27)) directly — the
+  shipping `build_walkforward_splits` works in months and is too coarse
+  for a 1-day smoke.
+- Calls `build_fold_contexts` TWICE on the same plan, once with
+  `optuna.acceleration.session_minute_window_cache.enabled=False` and
+  once `True`; both have `cached_suppliers=True`.
+- For each `(symbol, cutoff)` triple across the 10-microcap universe
+  (`AAL, ABAT, ABCL, ABEV, ABSI, ACB, ACDC, ACEL, ACH, ACHR`) and 3 cutoffs
+  per session (09:45 / 12:00 / 15:55 ET), compares
+  `ctx.suppliers.minute(...)` from both fold contexts via
+  `pd.testing.assert_frame_equal` (sorted, index reset).
+- Asserts that at least ONE non-empty comparison happened — guards
+  against silent skip-all when the universe screen drops every symbol.
+
+**Timing.** **55.8 s** wall-clock end-to-end on the operator's Windows
+host — well under the prompt's 2-minute budget. The 55 s is dominated by
+the universe-screen / PIT-build that `build_fold_contexts` does once per
+fold (twice total here).
+
+**Why this layer.** Stops short of running the full `run_backtest` —
+that path is well-covered by other integration tests, and the supplier-
+level invariant is the one that triggered the original silent-zero-
+trades bug. Walking the supplier swap through the actual fold-context
+build catches both `fold_context.py:249-258` regressions (the swap
+itself) AND `session_minute_window_cache.py` regressions (the unit
+mismatch Phase 2 fixed). The Phase 3 supplier-level tests + this Phase 4
+end-to-end test cover the two halves of the swap surface.
+
+**Pre-/post-fix timing comparison.** Pre-fix (the bug): the Phase 4 path
+returned 0 rows for every call, so the scanner produced 0 candidates and
+each trial finished in ~the universe-build time (~25s/session on the
+operator's box per the earlier prod backtester smoke). Post-fix the
+walkforward smoke takes ~55s for two fold-context builds (the
+universe-screen dominates; supplier overhead is sub-second per symbol).
+The Phase 4 cache is now genuinely faster than the cached-supplier-only
+path for repeated `bars_until` calls within a session — the per-call
+cost is numpy-searchsorted on a pre-loaded array vs an LRU-keyed
+parquet read. Full benchmark numbers belong to the speedup report and
+are not re-captured here.
