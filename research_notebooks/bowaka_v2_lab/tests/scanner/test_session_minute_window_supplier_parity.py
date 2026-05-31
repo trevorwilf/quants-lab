@@ -98,5 +98,181 @@ def test_phase4_supplier_matches_cached_forming_minutes_on_real_lake():
         pd.testing.assert_frame_equal(
             ref_sorted, got_sorted,
             check_like=True,    # tolerate column ordering
-            check_dtype=False,  # column-dtype delta (Phase 2 reconciles)
+            check_dtype=False,  # column-dtype delta is allowed (lake parquets
+                                # may differ across versions); ROW EQUALITY is
+                                # the hard parity invariant.
         )
+
+
+# ---- Phase 3: parametric parity suite over a real fold-0-val slice ---------
+import datetime as _dt   # noqa: E402 — keep test-section imports near use
+
+# Fold-0 val window dates per the operator's diagnostic; 5 fixed sessions.
+# Skip any that XNYS marks as non-trading at collection time.
+_FOLD_SESSIONS_RAW = (
+    "2025-08-27", "2025-09-03", "2025-09-10", "2025-09-17", "2025-09-24",
+)
+
+
+def _xnys_trading_days(candidates):
+    import exchange_calendars as xcals
+    cal = xcals.get_calendar("XNYS")
+    valid = []
+    for s in candidates:
+        ts = pd.Timestamp(s)
+        if cal.is_session(ts):
+            valid.append(ts.date())
+    return valid
+
+
+_PARAM_SESSIONS = _xnys_trading_days(_FOLD_SESSIONS_RAW)
+
+# 10 known-good microcap candidates (from the operator's PIT diagnostic).
+# Each (session, symbol) is skipped if no minute partition exists for that
+# combination — the test asserts only on (session, symbol) pairs where the
+# cached reader returns ≥1 row.
+_PARAM_SYMBOLS = (
+    "AAL", "ABAT", "ABCL", "ABEV", "ABSI", "ACB", "ACDC", "ACEL", "ACH", "ACHR",
+)
+
+# Three cutoffs per session: scanner-start, mid-day, late-session.
+_CUTOFFS_ET = (
+    _dt.time(hour=9, minute=45),   # scanner-start
+    _dt.time(hour=12, minute=0),   # mid-day
+    _dt.time(hour=15, minute=55),  # late-session
+)
+
+
+def _et_to_utc(session: _dt.date, time_et: _dt.time) -> pd.Timestamp:
+    return pd.Timestamp(
+        _dt.datetime.combine(session, time_et), tz="America/New_York",
+    ).tz_convert("UTC")
+
+
+@pytest.mark.parametrize("session", _PARAM_SESSIONS)
+def test_phase4_supplier_byte_parity_with_cached_over_real_fold(session):
+    """Byte-parity over the fold-0 val window: 5 sessions × 10 symbols × 3
+    cutoffs. Each ``(session, symbol, cutoff)`` triple compares the Phase 4
+    supplier against the cached supplier via ``assert_frame_equal`` (sorted
+    by timestamp, index reset).
+
+    Budget: <30 s wall-clock total across the whole parametric block. If
+    this grows past that, reduce the parametrisation cardinality first
+    (drop a cutoff) rather than skip the test in CI.
+    """
+    from bowaka_v2_lab.data.cached_suppliers import CachedSessionMarketData
+    from bowaka_v2_lab.scanner.session_minute_window_supplier import (
+        make_session_minute_window_supplier,
+    )
+
+    store = MarketDataStore(_LAKE_ROOT)
+    cached = CachedSessionMarketData(
+        store, feed=_FEED, intraday_window_policy=_POLICY,
+    )
+    phase4 = make_session_minute_window_supplier(
+        store, [session], {session: _PARAM_SYMBOLS},
+        feed=_FEED, intraday_policy=_POLICY, max_bar_age_seconds=None,
+    )
+
+    compared_pairs = 0
+    for symbol in _PARAM_SYMBOLS:
+        for cutoff_et in _CUTOFFS_ET:
+            cutoff_utc = _et_to_utc(session, cutoff_et)
+            ref = cached.forming_minutes(symbol, cutoff_utc)
+            if ref.empty:
+                # No minute partition for this (symbol, session) — skip; the
+                # Phase 3 spec explicitly allows skipping these and the
+                # unknown-symbol path is covered by a dedicated test below.
+                continue
+            got = phase4(symbol, cutoff_utc)
+            ref_sorted = ref.sort_values("timestamp").reset_index(drop=True)
+            got_sorted = got.sort_values("timestamp").reset_index(drop=True)
+            pd.testing.assert_frame_equal(
+                ref_sorted, got_sorted,
+                check_like=True, check_dtype=False,
+            )
+            compared_pairs += 1
+
+    # The session is supposed to be a real fold-val day; at least SOME
+    # comparisons must have happened (else the symbol list is wrong /
+    # the partitions moved).
+    assert compared_pairs > 0, (
+        f"session {session}: no (symbol, cutoff) pair found a non-empty "
+        f"cached frame — the symbol list is probably wrong for this date."
+    )
+
+
+# ---- max_bar_age path ------------------------------------------------------
+def test_phase4_supplier_max_bar_age_tightens_lower_bound():
+    """When ``max_bar_age_seconds`` is set, the returned frame's first
+    timestamp must be no earlier than ``max(intraday_window_start,
+    cutoff - max_bar_age_seconds)``."""
+    from bowaka_v2_lab.scanner.session_minute_window_supplier import (
+        make_session_minute_window_supplier,
+    )
+    from bowaka_v2_lab.data.suppliers import intraday_window_start
+
+    store = MarketDataStore(_LAKE_ROOT)
+    cutoff = pd.Timestamp("2025-08-27 15:00:00", tz="UTC")  # 11:00 ET
+    max_age = 120  # seconds
+
+    phase4 = make_session_minute_window_supplier(
+        store, [_SESSION], {_SESSION: ("AAL",)},
+        feed=_FEED, intraday_policy=_POLICY, max_bar_age_seconds=max_age,
+    )
+    got = phase4("AAL", cutoff)
+    assert not got.empty, "AAL: max-bar-age window returned empty"
+    floor = max(
+        intraday_window_start(cutoff, _POLICY),
+        cutoff - pd.Timedelta(seconds=max_age),
+    )
+    first_ts = got["timestamp"].iloc[0]
+    assert first_ts >= floor, (
+        f"max-bar-age path leaked bars older than the tighter lower bound: "
+        f"first_ts={first_ts}, floor={floor}"
+    )
+    # Upper bound must still be the cutoff itself.
+    assert got["timestamp"].iloc[-1] <= cutoff, (
+        f"max-bar-age path returned bars after cutoff: last_ts="
+        f"{got['timestamp'].iloc[-1]}, cutoff={cutoff}"
+    )
+
+
+# ---- unknown-symbol path ---------------------------------------------------
+def test_phase4_supplier_unknown_symbol_returns_empty_frame_with_canonical_columns():
+    """An unknown symbol must return an empty frame whose columns match
+    what the cached supplier returns for the SAME input.
+
+    The Phase 4 supplier is a byte-stable swap-in for
+    :meth:`CachedSessionMarketData.forming_minutes`. On the empty path
+    both must produce identical column sets so downstream consumers (e.g.
+    the scanner) see a stable schema regardless of which path is wired.
+    The lake parquets carry ``vwap`` and ``trade_count`` for POPULATED
+    symbols, but the EMPTY path on both readers returns the canonical
+    ``bowaka_common._empty_bars()`` 7-column schema — and that match is
+    what this test pins.
+    """
+    from bowaka_v2_lab.data.cached_suppliers import CachedSessionMarketData
+    from bowaka_v2_lab.scanner.session_minute_window_supplier import (
+        make_session_minute_window_supplier,
+    )
+
+    store = MarketDataStore(_LAKE_ROOT)
+    cached = CachedSessionMarketData(
+        store, feed=_FEED, intraday_window_policy=_POLICY,
+    )
+    phase4 = make_session_minute_window_supplier(
+        store, [_SESSION], {_SESSION: ("AAL",)},   # AAL only in the universe
+        feed=_FEED, intraday_policy=_POLICY,
+    )
+
+    unknown_sym = "DEFINITELY_NOT_A_REAL_TICKER"
+    cached_empty = cached.forming_minutes(unknown_sym, _CUTOFF_UTC)
+    phase4_empty = phase4(unknown_sym, _CUTOFF_UTC)
+
+    assert cached_empty.empty, "test premise: cached supplier must return empty for unknown symbol"
+    assert phase4_empty.empty, "Phase 4 supplier must return empty for unknown symbol"
+    assert tuple(phase4_empty.columns) == tuple(cached_empty.columns), (
+        f"unknown-symbol path returned different columns than cached: "
+        f"cached={tuple(cached_empty.columns)} phase4={tuple(phase4_empty.columns)}"
+    )

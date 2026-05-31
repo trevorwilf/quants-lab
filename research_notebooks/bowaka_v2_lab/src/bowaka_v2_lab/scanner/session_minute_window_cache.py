@@ -59,6 +59,11 @@ def _empty_minute_frame() -> pd.DataFrame:
 
     Mirrors the legacy minute-supplier behaviour on a missing symbol — the
     scanner expects a DataFrame, not ``None``, for downstream slicing.
+    The column set matches ``bowaka_common.marketdata.store._empty_bars``
+    (7 cols), which is what every legacy reader returns on the empty path
+    — including :func:`bowaka_v2_lab.data.cached_suppliers.CachedSessionMarketData.forming_minutes`
+    when the underlying parquet is missing. The supplier-parity test
+    relies on this match.
     """
     return pd.DataFrame(
         {
