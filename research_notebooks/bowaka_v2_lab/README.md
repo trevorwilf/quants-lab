@@ -165,3 +165,28 @@ It prints `VERIFICATION_REPORT: <path>` and `OVERALL: PASS|FAIL`, and writes a
 Markdown report under `artifacts/verification/`. Copy the report and send it to
 the planner agent for sign-off before unblocking Phases 4-7. A single FAIL
 anywhere blocks promotion.
+
+## Session-minute-window supplier parity verification
+
+After the 2026-05-30 session_minute_window_cache parity fix (see
+`PHASE_NOTES/session_minute_window_supplier_parity_fix.md`), run the
+parity-verification target before re-enabling the
+`optuna.acceleration.session_minute_window_cache.enabled` flag in any new
+config:
+
+```bash
+cd research_notebooks/bowaka_v2_lab
+make verify-session-window-parity
+# windows: make verify-session-window-parity PYTHON=C:/Python312/python.exe
+```
+
+Two legs: (1) supplier-level parity over a 5-session × 10-symbol × 3-cutoff
+real-lake grid plus a max-bar-age + an unknown-symbol case
+(`tests/scanner/test_session_minute_window_supplier_parity.py`), and
+(2) an end-to-end walkforward smoke that calls `build_fold_contexts` twice
+on the same plan with the flag on/off and asserts per-`(symbol, cutoff)`
+supplier parity
+(`tests/integration/test_session_window_supplier_walkforward_parity.py`).
+The target exits 0 only when both legs pass. Both legs auto-skip when the
+operator's real lake isn't on disk (CI), so the target also runs on bare
+CI hosts.

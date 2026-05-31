@@ -6,7 +6,8 @@
 # explicitly. See docs/audits/2026-05-22_realism_audit.md §P1-007.
 
 .PHONY: install test test-fast test-unit test-parity test-integration \
-        test-reconcile test-live test-all smoke notebooks verify-bayesian-fix clean
+        test-reconcile test-live test-all smoke notebooks verify-bayesian-fix \
+        verify-session-window-parity clean
 
 # bowaka_common lives one directory up; both must be importable for the suite.
 PYTHONPATH := src:../bowaka_common/src
@@ -79,6 +80,25 @@ notebooks:
 # e.g. `make verify-bayesian-fix ARGS="--skip-short-run"`.
 verify-bayesian-fix:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m bowaka_v2_lab.cli verify-bayesian-fix $(ARGS)
+
+# verify-session-window-parity — runs every parity test guarding the
+# session_minute_window_cache acceleration flag. Both legs must be green
+# before re-enabling the flag in any config. See
+# PHASE_NOTES/session_minute_window_supplier_parity_fix.md for the
+# multi-phase fix that motivates this target.
+verify-session-window-parity:
+	@set +e; \
+	  $(PYTEST) tests/scanner/test_session_minute_window_supplier_parity.py -v --tb=short; \
+	  rc1=$$?; \
+	  $(PYTEST) tests/integration/test_session_window_supplier_walkforward_parity.py -v --tb=short; \
+	  rc2=$$?; \
+	  rc=$$rc1; if [ $$rc2 -gt $$rc ]; then rc=$$rc2; fi; \
+	  if [ $$rc -eq 0 ]; then \
+	    echo "Phase 4 supplier parity: OK (supplier+walkforward parity tests passed)"; \
+	  else \
+	    echo "Phase 4 supplier parity: FAIL (supplier=$$rc1, walkforward=$$rc2)"; \
+	  fi; \
+	  exit $$rc
 
 clean:
 	rm -rf .pytest_cache .ruff_cache build dist *.egg-info src/*.egg-info

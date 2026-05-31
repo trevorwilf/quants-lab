@@ -271,3 +271,68 @@ path for repeated `bars_until` calls within a session — the per-call
 cost is numpy-searchsorted on a pre-loaded array vs an LRU-keyed
 parquet read. Full benchmark numbers belong to the speedup report and
 are not re-captured here.
+
+---
+
+## Phase 5 — Verification CLI + final status — 2026-05-30
+
+**Branch:** `fix/phase4-minute-supplier-verify` (off `dev` after Phase 4).
+
+**Makefile target** `make verify-session-window-parity` runs both legs of
+the parity guard and exits 0 only when both pass:
+
+1. `pytest tests/scanner/test_session_minute_window_supplier_parity.py -v`
+   — 8 supplier-level cases (single-point + 5 parametric sessions × 10
+   syms × 3 cutoffs + max-bar-age + unknown-symbol).
+2. `pytest tests/integration/test_session_window_supplier_walkforward_parity.py -v`
+   — 1 end-to-end case via `build_fold_contexts`.
+
+On success: `Phase 4 supplier parity: OK (supplier+walkforward parity
+tests passed)`. On failure: `Phase 4 supplier parity: FAIL
+(supplier=$rc1, walkforward=$rc2)`. The target is added to `.PHONY` and
+placed alphabetically after `verify-bayesian-fix` in the Makefile.
+
+**README** (`README.md`) gets a new "Session-minute-window supplier
+parity verification" section right after the "Bayesian-optimization fix
+verification" block, describing the same two legs + Windows-host
+`PYTHON=C:/Python312/python.exe` override and skip-on-CI behaviour.
+
+**Mirror.** Per the prompt's "find via
+`git log --oneline -- reference/source_strategy/scripts/bowaka_v2_*.py`",
+the mirror has NO history for `session_minute_window_supplier` /
+`session_minute_window_cache` — they are lab-internal optimisations and
+DO NOT belong in the production-strategy mirror. No mirror edits.
+
+**Cleanup.** No `STATUS_BLOCKED_*.md` or `BUG_FINDINGS.md` were ever
+created — every phase landed cleanly within its 5-attempt budget; in
+practice Phase 1, Phase 2, Phase 3, and Phase 4 each took exactly one
+attempt; Phase 3 also had a second attempt to revert a schema bump after
+it broke a pre-existing test (documented above).
+
+**Local end-to-end RUN of `make verify-session-window-parity`** on the
+operator's Windows host (using direct `pytest` invocation since `make`
+isn't on PATH — same commands the target invokes):
+
+- Leg 1 supplier-level: `8 passed in 1.46s`.
+- Leg 2 walkforward: `1 passed in 53.73s`.
+- Total ~55 s — well under the prompt's 3-minute budget.
+
+### Final commits (merged into `dev` with `--no-ff`)
+
+| Phase | Merge SHA | Branch                                        |
+|-------|-----------|-----------------------------------------------|
+| 1     | `a3290d5` | `fix/phase4-minute-supplier-repro`            |
+| 2     | `dbcd12a` | `fix/phase4-minute-supplier-root-fix`         |
+| 3     | `4f2259c` | `fix/phase4-minute-supplier-parity-suite`     |
+| 4     | `dd61270` | `fix/phase4-minute-supplier-reenable`         |
+| 5     | _(pending — this commit)_  | `fix/phase4-minute-supplier-verify` |
+
+### One-line summary
+
+The Phase 4 session-minute-window supplier silently returned empty
+frames against the operator's real lake because
+`SessionMinuteWindowCache.__init__` extracted nanosecond timestamps via
+`frame["timestamp"].astype("int64")`, which returns **microseconds** on
+the lake's actual `datetime64[us, UTC]` schema; fix forces ns via
+`to_numpy(dtype="datetime64[ns]").view("int64")`, with a 9-test parity
+suite + walkforward smoke + `make verify-session-window-parity` guard.
