@@ -148,11 +148,21 @@ class SessionMinuteWindowCache:
             ts_col = pd.to_datetime(frame["timestamp"], utc=True)
             frame = frame.assign(timestamp=ts_col).sort_values("timestamp").reset_index(drop=True)
             self._frames[str(symbol)] = frame
-            # Pandas datetime64[ns, UTC] is int64 nanoseconds-since-epoch
-            # under the hood. ``.astype("datetime64[ns]")`` strips the
-            # timezone with a UserWarning; use the int64 view directly.
+            # Force NANOSECOND resolution before .view("int64") so the int64
+            # array is ns-since-epoch — matching pd.Timestamp(...).value which
+            # is always ns regardless of the source's resolution. Lake
+            # parquets store timestamps as datetime64[us, UTC]
+            # (microseconds), and prior to this fix
+            # ``frame["timestamp"].astype("int64")`` returned µs-since-epoch:
+            # three orders of magnitude smaller than every scan_ts.value,
+            # so np.searchsorted returned len(arr) for both lo and hi → empty
+            # slice on every call. See PHASE_NOTES/session_minute_window_
+            # supplier_parity_fix.md for the 2026-05-30 diagnostic.
             self._timestamps[str(symbol)] = (
-                frame["timestamp"].astype("int64").to_numpy()
+                ts_col.dt.tz_convert("UTC")
+                .dt.tz_localize(None)
+                .to_numpy(dtype="datetime64[ns]")
+                .view("int64")
             )
 
     def bars_until(self, symbol: str, scan_ts: Any) -> pd.DataFrame:

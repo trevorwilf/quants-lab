@@ -68,3 +68,94 @@ with the new test reported as XFAIL — not ERROR, not PASS.
 The "frames present" hypothesis is testable with a direct
 `SessionMinuteWindowCache(...).bars_until(...)` call inspecting
 `cache._frames` after construction. Phase 2 task 1 starts there.
+
+---
+
+## Phase 2 — Root cause + fix — 2026-05-30
+
+**Branch:** `fix/phase4-minute-supplier-root-fix` (off `dev` after Phase 1 merged).
+
+### Phase 2 root cause
+
+The diagnostic from the Phase 1 trace was layer **(2)** — the cache frames ARE
+populated (eager probe works fine and loads 287 rows for AAL across the full
+session window), but `bars_until`'s `searchsorted` returns `len(arr)` for BOTH
+`lo` and `hi` on every call, slicing `frame.iloc[287:287]` → empty.
+
+Pinned at the lowest layer by building `SessionMinuteWindowCache` directly and
+inspecting `cache._timestamps` after init:
+
+```
+REF cached.forming_minutes('AAL', 2025-08-27 15:00:00 UTC)  -> 66 rows, ts dtype: datetime64[us, UTC]
+CACHE._frames['AAL']: 287 rows; ts dtype: datetime64[us, UTC]
+CACHE._timestamps['AAL'] dtype: int64
+CACHE._timestamps['AAL'] first/last: 1756302300000000 / 1756324740000000   <-- microseconds
+
+BARS_UNTIL('AAL', 2025-08-27 15:00:00 UTC) -> 0 rows
+
+cutoff ns        = 1756306800000000000
+policy_lo_ns     = 1756302300000000000
+timestamps[0]    = 1756302300000000        <-- 3 orders of magnitude smaller
+timestamps[-1]   = 1756324740000000
+searchsorted hi  = 287                     <-- past the end of every-value-smaller-than-cutoff
+searchsorted lo  = 287                     <-- same
+expected slice  -> rows: 0
+```
+
+**The bug, named:** `session_minute_window_cache.py:__init__` builds the
+nanosecond timestamp array via `frame["timestamp"].astype("int64")`. The
+code comment immediately above states:
+
+> Pandas `datetime64[ns, UTC]` is int64 nanoseconds-since-epoch under the hood.
+
+But the lake parquets store timestamps at `datetime64[us, UTC]` **(microseconds)**,
+not nanoseconds. `astype("int64")` on a `datetime64[us, UTC]` Series returns
+**µs-since-epoch**, not ns. `bars_until` then compares against
+`pd.Timestamp(scan_ts).value` which is **always ns** regardless of the source's
+resolution. `cutoff_ns` (~1.756e18) is ~1000× larger than every value in
+`timestamps` (~1.756e15), so `np.searchsorted(timestamps, cutoff_ns, side="right")`
+returns `len(timestamps)` for both bounds and `frame.iloc[287:287]` is empty
+on every call. The whole optimisation path silently returned no rows.
+
+Both the prompt's hypothesis #2 ("astype('int64') on a tz-aware datetime
+column can behave differently across pandas versions") and the underlying
+units assumption were exact matches.
+
+### Phase 2 fix
+
+Single-file change in `src/bowaka_v2_lab/scanner/session_minute_window_cache.py`
+at the timestamp-storage step. Force NS resolution via numpy before viewing
+as int64:
+
+```python
+self._timestamps[str(symbol)] = (
+    ts_col.dt.tz_convert("UTC")
+    .dt.tz_localize(None)
+    .to_numpy(dtype="datetime64[ns]")
+    .view("int64")
+)
+```
+
+`to_numpy(dtype="datetime64[ns]")` forces ns resolution regardless of source
+(us/ms/ns), `tz_localize(None)` strips tz (numpy datetime64 is naive), and
+`view("int64")` extracts ns-since-epoch — exactly what `pd.Timestamp.value`
+returns. The fix preserves the cache's design intent: ONE parquet read per
+(symbol, session) at construction, then numpy-searchsorted slicing per call —
+the legacy LRU-per-month read path is NOT introduced. Diff: +9 lines / -3 in
+`session_minute_window_cache.py` only; `session_minute_window_supplier.py`
+unchanged.
+
+### Phase 1 test now PASSES
+
+The xfail marker was removed:
+
+```
+tests/scanner/test_session_minute_window_supplier_parity.py::test_phase4_supplier_matches_cached_forming_minutes_on_real_lake PASSED [100%]
+1 passed in 0.68s
+```
+
+For all 7 symbols (`AAL, KSS, ABEV, ACHR, RR, BBAI, SOUN`) the Phase 4
+supplier now returns byte-identical frames to the cached supplier at the
+fixed 2025-08-27 11:00 ET cutoff. `strict=True` was implicit in the xfail
+removal: any re-introduction of the unit mismatch (or any other regression
+of the per-symbol byte-parity) will fail this test immediately.
