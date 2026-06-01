@@ -25,24 +25,17 @@ from pathlib import Path
 
 from bowaka_common.marketdata.store import resolve_market_data_root
 from bowaka_v2_lab.parity import run_parity
+from bowaka_v2_lab.parity.golden_sample import (
+    GOLDEN_COST_STRESS as COST_STRESS,
+    GOLDEN_END as END,
+    GOLDEN_START as START,
+    GOLDEN_SYMBOLS as SYMBOLS,
+)
 
 _LAB = Path(__file__).resolve().parents[1]
 LAB_CONFIG = _LAB / "configs" / "bowaka_v2_actual_iex_current_code.yml"
 PROD_CONFIG = _LAB / "reference" / "source_strategy" / "scripts" / "bowaka_v2_config.yaml"
 GOLDEN_ROOT = _LAB / "artifacts" / "parity" / "golden"
-
-# Strategy-relevant sample (operator-chosen): symbols the bowaka equity screen
-# admits over the window, so the golden carries real activity rather than a dead
-# universe. All 40 are present in the IEX 1m + 1d lake.
-SYMBOLS = (
-    "AGNC AIIO ALHC ALT ARVN BLMN BWIN BZ CCC CERS DCTH EVER GDRX HOPE IFRX "
-    "KPTI LFST LRMR MMED MRLN NTSK NUAI OFIX OPRA ORIC PACB PCT PDYN PSEC PTLO "
-    "RMIX RUM SBGI SLDE SONO TALK TWFG UPB VNDA VRDN"
-).split()
-
-START = _dt.date(2026, 5, 19)
-END = _dt.date(2026, 5, 22)          # 4 XNYS sessions: 05-19..05-22
-COST_STRESS = "base"                  # fixed across the golden + all phase gates
 
 
 def main() -> int:

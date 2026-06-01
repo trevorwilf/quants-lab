@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -233,8 +234,21 @@ def run_lab_backtester(
     lab_config_path: Path,
     cost_stress: str = "conservative",
     run_dir: Path | None = None,
+    prebuilt_pit_by_session: Any | None = None,
+    cached_data_path: bool = True,
 ) -> Any:
     """Run the lab backtester in-process against a small parity universe.
+
+    Phase 1 (speedup): with ``cached_data_path=True`` (default) the data-access
+    layer mirrors ``optuna/fold_context._build_one_fold_context`` — daily/quote/
+    forward suppliers are backed by the LRU partition cache, the minute supplier
+    is the ns-fixed session-minute-window cache, and the daily cache is built in
+    one batch pass — and ``run_backtest`` runs in ``artifact_mode="objective_
+    minimal"`` (no disk writes; parity reads the in-memory ``BacktestResult``).
+    All are byte-identical to the legacy uncached path (``cached_data_path=
+    False``), which is retained so the cached-vs-legacy parity test can prove it.
+    ``prebuilt_pit_by_session`` (Phase 1 task 4) lets the caller build the PIT
+    once for the window and thread it in, avoiding a per-call rebuild.
 
     For non-smoke configs (``simulation.mode != 'smoke_fixture'``), the lab
     refuses synthetic universes — it requires the point-in-time universe built
@@ -257,6 +271,10 @@ def run_lab_backtester(
     from ..config import BowakaV2Paths, load_config
     from ..config.models import BowakaV2Config
     from ..data.adjustment import daily_adjustment_for_config
+    from ..data.cached_suppliers import (
+        make_cached_lake_suppliers,
+        make_cached_supplier_callables,
+    )
     from ..data.suppliers import (
         build_daily_cache_from_lake,
         make_forward_minute_supplier,
@@ -267,7 +285,7 @@ def run_lab_backtester(
     from ..sim.backtester import run_backtest
     from ..sim.replay_fixtures import synthetic_daily_cache, synthetic_universe
     from ..sim.schedule import scan_times_for_session
-    from ..universe.builder import build_pit_universe_for_sessions
+    from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
 
     cfg = load_config(lab_config_path)
     if cost_stress:
@@ -285,47 +303,99 @@ def run_lab_backtester(
     ] or [start_date]
     parity_syms = sorted({str(s) for s in symbols})
 
-    quote_supplier = None
-    forward_minute_supplier = None
-    if _uses_lake(cfg):
-        from ..data.lineage import _coerce_lake_root, resolve_lake_root
-
-        feed = md.get("feed", "iex")
-        root = _coerce_lake_root(resolve_lake_root(cfg))
-        adjustment = daily_adjustment_for_config(cfg)
-        minute_supplier, daily_supplier = make_lake_suppliers(
-            root, feed=feed,
-            intraday_window_policy=resolve_intraday_window_policy(cfg),
-            daily_adjustment=adjustment,
-        )
-        daily_cache = {
-            s: build_daily_cache_from_lake(
-                root, parity_syms, s, feed=feed, daily_adjustment=adjustment,
-            )
-            for s in sessions
-        }
-        quote_supplier = make_quote_supplier(
-            root, feed=feed,
-            default_max_age_seconds=float(
-                (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
-            ),
-        )
-        forward_minute_supplier = make_forward_minute_supplier(root, feed=feed)
-    else:
-        from ..backtest_runner import resolve_suppliers
-        minute_supplier, daily_supplier = resolve_suppliers(cfg)
-        daily_cache = {s: synthetic_daily_cache(parity_syms) for s in sessions}
-
+    # --- Universe (PIT) first, so the accelerated suppliers can key on the
+    # per-session eligible survivors (Phase 1, mirroring fold_context). ---
     if _is_smoke(validated):
         universe = {s: synthetic_universe(parity_syms) for s in sessions}
+        eligible = {s: tuple(parity_syms) for s in sessions}
     else:
-        store = _lake_store(md)
-        full_pit = build_pit_universe_for_sessions(sessions, cfg, store)
+        if prebuilt_pit_by_session is not None:
+            full_pit = prebuilt_pit_by_session  # Phase 1 task 4 — PIT built once upstream
+        else:
+            store = _lake_store(md)
+            full_pit = build_pit_universe_for_sessions(sessions, cfg, store)
         parity_set = set(parity_syms)
         universe = {
             s: {sym: rec for sym, rec in (full_pit.get(s) or {}).items() if sym in parity_set}
             for s in sessions
         }
+        eligible = {
+            s: tuple(eligible_symbols(universe.get(s, {})) or parity_syms)
+            for s in sessions
+        }
+
+    # --- Suppliers + daily cache. ---
+    quote_supplier = None
+    forward_minute_supplier = None
+    if _uses_lake(cfg):
+        from bowaka_common.marketdata import MarketDataStore
+
+        from ..data.lineage import _coerce_lake_root, resolve_lake_root
+
+        feed = md.get("feed", "iex")
+        root = _coerce_lake_root(resolve_lake_root(cfg))
+        adjustment = daily_adjustment_for_config(cfg)
+        intraday_policy = resolve_intraday_window_policy(cfg)
+        quote_max_age = float(
+            (cfg.get("execution") or {}).get("max_quote_age_seconds", 60)
+        )
+        if cached_data_path:
+            # Phase 1 — accelerated, byte-identical data path (mirrors
+            # optuna/fold_context._build_one_fold_context): daily/quote/forward via
+            # the LRU partition cache, minute via the ns-fixed session-window cache,
+            # daily cache built batch (one read per symbol over the span).
+            from ..data.daily_cache_batch import build_daily_cache_for_sessions_from_lake
+            from ..scanner.session_minute_window_supplier import (
+                make_session_minute_window_supplier,
+            )
+
+            adapter = make_cached_lake_suppliers(
+                root, feed=feed, intraday_window_policy=intraday_policy,
+                default_max_age_seconds=quote_max_age, daily_adjustment=adjustment,
+            )
+            callables = make_cached_supplier_callables(adapter)
+            daily_supplier = callables["daily"]
+            quote_supplier = callables["quote"]
+            forward_minute_supplier = callables["forward_minute"]
+            minute_supplier = make_session_minute_window_supplier(
+                MarketDataStore(root), sessions, eligible,
+                feed=feed, intraday_policy=intraday_policy,
+                max_bar_age_seconds=None,  # legacy parity — scanner enforces staleness
+            )
+            daily_cache = build_daily_cache_for_sessions_from_lake(
+                root, eligible, sessions, feed=feed, daily_adjustment=adjustment,
+            )
+            _data_path = "batch_daily+session_window+cached"
+        else:
+            # Legacy uncached path — retained so the cached-vs-legacy parity test
+            # can prove the accelerated path is byte-identical.
+            minute_supplier, daily_supplier = make_lake_suppliers(
+                root, feed=feed, intraday_window_policy=intraday_policy,
+                daily_adjustment=adjustment,
+            )
+            daily_cache = {
+                s: build_daily_cache_from_lake(
+                    root, parity_syms, s, feed=feed, daily_adjustment=adjustment,
+                )
+                for s in sessions
+            }
+            quote_supplier = make_quote_supplier(
+                root, feed=feed, default_max_age_seconds=quote_max_age,
+            )
+            forward_minute_supplier = make_forward_minute_supplier(root, feed=feed)
+            _data_path = "legacy_uncached"
+    else:
+        from ..backtest_runner import resolve_suppliers
+        minute_supplier, daily_supplier = resolve_suppliers(cfg)
+        daily_cache = {s: synthetic_daily_cache(parity_syms) for s in sessions}
+        _data_path = "synthetic"
+
+    # Phase 1 (rule 8) — surface the active data path; never fall back silently.
+    logging.getLogger(__name__).info(
+        "run_lab_backtester: data_path=%s cached=%s lake=%s sessions=%d prebuilt_pit=%s",
+        _data_path, cached_data_path, _uses_lake(cfg), len(sessions),
+        prebuilt_pit_by_session is not None,
+    )
 
     return run_backtest(
         cfg=cfg,
@@ -340,6 +410,7 @@ def run_lab_backtester(
         initial_bankroll=100_000.0,
         paths=paths,
         run_dir=Path(run_dir) if run_dir else None,
+        artifact_mode="objective_minimal",
     )
 
 
@@ -364,27 +435,30 @@ def _xnys_sessions(start_date: _dt.date, end_date: _dt.date) -> list[_dt.date]:
     return sessions or [start_date]
 
 
-def _per_session_eligible_symbols(
+def _resolve_per_session_universe(
     sessions: Sequence[_dt.date],
     *,
     lab_config_path: Path,
     lake_root: Path | None,
     restrict_to: Sequence[str] | None = None,
-) -> dict[_dt.date, list[str]]:
-    """PIT eligible-survivor symbols per session, bounded by ``restrict_to``.
+) -> tuple[dict[_dt.date, list[str]], dict[_dt.date, Any]]:
+    """Build the window PIT ONCE; return
+    ``(eligible_symbols_by_session, pit_records_by_session)``.
 
     Phase 0 (universe symmetry): production used to monitor the window-UNION of
     eligibles on every session (one ``universe.txt``), so it watched symbols on
     sessions where they were not PIT-eligible — diverging from the live flow.
-    This builds the PIT once for the window and returns each session's eligible
-    survivors, so the chunked runner can hand production the right per-session
-    symbol list. The lab side already intersects its own PIT per session, so this
-    makes both sides symmetric.
+    The symbol map (each session's eligible survivors) drives production's
+    per-session symbols files, matching the lab's per-session PIT intersection.
+
+    Phase 1 (task 4) — the PIT records map is threaded into the lab backtester
+    (``prebuilt_pit_by_session``) so the window PIT is built ONCE per parity run
+    instead of once here + once per lab call.
 
     ``restrict_to`` (the parity universe the caller passed — possibly capped via
-    ``max_universe_size`` or given explicitly) bounds each per-session set,
-    EXACTLY as the lab intersects its PIT with the parity universe. Without it a
-    capped / smoke run would silently expand back to the full ~703-symbol PIT.
+    ``max_universe_size`` or given explicitly) bounds each per-session symbol
+    set, EXACTLY as the lab intersects its PIT with the parity universe. Without
+    it a capped / smoke run would silently expand to the full ~703-symbol PIT.
     """
     from ..cli_runners import _lake_store
     from ..config import load_config
@@ -394,15 +468,16 @@ def _per_session_eligible_symbols(
     if lake_root is not None:
         cfg.setdefault("market_data", {})["shared_root"] = str(lake_root)
     store = _lake_store(cfg.get("market_data") or {})
-    by_session = build_pit_universe_for_sessions(list(sessions), cfg, store)
+    pit = build_pit_universe_for_sessions(list(sessions), cfg, store)
     restrict = set(restrict_to) if restrict_to is not None else None
-    return {
+    syms = {
         s: sorted(
-            sym for sym in eligible_symbols(by_session.get(s) or {})
+            sym for sym in eligible_symbols(pit.get(s) or {})
             if restrict is None or sym in restrict
         )
         for s in sessions
     }
+    return syms, pit
 
 
 def run_parity(
@@ -534,8 +609,9 @@ def run_parity(
     # window-union file stays available via ``per_session_universe=False``.
     per_sess_syms: dict[_dt.date, list[str]] = {}
     sess_symbol_file: dict[_dt.date, Path] = {}
+    prebuilt_pit: Any | None = None
     if per_session_universe:
-        per_sess_syms = _per_session_eligible_symbols(
+        per_sess_syms, prebuilt_pit = _resolve_per_session_universe(
             sessions, lab_config_path=Path(lab_config_path),
             lake_root=Path(lake_root) if lake_root is not None else None,
             restrict_to=symbols,
@@ -607,6 +683,7 @@ def run_parity(
             start_date=sd, end_date=sd, symbols=sess_syms,
             lab_config_path=Path(lab_config_path),
             cost_stress=cost_stress, run_dir=run_root / "lab" / session_iso,
+            prebuilt_pit_by_session=prebuilt_pit,
         )
         lab_secs = time.monotonic() - t1
 

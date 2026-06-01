@@ -64,8 +64,8 @@ def test_chunked_mode_prints_one_line_per_session_and_fires_callback(
     with (
         mock.patch("bowaka_v2_lab.parity.runner._xnys_sessions", return_value=sessions),
         mock.patch(
-            "bowaka_v2_lab.parity.runner._per_session_eligible_symbols",
-            return_value={s: ["AAA", "BBB"] for s in sessions},
+            "bowaka_v2_lab.parity.runner._resolve_per_session_universe",
+            return_value=({s: ["AAA", "BBB"] for s in sessions}, {s: {} for s in sessions}),
         ),
         mock.patch(
             "bowaka_v2_lab.parity.runner.run_production_backtester",
@@ -145,8 +145,8 @@ def test_chunked_mode_raises_with_session_context_on_prod_failure(tmp_path: Path
     with (
         mock.patch("bowaka_v2_lab.parity.runner._xnys_sessions", return_value=sessions),
         mock.patch(
-            "bowaka_v2_lab.parity.runner._per_session_eligible_symbols",
-            return_value={s: ["AAA"] for s in sessions},
+            "bowaka_v2_lab.parity.runner._resolve_per_session_universe",
+            return_value=({s: ["AAA"] for s in sessions}, {s: {} for s in sessions}),
         ),
         mock.patch(
             "bowaka_v2_lab.parity.runner.run_production_backtester",
@@ -245,8 +245,8 @@ def test_per_session_universe_hands_each_side_the_sessions_survivors(tmp_path: P
     with (
         mock.patch("bowaka_v2_lab.parity.runner._xnys_sessions", return_value=sessions),
         mock.patch(
-            "bowaka_v2_lab.parity.runner._per_session_eligible_symbols",
-            return_value=per_session,
+            "bowaka_v2_lab.parity.runner._resolve_per_session_universe",
+            return_value=(per_session, {s: {} for s in sessions}),
         ),
         mock.patch("bowaka_v2_lab.parity.runner.run_production_backtester",
                    side_effect=_capture_prod),
@@ -313,7 +313,7 @@ def test_window_union_fallback_uses_single_universe_file(tmp_path: Path) -> None
     assert prod_files[0].name == "universe.txt"
 
 
-def test_per_session_eligible_symbols_respects_restrict_to(
+def test_resolve_per_session_universe_respects_restrict_to(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Each per-session set is the PIT eligible survivors INTERSECTED with the
@@ -338,14 +338,15 @@ def test_per_session_eligible_symbols_respects_restrict_to(
         lambda recs: list(recs.keys()),
     )
 
-    out = R._per_session_eligible_symbols(
+    out, pit_returned = R._resolve_per_session_universe(
         sessions, lab_config_path=tmp_path / "lab.yml", lake_root=None,
         restrict_to=["AAA", "BBB", "CCC"],  # ZZZ deliberately excluded
     )
     assert out[sessions[0]] == ["AAA", "BBB"]   # ZZZ filtered out by the cap
     assert out[sessions[1]] == ["CCC"]
+    assert pit_returned is pit  # the window PIT is returned for prebuilt threading
     # Without a restriction, the full PIT survivors come through (uncapped golden).
-    out_full = R._per_session_eligible_symbols(
+    out_full, _ = R._resolve_per_session_universe(
         sessions, lab_config_path=tmp_path / "lab.yml", lake_root=None,
     )
     assert out_full[sessions[0]] == ["AAA", "BBB", "ZZZ"]
