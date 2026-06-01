@@ -364,6 +364,47 @@ def _xnys_sessions(start_date: _dt.date, end_date: _dt.date) -> list[_dt.date]:
     return sessions or [start_date]
 
 
+def _per_session_eligible_symbols(
+    sessions: Sequence[_dt.date],
+    *,
+    lab_config_path: Path,
+    lake_root: Path | None,
+    restrict_to: Sequence[str] | None = None,
+) -> dict[_dt.date, list[str]]:
+    """PIT eligible-survivor symbols per session, bounded by ``restrict_to``.
+
+    Phase 0 (universe symmetry): production used to monitor the window-UNION of
+    eligibles on every session (one ``universe.txt``), so it watched symbols on
+    sessions where they were not PIT-eligible — diverging from the live flow.
+    This builds the PIT once for the window and returns each session's eligible
+    survivors, so the chunked runner can hand production the right per-session
+    symbol list. The lab side already intersects its own PIT per session, so this
+    makes both sides symmetric.
+
+    ``restrict_to`` (the parity universe the caller passed — possibly capped via
+    ``max_universe_size`` or given explicitly) bounds each per-session set,
+    EXACTLY as the lab intersects its PIT with the parity universe. Without it a
+    capped / smoke run would silently expand back to the full ~703-symbol PIT.
+    """
+    from ..cli_runners import _lake_store
+    from ..config import load_config
+    from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
+
+    cfg = load_config(lab_config_path)
+    if lake_root is not None:
+        cfg.setdefault("market_data", {})["shared_root"] = str(lake_root)
+    store = _lake_store(cfg.get("market_data") or {})
+    by_session = build_pit_universe_for_sessions(list(sessions), cfg, store)
+    restrict = set(restrict_to) if restrict_to is not None else None
+    return {
+        s: sorted(
+            sym for sym in eligible_symbols(by_session.get(s) or {})
+            if restrict is None or sym in restrict
+        )
+        for s in sessions
+    }
+
+
 def run_parity(
     *,
     start_date: _dt.date,
@@ -379,6 +420,8 @@ def run_parity(
     prod_script: Path | None = None,
     timeout_sec: int = 1800,
     chunk_per_session: bool = False,
+    per_session_universe: bool = True,
+    bundle_out: Path | None = None,
     print_progress: bool = True,
     progress_callback: Callable[[dict], None] | None = None,
 ) -> Any:
@@ -409,14 +452,26 @@ def run_parity(
 
     Either way, this returns a single :class:`ParityReport` covering the
     full window — the chunking is purely an execution-shape concern.
+
+    Universe contract (Phase 0): with ``per_session_universe=True`` (default)
+    the chunked path hands production the PIT eligible-survivor set for EACH
+    session (one symbols file per session), matching the live
+    screen-per-session flow and the lab's per-session PIT intersection. Set
+    ``per_session_universe=False`` to fall back to the legacy window-union
+    ``universe.txt`` for every session.
     """
     from .metrics import compute_parity_metrics
     from .normalizers import normalize_lab_output, normalize_production_output
 
     run_root = Path(run_root)
     run_root.mkdir(parents=True, exist_ok=True)
+    # Legacy window-union universe file (back-compat + the non-chunked path).
     symbols_file = run_root / "universe.txt"
     symbols_file.write_text("\n".join(str(s) for s in symbols) + "\n", encoding="utf-8")
+
+    # The requested XNYS session list — threaded into the report so n_sessions
+    # reflects requested coverage, not just trade-bearing sessions (Phase 0).
+    requested_sessions = _xnys_sessions(start_date, end_date)
 
     if not chunk_per_session:
         prod = run_production_backtester(
@@ -451,7 +506,7 @@ def run_parity(
 
         prod_trades, prod_cands = normalize_production_output(prod)
         lab_trades, lab_cands = normalize_lab_output(lab)
-        return compute_parity_metrics(
+        report = compute_parity_metrics(
             window_start=start_date,
             window_end=end_date,
             universe_size=len(list(symbols)),
@@ -461,10 +516,36 @@ def run_parity(
             lab_candidates=lab_cands,
             prod_summary=prod.summary,
             lab_result=lab,
+            requested_sessions=requested_sessions,
         )
+        if bundle_out is not None:
+            from .golden import persist_parity_bundle
+            persist_parity_bundle(
+                bundle_out, report=report, prod_trades=prod_trades,
+                lab_trades=lab_trades, lab_candidates=lab_cands,
+            )
+        return report
 
     # Per-session chunked path.
-    sessions = _xnys_sessions(start_date, end_date)
+    sessions = requested_sessions
+    # Phase 0 (universe symmetry): hand production the PIT eligible-survivor set
+    # for EACH session (one symbols file per session), matching the live
+    # screen-per-session flow and the lab's per-session intersection. The legacy
+    # window-union file stays available via ``per_session_universe=False``.
+    per_sess_syms: dict[_dt.date, list[str]] = {}
+    sess_symbol_file: dict[_dt.date, Path] = {}
+    if per_session_universe:
+        per_sess_syms = _per_session_eligible_symbols(
+            sessions, lab_config_path=Path(lab_config_path),
+            lake_root=Path(lake_root) if lake_root is not None else None,
+            restrict_to=symbols,
+        )
+        uni_dir = run_root / "universe"
+        uni_dir.mkdir(parents=True, exist_ok=True)
+        for _s in sessions:
+            _f = uni_dir / f"{_s.isoformat()}.txt"
+            _f.write_text("\n".join(per_sess_syms.get(_s, [])) + "\n", encoding="utf-8")
+            sess_symbol_file[_s] = _f
     all_prod_trades: list = []
     all_lab_trades: list = []
     all_lab_cands: list = []
@@ -493,9 +574,14 @@ def run_parity(
         if print_progress:
             _emit(f"{tag}  prod: starting subprocess at {_dt.datetime.now().strftime('%H:%M:%S')}")
         t0 = time.monotonic()
+        sess_syms = (
+            per_sess_syms.get(sd, list(symbols)) if per_session_universe
+            else list(symbols)
+        )
         prod = run_production_backtester(
             start_date=sd, end_date=sd,
-            symbols_file=symbols_file, prod_config_path=Path(prod_config_path),
+            symbols_file=sess_symbol_file.get(sd, symbols_file),
+            prod_config_path=Path(prod_config_path),
             lake_root=Path(lake_root) if lake_root is not None else None,
             cost_stress=cost_stress,
             output_dir=run_root / "production" / session_iso,
@@ -518,7 +604,7 @@ def run_parity(
 
         t1 = time.monotonic()
         lab = run_lab_backtester(
-            start_date=sd, end_date=sd, symbols=symbols,
+            start_date=sd, end_date=sd, symbols=sess_syms,
             lab_config_path=Path(lab_config_path),
             cost_stress=cost_stress, run_dir=run_root / "lab" / session_iso,
         )
@@ -566,7 +652,7 @@ def run_parity(
             f"prod_trades={total_pt} lab_trades={total_lt}"
         )
 
-    return compute_parity_metrics(
+    report = compute_parity_metrics(
         window_start=start_date,
         window_end=end_date,
         universe_size=len(list(symbols)),
@@ -574,7 +660,15 @@ def run_parity(
         prod_candidates=[],
         lab_trades=all_lab_trades,
         lab_candidates=all_lab_cands,
+        requested_sessions=requested_sessions,
     )
+    if bundle_out is not None:
+        from .golden import persist_parity_bundle
+        persist_parity_bundle(
+            bundle_out, report=report, prod_trades=all_prod_trades,
+            lab_trades=all_lab_trades, lab_candidates=all_lab_cands,
+        )
+    return report
 
 
 __all__ = [

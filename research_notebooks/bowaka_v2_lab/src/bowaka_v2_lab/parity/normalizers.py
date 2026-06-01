@@ -191,11 +191,21 @@ def _normalize_lab_trades(rows: Iterable[Mapping[str, Any]]) -> list[NormalizedT
         try:
             sd = _parse_date(_get(row, "session_date", "entry_date"))
             sym = str(_get(row, "symbol"))
-            entry_min = _to_utc_minute(
-                _get(row, "entry_timestamp", "entry_ts", "scan_timestamp")
-            )
         except Exception:  # noqa: BLE001
             continue
+        # Phase 0 (parity oracle): a missing/NaT entry timestamp used to fall
+        # through to ``pd.Timestamp(None) -> NaT`` SILENTLY, so every lab trade
+        # got a NaT join key and ``trade_intersection_rate`` was structurally ~0
+        # regardless of real behavior. Fail loud — never let NaT become a key.
+        entry_min = _to_utc_minute_or_none(
+            _get(row, "entry_timestamp", "entry_ts", "scan_timestamp")
+        )
+        if entry_min is None:
+            raise ValueError(
+                "lab trade is missing a parseable entry timestamp "
+                "(entry_timestamp|entry_ts|scan_timestamp); a NaT join key would "
+                f"silently zero trade_intersection_rate. Offending row: {row!r}"
+            )
         out.append(NormalizedTrade(
             session_date=sd, symbol=sym, entry_ts_minute=entry_min,
             entry_price=float(_get(row, "entry_price", default=0.0) or 0.0),

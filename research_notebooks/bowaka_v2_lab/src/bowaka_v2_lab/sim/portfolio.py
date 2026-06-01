@@ -429,6 +429,11 @@ class Portfolio:
             "symbol": pos.symbol,
             "position_id": pos.position_id,
             "entry_date": pos.entry_date.isoformat(),
+            # Phase 0 (parity oracle): the tz-aware ISO fill-minute. Without it the
+            # parity normalizer's entry-ts join key silently became NaT, which
+            # structurally zeroed trade_intersection_rate. ``Position.entry_timestamp``
+            # is already an ISO string (or None for legacy daily-path closes).
+            "entry_timestamp": pos.entry_timestamp,
             "entry_price": pos.entry_price,
             "exit_date": exit_date.isoformat(),
             "exit_price": exit_price,
