@@ -1,8 +1,8 @@
 # Bowaka v2 lab — Realism Audit (2026-05-23)
 
-> Verbatim landing of the audit driving `bowaka_v2_lab_realism_remediation_3_claude_code_prompt.md`.
+> Verbatim landing of the audit driving `docs/old_cc_prompts/bowaka_v2_lab_realism_remediation_3_claude_code_prompt.md` (archived, gitignored).
 >
-> Two prior remediations exist (`bowaka_v2_lab_realism_remediation_claude_code_prompt.md`, `…_remediation_2_claude_code_prompt.md`). The 2026-05-23 audit re-tested after those merges and found the defects below still live in code (verified against the repo before the remediation-3 prompt was written).
+> Two prior remediations exist (`docs/old_cc_prompts/bowaka_v2_lab_realism_remediation_claude_code_prompt.md`, `…_remediation_2_claude_code_prompt.md`). The 2026-05-23 audit re-tested after those merges and found the defects below still live in code (verified against the repo before the remediation-3 prompt was written).
 
 ## Critical context — defects verified before remediation 3
 

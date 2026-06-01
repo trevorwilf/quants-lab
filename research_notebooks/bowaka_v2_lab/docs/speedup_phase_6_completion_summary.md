@@ -1,6 +1,6 @@
 # Speedup Phase 6 — completion summary
 
-Implements `bowaka_v2_lab_speedup_phase_6_claude_code_prompt.md` (PRs 0–5 +
+Implements the archived prompt `docs/old_cc_prompts/bowaka_v2_lab_speedup_phase_6_claude_code_prompt.md` (PRs 0–5 +
 the Phase 2.5 worker-count benchmark). All seven phases landed on `dev`,
 each on its own branch, merged with `--no-ff` after `make test-all` passed.
 

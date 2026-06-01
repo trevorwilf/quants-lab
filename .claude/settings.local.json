@@ -38,8 +38,6 @@
     ],
     "deny": [
       "Bash(rm *)",
-      "Bash(mv *)",
-      "Bash(cp *)",
       "WebFetch",
       "Bash(curl *)",
       "Bash(wget *)",

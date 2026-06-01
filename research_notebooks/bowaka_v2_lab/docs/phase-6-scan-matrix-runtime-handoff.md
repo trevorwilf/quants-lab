@@ -30,7 +30,8 @@ per-trial scanner loop:
 | **Per-symbol gate evaluation in `evaluate_one_scan`** | **~92%** |
 | Portfolio / fill / exit walk | ~4% |
 
-Phase 1–5 in `bowaka_v2_lab_optuna_speedup_v2_claude_code_prompt.md`
+Phase 1–5 in the Optuna speedup-v2 work (prompt archived at
+`docs/old_cc_prompts/bowaka_v2_lab_optuna_speedup_v2_claude_code_prompt.md`)
 attacked the 8% of overhead around the scanner. Phase 6 is the only
 work that touches the 92%.
 
@@ -440,7 +441,7 @@ Listed in recommended read order.
 |---|---|---|
 | 1 | `research_notebooks/bowaka_v2_lab/docs/phase-6-scan-matrix-runtime-handoff.md` | This file. The 30-minute briefing. |
 | 2 | `research_notebooks/bowaka_v2_lab/artifacts/phase-6-speedup-v2-summary.md` | What landed in this build (memory estimator, three-mode config, refusal scaffolding) and what was explicitly deferred. ~15 minutes. |
-| 3 | `bowaka_v2_lab_optuna_speedup_v2_claude_code_prompt.md` (repo root, Phase 6 section ~lines 917-1009) | The original acceptance criteria for Phase 6: tasks, required parity tests, the "research-only" framing. ~20 minutes. |
+| 3 | `research_notebooks/bowaka_v2_lab/docs/phase-6-acceptance-criteria.md` | The original acceptance criteria for Phase 6: tasks, required parity tests, the "research-only" framing — extracted from the now-archived `docs/old_cc_prompts/bowaka_v2_lab_optuna_speedup_v2_claude_code_prompt.md`. ~20 minutes. |
 | 4 | `docs/audits/2026-05-24_bowaka_v2_full_scan_feature_matrix_precompute.md` | **The matrix design spec proper.** Column schemas, dtype policy, partition layout, manifest format, missing-value gate semantics, stable score sort, gate-ordering invariants. **This is where the engineering spec lives.** 1-2 hours. |
 | 5 | `src/bowaka_v2_lab/scanner/scan_matrix.py` | Read top-to-bottom. The builder logic shows how matrix columns relate to legacy scanner inputs. ~30 minutes. |
 | 6 | `src/bowaka_v2_lab/scanner/scan_matrix_runtime.py` | The runtime scaffolding + the three-mode resolver + the opt-in guard. ~15 minutes. |

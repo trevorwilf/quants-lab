@@ -1,6 +1,6 @@
 # Shared Market-Data Lake — Implementation Summary
 
-Implements `bowaka_shared_marketdata_lake_claude_code_prompt.md`: a single,
+Implements the Claude Code prompt `docs/old_cc_prompts/bowaka_shared_marketdata_lake_claude_code_prompt.md` (archived, gitignored): a single,
 strategy-neutral Alpaca market-data lake (`bowaka_common.marketdata`) consumed by
 both `bowaka_lab` (v1) and `bowaka_v2_lab` (v2), ending the dual-copy / dual-store
 duplication.
@@ -94,5 +94,5 @@ the legacy data tree (operator runbook).
 
 The one-time migration of the real ~301k-file dataset, smoke-testing both labs on
 real data, and deleting `db_tools/bowaka_data/` remain operator steps — see the
-"Operator Runbook" section of `bowaka_shared_marketdata_lake_claude_code_prompt.md`.
+operator runbook — now `marketdata_operator_runbook.md` (co-located here), extracted from the archived `docs/old_cc_prompts/bowaka_shared_marketdata_lake_claude_code_prompt.md`.
 No Docker changes are needed (the lake is in-repo, already mounted at `/quants-lab`).
