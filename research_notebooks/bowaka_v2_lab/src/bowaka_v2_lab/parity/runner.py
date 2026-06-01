@@ -421,6 +421,7 @@ def run_parity(
     timeout_sec: int = 1800,
     chunk_per_session: bool = False,
     per_session_universe: bool = True,
+    bundle_out: Path | None = None,
     print_progress: bool = True,
     progress_callback: Callable[[dict], None] | None = None,
 ) -> Any:
@@ -505,7 +506,7 @@ def run_parity(
 
         prod_trades, prod_cands = normalize_production_output(prod)
         lab_trades, lab_cands = normalize_lab_output(lab)
-        return compute_parity_metrics(
+        report = compute_parity_metrics(
             window_start=start_date,
             window_end=end_date,
             universe_size=len(list(symbols)),
@@ -517,6 +518,13 @@ def run_parity(
             lab_result=lab,
             requested_sessions=requested_sessions,
         )
+        if bundle_out is not None:
+            from .golden import persist_parity_bundle
+            persist_parity_bundle(
+                bundle_out, report=report, prod_trades=prod_trades,
+                lab_trades=lab_trades, lab_candidates=lab_cands,
+            )
+        return report
 
     # Per-session chunked path.
     sessions = requested_sessions
@@ -644,7 +652,7 @@ def run_parity(
             f"prod_trades={total_pt} lab_trades={total_lt}"
         )
 
-    return compute_parity_metrics(
+    report = compute_parity_metrics(
         window_start=start_date,
         window_end=end_date,
         universe_size=len(list(symbols)),
@@ -654,6 +662,13 @@ def run_parity(
         lab_candidates=all_lab_cands,
         requested_sessions=requested_sessions,
     )
+    if bundle_out is not None:
+        from .golden import persist_parity_bundle
+        persist_parity_bundle(
+            bundle_out, report=report, prod_trades=all_prod_trades,
+            lab_trades=all_lab_trades, lab_candidates=all_lab_cands,
+        )
+    return report
 
 
 __all__ = [
