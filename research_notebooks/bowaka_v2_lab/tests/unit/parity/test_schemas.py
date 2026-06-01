@@ -49,6 +49,7 @@ def test_normalized_candidate_join_key_uses_candidate_ts() -> None:
 def test_parity_report_defaults_are_falsy() -> None:
     r = ParityReport(
         window_start=_SD, window_end=_SD, universe_size=5, n_sessions=1,
+        n_trade_sessions=1,
         prod_n_candidates=0, prod_n_trades=0, prod_gross_pnl=0.0,
         lab_n_candidates=0, lab_n_trades=0, lab_gross_pnl=0.0,
         candidate_recall=1.0, gate_match_rate=1.0,

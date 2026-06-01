@@ -64,6 +64,10 @@ def test_chunked_mode_prints_one_line_per_session_and_fires_callback(
     with (
         mock.patch("bowaka_v2_lab.parity.runner._xnys_sessions", return_value=sessions),
         mock.patch(
+            "bowaka_v2_lab.parity.runner._per_session_eligible_symbols",
+            return_value={s: ["AAA", "BBB"] for s in sessions},
+        ),
+        mock.patch(
             "bowaka_v2_lab.parity.runner.run_production_backtester",
             side_effect=[_StubProdResult(output_dir=tmp_path / f"prod_{i}")
                          for i in range(len(sessions))],
@@ -141,6 +145,10 @@ def test_chunked_mode_raises_with_session_context_on_prod_failure(tmp_path: Path
     with (
         mock.patch("bowaka_v2_lab.parity.runner._xnys_sessions", return_value=sessions),
         mock.patch(
+            "bowaka_v2_lab.parity.runner._per_session_eligible_symbols",
+            return_value={s: ["AAA"] for s in sessions},
+        ),
+        mock.patch(
             "bowaka_v2_lab.parity.runner.run_production_backtester",
             side_effect=[_StubProdResult(output_dir=tmp_path / "prod_0"), fail],
         ),
@@ -214,3 +222,130 @@ def test_non_chunked_mode_preserves_old_signature_path(tmp_path: Path) -> None:
     call_kwargs = patched_prod.call_args.kwargs
     assert call_kwargs["start_date"] == _dt.date(2026, 5, 18)
     assert call_kwargs["end_date"] == _dt.date(2026, 5, 22)
+
+
+def test_per_session_universe_hands_each_side_the_sessions_survivors(tmp_path: Path) -> None:
+    """Phase 0 (universe symmetry): with ``per_session_universe=True`` the chunked
+    runner writes ONE symbols file per session = that session's PIT eligible
+    survivors, and BOTH production (via the file) and the lab (via ``symbols=``)
+    receive that session's set — not the window union."""
+    sessions = [_dt.date(2026, 5, 18), _dt.date(2026, 5, 19)]
+    per_session = {sessions[0]: ["AAA", "BBB"], sessions[1]: ["CCC"]}
+    prod_symbol_files: list[Path] = []
+    lab_symbol_args: list[list[str]] = []
+
+    def _capture_prod(**kwargs: Any) -> _StubProdResult:
+        prod_symbol_files.append(Path(kwargs["symbols_file"]))
+        return _StubProdResult(output_dir=tmp_path / "p")
+
+    def _capture_lab(**kwargs: Any) -> Any:
+        lab_symbol_args.append(list(kwargs["symbols"]))
+        return mock.MagicMock(trades=[], candidate_events=[])
+
+    with (
+        mock.patch("bowaka_v2_lab.parity.runner._xnys_sessions", return_value=sessions),
+        mock.patch(
+            "bowaka_v2_lab.parity.runner._per_session_eligible_symbols",
+            return_value=per_session,
+        ),
+        mock.patch("bowaka_v2_lab.parity.runner.run_production_backtester",
+                   side_effect=_capture_prod),
+        mock.patch("bowaka_v2_lab.parity.runner.run_lab_backtester",
+                   side_effect=_capture_lab),
+        mock.patch("bowaka_v2_lab.parity.normalizers.normalize_production_output",
+                   return_value=([], [])),
+        mock.patch("bowaka_v2_lab.parity.normalizers.normalize_lab_output",
+                   return_value=([], [])),
+    ):
+        run_parity(
+            start_date=sessions[0], end_date=sessions[1],
+            symbols=["AAA", "BBB", "CCC"],  # window union (must NOT be used per session)
+            prod_config_path=tmp_path / "prod.yaml",
+            lab_config_path=tmp_path / "lab.yml",
+            lake_root=tmp_path / "lake",
+            cost_stress="base", run_root=tmp_path / "run",
+            chunk_per_session=True, print_progress=False,
+        )
+
+    # Production got one file per session, each holding that session's survivors.
+    assert len(prod_symbol_files) == 2
+    assert prod_symbol_files[0].read_text(encoding="utf-8").split() == ["AAA", "BBB"]
+    assert prod_symbol_files[1].read_text(encoding="utf-8").split() == ["CCC"]  # not the union
+    # The lab received the same per-session sets — both sides are symmetric.
+    assert lab_symbol_args == [["AAA", "BBB"], ["CCC"]]
+
+
+def test_window_union_fallback_uses_single_universe_file(tmp_path: Path) -> None:
+    """``per_session_universe=False`` falls back to the legacy single
+    window-union ``universe.txt`` for every session (no per-session PIT build)."""
+    sessions = [_dt.date(2026, 5, 18), _dt.date(2026, 5, 19)]
+    prod_files: list[Path] = []
+
+    def _capture_prod(**kwargs: Any) -> _StubProdResult:
+        prod_files.append(Path(kwargs["symbols_file"]))
+        return _StubProdResult(output_dir=tmp_path / "p")
+
+    with (
+        mock.patch("bowaka_v2_lab.parity.runner._xnys_sessions", return_value=sessions),
+        mock.patch("bowaka_v2_lab.parity.runner.run_production_backtester",
+                   side_effect=_capture_prod),
+        mock.patch("bowaka_v2_lab.parity.runner.run_lab_backtester",
+                   return_value=mock.MagicMock(trades=[], candidate_events=[])),
+        mock.patch("bowaka_v2_lab.parity.normalizers.normalize_production_output",
+                   return_value=([], [])),
+        mock.patch("bowaka_v2_lab.parity.normalizers.normalize_lab_output",
+                   return_value=([], [])),
+    ):
+        run_parity(
+            start_date=sessions[0], end_date=sessions[1],
+            symbols=["AAA", "BBB", "CCC"],
+            prod_config_path=tmp_path / "prod.yaml",
+            lab_config_path=tmp_path / "lab.yml",
+            lake_root=tmp_path / "lake",
+            cost_stress="base", run_root=tmp_path / "run",
+            chunk_per_session=True, per_session_universe=False, print_progress=False,
+        )
+
+    # Both sessions reused the SAME window-union universe.txt — and the
+    # per-session PIT helper was never needed (not mocked, never called).
+    assert len(prod_files) == 2
+    assert prod_files[0] == prod_files[1]
+    assert prod_files[0].name == "universe.txt"
+
+
+def test_per_session_eligible_symbols_respects_restrict_to(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each per-session set is the PIT eligible survivors INTERSECTED with the
+    caller's parity universe — so a capped/smoke universe never silently expands
+    back to the full PIT (the regression that timed out the papermill smoke)."""
+    import bowaka_v2_lab.parity.runner as R
+
+    sessions = [_dt.date(2026, 5, 18), _dt.date(2026, 5, 19)]
+    # Unrestricted PIT eligibles per session (ZZZ is eligible but NOT in the cap).
+    pit = {
+        sessions[0]: {"AAA": {}, "BBB": {}, "ZZZ": {}},
+        sessions[1]: {"CCC": {}, "ZZZ": {}},
+    }
+    monkeypatch.setattr("bowaka_v2_lab.config.load_config", lambda p: {"market_data": {}})
+    monkeypatch.setattr("bowaka_v2_lab.cli_runners._lake_store", lambda md: object())
+    monkeypatch.setattr(
+        "bowaka_v2_lab.universe.builder.build_pit_universe_for_sessions",
+        lambda s, cfg, store: pit,
+    )
+    monkeypatch.setattr(
+        "bowaka_v2_lab.universe.builder.eligible_symbols",
+        lambda recs: list(recs.keys()),
+    )
+
+    out = R._per_session_eligible_symbols(
+        sessions, lab_config_path=tmp_path / "lab.yml", lake_root=None,
+        restrict_to=["AAA", "BBB", "CCC"],  # ZZZ deliberately excluded
+    )
+    assert out[sessions[0]] == ["AAA", "BBB"]   # ZZZ filtered out by the cap
+    assert out[sessions[1]] == ["CCC"]
+    # Without a restriction, the full PIT survivors come through (uncapped golden).
+    out_full = R._per_session_eligible_symbols(
+        sessions, lab_config_path=tmp_path / "lab.yml", lake_root=None,
+    )
+    assert out_full[sessions[0]] == ["AAA", "BBB", "ZZZ"]

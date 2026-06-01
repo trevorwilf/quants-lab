@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import statistics
 from datetime import date
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 from .schemas import NormalizedCandidate, NormalizedTrade, ParityReport
 
@@ -58,7 +58,12 @@ def evaluate_thresholds(
     """
     failing: list[str] = []
     for name, threshold in thresholds.items():
-        value = float(getattr(report, name))
+        raw = getattr(report, name)
+        if raw is None:
+            # Phase 0 (parity oracle): "not measured" — excluded from the
+            # verdict. A missing data source must never count as PASS or FAIL.
+            continue
+        value = float(raw)
         if name in _LOWER_IS_BETTER:
             if value > threshold:
                 failing.append(name)
@@ -71,10 +76,17 @@ def evaluate_thresholds(
 def _candidate_metrics(
     prod_cands: Sequence[NormalizedCandidate],
     lab_cands: Sequence[NormalizedCandidate],
-) -> tuple[float, float]:
-    """(candidate_recall, gate_match_rate). Degenerate to 1.0 with no candidates."""
-    if not prod_cands and not lab_cands:
-        return 1.0, 1.0
+) -> tuple[Optional[float], Optional[float]]:
+    """(candidate_recall, gate_match_rate), or ``(None, None)`` when NOT MEASURED.
+
+    Phase 0 (parity oracle): production emits no candidate telemetry by default
+    and the lab emits it only under ``debug_first_n_trials``. When EITHER side
+    lacks candidates the metric is meaningless, so return ``(None, None)``
+    instead of the old degenerate ``1.0`` — a missing data source must never
+    report a candidate/gate PASS.
+    """
+    if not prod_cands or not lab_cands:
+        return None, None
     prod_by_key = _cand_by_key(prod_cands)
     lab_by_key = _cand_by_key(lab_cands)
     matched_keys = prod_by_key.keys() & lab_by_key.keys()
@@ -146,6 +158,7 @@ def compute_parity_metrics(
     prod_candidates: Sequence[NormalizedCandidate],
     lab_trades: Sequence[NormalizedTrade],
     lab_candidates: Sequence[NormalizedCandidate],
+    requested_sessions: Sequence[date] | None = None,
     prod_summary: Mapping[str, object] | None = None,
     lab_result: object | None = None,  # noqa: ARG001 — accepted for symmetry
     thresholds: Mapping[str, float] = DEFAULT_THRESHOLDS,
@@ -184,8 +197,15 @@ def compute_parity_metrics(
 
     prod_gross_pnl = float(sum(t.pnl_dollars for t in prod_trades))
     lab_gross_pnl = float(sum(t.pnl_dollars for t in lab_trades))
-    n_sessions = len({t.session_date for t in prod_trades}
-                     | {t.session_date for t in lab_trades})
+    # Phase 0 (parity oracle): report the REQUESTED XNYS session count (threaded
+    # in by the runner) so coverage isn't understated by counting only
+    # trade-bearing sessions. ``n_trade_sessions`` keeps the old count.
+    n_trade_sessions = len({t.session_date for t in prod_trades}
+                           | {t.session_date for t in lab_trades})
+    n_sessions = (
+        len(requested_sessions) if requested_sessions is not None
+        else n_trade_sessions
+    )
 
     # Drill-down: worst N.
     prod_only_sorted = sorted(
@@ -221,6 +241,7 @@ def compute_parity_metrics(
     report = ParityReport(
         window_start=window_start, window_end=window_end,
         universe_size=int(universe_size), n_sessions=int(n_sessions),
+        n_trade_sessions=int(n_trade_sessions),
         prod_n_candidates=len(prod_candidates),
         prod_n_trades=len(prod_trades),
         prod_gross_pnl=prod_gross_pnl,

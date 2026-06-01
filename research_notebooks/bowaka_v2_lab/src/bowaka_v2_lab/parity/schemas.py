@@ -68,7 +68,8 @@ class ParityReport:
     window_start: date
     window_end: date
     universe_size: int
-    n_sessions: int
+    n_sessions: int            # requested XNYS sessions in the window (when known)
+    n_trade_sessions: int      # sessions with >=1 trade on either side
     # Production-side counts
     prod_n_candidates: int
     prod_n_trades: int
@@ -78,8 +79,11 @@ class ParityReport:
     lab_n_trades: int
     lab_gross_pnl: float
     # Parity metrics (audit §14.5 adapted to sim-vs-sim)
-    candidate_recall: float
-    gate_match_rate: float
+    # Phase 0 (parity oracle): ``None`` == "not measured" (a side lacks candidate
+    # telemetry). ``evaluate_thresholds`` EXCLUDES not-measured metrics from the
+    # verdict — a missing data source must never report PASS.
+    candidate_recall: Optional[float]
+    gate_match_rate: Optional[float]
     trade_intersection_rate: float    # |prod ∩ lab| / |prod ∪ lab|
     fill_price_mae_bps: float
     exit_reason_match_rate: float

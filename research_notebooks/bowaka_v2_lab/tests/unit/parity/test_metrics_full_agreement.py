@@ -38,7 +38,10 @@ def test_full_agreement_yields_unit_metrics() -> None:
     assert report.fill_price_mae_bps == 0.0
     assert report.exit_reason_match_rate == 1.0
     assert report.daily_pnl_sign_match_rate == 1.0
-    assert report.candidate_recall == 1.0  # degenerate empty-candidates case
+    # Phase 0 (parity oracle): candidates absent on both sides -> NOT MEASURED
+    # (was a false degenerate 1.0 that could mask a real candidate divergence).
+    assert report.candidate_recall is None
+    assert report.gate_match_rate is None
     assert report.passes_audit_thresholds is True
     assert report.failing_metrics == []
     assert report.prod_only_trades == []

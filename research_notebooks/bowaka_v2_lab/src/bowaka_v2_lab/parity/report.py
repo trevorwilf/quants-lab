@@ -51,6 +51,7 @@ def render_markdown_report(
     out.append(f"| window_end | {report.window_end.isoformat()} |")
     out.append(f"| universe_size | {report.universe_size} |")
     out.append(f"| n_sessions | {report.n_sessions} |")
+    out.append(f"| n_trade_sessions | {report.n_trade_sessions} |")
     out.append("")
 
     out.append("## Counts")
@@ -72,7 +73,15 @@ def render_markdown_report(
     passes, failing = evaluate_thresholds(report, thresholds=thresholds)
     failing_set = set(failing)
     for name, threshold in thresholds.items():
-        value = float(getattr(report, name))
+        raw = getattr(report, name)
+        if raw is None:
+            # Phase 0 (parity oracle): not-measured metric (e.g. candidate recall
+            # when a side emits no candidate telemetry) -> N/A, never FAIL.
+            out.append(
+                f"| {name} | N/A | {_threshold_op(name)} {_fmt_n(threshold)} | N/A |"
+            )
+            continue
+        value = float(raw)
         result = "FAIL" if name in failing_set else "PASS"
         out.append(
             f"| {name} | {_fmt_n(value)} | "
