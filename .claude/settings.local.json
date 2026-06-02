@@ -1,47 +1,80 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(ls:*)",
-      "Bash(python:*)",
-      "Read(*)",
-      "Bash(jupyter nbconvert *)",
-      "Bash(cat *)",
-      "Bash(npm *)",
-      "Edit(*)",
-      "Bash(wc:*)",
       "Read(*)",
       "Edit(*)",
       "Write(*)",
       "Glob(*)",
       "Grep(*)",
-      "Bash(jupyter nbconvert *)",
-      "Bash(cat *)",
-      "Bash(ls *)",
-      "Bash(head *)",
-      "Bash(tail *)",
-      "Bash(python *)",
-      "Bash(pip install *)",
-      "Bash(pip list *)",
-      "Bash(which *)",
-      "Bash(find *)",
-      "Bash(wc *)",
-      "Bash(diff *)",
-      "Bash(env *)",
-      "Bash(echo *)",
+
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(diff:*)",
+      "Bash(echo:*)",
+      "Bash(env:*)",
+      "Bash(which:*)",
       "Bash(mkdir:*)",
-      "Bash(make test:*)",
-      "Bash(pip show:*)",
-      "Bash(python3:*)",
       "Bash(test:*)",
-      "Bash(do:*)",
-      "Bash(do test:*)"
+
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pip install:*)",
+      "Bash(pip list:*)",
+      "Bash(pip show:*)",
+
+      "Bash(jupyter nbconvert:*)",
+      "Bash(npm:*)",
+      "Bash(make test:*)",
+      "Bash(git push:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)"
+    ],
+    "ask": [
+      "Bash(git reset:*)",
+      "Bash(pip uninstall:*)"
     ],
     "deny": [
-      "Bash(rm *)",
       "WebFetch",
-      "Bash(curl *)",
-      "Bash(wget *)",
-      "Bash(sudo *)"
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(sudo:*)",
+      "Bash(rm:*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./**/*.pem)",
+      "Read(./**/id_rsa)",
+      "Read(~/.aws/**)",
+      "Read(~/.ssh/**)"
     ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "excludedCommands": ["docker:*"],
+    "filesystem": {
+      "denyRead": ["~/.aws/**", "~/.ssh/**"]
+    },
+    "network": {
+      "allowedDomains": [
+        "pypi.org",
+        "files.pythonhosted.org",
+        "registry.npmjs.org",
+        "github.com"
+      ]
+    }
+  },
+  "env": {
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000"
   }
 }
