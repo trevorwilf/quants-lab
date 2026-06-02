@@ -236,6 +236,7 @@ def run_lab_backtester(
     run_dir: Path | None = None,
     prebuilt_pit_by_session: Any | None = None,
     cached_data_path: bool = True,
+    lake_root: Path | None = None,
 ) -> Any:
     """Run the lab backtester in-process against a small parity universe.
 
@@ -291,6 +292,15 @@ def run_lab_backtester(
     if cost_stress:
         cfg = apply_overrides(cfg, {"backtest": {"cost_stress": cost_stress}})
     validated = BowakaV2Config.model_validate(cfg)
+    # Parity speedup: when the caller threads an explicit lake_root (e.g. a
+    # container-native cache copied off the slow host bind-mount), honour it the
+    # same way the prod side does — inject market_data.shared_root so
+    # resolve_lake_root(cfg) picks it up. This is the side-effect-free lever:
+    # unlike setting $MARKET_DATA_ROOT (which perturbs daily-adjustment
+    # resolution), shared_root only redirects the lake path. No-op when
+    # lake_root is None, so normal runs resolve exactly as before.
+    if lake_root is not None:
+        cfg.setdefault("market_data", {})["shared_root"] = str(lake_root)
     repo_root = Path(__file__).resolve().parents[4]
     paths = BowakaV2Paths.from_config(validated, repo_root=repo_root)
     paths.assert_strategy_isolation()
@@ -608,6 +618,7 @@ def _run_parity_session_block(
             start_date=sd, end_date=sd, symbols=sess_syms,
             lab_config_path=Path(spec.lab_config_path), cost_stress=spec.cost_stress,
             run_dir=run_root / "lab" / iso, prebuilt_pit_by_session=prebuilt_pit,
+            lake_root=lake_root,
         )
         pt, _ = normalize_production_output(prod)
         lt, lc = normalize_lab_output(lab)
@@ -841,6 +852,7 @@ def run_parity(
             lab_config_path=Path(lab_config_path),
             cost_stress=cost_stress,
             run_dir=run_root / "lab",
+            lake_root=Path(lake_root) if lake_root is not None else None,
         )
 
         prod_trades, prod_cands = normalize_production_output(prod)
@@ -963,6 +975,7 @@ def run_parity(
             lab_config_path=Path(lab_config_path),
             cost_stress=cost_stress, run_dir=run_root / "lab" / session_iso,
             prebuilt_pit_by_session=prebuilt_pit,
+            lake_root=lake_root,
         )
         lab_secs = time.monotonic() - t1
 

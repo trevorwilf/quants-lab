@@ -56,6 +56,50 @@ Per the speedup prompt: with **< 5 min/session met**, Phases 2 (vectorize prod �
   the intended regime is a long multi-session parity run. Note: spawn parallelism
   works from the CLI / scripts / pytest, not from a Jupyter `<stdin>` main.
 
+## Parallel I/O: the Docker bind-mount (9p) bottleneck + lake cache
+
+Phase 3's parallel workers underperformed on the `ql-jupyter` container for a
+reason that is **not** in the lab code: the shared lake is a Docker host
+bind-mount (WSL2 9p transport). Under a real-universe parity run the per-session
+PIT / daily-baseline scan reads thousands of small parquet files, and 16 workers
+all hammering 9p **stall in uninterruptible I/O-wait** (`D`-state, wait channel
+`p9_client_rpc`, ~1 core total across all workers) instead of using CPU — the
+"16 workers, no CPU/RAM" symptom.
+
+Two fixes:
+
+1. **`run_lab_backtester` lake-root bug (correctness + enabler).** The lab side
+   of every parity path (in-process, chunked, parallel block-runner) resolved the
+   lake from the lab config alone and **ignored the `lake_root` passed to
+   `run_parity`** — so it always read the in-repo bind-mount regardless of
+   `LAKE_ROOT`. Fixed by adding a `lake_root` param to `run_lab_backtester` that
+   injects `cfg.market_data.shared_root` (the side-effect-free lever — setting
+   `$MARKET_DATA_ROOT` instead collapses daily split-adjustment resolution to
+   `universe=0` + `StartupDataQualityError`). Threaded through all three call
+   sites. No-op when `lake_root` is `None`; **golden diff = 0** (chunked +
+   nonchunked, price 1e-12 / pnl 1e-9).
+
+2. **Lake cache (`LAKE_CACHE_DIR` in notebook 13).** Mirror the lake once onto a
+   container-native path (e.g. `/opt/market_data_cache`) and run every side off
+   it. Idempotent (a `.lake_cache_complete` marker guards reuse); no-op when unset.
+
+### Measured (20 sessions, 40 golden symbols, in `ql-jupyter`)
+
+| Run | Lake | Workers | `run_parity` | CPU behaviour | Result |
+|---|---|---|---|---|---|
+| cache | `/opt` (container-native) | 16 | **107.6 s** | steady 800–1400% (8–14 cores) | prod=28 lab=6 |
+| cache | `/opt` (container-native) | 4 | **101.5 s** | steady ~200–360% | prod=28 lab=6 |
+| bind | host bind-mount (9p) | 16 | **1102.1 s** | oscillates 840% ↔ ~100% (9p stalls) | prod=28 lab=6 |
+
+- **Cache vs bind: ~10× faster** (108 s vs 1102 s), **byte-identical** results
+  (prod=28 lab=6 all three) — the lake location, not the lab code, was the wall.
+- **4 workers ≈ 16 workers**: a 20-session window oversubscribes 16 block-runners
+  *plus* their 16 prod subprocesses on 18 cores, and per-worker startup (import +
+  per-block PIT) cancels the parallelism. Sweet spot ≈ 4–8 for this window
+  length; the cache is the lever, not the worker count.
+- Reproducer: `scripts/ram_disk_test.py` (set `RAMTEST_SYMBOLS`; pass `cache` /
+  `bind` to pick the lake).
+
 ## Scan-matrix (Phases 5–6): evaluated, not adopted for parity
 
 The scan-matrix compat/vectorized runtime makes the *scan* fast but requires a
