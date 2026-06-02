@@ -641,7 +641,7 @@ def build_parser() -> argparse.ArgumentParser:
     par.add_argument("--parallel-workers", type=int, default=1,
                      help="Phase 3 — run contiguous session blocks across N spawn "
                           "workers (implies chunked; identical output to serial). "
-                          "Capped at 12 (the parity path opens no PostgreSQL). "
+                          "Capped at 16 (the parity path opens no PostgreSQL). "
                           "Default 1 (serial).")
     par.set_defaults(func=_cmd_parity)
 

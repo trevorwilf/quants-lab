@@ -536,7 +536,7 @@ def _contiguous_blocks(sessions: Sequence[_dt.date], k: int) -> list[list[_dt.da
 
 def _parity_path_touches_postgres() -> bool:
     """True iff the parity package or ``cli_runners`` actually imports psycopg /
-    opens a PostgreSQL URL — the worker cap is 8 when PG is in play, else 12.
+    opens a PostgreSQL URL — the worker cap is 8 when PG is in play, else 16.
     Static source scan; the parity path opens no PG connection, so this returns
     False and the cap is 12. This file (the launcher) is excluded — it provably
     opens no PG and only mentions the words in this guard."""
@@ -647,7 +647,7 @@ def _run_parity_parallel(
     from .metrics import compute_parity_metrics
 
     sessions = list(sessions)
-    cap = 8 if _parity_path_touches_postgres() else 12
+    cap = 8 if _parity_path_touches_postgres() else 16
     n_workers = max(1, min(int(n_workers), cap, len(sessions) or 1))
     # Refuse a launch that would breach the RAM reserve (parity opens no PG).
     MemoryBudget.from_system(postgres_gib_estimate=0.0).assert_launch_safe(
