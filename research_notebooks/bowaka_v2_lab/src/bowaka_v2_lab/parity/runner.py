@@ -615,19 +615,6 @@ def _run_parity_session_block(
     return out
 
 
-def _session_block_worker(spec: "_SessionBlockSpec", q: Any) -> None:
-    """Spawn-worker entrypoint: pin BLAS threads to 1 BEFORE any numpy import,
-    run the block, report ``(worker_id, results | None, error | None)``."""
-    import os as _os
-
-    for _v in _BLAS_THREAD_ENV:
-        _os.environ[_v] = "1"
-    try:
-        q.put((spec.worker_id, _run_parity_session_block(spec), None))
-    except Exception as exc:  # noqa: BLE001 — reported back to the parent
-        q.put((spec.worker_id, None, f"{type(exc).__name__}: {exc}"))
-
-
 def _run_parity_parallel(
     *,
     start_date: _dt.date,
@@ -650,9 +637,11 @@ def _run_parity_parallel(
     n_workers: int,
     print_progress: bool,
 ) -> Any:
-    """Parallel chunked parity: contiguous session blocks across spawn workers,
-    merged deterministically + scored once. Identical output to the serial run."""
-    import multiprocessing as _mp
+    """Parallel chunked parity: contiguous session blocks, one ``python -m
+    _block_runner`` subprocess each (Jupyter/Windows-spawn safe), merged
+    deterministically + scored once. Identical output to the serial run."""
+    import pickle
+    import subprocess as _sp
 
     from ..utils.memory_guard import MemoryBudget
     from .metrics import compute_parity_metrics
@@ -673,9 +662,17 @@ def _run_parity_parallel(
         )
         sys.stdout.flush()
 
-    ctx = _mp.get_context("spawn")
-    q: Any = ctx.Queue()
-    procs: list[Any] = []
+    # One real-module subprocess per block — sidesteps the multiprocessing spawn
+    # ``__main__`` re-import limitation so this works from a notebook kernel /
+    # papermill too. BLAS pinned to 1 thread per child via env + module preamble.
+    work_dir = Path(run_root) / "_parallel"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    env = _build_subprocess_env()
+    for _v in _BLAS_THREAD_ENV:
+        env[_v] = "1"
+    exe = python_exe or sys.executable
+
+    launched: list[tuple[int, Any, Path, int]] = []
     for wid, block in enumerate(blocks):
         spec = _SessionBlockSpec(
             worker_id=wid, sessions=tuple(block), symbols=tuple(symbols),
@@ -689,21 +686,38 @@ def _run_parity_parallel(
             timeout_sec=int(timeout_sec),
             per_session_universe=bool(per_session_universe),
         )
-        p = ctx.Process(target=_session_block_worker, args=(spec, q))
-        p.start()
-        procs.append(p)
-
-    raw = [q.get() for _ in procs]  # blocks until every worker reports
-    for p in procs:
-        p.join()
-    errors = [(wid, err) for (wid, _o, err) in raw if err]
-    if errors:
-        raise RuntimeError(f"parity worker(s) failed: {errors}")
+        spec_path = work_dir / f"spec_{wid}.pkl"
+        out_path = work_dir / f"out_{wid}.pkl"
+        with open(spec_path, "wb") as fh:
+            pickle.dump(spec, fh)
+        cmd = [
+            exe, *python_extra, "-m", "bowaka_v2_lab.parity._block_runner",
+            str(spec_path), str(out_path),
+        ]
+        proc = _sp.Popen(cmd, env=env, stdout=_sp.PIPE, stderr=_sp.PIPE, text=True)
+        launched.append((wid, proc, out_path, len(block)))
 
     by_session: dict[_dt.date, tuple] = {}
-    for (_wid, out, _err) in raw:
-        for (sd, pt, lt, lc) in out:
+    for (wid, proc, out_path, block_len) in launched:
+        try:
+            _out, stderr = proc.communicate(timeout=int(timeout_sec) * max(1, block_len) + 600)
+        except _sp.TimeoutExpired as exc:
+            proc.kill()
+            raise RuntimeError(f"parity block worker {wid} timed out") from exc
+        if proc.returncode != 0 or not out_path.is_file():
+            raise RuntimeError(
+                f"parity block worker {wid} failed (rc={proc.returncode}):\n"
+                f"STDERR (tail): {(stderr or '')[-3000:]}"
+            )
+        with open(out_path, "rb") as fh:
+            payload = pickle.load(fh)
+        if not payload.get("ok"):
+            raise RuntimeError(
+                f"parity block worker {wid} error:\n{payload.get('error')}"
+            )
+        for (sd, pt, lt, lc) in payload["results"]:
             by_session[sd] = (pt, lt, lc)
+
     all_prod: list = []
     all_lab: list = []
     all_cands: list = []

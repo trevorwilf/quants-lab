@@ -31,6 +31,7 @@ def main() -> None:
             "RUN_LABEL  = None              # default = UTC timestamp folder name\n"
             "TIMEOUT_SEC = 1800             # production subprocess timeout (seconds, per session in chunked mode)\n"
             "CHUNK_PER_SESSION = True       # True: per-session timing prints; False: single subprocess, canonical numerics\n"
+            "PARALLEL_WORKERS = 1           # >1: run session blocks across N worker subprocesses (implies chunked; identical output; capped at 12)\n"
         )},
         {"type": "markdown", "source": (
             "# 13 — Production-vs-Lab Parity\n\n"
@@ -56,6 +57,11 @@ def main() -> None:
             "trade quantities can differ from the full-window run. Trade counts, entry/exit\n"
             "times, and exit reasons are unaffected. For canonical numerics on a chosen\n"
             "window, flip to `CHUNK_PER_SESSION=False`.\n\n"
+            "**Parallel sessions.** Set `PARALLEL_WORKERS=N` (>1) to run contiguous\n"
+            "session blocks across N worker subprocesses — **identical output**, faster\n"
+            "wall-clock on long multi-session windows (each worker warms its caches\n"
+            "once). Capped at 12 (the parity path opens no PostgreSQL connection); it\n"
+            "implies chunked mode.\n\n"
             "**Requires Phase 0's fix landed** — pre-fix the production side always read\n"
             "deterministic synthetic data and the parity metrics are meaningless."
         )},
@@ -129,7 +135,8 @@ def main() -> None:
             "    cost_stress=COST_STRESS,\n"
             "    run_root=_run_root,\n"
             "    timeout_sec=int(TIMEOUT_SEC),\n"
-            "    chunk_per_session=bool(CHUNK_PER_SESSION),\n"
+            "    chunk_per_session=bool(CHUNK_PER_SESSION) or int(PARALLEL_WORKERS) > 1,\n"
+            "    parallel_workers=int(PARALLEL_WORKERS),\n"
             ")\n"
             "print(f'prod_n_trades={report.prod_n_trades}  lab_n_trades={report.lab_n_trades}')\n"
             "print(f'trade_intersection_rate={report.trade_intersection_rate:.4f}')\n"
