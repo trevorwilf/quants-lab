@@ -145,6 +145,66 @@ def assert_search_space_does_not_affect_context(
         )
 
 
+def _open_fold_scan_matrix_store(
+    cfg: Mapping[str, Any], scope: str,
+) -> Optional[Any]:
+    """Resolve + open the read-only scan-matrix store for a fold's ``scope``.
+
+    Walk-forward scan-matrix speedup Phase 1. Returns the opened
+    :class:`ScanMatrixStore` when the matrix runtime is active and a built
+    store is present, or ``None`` to keep the legacy scanner. Crucially it
+    **fails loud** (raises :class:`OptunaStudyInvalidError`) when the runtime
+    is enabled and a store path is configured but the store cannot be opened
+    — a configured-but-broken store must never silently degrade to the slow
+    legacy path (that would waste days of an enabled 5000-trial study).
+
+    ``None`` is returned only for the deliberate cases:
+
+    * the matrix runtime is disabled / not enabled (legacy run, unaffected);
+    * no store path is configured at all (genuinely unconfigured);
+    * ``scope == "holdout"`` with ``separate_holdout_matrix`` set (default) —
+      the holdout window is NEVER read from a matrix during tuning / finalist
+      evaluation; it stays on the legacy scanner (holdout isolation).
+    """
+    accel = (cfg.get("optuna") or {}).get("acceleration") or {}
+    sm_cfg = accel.get("scan_matrix") or {}
+    if not bool(sm_cfg.get("enabled", False)):
+        return None
+    from ..scanner.scan_matrix_runtime import resolve_runtime_mode
+
+    rt_mode = resolve_runtime_mode(cfg)
+    if rt_mode not in ("compatibility", "vectorized"):
+        return None
+    # Holdout isolation — never resolve/open a matrix for the holdout window
+    # while ``separate_holdout_matrix`` is set (the default). This both honors
+    # the safety contract and avoids a spurious fail-loud raise when the
+    # validation-scope matrix legitimately excludes the holdout window.
+    if scope == "holdout" and bool(sm_cfg.get("separate_holdout_matrix", True)):
+        return None
+    from ..scanner.scan_matrix import (
+        ScanMatrixStore,
+        resolve_scan_matrix_store_root,
+    )
+
+    store_root = resolve_scan_matrix_store_root(sm_cfg, scope)
+    if store_root is None:
+        return None  # genuinely unconfigured -> legacy scanner
+    try:
+        return ScanMatrixStore(store_root, readonly=True)
+    except Exception as exc:  # noqa: BLE001 — configured-but-broken MUST fail loud
+        raise OptunaStudyInvalidError(
+            "scan-matrix runtime is enabled "
+            f"(runtime_mode={rt_mode!r}, scope={scope!r}) and a store is "
+            f"configured at {store_root}, but it could not be opened: "
+            f"{type(exc).__name__}: {exc}. Build the matrix first:\n"
+            f"    python -m bowaka_v2_lab.cli scan-matrix build "
+            f"--config <config> --scope {scope} --store-root {store_root}\n"
+            "then `... scan-matrix verify --store-root <store> --config "
+            "<config> --vectorized-check`. Refusing to silently fall back to "
+            "the slow legacy scanner (walk-forward scan-matrix runbook)."
+        ) from exc
+
+
 def _build_one_fold_context(
     *,
     fold_id: str,
@@ -157,6 +217,7 @@ def _build_one_fold_context(
     paths: BowakaV2Paths,
     holdout_guard: HoldoutGuard,
     cached_suppliers: bool = False,
+    scope: str = "validation",
 ) -> Optional[FoldRuntimeContext]:
     """Build a :class:`FoldRuntimeContext` for one ``(val_start, val_end)``
     window. Returns ``None`` for an empty session window (so the caller can
@@ -362,29 +423,17 @@ def _build_one_fold_context(
             startup_dq_report = None
             startup_dq_failure = None
 
-    # Speedup report v2 §6.1 / Phase 3 task 1 — open the read-only scan-matrix
-    # store for this fold's scope ONCE, when the matrix runtime is active. A
-    # missing store_root / manifest degrades to the legacy scanner (None).
+    # Speedup report v2 §6.1 / Phase 3 task 1 + walk-forward scan-matrix
+    # speedup Phase 1 — open the read-only scan-matrix store for this fold's
+    # scope ONCE, when the matrix runtime is active. The store-root is now
+    # resolved via ``resolve_scan_matrix_store_root`` (store_root→root
+    # fallback + scope suffix + absolute) and a configured-but-unopenable
+    # store FAILS LOUD instead of silently degrading to the legacy scanner.
     # Correctness is gated downstream: the compat evaluator requires an EXACT
     # ns-aligned scan index per (session, scan_ts), raising on any cadence
     # mismatch, and ``bowaka-v2-lab scan-matrix verify`` writes the
     # parity_proof marker the backtester opt-in guard reads.
-    scan_matrix_store = None
-    accel = (cfg.get("optuna") or {}).get("acceleration") or {}
-    sm_cfg = accel.get("scan_matrix") or {}
-    if bool(sm_cfg.get("enabled", False)):
-        from ..scanner.scan_matrix_runtime import resolve_runtime_mode
-
-        _rt_mode = resolve_runtime_mode(cfg)
-        if _rt_mode in ("compatibility", "vectorized"):
-            store_root = sm_cfg.get("store_root")
-            if store_root:
-                try:
-                    from ..scanner.scan_matrix import ScanMatrixStore
-
-                    scan_matrix_store = ScanMatrixStore(store_root, readonly=True)
-                except Exception:  # noqa: BLE001 — missing/corrupt store -> legacy
-                    scan_matrix_store = None
+    scan_matrix_store = _open_fold_scan_matrix_store(cfg, scope)
 
     return FoldRuntimeContext(
         fold_id=fold_id,
@@ -439,6 +488,7 @@ def build_fold_contexts(
             base_cfg=base_cfg, lake_root=lake_root, feed=feed,
             symbols=syms, paths=paths, holdout_guard=holdout_guard,
             cached_suppliers=cached_suppliers,
+            scope="validation",
         )
         contexts.append(ctx)
     return tuple(contexts)
@@ -463,6 +513,7 @@ def build_holdout_context(
         base_cfg=base_cfg, lake_root=lake_root, feed=feed,
         symbols=tuple(symbols), paths=paths, holdout_guard=holdout_guard,
         cached_suppliers=cached_suppliers,
+        scope="holdout",
     )
 
 
@@ -473,4 +524,5 @@ __all__ = [
     "assert_search_space_does_not_affect_context",
     "build_fold_contexts",
     "build_holdout_context",
+    "_open_fold_scan_matrix_store",
 ]
