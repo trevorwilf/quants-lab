@@ -1,0 +1,281 @@
+# ------------------------------------------------------------------
+# WORKSTATION PROFILE (speedup report v2 §4 P2 / §5.4 / Phase 2 task 3).
+#
+# IMPORTANT — the memory budget is sized against the CONTAINER, not the host.
+# The host has 192 GiB / 28 cores, but Notebook 10 / studies run inside the
+# ql-jupyter container, which WSL2 caps at ~157 GiB (.wslconfig memory=160GB).
+# MemoryBudget.from_system() reads the CONTAINER total. So the effective
+# worker budget is:
+#     157.2 - 62 (reserve) - 16 (emergency) - 8 (postgres) = 71.2 GiB
+# At worker_private_gib_estimate=6.0 GiB that fits floor(71.2/6) = 11 workers.
+#
+# 2026-05-28: n_jobs set to 10 (operator decision).
+#   * A 16-worker flip was attempted and REVERTED: 16*6=96 GiB > 71.2 GiB
+#     container budget, so strict_parallel hard-failed at preflight. (The
+#     earlier "16 fits" check was run on the HOST's 192 GiB by mistake, not
+#     the container's 157 GiB.)
+#   * 10 workers = 10*6 = 60 GiB <= 71.2 (~11 GiB spare) — a 25% throughput
+#     gain over 8, comfortably inside the container budget. (11 is the
+#     mathematical max but leaves only ~5 GiB spare.)
+#   * Parity is structurally guaranteed — each trial is a deterministic,
+#     independently-seeded backtest; n_jobs only changes how Optuna
+#     distributes trials, never an individual trial's result.
+# The dispatcher enforces effective_n_jobs = min(n_jobs, parallel.max_workers);
+# BOTH are set to 10 below so neither binds first.
+#
+# To go higher than 11, EITHER lower worker_private_gib_estimate after
+# MEASURING real per-worker RSS under load (the serial full-universe run
+# peaked <2 GiB, so 6 GiB is likely ~3x conservative), OR raise the WSL2
+# memory cap so the container sees more of the 192 GiB host. Do not raise
+# the count without one of those — strict_parallel will hard-fail.
+# ------------------------------------------------------------------
+artifacts:
+  write_jsonl: true
+  write_parquet: true
+backtest:
+  cost_stress: conservative
+  end_date: '2026-05-20'
+  entry_delay_minutes: 0
+  start_date: '2023-11-27'
+execution:
+  limit_offset_bps: 50
+  max_quote_age_seconds: 15
+  max_spread_bps: 100
+  order_type: market
+exits:
+  max_hold_days: 3
+  signal_fade:
+    enabled: true
+    eval_time: '15:45'
+    exit_on:
+    - hard
+    - critical
+    initial_mode: telemetry_then_active_after_validation
+    marketable_limit_offset_pct: 0.005
+    order_style: marketable_limit
+    score_thresholds:
+      critical: 0.67
+      hard: 0.5
+      soft: 0.34
+    telemetry_time: '16:05'
+  stop_pct: 0.025
+  target_pct: 0.15
+  time_stop:
+    enabled: true
+    exit_time: '15:45'
+finalist_evaluation:
+  full_artifacts: true
+  include_incumbent: true
+  local_parameter_perturbation:
+    enabled: true
+    max_neighbors_per_param: 2
+    relative_delta: 0.05
+  score_final_holdout: true
+  stress_scenarios:
+  - name: wider_spreads
+    overrides:
+      execution.max_spread_bps_multiplier: 1.5
+  - name: stale_quote_pressure
+    overrides:
+      execution.max_quote_age_seconds_multiplier: 0.5
+  - name: higher_cost_stress
+    overrides:
+      backtest.cost_stress: aggressive
+  top_k: 15
+market_data:
+  allow_non_sip_for_research_only: true
+  assume_naive_timezone: false
+  daily_bar_source: alpaca
+  feed: iex
+  max_bar_age_seconds: 90
+  max_quote_age_seconds: 15
+  minute_bar_source: alpaca
+  quote_source: alpaca
+  require_adjusted_daily_bars: true
+  require_split_adjustment: true
+optuna:
+  acceleration:
+    # Speedup report v2 hotfix 2026-05-26: flipped on in the workstation
+    # overlay after the live notebook 10 run hit 9+ hours of wall-clock
+    # per trial with all three default-off. Parity tests for each
+    # (tests/parity/test_batch_daily_cache_*.py,
+    #  tests/unit/data/test_dq_cache_invalidation.py,
+    #  tests/parity/test_session_minute_window_*.py +
+    #  tests/scanner/test_session_minute_window_supplier_parity.py) prove
+    # byte / 1e-9 equivalence vs the legacy paths — the "benchmark-only"
+    # caveat in the report was about the workstation wall-clock win;
+    # correctness is locked.
+    #
+    # session_minute_window_cache: re-enabled 2026-05-30 after the parity
+    # fix in src/bowaka_v2_lab/scanner/session_minute_window_cache.py
+    # (Phase 2 of the session-minute-window-supplier parity fix — see
+    # PHASE_NOTES/session_minute_window_supplier_parity_fix.md). Guarded
+    # by tests/scanner/test_session_minute_window_supplier_parity.py
+    # (supplier-level, 8 cases) AND
+    # tests/integration/test_session_window_supplier_walkforward_parity.py
+    # (end-to-end via build_fold_contexts, 1 case).
+    batch_daily_cache:
+      enabled: true
+    startup_dq_cache:
+      enabled: true
+    session_minute_window_cache:
+      enabled: true
+    # ----------------------------------------------------------------
+    # SCAN-MATRIX ENABLEMENT OVERLAY (wf scan-matrix speedup Phase 2).
+    #
+    # This is the ONLY committed config that turns the vectorized matrix
+    # runtime ON. It is excluded from the default-disabled sweep test
+    # (tests/integration/test_scan_matrix_runtime_mode_disabled_is_default.py)
+    # which pins every other committed config to runtime_mode: disabled.
+    #
+    # PRECONDITIONS — do NOT run a study with this config until BOTH hold:
+    #   1. A validation-scope matrix is built at the store_root below:
+    #        python -m bowaka_v2_lab.cli scan-matrix build \
+    #          --config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml \
+    #          --scope validation --workers 8 \
+    #          --store-root research_notebooks/bowaka_v2_lab/artifacts/cache/scan_matrix/validation
+    #   2. It is verified with the vectorized spot check, which writes
+    #      <store_root>/parity_proof.json with verifier_version == 2:
+    #        python -m bowaka_v2_lab.cli scan-matrix verify \
+    #          --store-root <same> \
+    #          --config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml \
+    #          --vectorized-check
+    # Without a built+verified matrix the fold-context builder FAILS LOUD
+    # (OptunaStudyInvalidError) — it will not silently fall back to the slow
+    # legacy scanner. See docs/walkforward_scan_matrix_runbook.md.
+    #
+    # Everything else (universe, sizing, n_jobs, walkforward, search space) is
+    # identical to bowaka_v2_actual_iex_current_code_optuna.workstation.yml.
+    # ----------------------------------------------------------------
+    scan_matrix:
+      allow_full_history_matrix: false
+      build_if_missing: false
+      dtype_policy: float64_first
+      enabled: true
+      fail_on_matrix_sensitive_search_space: true
+      max_optuna_workers: 8
+      precompute_workers: 8
+      require_parity_manifest: true
+      store_root: research_notebooks/bowaka_v2_lab/artifacts/cache/scan_matrix/validation
+      runtime_mode: vectorized
+      scope: validation
+      separate_holdout_matrix: true
+      storage_format: numpy_memmap
+  cached_suppliers: true
+  cost_stress: conservative
+  n_jobs: 10
+  n_startup_trials: 25
+  n_trials: 200
+  objective_artifact_mode: objective_minimal
+  parallel:
+    blas_thread_pin: true
+    max_workers: 10
+    memory_reserve_gib: 62
+    strict_parallel: true
+  search_space_overrides: {}
+  storage: ${OPTUNA_STORAGE:-postgresql+psycopg2://optuna:optuna@optuna-postgres:5432/optuna}
+  study_name_prefix: bowaka_v2_actual_iex_current_code_parity
+  walkforward:
+    final_holdout_months: 5
+    train_months: 21
+    val_months: 1
+paths:
+  artifact_root: research_notebooks/bowaka_v2_lab/artifacts
+  data_root: research_notebooks/bowaka_v2_lab/data
+  lab_root: research_notebooks/bowaka_v2_lab
+risk:
+  adv_tier_caps:
+  - max_adv_dollars: 250000
+    reject_if_below: true
+  - max_adv_dollars: 500000
+    max_position_as_adv_frac: 0.003
+  - max_adv_dollars: 1000000
+    max_position_as_adv_frac: 0.005
+  - max_adv_dollars: 5000000
+    max_position_as_adv_frac: 0.01
+  - max_adv_dollars: null
+    max_position_as_adv_frac: 0.015
+  daily_loss_pct: 0.03
+  max_gross_exposure_pct: 0.8
+  max_lots_per_symbol: 3
+  max_stopouts_per_day: 2
+  max_total_entries_per_day: 10
+  shadow:
+    adv_tier_caps:
+    - max_adv_dollars: 250000
+      reject_if_below: true
+    - max_adv_dollars: 500000
+      max_position_as_adv_frac: 0.002
+    - max_adv_dollars: 1000000
+      max_position_as_adv_frac: 0.003
+    - max_adv_dollars: 5000000
+      max_position_as_adv_frac: 0.005
+    - max_adv_dollars: null
+      max_position_as_adv_frac: 0.01
+    daily_loss_pct: 0.01
+    max_gross_exposure_pct: 0.4
+    max_total_entries_per_day: 4
+  stop_trading_after_consecutive_stopouts: 2
+  strategy_slice_loss_pct: 0.025
+run:
+  kind: optuna
+  seed: 1337
+scanner:
+  debug_gate_dump: true
+  enabled: true
+  full_universe_refresh_interval_minutes: 5
+  in_play_refresh_interval_seconds: 60
+  max_candidates_per_scan: 25
+  max_entries_per_scan: 3
+  min_signal_strength: 0.0
+  require_fresh_intraday_bar: true
+  require_prior_daily_baseline: true
+  same_symbol_entries_per_day: 1
+  scan_interval_seconds: 60
+  signal_expiry_seconds: 600
+  symbol_cooldown_minutes: 390
+session:
+  calendar: XNYS
+  end: '15:55'
+  loop_interval_seconds: 5
+  scanner_end: '15:30'
+  scanner_start: 09:45
+  start: 09:30
+  timezone: America/New_York
+signals:
+  allow_unknown_instrument_class_for_research: false
+  avg_dollar_volume_max: null
+  avg_dollar_volume_min: 250000
+  close_location_so_far_min: 0.6
+  current_return_pct_max: 0.5
+  ema_distance_min: -0.05
+  ema_slope_min: -0.05
+  gap_pct_max: 0.25
+  price_max: 20.0
+  price_min: 1.0
+  prior_atr_pct_min: 0.06
+  projected_full_day_rvol_max: 8.0
+  projected_full_day_rvol_min: 0.5
+  range_expansion_so_far_max: 2.5
+  range_expansion_so_far_min: 0.5
+  rvol_so_far_max: 8.0
+  rvol_so_far_min: 0.7
+simulation:
+  mode: current_code_parity
+sizing:
+  bankroll_fixed_dollars: 90000
+  equal_slice_bankroll_fraction: 0.8
+  max_concurrent_positions: 18
+  max_per_trade_dollars: null
+  min_order_notional: 500
+  sizing_mode: equal_slice
+  target_risk_dollars: 200
+strategy_id: bowaka_v2
+strategy_version: 0.1.0
+universe:
+  asset_classes:
+  - operating_equity
+  exclude_pattern_class: true
+  max_price: 20.0
+  min_adv_dollars: 250000
+  min_price: 1.0

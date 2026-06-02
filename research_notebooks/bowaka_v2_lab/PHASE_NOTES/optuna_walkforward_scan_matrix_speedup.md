@@ -12,11 +12,13 @@ test_full_test_matrix_dry_run` is ignored per §0.2.
 
 **Known pre-existing failures on this workstation (NOT caused by this work)** —
 present on `dev` before any phase branch, in files this work never touches:
-- `tests/unit/reference/test_prod_backtester_default_uses_lake.py` (2 tests) —
-  inspect the **gitignored** prod mirror `reference/source_strategy/scripts/
+- `tests/unit/reference/test_prod_backtester_default_uses_lake.py` (2) +
+  `tests/integration/test_prod_backtester_rejects_megacaps_via_price_gate.py` +
+  `tests/integration/test_prod_backtester_synth_flag_still_works.py` — all
+  inspect/run the **gitignored** prod mirror `reference/source_strategy/scripts/
   bowaka_v2_backtest.py`; the local mirror predates the parity-speedup prod
-  vectorize work, so `_make_lake_suppliers` is absent. Out of scope (mirror is
-  never edited by this work).
+  vectorize work, so `_make_lake_suppliers` is absent. Out of scope (this work
+  never edits `reference/` — verified `git diff --stat dev -- reference/` == 0).
 - `tests/unit/test_notebook_bootstrap_cell.py` — `13_lab_vs_production_parity.ipynb`
   (dirty working-tree smoke output from a prior session) + the stray tracked
   `Untitled.ipynb`. Notebook 13 is explicitly out of scope (§0.6).
@@ -96,5 +98,67 @@ Phase 4 acceptance gate. Any environmental real-lake timeout is treated like the
 
 **Files+lines:** scan_matrix.py +43, fold_context.py +90/-19. Diff: 2 files,
 114 insertions / 19 deletions (+ 2 new test files).
+
+**Merge SHA:** recorded in the final status block (Phase 4).
+
+---
+
+## Phase 2 — Enablement overlay + live parity gate — 2026-06-02
+
+**Branch:** `speedup/wf-phase2-matrix-overlay-parity` (off `dev`, Phase 1 merged).
+**Effort:** high (live build/verify + end-to-end parity assertion).
+
+**What changed.**
+- `configs/bowaka_v2_actual_iex_current_code_optuna.workstation.matrix.yml` (NEW)
+  — the ONLY committed config that turns the vectorized runtime on
+  (`enabled: true`, `runtime_mode: vectorized`, `require_parity_manifest: true`,
+  `store_root: .../scan_matrix/validation`, `scope: validation`,
+  `separate_holdout_matrix: true`, `allow_full_history_matrix: false`,
+  `build_if_missing: false`). A full standalone copy of the workstation overlay
+  (there is no YAML inheritance) with a header documenting the build→verify
+  preconditions. Validates (`BowakaV2Config.model_validate`) + passes `env-check`
+  (the `acceleration` block is a free-form `dict[str, Any]`, so `store_root` is
+  accepted).
+- `tests/integration/test_scan_matrix_runtime_mode_disabled_is_default.py` —
+  the default-disabled sweep now EXCLUDES `*matrix*.yml`; added a positive test
+  asserting the overlay enables `vectorized` + `require_parity_manifest` + a
+  `/validation` store_root + `separate_holdout_matrix`.
+- `src/bowaka_v2_lab/utils/profile_counters.py` (+7) — new `matrix_scans_evaluated`
+  counter (explicit "the matrix fired" signal).
+- `src/bowaka_v2_lab/sim/backtester.py` (+9) — bump `matrix_scans_evaluated` once
+  per scan the matrix actually serves (override produced). A silent legacy
+  fall-through leaves it at 0.
+- `tests/integration/test_scan_matrix_walkforward_fold_parity.py` (NEW, `slow`) —
+  the live parity gate: builds a tiny matrix on a synthetic intraday lake,
+  verifies it (`--vectorized-check` → `verifier_version == 2`), then runs ONE
+  validation fold two ways via `build_fold_contexts` → `run_backtest`:
+  `runtime_mode: disabled` (legacy) vs `vectorized` (matrix). Asserts the matrix
+  FIRED (`matrix_scans_evaluated > 0` on vectorized, `== 0` on disabled) and the
+  backtest summary is reproduced EXACTLY (zero field diffs, `net_return` 1e-9).
+
+**Live-build finding (validates the prompt's "operator step" framing).** A real
+validation-scope build is genuinely multi-hour: a CC-run small build on the
+operator's lake measured **~98 min for 23 sessions × 3 symbols** at 60s cadence
+(the per-`(scan_ts, symbol)` feature recompute over real minute parquets, ×
+~346 scans/session × 23 sessions, on a load-contended host). So the test uses a
+**synthetic intraday lake** (cheap reads → seconds) under `current_code_parity`
+mode (the intraday-scanner path; `smoke_fixture` uses a daily driver that never
+fires the matrix) — deterministic + reproducible on any host, no real-lake
+dependency. The verify→`verifier_version=2` path (the small-build proof) was
+exercised live on BOTH the synthetic and the real lake. The full validation-scope
+build is the operator step in `docs/walkforward_scan_matrix_runbook.md` (Phase 4).
+The candidate/trade-level three-way parity (legacy == compat == vectorized) is
+covered exhaustively by `tests/parity/test_scan_matrix_vectorized_*`; this gate
+covers the fold-context → backtester WIRING + summary parity those don't.
+
+**Test results.** Overlay validates + `env-check` ok. Sweep + positive + shipping
+validate: 47 pass. Fold-parity gate: PASS in 39s
+(`matrix_scans_evaluated`=6920 vs 0; zero summary diffs). `tests/parity` +
+`tests/unit/scanner` + `tests/unit/utils` (touched-file regression): 428 pass.
+Integration `-k "scan_matrix or backtest or fold_context or runtime_mode or
+shipping_configs"`: 86 pass, 1 skip, 2 pre-existing prod-mirror failures (above).
+
+**Files+lines:** new overlay config, new fold-parity test, sweep test updated,
+backtester.py +9, profile_counters.py +7.
 
 **Merge SHA:** recorded in the final status block (Phase 4).
