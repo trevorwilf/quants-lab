@@ -252,7 +252,7 @@ script/tests added).
 | 1 — store-root resolver + fail-loud | `speedup/wf-phase1-store-root-resolver` | `c8446b4` |
 | 2 — enablement overlay + live fold-parity gate | `speedup/wf-phase2-matrix-overlay-parity` | `4eda848` |
 | 3 — fold-level pruning + per-trial benchmark | `speedup/wf-phase3-pruning-and-measure` | `cde6446` |
-| 4 — verify target + runbook + final status | `speedup/wf-phase4-verify-and-runbook` | (final merge — see git log) |
+| 4 — verify target + runbook + final status | `speedup/wf-phase4-verify-and-runbook` | `2b0d56b` |
 
 **One-line summary.** The parity-proven scan-matrix vectorized runtime (shipped
 but config-off) is now correctly wired (store-root resolver + fail-loud), enabled
