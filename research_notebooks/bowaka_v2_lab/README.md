@@ -190,3 +190,46 @@ supplier parity
 The target exits 0 only when both legs pass. Both legs auto-skip when the
 operator's real lake isn't on disk (CI), so the target also runs on bare
 CI hosts.
+
+## Walk-forward scan-matrix speedup verification
+
+Notebook 10's per-trial wall-clock is cut by the **scan-matrix vectorized
+runtime** — parameter-invariant per-`(session, scan_ts, symbol)` features are
+precomputed once into memmaps, so each trial's scan is a slice + vectorized
+gate masks instead of a per-symbol feature recompute. It is enabled ONLY via
+the dedicated overlay
+`configs/bowaka_v2_actual_iex_current_code_optuna.workstation.matrix.yml`
+(every base config keeps `runtime_mode: disabled`). Re-check the wiring with:
+
+```bash
+cd research_notebooks/bowaka_v2_lab
+make verify-walkforward-speedup
+# windows: make verify-walkforward-speedup PYTHON=C:/Python312/python.exe
+```
+
+It runs the Phase 1 store-root resolver + fail-loud fold-context tests, the
+Phase 2 default-disabled sweep + matrix-overlay positive tests + the
+end-to-end fold-parity gate (builds a tiny synthetic intraday matrix, verifies
+it with `--vectorized-check` → `verifier_version == 2`, then runs ONE
+validation fold `disabled` vs `vectorized` and asserts the matrix FIRED
+(`matrix_scans_evaluated > 0`) and reproduced the legacy fold summary
+EXACTLY), and the Phase 3 pruning-config test. It exits 0 with
+`Walkforward speedup wiring: OK` and completes in <2 min on a fresh kernel.
+
+**Enablement preconditions** (do NOT run a study with the matrix overlay until
+both hold — otherwise the fold-context builder fails loud):
+
+1. Build the validation-scope matrix (one-time, multi-hour, amortized over the
+   whole study):
+   `python -m bowaka_v2_lab.cli scan-matrix build --config <workstation.yml>
+   --scope validation --workers 8 --store-root
+   research_notebooks/bowaka_v2_lab/artifacts/cache/scan_matrix/validation`.
+2. Verify + write the proof:
+   `... scan-matrix verify --store-root <same> --config <workstation.yml>
+   --vectorized-check` → confirm `parity_proof.json` has `verifier_version == 2`.
+
+Then point notebook 10's `CONFIG_PATH` at the matrix overlay. See
+`docs/walkforward_scan_matrix_runbook.md` for the dense operator runbook
+(budget table, holdout/search-space safety, rebuild triggers) and
+`scripts/benchmark_walkforward_trial.py` for a per-trial wall-clock + 5000-trial
+budget sanity check.

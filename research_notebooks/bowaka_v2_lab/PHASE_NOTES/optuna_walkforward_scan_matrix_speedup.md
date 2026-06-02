@@ -213,3 +213,72 @@ behaviour changes (pruning logic pre-existed; only config values + new
 script/tests added).
 
 **Merge SHA:** recorded in the final status block (Phase 4).
+
+---
+
+## Phase 4 — Verify target + operator runbook + final status — 2026-06-02
+
+**Branch:** `speedup/wf-phase4-verify-and-runbook` (off `dev`, Phase 3 merged).
+**Effort:** medium.
+
+**What changed.**
+- `Makefile` — new `make verify-walkforward-speedup` target (added to `.PHONY`).
+  Runs the Phase 1 resolver + fail-loud tests, the Phase 2 default-disabled
+  sweep + matrix-overlay positive tests + the end-to-end fold-parity gate, the
+  Phase 3 pruning-config test, and the benchmark smoke — test files named by
+  PATH so the `slow`-marked parity gate runs too. Prints `Walkforward speedup
+  wiring: OK` on success / `FAIL (pytest exit=N)` on failure; **41 pass in ~37s**
+  (well under the <2 min budget).
+- `README.md` — a "Walk-forward scan-matrix speedup verification" section beside
+  the `verify-bayesian-fix` / `verify-session-window-parity` entries: the
+  target, what it covers, and the build → verify `--vectorized-check` →
+  use-the-overlay enablement preconditions.
+- `docs/walkforward_scan_matrix_runbook.md` (NEW) — dense operator runbook:
+  full validation-scope build (+ the optional `/opt/market_data_cache` 9p cache
+  note), verify + `verifier_version == 2`, the per-trial benchmark, the fast
+  study, the 5000-trial budget table, the holdout / search-space / fail-loud
+  safety contracts, and the rebuild triggers.
+- Cleanup: no `STATUS_BLOCKED_phase*.md` were ever created (no phase hit the
+  5-attempt block).
+
+**Merge SHA:** this branch's merge into `dev` (the final merge below).
+
+---
+
+## Final status — all four phases merged to `dev`
+
+| Phase | Branch | Merge SHA |
+|---|---|---|
+| 1 — store-root resolver + fail-loud | `speedup/wf-phase1-store-root-resolver` | `c8446b4` |
+| 2 — enablement overlay + live fold-parity gate | `speedup/wf-phase2-matrix-overlay-parity` | `4eda848` |
+| 3 — fold-level pruning + per-trial benchmark | `speedup/wf-phase3-pruning-and-measure` | `cde6446` |
+| 4 — verify target + runbook + final status | `speedup/wf-phase4-verify-and-runbook` | (final merge — see git log) |
+
+**One-line summary.** The parity-proven scan-matrix vectorized runtime (shipped
+but config-off) is now correctly wired (store-root resolver + fail-loud), enabled
+behind a dedicated overlay with an end-to-end fold-parity gate proving it FIRES
+and reproduces the legacy fold exactly, multiplied by conservative fold-level
+pruning, and made re-checkable (`make verify-walkforward-speedup`) + operable
+(runbook + benchmark). `main` untouched throughout.
+
+**Measured per-trial number.** Not measured end-to-end in CC: a full
+validation-scope study requires the multi-hour operator build (measured **~98
+min for 23 sessions × 3 symbols** at 60s cadence on the operator lake — the
+empirical confirmation that the full build is an operator step, not a CC step).
+The matrix path is PROVEN to fire and to be transparent: the fold-parity gate
+shows `matrix_scans_evaluated = 6920` on the vectorized run vs `0` on the
+disabled run with a **byte-identical backtest summary**, and `scan-matrix verify
+--vectorized-check` was exercised live to `verifier_version == 2` on both a
+synthetic and the real lake. **Operator to measure the real per-trial wall-clock
+via `scripts/benchmark_walkforward_trial.py --legacy`** after the full build (the
+`<=3 min/trial` target + A/B speedup ratio print automatically).
+
+**Testing note.** This workstation runs live trading + the lake on local disk,
+so the full real-lake `make test-all` is not reliably completable in one shot (a
+single real-lake test can stall >600s in `os.stat` and the Windows pytest-timeout
+`thread` method then kills the session). Each phase ran full unit+parity + the
+change-relevant integration subset; the integration leg passed all tests up to
+75% with zero failures before such an environmental stall in Phase 1. The 5
+pre-existing failures (prod mirror + dirty notebook 13 / stray Untitled.ipynb)
+are unrelated to this work (verified: `git diff --stat dev -- reference/` == 0,
+no notebook edits).
