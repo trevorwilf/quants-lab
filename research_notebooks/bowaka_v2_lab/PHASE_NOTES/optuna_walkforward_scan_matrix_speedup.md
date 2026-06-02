@@ -162,3 +162,54 @@ shipping_configs"`: 86 pass, 1 skip, 2 pre-existing prod-mirror failures (above)
 backtester.py +9, profile_counters.py +7.
 
 **Merge SHA:** recorded in the final status block (Phase 4).
+
+---
+
+## Phase 3 — Fold-level pruning + per-trial measurement harness — 2026-06-02
+
+**Branch:** `speedup/wf-phase3-pruning-and-measure` (off `dev`, Phase 2 merged).
+**Effort:** medium.
+
+**What changed.**
+- `optuna.pruning` block added to BOTH the base workstation config AND the
+  matrix overlay: `enabled: true`, `min_completed_trials_before_pruning: 30`,
+  `catastrophic_floor: -1.40`. The objective's existing `_prune_cb`
+  (`make_walkforward_objective`) already reads these keys — its LOGIC is
+  unchanged; only the config values are added.
+- `scripts/benchmark_walkforward_trial.py` (NEW) — runs a small study (default
+  `--n-trials 8`) against the matrix overlay, reads
+  `artifacts/optuna/<study>__phase_profile.json`, prints mean per-trial
+  wall-clock, the `phase_seconds` breakdown, the `scanner_symbols_seen`
+  (legacy scan work — collapses when the matrix is active) +
+  `matrix_scans_evaluated` counters, peak RSS, and the projected
+  `--target-trials` (default 5000) budget at the config's `n_jobs`, with a
+  one-line verdict vs the <=3 min/trial goal. `--legacy` re-runs with
+  `runtime_mode=disabled` for an A/B speedup ratio.
+
+**Floor justification.** The incumbent objective is ~ -1.05; a no-trade /
+degenerate fold scores ~ -1.5 (the `low_trade_count` penalty maxes at 1.0 plus
+the other penalties — matches the observed all-zero-trade `value=-1.5` studies).
+`catastrophic_floor: -1.40` therefore sits in the dead band: above the no-trade
+floor and well below the incumbent, so a trial is pruned ONLY once its running
+score is already worse than anything plausibly promotable after a fold.
+`min_completed_trials_before_pruning: 30` keeps the full TPE startup window
+(`n_startup_trials: 25`) explore-only.
+
+**Tests.**
+- `tests/unit/optuna/test_pruning_floor_config.py` (6) — both shipping configs
+  carry the exact pruning block (enabled / min 30 / floor -1.40 in the
+  conservative band); the `_prune_cb` prunes a no-trade running score (< -1.40),
+  spares an incumbent-like score, and is a no-op inside the startup window — at
+  the SHIPPING floor value (the generic mechanism stays covered by
+  `tests/integration/test_pruning_catastrophic_floor.py`).
+- `tests/unit/scripts/test_benchmark_walkforward_trial_smoke.py` (4) — script
+  exists, import-clean (heavy study import deferred), `--help` exits 0, defaults
+  parse.
+
+**Test results.** New tests 9/9 pass. Config sweeps (validate + disabled-default
++ existing pruning) + the benchmark CLI `--help`: 55 pass. Full `tests/unit`:
+1227 pass, 1 skip (modulo the 5 pre-existing unrelated failures). Zero `src/`
+behaviour changes (pruning logic pre-existed; only config values + new
+script/tests added).
+
+**Merge SHA:** recorded in the final status block (Phase 4).

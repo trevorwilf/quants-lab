@@ -172,6 +172,21 @@ optuna:
     max_workers: 10
     memory_reserve_gib: 62
     strict_parallel: true
+  # Fold-level pruning (wf scan-matrix speedup Phase 3). A free multiplier on
+  # top of the matrix: kill a trial mid-walk-forward once its running score is
+  # already in the no-trade / fail-closed neighbourhood, so doomed trials stop
+  # paying for every remaining fold. CONSERVATIVE by design:
+  #   * min_completed_trials_before_pruning: 30 — never prune inside the TPE
+  #     startup window (n_startup_trials: 25); the search must explore first.
+  #   * catastrophic_floor: -1.40 — the incumbent objective is ~ -1.05 and a
+  #     no-trade / degenerate fold scores ~ -1.5 (low_trade_count penalty +
+  #     friends). -1.40 sits just above the no-trade floor, so a trial is
+  #     pruned ONLY once it is already worse than anything plausibly
+  #     promotable after a fold — never a trial near the incumbent.
+  pruning:
+    enabled: true
+    min_completed_trials_before_pruning: 30
+    catastrophic_floor: -1.40
   search_space_overrides: {}
   storage: ${OPTUNA_STORAGE:-postgresql+psycopg2://optuna:optuna@optuna-postgres:5432/optuna}
   study_name_prefix: bowaka_v2_actual_iex_current_code_parity
