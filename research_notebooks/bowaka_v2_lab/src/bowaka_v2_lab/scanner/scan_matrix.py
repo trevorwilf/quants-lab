@@ -149,6 +149,48 @@ class ScanMatrixSession:
     universe_meta: pd.DataFrame             # per-symbol metadata
 
 
+def resolve_scan_matrix_store_root(
+    sm_cfg: Mapping[str, Any], scope: str,
+) -> Optional[Path]:
+    """Resolve the scan-matrix store root for a build ``scope``.
+
+    Walk-forward scan-matrix speedup Phase 1. The committed configs write the
+    store path under the key ``root:`` (the base ``.../cache/scan_matrix``),
+    while the Phase-2 enablement overlay writes ``store_root:`` (already
+    suffixed with the scope, ``.../cache/scan_matrix/validation``). Neither
+    matched the legacy ``sm_cfg.get("store_root")`` read in
+    :mod:`bowaka_v2_lab.optuna.fold_context`, so the store silently resolved
+    to ``None`` and a multi-hour build was ignored. This resolver fixes that:
+
+    * Resolution order: ``sm_cfg["store_root"]`` if present, else
+      ``sm_cfg["root"]`` (back-compat with the committed configs), else
+      ``None``.
+    * Scope-suffix: if the resolved path does not already end with the
+      ``scope`` segment, append ``/<scope>`` so it matches the layout
+      :func:`build_scan_matrix` writes (``.../cache/scan_matrix/<scope>``).
+    * Absolute: a repo-relative path is resolved against the repo root
+      (``parents[5]`` of this module — the same anchor
+      :func:`build_scan_matrix` uses for :class:`BowakaV2Paths`).
+
+    Returns an absolute :class:`pathlib.Path`, or ``None`` when no path is
+    configured at all (the genuinely-unconfigured case the caller keeps on
+    the legacy scanner).
+    """
+    raw = sm_cfg.get("store_root") or sm_cfg.get("root")
+    if not raw:
+        return None
+    path = Path(str(raw))
+    # Append the scope segment unless the configured path already names it,
+    # so ``root: .../scan_matrix`` (base) and ``store_root: .../scan_matrix/
+    # validation`` (suffixed) both resolve to the same built location.
+    if path.name != scope:
+        path = path / scope
+    if not path.is_absolute():
+        repo_root = Path(__file__).resolve().parents[5]
+        path = repo_root / path
+    return path
+
+
 class ScanMatrixStore:
     """Read-only store for a built scan matrix (matrix doc §8.1).
 
@@ -1178,5 +1220,6 @@ __all__ = [
     "build_scan_matrix",
     "build_session_partition",
     "compute_matrix_input_hash",
+    "resolve_scan_matrix_store_root",
     "verify_scan_matrix",
 ]
