@@ -87,6 +87,13 @@ class ProfileCounters:
     # (legacy + matrix paths both bump this so a benchmark can compare
     # per-scan symbol-eval work directly).
     scanner_symbol_evals: int = 0
+    # Walk-forward scan-matrix speedup Phase 2 — number of scans served by the
+    # matrix runtime (compat or vectorized) instead of the legacy scanner.
+    # Bumped in the backtester's matrix dispatch when a matrix ScanResult
+    # override is produced; an explicit, unambiguous "the matrix fired" signal
+    # the live parity gate and the benchmark harness assert on (a silent legacy
+    # fallthrough leaves this at 0).
+    matrix_scans_evaluated: int = 0
     # Speedup report v2 §9.4 / Phase 6 prep — scanner subphase timers and
     # skip-reason counters. Bumped per-symbol inside evaluate_one_scan when
     # _profile_counters_enabled() is True; zero-overhead when disabled.

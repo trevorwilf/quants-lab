@@ -1280,6 +1280,15 @@ def run_backtest(
                             universe_snapshot=universe, volume_curve=volume_curve,
                             collect_gate_dump=collect_gate_dump,
                         )
+                # Walk-forward scan-matrix speedup Phase 2 — explicit "matrix
+                # fired" signal: bump once per scan the matrix actually served
+                # (override produced) so a silent legacy fallthrough is
+                # observable (counter stays 0).
+                if _matrix_scan_result is not None and _profile_counters_enabled():
+                    try:
+                        _profile_counters_current().inc(matrix_scans_evaluated=1)
+                    except LookupError:
+                        pass
                 scan_result, consumer_results = run_one_scan(
                     cfg=cfg_dict, universe_snapshot=universe, daily_cache=daily_cache,
                     volume_curve=volume_curve, state=state, scan_ts=scan_ts,
