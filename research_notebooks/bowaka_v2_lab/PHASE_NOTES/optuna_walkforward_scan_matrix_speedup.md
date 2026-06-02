@@ -19,6 +19,19 @@ present on `dev` before any phase branch, in files this work never touches:
   bowaka_v2_backtest.py`; the local mirror predates the parity-speedup prod
   vectorize work, so `_make_lake_suppliers` is absent. Out of scope (this work
   never edits `reference/` — verified `git diff --stat dev -- reference/` == 0).
+- 5 lab-vs-production PARITY tests (the **out-of-scope notebook-13 path**, §0.6):
+  `tests/integration/test_parity_cli_subcommand.py`,
+  `test_parity_notebook_papermill_runs_headless.py` (×2),
+  `test_parity_parallel_matches_serial.py`,
+  `test_parity_runner_against_real_lake.py`. Root cause (read live): the prod
+  side errors `bowaka_v2_backtest.py: error: unrecognized arguments:
+  --lake-root` — the gitignored mirror predates the PREVIOUS session's
+  `ea1c942` ("run_lab_backtester lake-root threading"), which made the lab pass
+  `--lake-root` to it. Pre-existing + environmental (operator must re-sync the
+  mirror); provably independent of this work — the parity path uses
+  `run_lab_backtester → run_backtest` with NO `scan_matrix` block, so the matrix
+  is never active and this work's only shared change (the `matrix_scans_evaluated`
+  counter, gated on `_matrix_scan_result is not None`) never executes there.
 - `tests/unit/test_notebook_bootstrap_cell.py` — `13_lab_vs_production_parity.ipynb`
   (dirty working-tree smoke output from a prior session) + the stray tracked
   `Untitled.ipynb`. Notebook 13 is explicitly out of scope (§0.6).
@@ -273,12 +286,21 @@ synthetic and the real lake. **Operator to measure the real per-trial wall-clock
 via `scripts/benchmark_walkforward_trial.py --legacy`** after the full build (the
 `<=3 min/trial` target + A/B speedup ratio print automatically).
 
-**Testing note.** This workstation runs live trading + the lake on local disk,
-so the full real-lake `make test-all` is not reliably completable in one shot (a
-single real-lake test can stall >600s in `os.stat` and the Windows pytest-timeout
-`thread` method then kills the session). Each phase ran full unit+parity + the
-change-relevant integration subset; the integration leg passed all tests up to
-75% with zero failures before such an environmental stall in Phase 1. The 5
-pre-existing failures (prod mirror + dirty notebook 13 / stray Untitled.ipynb)
-are unrelated to this work (verified: `git diff --stat dev -- reference/` == 0,
-no notebook edits).
+**Final test-all on `dev` HEAD (modulo §0.2 + the pre-existing exemptions above).**
+- Full unit+parity: **1443 pass, 1 skip** (modulo the 5 pre-existing unit
+  failures: 2 prod-mirror + 3 notebook-bootstrap).
+- Integration+reconcile: **466 pass, 8 skip, 7 failed** — all 7 pre-existing /
+  environmental (5 out-of-scope parity tests blocked by the stale prod mirror's
+  missing `--lake-root`; 2 prod-mirror), plus one real-lake test
+  (`test_walkforward_worker_finds_trades`) deselected because it stalls >900s in
+  a `pyarrow.parquet.read_table` / `os.stat` lake read on this load-contended
+  workstation (live trading + lake on local disk) — the Windows pytest-timeout
+  `thread` method then kills the whole session, so the full real-lake leg is not
+  reliably completable here in one shot. With that one staller deselected the
+  leg ran to completion (466 pass).
+- `make verify-walkforward-speedup`: **41 pass in ~37s** (<2 min).
+All 7 integration + 5 unit failures are unrelated to this work — verified
+logically (the parity / prod-mirror paths never activate the matrix, so the
+shared `run_backtest` counter change is a no-op there) AND empirically (the
+parity failures are the prod mirror rejecting `--lake-root` from `ea1c942`;
+`git diff --stat dev -- reference/` == 0; no notebook edits).
