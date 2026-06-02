@@ -42,10 +42,10 @@ def test_memory_guard_refuses_before_spawning(monkeypatch, tmp_path) -> None:
         "bowaka_v2_lab.utils.memory_guard.MemoryBudget.from_system",
         classmethod(lambda cls, **kw: _RefusingBudget()),
     )
-    # Sentinel: the spawn context must never be touched if the guard fires first.
+    # Sentinel: no worker subprocess may launch if the guard fires first.
     monkeypatch.setattr(
-        "multiprocessing.get_context",
-        lambda *_a, **_k: pytest.fail("spawned workers despite memory refusal"),
+        "subprocess.Popen",
+        lambda *_a, **_k: pytest.fail("launched workers despite memory refusal"),
     )
     with pytest.raises(MemoryReserveViolation):
         R._run_parity_parallel(

@@ -22,7 +22,10 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.mark.timeout(900)
-def test_papermill_executes_notebook_and_writes_report(tmp_path: Path) -> None:
+@pytest.mark.parametrize("workers, end_date", [(1, "2026-05-19"), (2, "2026-05-20")])
+def test_papermill_executes_notebook_and_writes_report(
+    tmp_path: Path, workers: int, end_date: str,
+) -> None:
     pytest.importorskip("pyarrow")
     pytest.importorskip("papermill")
     if not _NOTEBOOK.is_file():
@@ -42,7 +45,7 @@ def test_papermill_executes_notebook_and_writes_report(tmp_path: Path) -> None:
     if "AAPL" not in syms:
         pytest.skip("real lake not present (AAPL not in available symbols)")
 
-    label = "papermill_smoke_" + _dt.datetime.now(_dt.UTC).strftime("%Y%m%dT%H%M%SZ")
+    label = f"papermill_smoke_w{workers}_" + _dt.datetime.now(_dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     out_nb = tmp_path / "out.ipynb"
     # Run papermill from inside the lab dir so the notebook bootstrap can
     # walk UP from cwd to find ``src/bowaka_v2_lab/__init__.py``. The
@@ -52,8 +55,9 @@ def test_papermill_executes_notebook_and_writes_report(tmp_path: Path) -> None:
         [sys.executable, "-m", "papermill",
          str(_NOTEBOOK), str(out_nb),
          "-p", "START_DATE", "2026-05-19",
-         "-p", "END_DATE", "2026-05-19",
+         "-p", "END_DATE", end_date,
          "-p", "MAX_UNIVERSE_SIZE", "5",
+         "-p", "PARALLEL_WORKERS", str(workers),
          "-p", "RUN_LABEL", label],
         cwd=str(_LAB),
         capture_output=True, text=True, timeout=720, check=False,
