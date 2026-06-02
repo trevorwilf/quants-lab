@@ -7,7 +7,7 @@
 
 .PHONY: install test test-fast test-unit test-parity test-integration \
         test-reconcile test-live test-all smoke notebooks verify-bayesian-fix \
-        verify-session-window-parity clean
+        verify-session-window-parity verify-walkforward-speedup clean
 
 # bowaka_common lives one directory up; both must be importable for the suite.
 PYTHONPATH := src:../bowaka_common/src
@@ -97,6 +97,34 @@ verify-session-window-parity:
 	    echo "Phase 4 supplier parity: OK (supplier+walkforward parity tests passed)"; \
 	  else \
 	    echo "Phase 4 supplier parity: FAIL (supplier=$$rc1, walkforward=$$rc2)"; \
+	  fi; \
+	  exit $$rc
+
+# verify-walkforward-speedup — re-checks the notebook-10 scan-matrix speedup
+# wiring: the Phase 1 store-root resolver + fail-loud fold-context tests, the
+# Phase 2 default-disabled sweep + matrix-overlay positive tests + the
+# end-to-end fold-parity gate (synthetic intraday matrix -> verify
+# verifier_version=2 -> one fold disabled-vs-vectorized: matrix fires +
+# reproduces the legacy fold), and the Phase 3 pruning-config test. Test files
+# are named by path so the `slow`-marked parity gate runs too. Completes in
+# <2 min on a fresh kernel (the synthetic matrix build is the long pole, ~40s);
+# the full validation-scope build is the operator step in
+# docs/walkforward_scan_matrix_runbook.md, NOT this target.
+verify-walkforward-speedup:
+	@set +e; \
+	  $(PYTEST) \
+	    tests/unit/scanner/test_resolve_scan_matrix_store_root.py \
+	    tests/unit/optuna/test_fold_context_scan_matrix_fail_loud.py \
+	    tests/integration/test_scan_matrix_runtime_mode_disabled_is_default.py \
+	    tests/unit/optuna/test_pruning_floor_config.py \
+	    tests/unit/scripts/test_benchmark_walkforward_trial_smoke.py \
+	    tests/integration/test_scan_matrix_walkforward_fold_parity.py \
+	    -q --tb=short; \
+	  rc=$$?; \
+	  if [ $$rc -eq 0 ]; then \
+	    echo "Walkforward speedup wiring: OK"; \
+	  else \
+	    echo "Walkforward speedup wiring: FAIL (pytest exit=$$rc)"; \
 	  fi; \
 	  exit $$rc
 
