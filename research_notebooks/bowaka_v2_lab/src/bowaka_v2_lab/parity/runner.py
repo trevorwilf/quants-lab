@@ -19,7 +19,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 _LAB_ROOT = Path(__file__).resolve().parents[3]   # src/bowaka_v2_lab/parity/runner.py -> lab root
 _BOWAKA_COMMON_SRC = (_LAB_ROOT.parent / "bowaka_common" / "src").resolve()
@@ -480,6 +480,255 @@ def _resolve_per_session_universe(
     return syms, pit
 
 
+# ---------------------------------------------------------------------------
+# Phase 3 — parallel parity across contiguous session blocks.
+#
+# In ``chunk_per_session`` mode each session starts fresh at ``initial_bankroll``
+# (lab) and is an independent 1-day prod subprocess, so sessions are
+# embarrassingly parallel. We split the window into a few CONTIGUOUS blocks and
+# run each in a long-lived spawn worker (a block amortizes the worker's
+# cold-cache start), then the parent concatenates + computes metrics ONCE. The
+# result is identical to the serial chunked run — trades are sorted before the
+# report / golden bundle — and two parallel runs are byte-identical.
+# ---------------------------------------------------------------------------
+
+_BLAS_THREAD_ENV: tuple[str, ...] = (
+    "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS", "BLIS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS",
+)
+
+
+@dataclass(frozen=True)
+class _SessionBlockSpec:
+    """Picklable work order for one worker — a contiguous block of sessions."""
+
+    worker_id: int
+    sessions: tuple[_dt.date, ...]
+    symbols: tuple[str, ...]
+    prod_config_path: str
+    lab_config_path: str
+    lake_root: Optional[str]
+    cost_stress: str
+    run_root: str
+    union_symbols_file: str
+    python_exe: Optional[str]
+    python_extra: tuple[str, ...]
+    prod_script: Optional[str]
+    timeout_sec: int
+    per_session_universe: bool
+
+
+def _contiguous_blocks(sessions: Sequence[_dt.date], k: int) -> list[list[_dt.date]]:
+    """Split ``sessions`` into ``k`` contiguous, non-overlapping (half-open)
+    blocks; earlier blocks absorb the remainder."""
+    items = list(sessions)
+    n = len(items)
+    k = max(1, min(int(k), n)) if n else 1
+    base, rem = divmod(n, k)
+    blocks: list[list[_dt.date]] = []
+    i = 0
+    for w in range(k):
+        size = base + (1 if w < rem else 0)
+        blocks.append(items[i:i + size])
+        i += size
+    return blocks
+
+
+def _parity_path_touches_postgres() -> bool:
+    """True iff the parity package or ``cli_runners`` actually imports psycopg /
+    opens a PostgreSQL URL — the worker cap is 8 when PG is in play, else 12.
+    Static source scan; the parity path opens no PG connection, so this returns
+    False and the cap is 12. This file (the launcher) is excluded — it provably
+    opens no PG and only mentions the words in this guard."""
+    import re as _re
+
+    this_file = Path(__file__).resolve()
+    files = [f for f in Path(__file__).parent.glob("*.py") if f.resolve() != this_file]
+    cli_runners = Path(__file__).resolve().parents[1] / "cli_runners.py"
+    if cli_runners.is_file():
+        files.append(cli_runners)
+    # Match real usage (imports / connection URLs), not the word in a comment.
+    pat = _re.compile(
+        r"import\s+psycopg|from\s+psycopg|postgresql://|postgresql\+", _re.IGNORECASE
+    )
+    for f in files:
+        try:
+            if pat.search(f.read_text(encoding="utf-8", errors="ignore")):
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+def _run_parity_session_block(
+    spec: "_SessionBlockSpec",
+) -> list[tuple[_dt.date, list, list, list]]:
+    """Run prod + lab for every session in the block; return per-session
+    ``(date, prod_trades, lab_trades, lab_candidates)``. Runs in the worker
+    process and is directly callable for the serial-vs-parallel parity test."""
+    from .normalizers import normalize_lab_output, normalize_production_output
+
+    sessions = list(spec.sessions)
+    run_root = Path(spec.run_root)
+    lake_root = Path(spec.lake_root) if spec.lake_root else None
+    if spec.per_session_universe:
+        per_sess_syms, prebuilt_pit = _resolve_per_session_universe(
+            sessions, lab_config_path=Path(spec.lab_config_path),
+            lake_root=lake_root, restrict_to=list(spec.symbols),
+        )
+        uni_dir = run_root / "universe"
+        uni_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        per_sess_syms, prebuilt_pit = {}, None
+
+    out: list[tuple[_dt.date, list, list, list]] = []
+    for sd in sessions:
+        iso = sd.isoformat()
+        if spec.per_session_universe:
+            sess_syms = per_sess_syms.get(sd, list(spec.symbols))
+            symfile = uni_dir / f"{iso}.txt"
+            symfile.write_text("\n".join(sess_syms) + "\n", encoding="utf-8")
+        else:
+            sess_syms = list(spec.symbols)
+            symfile = Path(spec.union_symbols_file)
+        prod = run_production_backtester(
+            start_date=sd, end_date=sd, symbols_file=symfile,
+            prod_config_path=Path(spec.prod_config_path), lake_root=lake_root,
+            cost_stress=spec.cost_stress, output_dir=run_root / "production" / iso,
+            python_exe=spec.python_exe, python_extra=tuple(spec.python_extra),
+            prod_script=Path(spec.prod_script) if spec.prod_script else None,
+            timeout_sec=spec.timeout_sec,
+        )
+        if prod.returncode != 0:
+            raise RuntimeError(
+                f"production backtester failed on session {iso} "
+                f"(exit {prod.returncode}):\nSTDERR (tail): {prod.stderr[-2000:]}"
+            )
+        lab = run_lab_backtester(
+            start_date=sd, end_date=sd, symbols=sess_syms,
+            lab_config_path=Path(spec.lab_config_path), cost_stress=spec.cost_stress,
+            run_dir=run_root / "lab" / iso, prebuilt_pit_by_session=prebuilt_pit,
+        )
+        pt, _ = normalize_production_output(prod)
+        lt, lc = normalize_lab_output(lab)
+        out.append((sd, pt, lt, lc))
+    return out
+
+
+def _session_block_worker(spec: "_SessionBlockSpec", q: Any) -> None:
+    """Spawn-worker entrypoint: pin BLAS threads to 1 BEFORE any numpy import,
+    run the block, report ``(worker_id, results | None, error | None)``."""
+    import os as _os
+
+    for _v in _BLAS_THREAD_ENV:
+        _os.environ[_v] = "1"
+    try:
+        q.put((spec.worker_id, _run_parity_session_block(spec), None))
+    except Exception as exc:  # noqa: BLE001 — reported back to the parent
+        q.put((spec.worker_id, None, f"{type(exc).__name__}: {exc}"))
+
+
+def _run_parity_parallel(
+    *,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    sessions: Sequence[_dt.date],
+    symbols: Sequence[str],
+    prod_config_path: Path,
+    lab_config_path: Path,
+    lake_root: Path | None,
+    cost_stress: str,
+    run_root: Path,
+    symbols_file: Path,
+    python_exe: str | None,
+    python_extra: Sequence[str],
+    prod_script: Path | None,
+    timeout_sec: int,
+    per_session_universe: bool,
+    requested_sessions: Sequence[_dt.date],
+    bundle_out: Path | None,
+    n_workers: int,
+    print_progress: bool,
+) -> Any:
+    """Parallel chunked parity: contiguous session blocks across spawn workers,
+    merged deterministically + scored once. Identical output to the serial run."""
+    import multiprocessing as _mp
+
+    from ..utils.memory_guard import MemoryBudget
+    from .metrics import compute_parity_metrics
+
+    sessions = list(sessions)
+    cap = 8 if _parity_path_touches_postgres() else 12
+    n_workers = max(1, min(int(n_workers), cap, len(sessions) or 1))
+    # Refuse a launch that would breach the RAM reserve (parity opens no PG).
+    MemoryBudget.from_system(postgres_gib_estimate=0.0).assert_launch_safe(
+        n_workers=n_workers,
+    )
+
+    blocks = [b for b in _contiguous_blocks(sessions, n_workers) if b]
+    if print_progress:
+        sys.stdout.write(
+            f"[parity] parallel mode: {len(sessions)} sessions across "
+            f"{len(blocks)} worker(s) (cap={cap})\n"
+        )
+        sys.stdout.flush()
+
+    ctx = _mp.get_context("spawn")
+    q: Any = ctx.Queue()
+    procs: list[Any] = []
+    for wid, block in enumerate(blocks):
+        spec = _SessionBlockSpec(
+            worker_id=wid, sessions=tuple(block), symbols=tuple(symbols),
+            prod_config_path=str(prod_config_path),
+            lab_config_path=str(lab_config_path),
+            lake_root=str(lake_root) if lake_root is not None else None,
+            cost_stress=cost_stress, run_root=str(run_root),
+            union_symbols_file=str(symbols_file), python_exe=python_exe,
+            python_extra=tuple(python_extra),
+            prod_script=str(prod_script) if prod_script is not None else None,
+            timeout_sec=int(timeout_sec),
+            per_session_universe=bool(per_session_universe),
+        )
+        p = ctx.Process(target=_session_block_worker, args=(spec, q))
+        p.start()
+        procs.append(p)
+
+    raw = [q.get() for _ in procs]  # blocks until every worker reports
+    for p in procs:
+        p.join()
+    errors = [(wid, err) for (wid, _o, err) in raw if err]
+    if errors:
+        raise RuntimeError(f"parity worker(s) failed: {errors}")
+
+    by_session: dict[_dt.date, tuple] = {}
+    for (_wid, out, _err) in raw:
+        for (sd, pt, lt, lc) in out:
+            by_session[sd] = (pt, lt, lc)
+    all_prod: list = []
+    all_lab: list = []
+    all_cands: list = []
+    for sd in sorted(by_session):  # deterministic session order
+        pt, lt, lc = by_session[sd]
+        all_prod.extend(pt)
+        all_lab.extend(lt)
+        all_cands.extend(lc)
+
+    report = compute_parity_metrics(
+        window_start=start_date, window_end=end_date,
+        universe_size=len(list(symbols)), prod_trades=all_prod,
+        prod_candidates=[], lab_trades=all_lab, lab_candidates=all_cands,
+        requested_sessions=requested_sessions,
+    )
+    if bundle_out is not None:
+        from .golden import persist_parity_bundle
+
+        persist_parity_bundle(
+            bundle_out, report=report, prod_trades=all_prod,
+            lab_trades=all_lab, lab_candidates=all_cands,
+        )
+    return report
+
+
 def run_parity(
     *,
     start_date: _dt.date,
@@ -497,6 +746,7 @@ def run_parity(
     chunk_per_session: bool = False,
     per_session_universe: bool = True,
     bundle_out: Path | None = None,
+    parallel_workers: int = 1,
     print_progress: bool = True,
     progress_callback: Callable[[dict], None] | None = None,
 ) -> Any:
@@ -603,6 +853,21 @@ def run_parity(
 
     # Per-session chunked path.
     sessions = requested_sessions
+    # Phase 3 — parallel across contiguous session blocks (chunked only); the
+    # merged result is identical to the serial run below.
+    if parallel_workers and int(parallel_workers) > 1:
+        return _run_parity_parallel(
+            start_date=start_date, end_date=end_date, sessions=sessions,
+            symbols=symbols, prod_config_path=Path(prod_config_path),
+            lab_config_path=Path(lab_config_path),
+            lake_root=Path(lake_root) if lake_root is not None else None,
+            cost_stress=cost_stress, run_root=run_root, symbols_file=symbols_file,
+            python_exe=python_exe, python_extra=python_extra,
+            prod_script=prod_script, timeout_sec=timeout_sec,
+            per_session_universe=per_session_universe,
+            requested_sessions=requested_sessions, bundle_out=bundle_out,
+            n_workers=int(parallel_workers), print_progress=print_progress,
+        )
     # Phase 0 (universe symmetry): hand production the PIT eligible-survivor set
     # for EACH session (one symbols file per session), matching the live
     # screen-per-session flow and the lab's per-session intersection. The legacy

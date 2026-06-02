@@ -638,6 +638,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "timing + ETA. Trade-off: each lab session starts at "
                           "initial_bankroll (no carry-forward). Use for progress "
                           "visibility on long parity runs; omit for canonical numerics.")
+    par.add_argument("--parallel-workers", type=int, default=1,
+                     help="Phase 3 — run contiguous session blocks across N spawn "
+                          "workers (implies chunked; identical output to serial). "
+                          "Capped at 12 (the parity path opens no PostgreSQL). "
+                          "Default 1 (serial).")
     par.set_defaults(func=_cmd_parity)
 
     return p
@@ -996,7 +1001,8 @@ def _cmd_parity(args: argparse.Namespace) -> int:
         python_exe=python_exe,
         python_extra=(),
         timeout_sec=args.timeout_sec,
-        chunk_per_session=bool(args.chunk_per_session),
+        chunk_per_session=bool(args.chunk_per_session) or int(args.parallel_workers) > 1,
+        parallel_workers=int(args.parallel_workers),
     )
     md_path = out_dir / "parity_report.md"
     render_markdown_report(report, output_path=md_path)

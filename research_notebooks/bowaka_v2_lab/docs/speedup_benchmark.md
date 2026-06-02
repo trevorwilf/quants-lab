@@ -40,3 +40,27 @@ proven byte-identical to the legacy path
 Per the speedup prompt: with **< 5 min/session met**, Phases 2 (vectorize prod —
 "barely moves the notebook"), 3 (parallelize sessions), and 5–6 (scan-matrix) are
 **optional upside**. They were not required to hit the goal.
+
+## Phase 2 + 3 (optional upside, landed on top of Phase 1)
+
+- **Phase 2 (vectorize prod reference)** — the prod backtester now uses
+  searchsorted per-scan windows + NaN-aware prefix-array forming bars + a numpy
+  first-touch exit walk. **Golden diff = 0** (byte-identical), and the prod side
+  is faster per session.
+- **Phase 3 (parallelize sessions)** — `run_parity(parallel_workers=N)` (and
+  `cli parity --parallel-workers N`) runs contiguous session blocks across spawn
+  workers; output is **identical to serial** (golden-bundle diff = 0). Golden
+  window (4 sessions, 40 symbols): **serial 49.6 s → 4 workers 31.1 s (~1.6×)**.
+  The ratio is cold-start-limited on short windows (each worker re-imports the
+  lab + warms caches once) and scales toward N× as sessions-per-worker grows —
+  the intended regime is a long multi-session parity run. Note: spawn parallelism
+  works from the CLI / scripts / pytest, not from a Jupyter `<stdin>` main.
+
+## Scan-matrix (Phases 5–6): evaluated, not adopted for parity
+
+The scan-matrix compat/vectorized runtime makes the *scan* fast but requires a
+matrix **build** that costs ≈ the original slow lab (uncached feature precompute,
+~hours at 833 symbols). For a single parity run it cannot beat Phase 1; it only
+pays off **amortized** across many reruns of the same window (a parameter sweep,
+since the matrix is invalidated by feature keys, not signals/sizing/exits). Wrong
+tool for single-run parity — Phase 1 is the practical optimum.
