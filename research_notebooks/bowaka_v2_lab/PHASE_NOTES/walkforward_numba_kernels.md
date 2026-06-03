@@ -125,3 +125,56 @@ kernel is shipped. The real per-trial lever is reducing the bar-fetch/slice coun
 (the `session_window_cache` already absorbs 4.13M hits) — a different optimization,
 not a numba kernel. Revisit only for a config/mode that runs `walk_lot_exit` with
 NO live suppliers and fade disabled.
+
+---
+
+## Phase 3 — Wiring, pre-warm, deps, verify target, runbook
+
+**Branch:** `speedup/numba-phase3-wiring-and-runbook` (off `dev`, merged `--no-ff`).
+**Effort:** medium.
+
+### Files
+- `pyproject.toml` — `[project.optional-dependencies] numba = ["numba>=0.60.0"]`
+  (`pip install -e .[numba]`); shim degrades gracefully without it.
+- `scripts/warm_numba_cache.py` (NEW) — compiles + caches all 5 kernels on tiny
+  inputs (warmed in 1.57 s) so spawned build/Optuna workers load the on-disk
+  artifact instead of each re-JITing. Run once per env / after a kernel change.
+- `configs/bowaka_v2_actual_iex_current_code_optuna.workstation.matrix.numba.yml`
+  (NEW) — the vectorized matrix overlay + `optuna.acceleration.numba.enabled: true`.
+  The ONLY committed config that enables numba.
+- `tests/unit/test_numba_flag_default_off.py` — base-config sweep now EXCLUDES
+  `*numba*`; added positive tests (overlay enables numba + is still the vectorized
+  matrix overlay; overlay excluded from the base sweep).
+- `Makefile` — `verify-walkforward-numba` target (+ `.PHONY`): runs the parity +
+  build-parity + default-off tests; prints `Walkforward numba kernels: OK` (<2 min).
+- `docs/walkforward_numba_runbook.md` (NEW) — enablement, parity guarantees + how
+  to re-prove (`verify-walkforward-numba`; `scan-matrix verify` stays numba-OFF as
+  the canonical proof), measured deltas, lever order (matrix first).
+- `README.md` — "Walk-forward numba kernels verification" section.
+
+### Validation
+- `warm_numba_cache.py`: 5 kernels compiled + cached in 1.57 s.
+- verify-numba test set + shipping-config validate/env-check (incl. the new
+  numba overlay): **67 passed**. The numba overlay validates + passes env-check.
+
+### Per-trial number (gate task 6)
+matrix-only ≈ matrix+numba **per trial** — numba is a BUILD-time lever (the trial
+reads the prebuilt matrix; the Phase-2 sim kernel was skipped). The numba win is
+the build feature-compute: **325× warm** (build benchmark). No `STATUS_BLOCKED_*`
+files were created.
+
+---
+
+## Finalize — merge SHAs (all into `dev`, `main` untouched)
+
+| Phase | Branch | Merge SHA |
+|---|---|---|
+| 1 — scan-feature kernels | `speedup/numba-phase1-scan-feature-kernels` | `5c288c8` |
+| 2 — sim kernel (gate → skip, documented) | `speedup/numba-phase2-sim-exit-kernel` | `6422dfb` |
+| 3 — wiring/deps/verify/runbook | `speedup/numba-phase3-wiring-and-runbook` | (this merge) |
+
+**Final state:** scan-feature kernels ship default-OFF with a pure-Python
+fallback + the LOAD-BEARING build-parity guard; the sim kernel is documented-out
+by the measurement gate; numba is an optional extra with a pre-warm script, an
+enablement overlay, a `verify-walkforward-numba` target, and a runbook. No base
+config enables numba; the disabled-default invariant holds.
