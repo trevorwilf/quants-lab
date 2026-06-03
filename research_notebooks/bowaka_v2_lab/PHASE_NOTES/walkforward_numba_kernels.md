@@ -76,3 +76,52 @@ per-session feature-compute delta the build amortizes; pre-warm the on-disk cach
 (×2, the operator's dirty working-tree notebooks). Plus the §0.2 WSL
 `test_full_test_matrix_dry_run`. Scan-matrix build/parity suite (incl. the existing
 three-way parity, numba-OFF) re-run green (6 passed).
+
+---
+
+## Phase 2 — Sim inner-loop kernel — MEASUREMENT-GATED → **SKIPPED (documented)**
+
+**Branch:** `speedup/numba-phase2-sim-exit-kernel` (off `dev`, documentation-only,
+merged `--no-ff`). **Effort:** high.
+
+### Measurement (gate task 0)
+Read the matrix-overlay smoke `phase_profile.json`
+(`artifacts/optuna/iex__bowaka_v2_iex_walkforward_conservative_ade3139f_20260603__phase_profile.json`,
+1-trial `current_code_parity`, matrix vectorized).
+
+`phase_seconds` (per study): finalize 5764.3s, **optuna_optimize 923.8s (= the 1
+trial)**, fold_context_precompute 681.8s, preflight 291.1s, resolve_config 55.7s.
+
+`counters` (post-matrix per-trial): scanner did **zero** work
+(`scanner_symbols_seen=0`, all `scanner_time_*=0`; matrix served
+`matrix_scans_evaluated=134940`). The per-trial residual is therefore 100% sim,
+and it is dominated by **bar fetching / slicing / event processing**:
+`bars_supplier_calls=5,069,287`, `bars_df_slices=4,130,026`,
+`event_count_processed=3,793,064`, `minute_supplier_calls=270,242`. The numeric
+bracket/time-stop comparison the proposed kernel would accelerate is a small
+fraction; the cost is pandas data movement that happens OUTSIDE any njit kernel.
+
+### Gate decision: SKIP the exit kernel
+The sim dominates (gate's literal ≳40% criterion is met), **but the exit kernel's
+callback-free path is never eligible in the target workload**, so it would buy ~0:
+
+1. **Suppliers are wired on every `walk_lot_exit` call.** All three call sites
+   (`sim/exit_driver.py:107`, `sim/backtester.py:466`, `:1191`) pass
+   `quote_supplier=quote_supplier` and `signal_score_fn=...`, and the smoke proves
+   they are live in the per-trial sim (`quote_supplier_calls=3276`). The kernel's
+   eligibility predicate (`quote_supplier is None AND status_supplier is None AND
+   signal_score_fn is None`, fade off) is thus FALSE for every per-trial call →
+   the code MUST fall back to the pure-Python walk (prompt §1 caveat). The kernel
+   would never fire.
+2. **The dominant cost is bar fetching/slicing, not the bracket loop.** Even if a
+   call were eligible, the kernel takes pre-extracted arrays; the 5.07M
+   `bars_supplier_calls` + 4.13M `bars_df_slices` (the actual bottleneck) are the
+   surrounding pandas plumbing, not the comparison the kernel speeds up.
+
+Building it would add a parity surface (the prompt's biggest Phase-2 risk) for no
+realized gain — the anti-pattern the gate exists to prevent. Per the gate
+("skip the rest of this phase ... merge the empty-but-documented branch"), no sim
+kernel is shipped. The real per-trial lever is reducing the bar-fetch/slice count
+(the `session_window_cache` already absorbs 4.13M hits) — a different optimization,
+not a numba kernel. Revisit only for a config/mode that runs `walk_lot_exit` with
+NO live suppliers and fade disabled.
