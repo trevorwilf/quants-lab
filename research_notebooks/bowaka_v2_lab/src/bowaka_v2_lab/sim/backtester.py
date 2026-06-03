@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, Mapping, Optional
 
+import numpy as np
 import pandas as pd
 
 from bowaka_common.artifacts.code_manifest import build_code_manifest, code_manifest_hash
@@ -1113,6 +1114,13 @@ def run_backtest(
             # loop would re-scan every bar of every lot on every event tick.
             bars_by_lot: dict[str, Optional[pd.DataFrame]] = {}
             next_idx_by_lot: dict[str, int] = {}
+            # Per-trial speedup: cache each lot's sorted minute-bar timestamps as
+            # an int64 ns-since-epoch (UTC) array ONCE, so the per-event window
+            # boundary is a single np.searchsorted instead of re-parsing the
+            # entire remaining bar tail (pd.to_datetime + mask.sum) on every one
+            # of the ~10k poll-cadence events per session. Byte-identical
+            # new-bar count (the bars are pre-sorted by _bars_for_lot).
+            ts_ns_by_lot: dict[str, Optional[np.ndarray]] = {}
 
             def _bars_for_lot(pos: Position) -> Optional[pd.DataFrame]:
                 """Resolve the regular-session minute bars for ``pos``.
@@ -1174,18 +1182,33 @@ def run_backtest(
                     cursor = next_idx_by_lot.get(pos.position_id, 0)
                     if cursor >= len(bars):
                         continue
-                    sub = bars.iloc[cursor:]
                     ts_col = next(
-                        (c for c in ("timestamp", "ts") if c in sub.columns), None
+                        (c for c in ("timestamp", "ts") if c in bars.columns), None
                     )
                     if ts_col is None:
+                        # No timestamp column — legacy fallback walks the whole
+                        # remaining tail (matches the pre-speedup behaviour).
+                        sub = bars.iloc[cursor:]
                         new_idx = cursor + len(sub)
                     else:
-                        sub_ts = pd.to_datetime(sub[ts_col], utc=True)
-                        mask = sub_ts <= pd.Timestamp(walk_until)
-                        new_count = int(mask.sum())
-                        sub = sub.iloc[:new_count]
-                        new_idx = cursor + new_count
+                        # Boundary via searchsorted on the cached ns array. The
+                        # ``right`` side includes a bar whose ts == walk_until,
+                        # exactly as the legacy ``sub_ts <= walk_until`` mask did.
+                        ts_ns = ts_ns_by_lot.get(pos.position_id)
+                        if ts_ns is None:
+                            _idx = pd.DatetimeIndex(bars[ts_col])
+                            _idx = (_idx.tz_localize("UTC") if _idx.tz is None
+                                    else _idx.tz_convert("UTC"))
+                            ts_ns = (_idx.tz_localize(None)
+                                     .to_numpy(dtype="datetime64[ns]").view("int64"))
+                            ts_ns_by_lot[pos.position_id] = ts_ns
+                        _wu = pd.Timestamp(walk_until)
+                        _wu = (_wu.tz_localize("UTC") if _wu.tzinfo is None
+                               else _wu.tz_convert("UTC"))
+                        new_idx = int(np.searchsorted(ts_ns, _wu.value, side="right"))
+                        if new_idx <= cursor:
+                            continue  # no new bars in (cursor, walk_until]
+                        sub = bars.iloc[cursor:new_idx]
                     if len(sub) == 0:
                         continue
                     ev = walk_lot_exit(

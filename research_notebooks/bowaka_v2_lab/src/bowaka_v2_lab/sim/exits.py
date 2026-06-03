@@ -374,7 +374,7 @@ class _LotPathState:
     halt_seen: bool = False
 
 
-def walk_lot_exit(
+def _walk_lot_exit_pandas(
     pos: Position,
     minute_bars: Optional[pd.DataFrame],
     *,
@@ -390,7 +390,17 @@ def walk_lot_exit(
     activation_artifact_dir: Optional[Path] = None,
     status_supplier: Optional[Callable[..., Optional[dict]]] = None,
 ) -> Optional[ExitEvent]:
-    """Walk one lot's minute path and return the earliest exit, or ``None``.
+    """Reference (pandas/``iterrows``) per-lot minute-path walk — frozen oracle.
+
+    This is the original, semantically-authoritative implementation. It is kept
+    in production as (a) the parity oracle the numpy fast path
+    (:func:`_walk_lot_exit_numpy`) is differentially tested against and (b) the
+    fallback :func:`walk_lot_exit` dispatches to for any minute frame the fast
+    path is not eligible for (non-numeric / missing OHLC columns), so the
+    ``_bar_field`` None-vs-NaN semantics are never approximated. Do NOT change
+    this function's behaviour — it defines correctness.
+
+    Walk one lot's minute path and return the earliest exit, or ``None``.
 
     Parameters
     ----------
@@ -697,6 +707,391 @@ def walk_lot_exit(
             pos, bd, float(px), "max_hold", ts, state, entry_price,
         )
     return None
+
+
+#: Per-trial speedup — use the numpy fast path in :func:`walk_lot_exit` for
+#: eligible (numeric-OHLC + timestamp) minute frames. Flip to ``False`` for an
+#: instant revert to the pandas reference everywhere; the differential parity
+#: test (``tests/parity/test_walk_lot_exit_numpy_parity.py``) pins the two
+#: implementations byte-identical so this is purely a kill switch.
+_FAST_EXIT_WALK = True
+
+#: The numpy path's fixed setup (DatetimeIndex + 4× ``to_numpy`` + ET date/time
+#: arrays) only pays off once the slice is more than a couple of bars — measured
+#: break-even is ~3 bars (1 bar is ~0.85× i.e. a slight regression, 3 bars
+#: ~1.3×, a full session ~25-36×). The minute event loop walks each lot's NEW
+#: bars per poll tick, which is usually a 1-bar slice, so this guard keeps those
+#: tiny calls on the pandas path (no regression) and routes only the larger
+#: catch-up / full-session walks through numpy. Purely a performance threshold —
+#: the two paths are byte-identical at every size (differential parity test).
+_FAST_EXIT_WALK_MIN_BARS = 3
+
+
+def _exit_walk_fast_eligible(minute_bars: Optional[pd.DataFrame]) -> bool:
+    """``True`` iff the numpy fast path can reproduce the pandas reference exactly.
+
+    Eligible frames carry a ``timestamp`` (or ``ts``) column and numeric
+    ``open/high/low/close`` columns — the universal shape of a real lake minute
+    frame and of every test fixture. Object-dtype or missing OHLC columns fall
+    back to :func:`_walk_lot_exit_pandas`, whose ``_bar_field`` distinguishes a
+    Python ``None`` (absent / un-floatable cell) from a present ``NaN`` — a
+    distinction a ``float64`` array cannot preserve. Numeric columns never carry
+    ``None`` (only ``NaN``), so the fast path is bit-exact there.
+    """
+    if minute_bars is None or len(minute_bars) == 0:
+        return False
+    cols = minute_bars.columns
+    if "timestamp" not in cols and "ts" not in cols:
+        return False
+    for lower, upper in (("open", "Open"), ("high", "High"),
+                         ("low", "Low"), ("close", "Close")):
+        name = lower if lower in cols else (upper if upper in cols else None)
+        if name is None:
+            return False
+        if not pd.api.types.is_numeric_dtype(minute_bars[name]):
+            return False
+    return True
+
+
+def _walk_lot_exit_numpy(
+    pos: Position,
+    minute_bars: Optional[pd.DataFrame],
+    *,
+    exit_cfg: Optional[dict] = None,
+    same_minute_resolution: str = "conservative",
+    cost_stress: str = "base",
+    quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    signal_score_fn: Optional[Callable[[Position, pd.Timestamp], Optional[float]]] = None,
+    seed: int = 0,
+    fade_telemetry_out: Optional[list] = None,
+    until_ts: Optional[pd.Timestamp] = None,
+    feed: Optional[str] = None,
+    activation_artifact_dir: Optional[Path] = None,
+    status_supplier: Optional[Callable[..., Optional[dict]]] = None,
+) -> Optional[ExitEvent]:
+    """Numpy fast path for :func:`_walk_lot_exit_pandas` — byte-identical output.
+
+    The reference walks ``df.iterrows()`` and reads each minute via ``_bar_ts`` /
+    ``_bar_field`` (a fresh ``Series`` + per-cell ``__getitem__`` + per-bar
+    ``ts.tz_convert`` every bar — the profiled per-trial hot spot). This path
+    pre-extracts the sorted path ONCE into numpy arrays — ``ts_ns`` (int64
+    ns-since-epoch, UTC), vectorized ET ``date`` / ``time`` object arrays, and
+    ``float64`` OHLC — then iterates by integer index with int/float compares,
+    materialising a ``pd.Timestamp`` only on the rare bar that actually exits /
+    halts / re-scores. The per-bar arithmetic is the SAME IEEE-754 double work,
+    so every ``ExitEvent`` field (price, reason, date, timestamp, MFE/MAE,
+    slippage, ambiguity) and every ``FadeTelemetry`` row match the reference
+    exactly. See ``tests/parity/test_walk_lot_exit_numpy_parity.py``.
+
+    NOTE the ``state.peak``/``state.trough`` updates use ``if h > peak`` /
+    ``if l < trough`` rather than ``max``/``min``: this is identical to the
+    reference (``max(peak, h)`` returns ``h`` iff ``h > peak``) AND inherits
+    Python's ``max`` NaN semantics for free (``NaN > peak`` is ``False`` → no
+    update), so a present-NaN bar leaves the excursions unchanged exactly as
+    ``max(peak, NaN)`` would.
+    """
+    if minute_bars is None or len(minute_bars) == 0:
+        return None
+    cfg = exit_cfg or {}
+
+    stop_price = pos.stop_price
+    target_price = pos.target_price
+    if stop_price is None:
+        stop_price = pos.entry_price * (1.0 - pos.stop_pct)
+    if target_price is None:
+        target_price = pos.entry_price * (1.0 + pos.target_pct)
+
+    fill_minute = pos.entry_minute_utc()
+    entry_session = pos.entry_session or pos.entry_date
+    exit_session = max_hold_exit_session(entry_session, pos.max_hold_days)
+
+    time_stop_cfg = cfg.get("time_stop") or {}
+    time_stop_enabled = bool(time_stop_cfg.get("enabled", True)) if time_stop_cfg else False
+    time_stop_clock = _parse_hhmm(time_stop_cfg.get("exit_time"), _DEFAULT_EXIT_TIME)
+
+    fade_cfg = cfg.get("signal_fade") or {}
+    fade_enabled = bool(fade_cfg.get("enabled", False)) and signal_score_fn is not None
+    fade_active, fade_mode, fade_activation_state = resolve_signal_fade_active(
+        fade_cfg, feed=feed, artifact_dir=activation_artifact_dir,
+    )
+    fade_clock = _parse_hhmm(fade_cfg.get("eval_time"), _DEFAULT_EXIT_TIME)
+    fade_thresholds = dict(fade_cfg.get("score_thresholds") or _DEFAULT_FADE_THRESHOLDS)
+    fade_exit_on = tuple(fade_cfg.get("exit_on") or _DEFAULT_FADE_EXIT_ON)
+
+    same_minute_tie = cfg.get("same_minute_tie")
+    if same_minute_tie:
+        tie = str(same_minute_tie).strip().lower()
+        if tie == "stop_first":
+            same_minute_resolution = "conservative"
+        elif tie == "target_first":
+            same_minute_resolution = "optimistic"
+        elif tie in ("conservative", "optimistic", "random_with_seed"):
+            same_minute_resolution = tie
+
+    is_severe = str(cost_stress) == "severe"
+    state = _LotPathState()
+    entry_price = pos.entry_price or 0.0
+    seed_base = f"{seed}|{pos.position_id}"
+    fade_fired_dates: set[_dt.date] = set()
+
+    # ---- pre-extract the sorted path as numpy arrays (the optimization) ----
+    df = minute_bars
+    ts_col = "timestamp" if "timestamp" in df.columns else "ts"
+    df = df.sort_values(ts_col)  # same sort as the reference (deterministic order)
+    idx = pd.DatetimeIndex(df[ts_col])
+    idx = idx.tz_localize("UTC") if idx.tz is None else idx.tz_convert("UTC")
+    # ns-since-epoch, forcing ns regardless of the source resolution (the µs
+    # astype gotcha — see session_minute_window_cache). Matches Timestamp.value.
+    ts_ns = idx.tz_localize(None).to_numpy(dtype="datetime64[ns]").view("int64")
+    et_idx = idx.tz_convert("America/New_York")
+    et_dates = et_idx.date  # object array of datetime.date (== ts.tz_convert(ET).date())
+    et_times = et_idx.time  # object array of datetime.time (== _et_clock(ts))
+
+    def _col(*names: str):
+        for n in names:
+            if n in df.columns:
+                return df[n].to_numpy(dtype="float64")
+        return None
+
+    o_arr = _col("open", "Open")
+    h_arr = _col("high", "High")
+    l_arr = _col("low", "Low")
+    c_arr = _col("close", "Close")
+
+    fill_minute_ns = int(fill_minute.value)
+    until_ns: Optional[int] = None
+    if until_ts is not None:
+        until_ts_utc = pd.Timestamp(until_ts)
+        until_ts_utc = (until_ts_utc.tz_localize("UTC") if until_ts_utc.tzinfo is None
+                        else until_ts_utc.tz_convert("UTC"))
+        until_ns = int(until_ts_utc.value)
+
+    halt_until_ns: Optional[int] = None  # severe-stress halt window end (ns)
+    n = len(df)
+
+    for i in range(n):
+        ts_i_ns = int(ts_ns[i])
+        if ts_i_ns <= fill_minute_ns:
+            continue  # never exit on (or before) the fill minute
+        if until_ns is not None and ts_i_ns > until_ns:
+            break  # past the caller's window — leave the lot open
+        bar_date = et_dates[i]
+        if bar_date > exit_session:
+            break  # past the max-hold horizon — handled below as a fallback
+
+        o = o_arr[i]
+        h = h_arr[i]
+        l = l_arr[i]
+        c = c_arr[i]
+        # Eligible frames carry numeric o/h/l/c, so _bar_field's is-None guard
+        # never fires; a present-NaN cell is processed (not skipped) exactly as
+        # the reference does. Running MFE / MAE excursion (NaN-safe via >/<):
+        if h > state.peak:
+            state.peak = h
+        if l < state.trough:
+            state.trough = l
+        clock = et_times[i]
+
+        # ---- Halt / LULD stress (Task 7) ---------------------------------
+        in_halt = halt_until_ns is not None and ts_i_ns < halt_until_ns
+        if halt_until_ns is not None and ts_i_ns >= halt_until_ns:
+            ts = idx[i]
+            px = _next_bid({"close": c, "timestamp": ts}, pos.symbol,
+                           quote_supplier=quote_supplier)
+            return _mk_exit(
+                pos, bar_date, px, "halt_resume_exit", ts,
+                state, entry_price, halted=True,
+            )
+
+        # Realism remediation 2 Phase 7 Task 3: venue-status halt defers exits.
+        if status_supplier is not None:
+            ts = idx[i]
+            try:
+                status = status_supplier(pos.symbol, ts)
+            except Exception:  # noqa: BLE001 — supplier failure is "no data"
+                status = None
+            if isinstance(status, dict):
+                status_val = str(status.get("status") or "").strip().lower()
+                if status_val in ("halted", "pending_review", "luld_pause"):
+                    state.halt_seen = True
+                    continue
+
+        # ---- gap-through (Task 2) ----------------------------------------
+        if not in_halt:
+            if o <= stop_price:
+                if is_severe and not state.halt_seen:
+                    state.halt_seen = True
+                    halt_until_ns = ts_i_ns + _HALT_SECONDS * 1_000_000_000
+                    continue
+                return _mk_exit(
+                    pos, bar_date, o, "gap_stop", idx[i], state, entry_price,
+                )
+            if o >= target_price:
+                if is_severe and not state.halt_seen:
+                    state.halt_seen = True
+                    halt_until_ns = ts_i_ns + _HALT_SECONDS * 1_000_000_000
+                    continue
+                return _mk_exit(
+                    pos, bar_date, o, "gap_target", idx[i], state, entry_price,
+                )
+
+        # ---- stop / target / same-minute (Tasks 1, 7) --------------------
+        stop_hit = l <= stop_price
+        target_hit = h >= target_price
+        if (stop_hit or target_hit) and not in_halt:
+            if is_severe and not state.halt_seen:
+                state.halt_seen = True
+                halt_until_ns = ts_i_ns + _HALT_SECONDS * 1_000_000_000
+                continue
+            ts = idx[i]
+            if stop_hit and target_hit:
+                winner = _resolve_same_minute(
+                    same_minute_resolution, seed_key=f"{seed_base}|{ts.isoformat()}"
+                )
+                if winner == "stop":
+                    return _mk_exit(
+                        pos, bar_date, float(stop_price), "stop", ts,
+                        state, entry_price, ambiguous=True,
+                    )
+                return _mk_exit(
+                    pos, bar_date, float(target_price), "target", ts,
+                    state, entry_price, ambiguous=True,
+                )
+            if stop_hit:
+                return _mk_exit(
+                    pos, bar_date, float(stop_price), "stop", ts,
+                    state, entry_price,
+                )
+            return _mk_exit(
+                pos, bar_date, float(target_price), "target", ts,
+                state, entry_price,
+            )
+
+        # ---- signal fade (Task 5) ----------------------------------------
+        if (
+            fade_enabled
+            and bar_date not in fade_fired_dates
+            and clock >= fade_clock
+        ):
+            fade_fired_dates.add(bar_date)
+            ts = idx[i]
+            score = None
+            try:
+                score = signal_score_fn(pos, ts)  # type: ignore[misc]
+            except Exception:  # noqa: BLE001 - re-scoring is best-effort
+                score = None
+            if score is not None:
+                tripped_name, tripped_val, tripped_reason = _fade_trip(
+                    float(score), fade_thresholds, fade_exit_on
+                )
+                if tripped_name is not None:
+                    if fade_active:
+                        px = _next_bid({"close": c, "timestamp": ts}, pos.symbol,
+                                       quote_supplier=quote_supplier)
+                        return _mk_exit(
+                            pos, bar_date, px, tripped_reason, ts,
+                            state, entry_price,
+                        )
+                    if fade_telemetry_out is not None:
+                        fade_telemetry_out.append(FadeTelemetry(
+                            symbol=pos.symbol,
+                            position_id=pos.position_id,
+                            eval_date=bar_date,
+                            eval_timestamp=ts.isoformat(),
+                            score=float(score),
+                            threshold_name=tripped_name,
+                            threshold_value=tripped_val,
+                            would_exit_reason=tripped_reason,
+                        ))
+
+        # ---- time stop (Task 3) ------------------------------------------
+        if time_stop_enabled and clock >= time_stop_clock:
+            ts = idx[i]
+            px = _next_bid({"close": c, "timestamp": ts}, pos.symbol,
+                           quote_supplier=quote_supplier)
+            return _mk_exit(
+                pos, bar_date, px, "time_stop", ts, state, entry_price,
+            )
+
+        # ---- max hold (Task 4) -------------------------------------------
+        if bar_date >= exit_session and clock >= _dt.time(15, 59):
+            # Reference: ``c if c is not None else _next_bid(...)``. For an
+            # eligible (numeric-close) frame ``c`` is never None — it is the
+            # float close (possibly NaN) — so the reference always takes ``c``.
+            px = c
+            return _mk_exit(
+                pos, bar_date, float(px), "max_hold", idx[i], state, entry_price,
+            )
+
+    # Walked the whole path with no exit — max-hold fallback on the last bar
+    # on/before the exit session (skipped when the caller bounded with until_ts).
+    if until_ns is not None:
+        return None
+    last_i = -1
+    for i in range(n):
+        if int(ts_ns[i]) <= fill_minute_ns:
+            continue
+        if et_dates[i] <= exit_session:
+            last_i = i
+    if last_i >= 0:
+        # Reference: ``c if c is not None else entry_price``. ``c`` is the
+        # eligible-frame float close (never None) → always used (matches ref).
+        px = c_arr[last_i]
+        return _mk_exit(
+            pos, et_dates[last_i], float(px), "max_hold", idx[last_i],
+            state, entry_price,
+        )
+    return None
+
+
+def walk_lot_exit(
+    pos: Position,
+    minute_bars: Optional[pd.DataFrame],
+    *,
+    exit_cfg: Optional[dict] = None,
+    same_minute_resolution: str = "conservative",
+    cost_stress: str = "base",
+    quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    signal_score_fn: Optional[Callable[[Position, pd.Timestamp], Optional[float]]] = None,
+    seed: int = 0,
+    fade_telemetry_out: Optional[list] = None,
+    until_ts: Optional[pd.Timestamp] = None,
+    feed: Optional[str] = None,
+    activation_artifact_dir: Optional[Path] = None,
+    status_supplier: Optional[Callable[..., Optional[dict]]] = None,
+) -> Optional[ExitEvent]:
+    """Walk one lot's minute path and return the earliest exit, or ``None``.
+
+    Dispatches to the numpy fast path (:func:`_walk_lot_exit_numpy`) for the
+    common case of a numeric-OHLC minute frame, falling back to the pandas
+    reference (:func:`_walk_lot_exit_pandas`) for non-numeric / missing-column
+    frames or when ``_FAST_EXIT_WALK`` is off. The two are byte-identical on
+    eligible frames (differential parity test), so this is transparent — the
+    fast path only removes per-bar ``Series`` construction + ``tz_convert``,
+    not any numeric work. See the two implementations for details.
+    """
+    if (
+        _FAST_EXIT_WALK
+        and minute_bars is not None
+        and len(minute_bars) >= _FAST_EXIT_WALK_MIN_BARS
+        and _exit_walk_fast_eligible(minute_bars)
+    ):
+        return _walk_lot_exit_numpy(
+            pos, minute_bars, exit_cfg=exit_cfg,
+            same_minute_resolution=same_minute_resolution, cost_stress=cost_stress,
+            quote_supplier=quote_supplier, signal_score_fn=signal_score_fn,
+            seed=seed, fade_telemetry_out=fade_telemetry_out, until_ts=until_ts,
+            feed=feed, activation_artifact_dir=activation_artifact_dir,
+            status_supplier=status_supplier,
+        )
+    return _walk_lot_exit_pandas(
+        pos, minute_bars, exit_cfg=exit_cfg,
+        same_minute_resolution=same_minute_resolution, cost_stress=cost_stress,
+        quote_supplier=quote_supplier, signal_score_fn=signal_score_fn,
+        seed=seed, fade_telemetry_out=fade_telemetry_out, until_ts=until_ts,
+        feed=feed, activation_artifact_dir=activation_artifact_dir,
+        status_supplier=status_supplier,
+    )
 
 
 def _fade_trip(
