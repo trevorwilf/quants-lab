@@ -729,6 +729,71 @@ def _estimate_matrix_size_gib(
     return (dynamic_bytes + static_bytes) / (1024.0 ** 3)
 
 
+def _eligible_pit_union_for_lineage(
+    cfg: Mapping[str, Any],
+    sessions: Sequence[_dt.date],
+    lake_root: Optional[Path],
+) -> Optional[Mapping[_dt.date, Sequence[str]]]:
+    """Probe the PIT-eligible universe over the first <=5 sessions.
+
+    Mirrors the probe :func:`build_scan_matrix` runs for its size estimate so
+    the verifier can reproduce the exact symbol set the build hashed. Returns
+    ``None`` (no usable probe) on any failure or when there is no lake/sessions.
+    """
+    if not (lake_root and sessions):
+        return None
+    try:
+        from bowaka_common.marketdata import MarketDataStore
+        from ..universe.builder import (
+            build_pit_universe_for_sessions, eligible_symbols,
+        )
+
+        probe = list(sessions[: min(5, len(sessions))])
+        pit = build_pit_universe_for_sessions(
+            probe, cfg, MarketDataStore(lake_root),
+        )
+        return {s: tuple(eligible_symbols(pit.get(s, {})) or ()) for s in probe}
+    except Exception:  # noqa: BLE001 — probe failure falls back to no-symbols
+        return None
+
+
+def _resolve_lineage_symbols(
+    cfg: Mapping[str, Any],
+    *,
+    eligible_pit: Optional[Mapping[_dt.date, Sequence[str]]] = None,
+    sessions: Optional[Sequence[_dt.date]] = None,
+    lake_root: Optional[Path] = None,
+) -> list[str]:
+    """The symbol list feeding ``build_dataset_lineage``'s symbol_universe_hash.
+
+    Single source of truth shared by the matrix BUILD and the VERIFY drift
+    check: an explicit ``universe.symbols`` when present, otherwise the
+    PIT-eligible union over the first <=5 sessions (a screener config has no
+    explicit list). The verifier MUST use this — not raw ``universe.symbols`` —
+    or a screener matrix's recomputed dataset_hash hashes an *empty* symbol set,
+    diverges from the build's PIT union, and raises a false
+    ``dataset_hash_drift`` that no rebuild can ever clear.
+
+    The build passes the ``eligible_pit`` probe it already ran; the verify path
+    leaves it ``None`` and supplies ``sessions`` + ``lake_root`` so the probe is
+    reproduced from the manifest's session list.
+    """
+    explicit = [str(s) for s in ((cfg.get("universe") or {}).get("symbols") or [])]
+    if explicit:
+        return explicit
+    if eligible_pit is None and sessions:
+        eligible_pit = _eligible_pit_union_for_lineage(cfg, sessions, lake_root)
+    out: list[str] = []
+    if eligible_pit:
+        seen: set[str] = set()
+        for syms in eligible_pit.values():
+            for s in syms:
+                if s not in seen:
+                    seen.add(s)
+                    out.append(str(s))
+    return out
+
+
 def build_scan_matrix(
     config_path: str | Path,
     *,
@@ -859,16 +924,12 @@ def build_scan_matrix(
         lab_config_hash = canonical_strategy_hash(cfg)
     except Exception:  # noqa: BLE001 — lab-config-hash is forensic only
         lab_config_hash = "unknown"
-    universe_syms = [
-        str(s) for s in ((cfg.get("universe") or {}).get("symbols") or [])
-    ]
-    if not universe_syms and eligible_pit:
-        seen: set[str] = set()
-        for syms in eligible_pit.values():
-            for s in syms:
-                if s not in seen:
-                    seen.add(s)
-                    universe_syms.append(str(s))
+    # Symbol set for the lineage hash: explicit universe.symbols, else the
+    # PIT-eligible union we already probed (a screener config has no explicit
+    # list). The verifier reproduces this via the SAME helper — see
+    # _resolve_lineage_symbols — so a screener matrix doesn't false-positive on
+    # dataset_hash_drift.
+    universe_syms = _resolve_lineage_symbols(cfg, eligible_pit=eligible_pit)
     lineage = build_dataset_lineage(
         cfg=cfg,
         symbols=universe_syms,
@@ -943,19 +1004,37 @@ def _expected_manifest_dataset_hash(
 ) -> str:
     """Re-derive the dataset_hash from the current lake state for comparison.
 
+    Reproduces the BUILD's symbol resolution (see :func:`_resolve_lineage_symbols`)
+    rather than reading raw ``universe.symbols``: a screener config has no
+    explicit symbol list, so the build hashed the PIT-eligible union and the
+    verifier must reproduce that union (probed from the manifest's session list)
+    or every screener matrix false-positives on ``dataset_hash_drift``.
+
     Returns ``""`` when the lineage cannot be rebuilt (e.g. lake unreachable)
     so the caller falls back to a tautology check.
     """
     from ..config.hashing import canonical_strategy_hash
-    from ..data.lineage import build_dataset_lineage
+    from ..data.lineage import build_dataset_lineage, resolve_lake_root, uses_lake
     try:
         lab_config_hash = canonical_strategy_hash(cfg)
     except Exception:  # noqa: BLE001
         lab_config_hash = "unknown"
     bt = cfg.get("backtest") or {}
-    syms = [
-        str(s) for s in ((cfg.get("universe") or {}).get("symbols") or [])
-    ]
+    lake_root: Optional[Path] = None
+    if uses_lake(cfg):
+        try:
+            lr = resolve_lake_root(cfg)
+            if lr is not None and lr.is_dir():
+                lake_root = lr
+        except Exception:  # noqa: BLE001 — lake resolution must not crash verify
+            lake_root = None
+    sessions: list[_dt.date] = []
+    for s in manifest.get("sessions", []):
+        try:
+            sessions.append(_dt.date.fromisoformat(str(s)))
+        except Exception:  # noqa: BLE001 — skip malformed session entries
+            continue
+    syms = _resolve_lineage_symbols(cfg, sessions=sessions, lake_root=lake_root)
     try:
         lineage = build_dataset_lineage(
             cfg=cfg,

@@ -119,7 +119,13 @@ def build_matrix_parity_fixture(
     raw["simulation"]["intraday_window_policy"] = "extended_hours_to_scan"
     cfg_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
 
-    store_root = tmp_path / "matrix"
+    # Scope-suffix the store root so it mirrors the real operator layout
+    # (.../scan_matrix/<scope>): a config's store_root that already names the
+    # scope is opened as-is by resolve_scan_matrix_store_root (no second
+    # /<scope> appended), so fixtures driven through build_fold_contexts resolve
+    # to the same location the build wrote. A bare .../matrix would be resolved
+    # to .../matrix/validation by the resolver and miss the manifest.
+    store_root = tmp_path / "matrix" / "validation"
     rc = cli.main([
         "scan-matrix", "build",
         "--config", str(cfg_path),
