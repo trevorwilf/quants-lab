@@ -46,10 +46,14 @@ def compute_prior_daily_baselines(
     lookback: int = 20,
     ema_n: int = 10,
     ema_slope_lookback: int = 3,
+    use_numba: bool = False,
 ) -> dict[str, float | None]:
     """Compute prior-daily baselines (ATR / volume / EMA) used by the scanner.
 
-    See module docstring for the causality contract.
+    See module docstring for the causality contract. ``use_numba`` (walk-forward
+    numba speedup Phase 1) routes the math through a compiled kernel that
+    replicates this exact algorithm (simple-mean TR / volume, ewm(adjust=False)
+    EMA); it falls back here when numba is not installed.
     """
     if daily_bars_df is None or len(daily_bars_df) == 0:
         return _empty_baselines()
@@ -59,6 +63,31 @@ def compute_prior_daily_baselines(
     needed = {"open", "high", "low", "close", "volume"}
     if not needed.issubset(df.columns):
         return _empty_baselines()
+
+    if use_numba:
+        from ._numba_scan_features import _NUMBA_AVAILABLE, compute_baselines_nb
+        if _NUMBA_AVAILABLE:
+            _o = compute_baselines_nb(
+                df["close"].to_numpy(dtype=np.float64),
+                df["high"].to_numpy(dtype=np.float64),
+                df["low"].to_numpy(dtype=np.float64),
+                df["volume"].to_numpy(dtype=np.float64),
+                int(atr_n), int(lookback), int(ema_n), int(ema_slope_lookback),
+            )
+
+            def _n(v: float) -> float | None:
+                return None if math.isnan(v) else float(v)
+
+            return {
+                "prior_close": _n(_o[0]),
+                "prior_atr_14d": _n(_o[1]),
+                "prior_atr_pct": _n(_o[2]),
+                "avg_volume_20d": _n(_o[3]),
+                "avg_dollar_volume_20d": _n(_o[4]),
+                "ema_10_prior": _n(_o[5]),
+                "ema_10_lag_3": _n(_o[6]),
+                "ema_slope_prior": _n(_o[7]),
+            }
 
     df["prev_close"] = df["close"].shift(1)
     tr = pd.concat([
@@ -250,7 +279,43 @@ def compute_forming_session_features(
     session_bar: dict[str, float | None],
     prior_baselines: dict[str, float | None],
     volume_curve_fraction: float,
+    *,
+    use_numba: bool = False,
 ) -> dict[str, float | None]:
+    if use_numba:
+        from ._numba_scan_features import _NUMBA_AVAILABLE, _forming_features_nb
+        if _NUMBA_AVAILABLE:
+            def _f(x: Any) -> float:
+                return float("nan") if x is None else float(x)
+
+            _a = _forming_features_nb(
+                _f(session_bar.get("session_volume")),
+                _f(session_bar.get("session_range")),
+                _f(session_bar.get("session_high")),
+                _f(session_bar.get("session_low")),
+                _f(session_bar.get("last_price")),
+                _f(session_bar.get("session_open")),
+                float(volume_curve_fraction),
+                _f(prior_baselines.get("avg_volume_20d")),
+                _f(prior_baselines.get("prior_atr_14d")),
+                _f(prior_baselines.get("prior_close")),
+                _f(prior_baselines.get("ema_10_prior")),
+            )
+
+            def _n(v: float) -> float | None:
+                return None if math.isnan(v) else float(v)
+
+            return {
+                "rvol_so_far": _n(_a[1]),
+                "projected_full_day_rvol": _n(_a[2]),
+                "range_expansion_so_far": _n(_a[3]),
+                "close_location_so_far": _n(_a[4]),
+                "ema_distance": _n(_a[5]),
+                "current_return_pct": _n(_a[6]),
+                "gap_pct": _n(_a[7]),
+                "expected_volume_until_scan": _n(_a[0]),
+            }
+
     sess_open = session_bar.get("session_open")
     sess_high = session_bar.get("session_high")
     sess_low = session_bar.get("session_low")

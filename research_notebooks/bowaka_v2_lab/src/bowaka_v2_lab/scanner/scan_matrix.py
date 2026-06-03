@@ -458,6 +458,39 @@ def _none_to_nan(v: Any) -> float:
     return fv
 
 
+def _numba_scan_features_enabled(cfg: Mapping[str, Any]) -> bool:
+    """True when ``optuna.acceleration.numba.enabled`` is set AND numba imports.
+
+    Walk-forward numba speedup Phase 1. Default OFF: an unset key, a falsey value,
+    or a missing numba install keeps the pure-Python feature path. One flag
+    controls both the build (here) and the legacy-scan kernel dispatch.
+    """
+    nb = (((cfg.get("optuna") or {}).get("acceleration") or {}).get("numba") or {})
+    if not bool(nb.get("enabled", False)):
+        return False
+    try:
+        from ..features._numba_scan_features import _NUMBA_AVAILABLE
+    except Exception:  # noqa: BLE001 — kernel-module import failure -> pure Python
+        return False
+    return bool(_NUMBA_AVAILABLE)
+
+
+def _baseline_scalar(baselines: Mapping[str, Any], key: str) -> float:
+    """``baselines[key]`` as float, with ``None``/NaN/unparseable -> NaN.
+
+    Mirrors the pure-Python truthiness guards: the kernel treats NaN as the
+    pure-Python ``None`` (so a ``0.0`` baseline still yields ``None``-equivalent
+    features via the ``> 0`` checks inside the kernel).
+    """
+    v = baselines.get(key)
+    if v is None:
+        return float("nan")
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
 def build_session_partition(
     session_date: _dt.date,
     cfg: Mapping[str, Any],
@@ -530,6 +563,23 @@ def build_session_partition(
         (hf_cfg.get("volume_curve") or {}).get("fallback_opening_15m_share", 0.08)
     )
 
+    # Walk-forward numba speedup Phase 1 — optional compiled feature kernels.
+    # Default OFF; when enabled the per-(scan, symbol) aggregate + features for a
+    # symbol are computed in one njit pass instead of the per-scan pandas slice.
+    # The ET minute-of-day per scan is precomputed here (tz conversion is not
+    # numba-safe); it feeds the fallback volume-curve the matrix always bakes.
+    use_numba = _numba_scan_features_enabled(cfg)
+    scan_mod_np = None
+    if use_numba and n_scans > 0:
+        from ..features.forming_bar import _et_minute_of_day
+        scan_mod_np = np.array([
+            _et_minute_of_day(
+                pd.Timestamp(s).tz_localize("UTC")
+                if pd.Timestamp(s).tzinfo is None else pd.Timestamp(s)
+            )
+            for s in scan_times
+        ], dtype=np.int64)
+
     stat_f64 = {col: np.full(n_symbols, np.nan, dtype=np.float64)
                 for col in STATIC_FLOAT64_COLUMNS}
     stat_i8 = {col: np.full(n_symbols, -1, dtype=np.int8)
@@ -570,6 +620,57 @@ def build_session_partition(
                 ts_col = c
                 break
         if ts_col is None:
+            continue
+
+        _cols = {c.lower(): c for c in full_bars.columns}
+        if use_numba and all(
+            k in _cols for k in ("open", "high", "low", "close", "volume")
+        ):
+            # Compiled path: one njit pass per symbol over all scans. Bars are
+            # sorted ascending by ns-UTC ts (forcing ns avoids the µs astype
+            # gotcha) so the cumulative reductions match the per-scan slice.
+            from ..features._numba_scan_features import build_session_columns_nb
+            _bts = pd.DatetimeIndex(full_bars[ts_col])
+            if _bts.tz is not None:
+                _bts = _bts.tz_convert("UTC")
+            _ts_raw = _bts.tz_localize(None).to_numpy(dtype="datetime64[ns]").astype("int64")
+            _order = np.argsort(_ts_raw, kind="stable")
+            _bar_ts_ns = _ts_raw[_order]
+            _o = full_bars[_cols["open"]].to_numpy(dtype=np.float64)[_order]
+            _h = full_bars[_cols["high"]].to_numpy(dtype=np.float64)[_order]
+            _l = full_bars[_cols["low"]].to_numpy(dtype=np.float64)[_order]
+            _c = full_bars[_cols["close"]].to_numpy(dtype=np.float64)[_order]
+            _v = full_bars[_cols["volume"]].to_numpy(dtype=np.float64)[_order]
+            (hb, hv, hbl, tsn, so, sh, sl, sla, sv, sr, ba,
+             vcf, expv, rvol, proj, rexp, cloc, edist, cret, gap) = build_session_columns_nb(
+                _bar_ts_ns, _o, _h, _l, _c, _v,
+                scan_ts_np, scan_mod_np, bool(baselines),
+                _baseline_scalar(baselines, "avg_volume_20d"),
+                _baseline_scalar(baselines, "prior_atr_14d"),
+                _baseline_scalar(baselines, "prior_close"),
+                _baseline_scalar(baselines, "ema_10_prior"),
+                fallback_share,
+            )
+            dyn_u8["has_bar"][:, s_idx] = hb
+            dyn_u8["has_valid_timestamp"][:, s_idx] = hv
+            dyn_u8["has_baseline"][:, s_idx] = hbl
+            dyn_i64["last_bar_ts_ns"][:, s_idx] = tsn
+            dyn_f64["session_open"][:, s_idx] = so
+            dyn_f64["session_high"][:, s_idx] = sh
+            dyn_f64["session_low"][:, s_idx] = sl
+            dyn_f64["last_price"][:, s_idx] = sla
+            dyn_f64["session_volume"][:, s_idx] = sv
+            dyn_f64["session_range"][:, s_idx] = sr
+            dyn_f64["bar_age_seconds"][:, s_idx] = ba
+            dyn_f64["volume_curve_fraction"][:, s_idx] = vcf
+            dyn_f64["expected_volume_until_scan"][:, s_idx] = expv
+            dyn_f64["rvol_so_far"][:, s_idx] = rvol
+            dyn_f64["projected_full_day_rvol"][:, s_idx] = proj
+            dyn_f64["range_expansion_so_far"][:, s_idx] = rexp
+            dyn_f64["close_location_so_far"][:, s_idx] = cloc
+            dyn_f64["ema_distance"][:, s_idx] = edist
+            dyn_f64["current_return_pct"][:, s_idx] = cret
+            dyn_f64["gap_pct"][:, s_idx] = gap
             continue
 
         for t_idx, scan_ts in enumerate(scan_times):
