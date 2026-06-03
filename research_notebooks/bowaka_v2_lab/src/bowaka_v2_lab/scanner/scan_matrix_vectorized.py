@@ -376,6 +376,23 @@ def evaluate_one_scan_vectorized(
                 continue
 
         s_idx = int(order_idxs[i])
+        ok = bool(gate_pass_all[i])
+
+        # Speedup (per-trial scan floor): the per-cell session_bar / forming-
+        # feats reconstruction (+ the per-gate dict, vcf, baseline scalars) is
+        # consumed ONLY by a gate_dump row or by a PASSING candidate's event. In
+        # objective mode (collect_gate_dump=False) a gate-FAILING symbol — the
+        # vast majority each scan — discards all of it, so the reconstruction
+        # below was pure dead work. Count the rejection and skip it. Emitted
+        # events / scores / state / rejection counts are byte-identical (this is
+        # dead-work elimination, NOT a semantic change); the existing three-way
+        # parity tests run collect_gate_dump=False and guard it end-to-end.
+        if not ok and not collect_gate_dump:
+            result.rejection_counts[ScanSkipReason.GATE_FAILED.value] = (
+                int(result.rejection_counts.get(ScanSkipReason.GATE_FAILED.value, 0)) + 1
+            )
+            continue
+
         adv_i = None if np.isnan(adv[i]) else float(adv[i])
         patr_i = None if np.isnan(prior_atr_pct[i]) else float(prior_atr_pct[i])
         eslope_i = None if np.isnan(ema_slope[i]) else float(ema_slope[i])
@@ -386,8 +403,6 @@ def evaluate_one_scan_vectorized(
                 volume_curve, scan_ts_obj, bucket,
                 fallback_opening_15m_share=fallback_share,
             )
-
-        ok = bool(gate_pass_all[i])
         gates = {name: bool(gate_masks[name][i]) for name in _GATE_ORDER}
         score = float(score_vec[i]) if ok else None
         sess = _reconstruct_session_bar(matrix_session, scan_idx, s_idx)
@@ -395,27 +410,23 @@ def evaluate_one_scan_vectorized(
         baselines = cache_by_sym.get(symbol)
 
         if not ok:
-            if collect_gate_dump:
-                dump_row = _row(
-                    symbol, ok=False,
-                    failing_gates=sorted(k for k, v in gates.items() if not v),
-                    gate_results=gates, features=feats,
-                    baselines={
-                        "prior_close": baselines.get("prior_close"),
-                        "prior_atr_pct": patr_i,
-                        "ema_slope_prior": eslope_i,
-                        "avg_dollar_volume_20d": adv_i,
-                    },
-                    session_bar=sess, volume_curve_fraction=vcf,
-                    instrument_class=meta.get("instrument_class"), score=score,
-                )
-                dump_row["rejection_reason"] = ScanSkipReason.GATE_FAILED.value
-                dump_row["skipped"] = ScanSkipReason.GATE_FAILED.value
-                result.gate_dump.append(dump_row)
-            else:
-                result.rejection_counts[ScanSkipReason.GATE_FAILED.value] = (
-                    int(result.rejection_counts.get(ScanSkipReason.GATE_FAILED.value, 0)) + 1
-                )
+            # collect_gate_dump is True here (the False case continued above).
+            dump_row = _row(
+                symbol, ok=False,
+                failing_gates=sorted(k for k, v in gates.items() if not v),
+                gate_results=gates, features=feats,
+                baselines={
+                    "prior_close": baselines.get("prior_close"),
+                    "prior_atr_pct": patr_i,
+                    "ema_slope_prior": eslope_i,
+                    "avg_dollar_volume_20d": adv_i,
+                },
+                session_bar=sess, volume_curve_fraction=vcf,
+                instrument_class=meta.get("instrument_class"), score=score,
+            )
+            dump_row["rejection_reason"] = ScanSkipReason.GATE_FAILED.value
+            dump_row["skipped"] = ScanSkipReason.GATE_FAILED.value
+            result.gate_dump.append(dump_row)
             continue
 
         dump_row = _row(
