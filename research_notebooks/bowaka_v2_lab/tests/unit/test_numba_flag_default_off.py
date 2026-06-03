@@ -12,7 +12,12 @@ import pytest
 import yaml
 
 _CONFIGS = Path(__file__).resolve().parents[2] / "configs"
-_BASE_CONFIGS = sorted(_CONFIGS.glob("bowaka_v2_*.yml"))
+# Base configs must keep numba OFF; the dedicated enablement overlay (*numba*) is
+# excluded from this sweep and pinned ON by a positive test below.
+_BASE_CONFIGS = sorted(p for p in _CONFIGS.glob("bowaka_v2_*.yml") if "numba" not in p.name)
+_NUMBA_OVERLAY = (
+    _CONFIGS / "bowaka_v2_actual_iex_current_code_optuna.workstation.matrix.numba.yml"
+)
 
 
 def _numba_enabled(raw: dict) -> bool:
@@ -38,3 +43,18 @@ def test_numba_flag_parses_false_when_absent() -> None:
     assert _numba_enabled({}) is False
     assert _numba_enabled({"optuna": {}}) is False
     assert _numba_enabled({"optuna": {"acceleration": {}}}) is False
+
+
+def test_numba_overlay_excluded_from_base_sweep() -> None:
+    assert all("numba" not in p.name for p in _BASE_CONFIGS)
+
+
+def test_numba_overlay_enables_numba() -> None:
+    assert _NUMBA_OVERLAY.is_file(), "matrix.numba enablement overlay is missing"
+    raw = yaml.safe_load(_NUMBA_OVERLAY.read_text(encoding="utf-8")) or {}
+    assert _numba_enabled(raw), (
+        "the enablement overlay must set optuna.acceleration.numba.enabled: true"
+    )
+    # It must still be the vectorized matrix overlay (numba complements the matrix).
+    sm = (((raw.get("optuna") or {}).get("acceleration") or {}).get("scan_matrix") or {})
+    assert sm.get("runtime_mode") == "vectorized"

@@ -42,6 +42,13 @@ dev = [
     "isort>=5.12",
     "jupyter>=1.0",
 ]
+# Walk-forward numba speedup (optional). Compiled scan-feature kernels for a
+# faster scan-matrix build/rebuild; default OFF and gated by
+# optuna.acceleration.numba.enabled. Absent numba -> pure-Python fallback.
+#   pip install -e .[numba]    then    python scripts/warm_numba_cache.py
+numba = [
+    "numba>=0.60.0",
+]
 
 [project.scripts]
 bowaka-v2-lab = "bowaka_v2_lab.cli:main"

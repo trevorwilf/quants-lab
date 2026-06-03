@@ -233,3 +233,31 @@ Then point notebook 10's `CONFIG_PATH` at the matrix overlay. See
 (budget table, holdout/search-space safety, rebuild triggers) and
 `scripts/benchmark_walkforward_trial.py` for a per-trial wall-clock + 5000-trial
 budget sanity check.
+
+## Walk-forward numba kernels verification
+
+Optional compiled `@njit(cache=True)` scan-feature kernels make the (weekly)
+scan-matrix **build/rebuild** faster — a constant-factor lever complementing the
+matrix (the algorithmic lever). Default OFF, gated by
+`optuna.acceleration.numba.enabled`, with a pure-Python fallback when numba is
+absent. Enable with `pip install -e .[numba]`, run `scripts/warm_numba_cache.py`
+once, then build with the overlay
+`configs/bowaka_v2_actual_iex_current_code_optuna.workstation.matrix.numba.yml`.
+Re-prove parity with:
+
+```bash
+cd research_notebooks/bowaka_v2_lab
+make verify-walkforward-numba
+# windows: make verify-walkforward-numba PYTHON=C:/Python312/python.exe
+```
+
+It runs kernel-vs-fixture parity (bools/ints exact, floats `atol<=1e-10`), the
+LOAD-BEARING build-parity test (build one session numba OFF vs ON → every matrix
+column byte-equal for ints/bools, `atol<=1e-10` for floats), and the
+default-off invariant; prints `Walkforward numba kernels: OK` in <2 min.
+`scan-matrix verify` stays numba-OFF as the canonical, kernel-independent proof.
+The Phase-2 sim exit kernel was skipped after a measurement gate (the post-matrix
+per-trial residual is bar fetching/slicing, and `walk_lot_exit` always runs with
+live suppliers in `current_code_parity`). See
+`docs/walkforward_numba_runbook.md` and
+`PHASE_NOTES/walkforward_numba_kernels.md`.

@@ -7,7 +7,8 @@
 
 .PHONY: install test test-fast test-unit test-parity test-integration \
         test-reconcile test-live test-all smoke notebooks verify-bayesian-fix \
-        verify-session-window-parity verify-walkforward-speedup clean
+        verify-session-window-parity verify-walkforward-speedup \
+        verify-walkforward-numba clean
 
 # bowaka_common lives one directory up; both must be importable for the suite.
 PYTHONPATH := src:../bowaka_common/src
@@ -125,6 +126,27 @@ verify-walkforward-speedup:
 	    echo "Walkforward speedup wiring: OK"; \
 	  else \
 	    echo "Walkforward speedup wiring: FAIL (pytest exit=$$rc)"; \
+	  fi; \
+	  exit $$rc
+
+# Walk-forward numba kernels (Phase 3). Proves the scan-feature kernels are
+# bit-equivalent to the pure-Python path (kernel-vs-fixture parity + the
+# LOAD-BEARING build-parity: matrix numba OFF vs ON byte-equal) and that numba is
+# OFF by default on every base config. <2 min. The Phase-2 sim kernel was skipped
+# (measurement gate — see PHASE_NOTES/walkforward_numba_kernels.md), so there is
+# no sim end-to-end leg. scan-matrix verify stays numba-OFF as the canonical proof.
+verify-walkforward-numba:
+	@set +e; \
+	  $(PYTEST) \
+	    tests/unit/scanner/test_numba_scan_feature_parity.py \
+	    tests/unit/test_numba_flag_default_off.py \
+	    tests/integration/test_numba_scan_matrix_build_parity.py \
+	    -q --tb=short; \
+	  rc=$$?; \
+	  if [ $$rc -eq 0 ]; then \
+	    echo "Walkforward numba kernels: OK"; \
+	  else \
+	    echo "Walkforward numba kernels: FAIL (pytest exit=$$rc)"; \
 	  fi; \
 	  exit $$rc
 
