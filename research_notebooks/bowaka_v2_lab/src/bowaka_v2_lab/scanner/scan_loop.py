@@ -169,6 +169,15 @@ def evaluate_one_scan(
     fallback_share = float(
         (hf_cfg.get("volume_curve") or {}).get("fallback_opening_15m_share", 0.08)
     )
+    # Walk-forward numba speedup Phase 1 — route the per-symbol forming-feature
+    # math through the shared compiled kernel when enabled (the SAME kernel the
+    # scan-matrix build uses, so build-path and scan-path stay parity-equal).
+    # Default OFF; compute_forming_session_features falls back to pure Python
+    # when numba is not installed.
+    _numba_feats = bool(
+        (((cfg.get("optuna") or {}).get("acceleration") or {}).get("numba") or {})
+        .get("enabled", False)
+    )
     # Per [Report §15.2 P1]: emitted count capped by min(max_candidates_per_scan, max_entries_per_scan).
     max_candidates = int(scanner_cfg.get("max_candidates_per_scan", 25))
     max_entries = int(scanner_cfg.get("max_entries_per_scan", max_candidates))
@@ -396,7 +405,7 @@ def evaluate_one_scan(
         if _counters_on:
             _bump(scanner_time_aggregate_seconds=time.perf_counter() - _t_agg)
         _t_feat = time.perf_counter() if _counters_on else 0.0
-        feats = compute_forming_session_features(sess, baselines, vcf)
+        feats = compute_forming_session_features(sess, baselines, vcf, use_numba=_numba_feats)
         if _counters_on:
             _bump(scanner_time_features_seconds=time.perf_counter() - _t_feat)
         _t_gate = time.perf_counter() if _counters_on else 0.0

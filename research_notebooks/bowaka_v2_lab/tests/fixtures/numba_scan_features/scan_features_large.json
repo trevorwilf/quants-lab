@@ -1,0 +1,13 @@
+{
+  "type": "scan_features",
+  "size": "large",
+  "n_daily": 80,
+  "n_minute": 390,
+  "n_scans": 84,
+  "scan_step_min": 5,
+  "fallback_share": 0.08,
+  "atr_n": 14,
+  "lookback": 20,
+  "ema_n": 10,
+  "ema_slope_lookback": 3
+}
