@@ -39,7 +39,11 @@ from ..data.suppliers import (
     resolve_intraday_window_policy,
 )
 from ..sim.schedule import scan_times_for_session
-from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
+from ..universe.builder import (
+    build_pit_universe_for_sessions,
+    dq_cache_symbol_set,
+    eligible_symbols,
+)
 from .calendar_sessions import calendar_sessions_half_open
 from .errors import OptunaStudyInvalidError
 from .holdout_guard import HoldoutGuard
@@ -377,8 +381,12 @@ def _build_one_fold_context(
             )
             md = cfg.get("market_data") or {}
             sim = cfg.get("simulation") or {}
+            # Key the cache on the same shape-robust eligible union the backtester
+            # check side uses (``dq_cache_symbol_set``) so the two agree. For a
+            # universe with eligible symbols this equals ``_stamp_symbols``; the
+            # shared helper removes the chance of the two sides drifting again.
             symbols_hash = _hashlib.sha256(
-                ",".join(_stamp_symbols).encode("utf-8")
+                ",".join(dq_cache_symbol_set(universe)).encode("utf-8")
             ).hexdigest()[:16]
             # Speedup hotfix 2026-05-27 — resolve the lake root the same way
             # the trial reader does (md.shared_root → dataset_lineage.lake_root

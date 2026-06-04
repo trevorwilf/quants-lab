@@ -500,6 +500,8 @@ def _build_dq_report_with_optional_cache(
     scan_times_per_session,
     daily_cache_by_session,
     session_minute_supplier,
+    cache_key_symbols: Optional[list[str]] = None,
+    reuse_cached_invariant_only: bool = False,
 ) -> dict[str, Any]:
     """Build the DQ report — using the cached invariant half when available.
 
@@ -553,8 +555,17 @@ def _build_dq_report_with_optional_cache(
     cache_key = cached_invariant_report.get("_cache_key") or {}
     md = cfg.get("market_data") or {}
     sim = cfg.get("simulation") or {}
+    # The stamp side (fold_context) keys the cache on the per-fold ELIGIBLE
+    # symbol union. ``requested_symbols`` here is derived from
+    # ``universe_snapshot_by_session`` via ``u.get("symbols")``, which is EMPTY
+    # for the raw ``{symbol: record}`` PIT shape — so keying on it never matched
+    # the stamp and the invariant DQ report was rebuilt every fold. Prefer the
+    # caller-supplied ``cache_key_symbols`` (the eligible union, computed
+    # shape-robustly via ``dq_cache_symbol_set``); fall back to the legacy
+    # ``requested_symbols`` only when it is not provided.
+    _key_symbols = cache_key_symbols if cache_key_symbols is not None else requested_symbols
     symbols_hash = _hashlib.sha256(
-        ",".join(sorted(requested_symbols)).encode("utf-8")
+        ",".join(sorted(_key_symbols)).encode("utf-8")
     ).hexdigest()[:16]
     # Lake-root hotfix 2026-05-29 — route through the helper so the
     # dataset_lineage fallback honoured for replay paths is coerced;
@@ -590,10 +601,24 @@ def _build_dq_report_with_optional_cache(
             )
             return _full_rebuild()
 
-    # Cache key matches — recompute only the trial-dependent half and merge.
+    # Cache key matches.
     _bump("startup_dq_cached_hits")
     invariant_half = dict(cached_invariant_report)
     invariant_half.pop("_cache_key", None)  # drop the bookkeeping field
+    if reuse_cached_invariant_only:
+        # Per-trial speedup: the expensive part of the DQ build is RE-READING
+        # the per-fold daily bars (~36k parquet reads), and the trial-dependent
+        # checks re-read them too — so caching only the invariant *checks* saves
+        # nothing. In a mode where the trial-dependent checks neither gate the
+        # run (current_code_parity / smoke_fixture gate ONLY on the invariant
+        # adjustment checks — see ``evaluate_startup_dq``) nor get persisted
+        # (objective_minimal), the whole trial-dependent rebuild is skipped and
+        # the cached invariant report is reused as-is. The objective is
+        # DQ-independent in these modes (A/B parity:
+        # scripts/_ab_dq_cache.py + tests), so this is observationally inert
+        # for the per-trial result while removing the ~81%-of-wall-clock reads.
+        return invariant_half
+    # Otherwise recompute only the trial-dependent half and merge.
     trial_half = _build_dq(classify_filter="trial_dependent")
     return merge_dq_reports(invariant_half, trial_half)
 
@@ -684,6 +709,16 @@ def run_backtest(
     requested_symbols = sorted(
         {s["symbol"] for u in universe_snapshot_by_session.values() for s in u.get("symbols", [])}
     )
+    # Per-trial speedup: the startup_dq_cache key is the per-fold ELIGIBLE symbol
+    # union, computed shape-robustly so it matches the stamp side (fold_context)
+    # regardless of whether the universe arrives as the raw {symbol: record} PIT
+    # form or the scanner-snapshot {"symbols": [...]} form. ``requested_symbols``
+    # above is EMPTY for the raw form (``.get("symbols")`` is absent there), so it
+    # cannot be used to key the cache. ``requested_symbols`` is still used for the
+    # dataset lineage below (unchanged — this only fixes the cache key).
+    from ..universe.builder import dq_cache_symbol_set
+
+    cache_key_symbols = dq_cache_symbol_set(universe_snapshot_by_session)
     date_start = sessions[0] if sessions else None
     date_end = sessions[-1] if sessions else None
     dataset_lineage = build_dataset_lineage(
@@ -726,6 +761,17 @@ def run_backtest(
         scan_times_per_session=scan_times_per_session,
         daily_cache_by_session=daily_cache_by_session,
         session_minute_supplier=session_minute_supplier,
+        cache_key_symbols=cache_key_symbols,
+        # Per-trial speedup: in the per-trial objective path (objective_minimal)
+        # under a mode that gates only on the invariant adjustment checks
+        # (current_code_parity / smoke_fixture), reuse the cached invariant DQ
+        # report and skip the trial-dependent rebuild's redundant daily-bar
+        # reads. Full-artifact runs and intended_realism keep the complete
+        # report (the latter gates on trial-dependent checks too).
+        reuse_cached_invariant_only=(
+            artifact_mode == "objective_minimal"
+            and sim_cfg.mode in ("current_code_parity", "smoke_fixture")
+        ),
     )
     if artifact_mode == "full":
         atomic_write_json(run_dir / "data_quality_report.json", data_quality_report)
