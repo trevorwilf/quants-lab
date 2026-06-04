@@ -650,6 +650,36 @@ def to_scanner_snapshot(
     return {"universe_hash": universe_hash(records), "symbols": symbols, "synthetic": False}
 
 
+def dq_cache_symbol_set(universe_by_session: Mapping[Any, Any]) -> list[str]:
+    """The deterministic eligible-symbol union that keys the ``startup_dq_cache``.
+
+    Shape-robust over the two universe shapes that reach the DQ build, both of
+    which resolve to the SAME eligible union for a given universe:
+
+    * raw PIT form ``{session: {symbol: UniverseRecord}}`` — the per-session
+      value is ``Mapping[symbol, UniverseRecord]``; the eligible symbols come
+      from :func:`eligible_symbols`. This is what the fold-context builder and
+      ``_run_fold_backtest_objective`` carry.
+    * scanner-snapshot form ``{session: {"symbols": [{symbol, ...}], ...}}`` —
+      already only eligible symbols (see :func:`to_scanner_snapshot`).
+
+    Used on BOTH the stamp side (fold_context) and the check side (backtester)
+    so the cache-key ``symbols_hash`` agrees. The pre-fix backtester read
+    ``u.get("symbols")`` on the RAW form — absent there → an empty set → the
+    key never matched the stamp's and the (objective-invariant) DQ report was
+    rebuilt on every fold (~81% of the per-trial wall-clock).
+    """
+    syms: set[str] = set()
+    for u in universe_by_session.values():
+        if isinstance(u, Mapping) and "symbols" in u:
+            syms.update(
+                str(x["symbol"]) for x in (u.get("symbols") or []) if "symbol" in x
+            )
+        else:
+            syms.update(eligible_symbols(u))
+    return sorted(syms)
+
+
 def funnel(records: Mapping[str, UniverseRecord]) -> dict[str, Any]:
     """Build the per-session universe funnel: starting count + per-reason counts.
 
