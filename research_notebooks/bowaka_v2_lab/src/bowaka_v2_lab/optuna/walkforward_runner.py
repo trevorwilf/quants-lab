@@ -359,8 +359,11 @@ def _resolve_symbols(
             # the underlying lake gap.
             from bowaka_common.marketdata import available_symbols
 
+            from ..data.adjustment import daily_adjustment_for_config
+
             return available_symbols(
                 lake_root, timeframe="1d", feed=md.get("feed", "iex"),
+                adjustment=daily_adjustment_for_config(cfg),
             )
         return sorted(union)
 
@@ -368,9 +371,12 @@ def _resolve_symbols(
         from ..data.lineage import _coerce_lake_root, resolve_lake_root
         from bowaka_common.marketdata import available_symbols
 
+        from ..data.adjustment import daily_adjustment_for_config
+
         return available_symbols(
             _coerce_lake_root(resolve_lake_root(cfg)),
             timeframe="1d", feed=md.get("feed", "iex"),
+            adjustment=daily_adjustment_for_config(cfg),
         )[:cap]
     return ["AAA", "BBB", "CCC"]
 
