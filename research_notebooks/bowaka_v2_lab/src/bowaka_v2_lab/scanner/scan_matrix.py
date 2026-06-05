@@ -547,8 +547,11 @@ def build_session_partition(
     n_symbols = len(symbols)
     dyn_f64, dyn_i64, dyn_u8 = _empty_dynamic_arrays(n_scans, n_symbols)
 
+    from ..data.adjustment import daily_adjustment_for_config
+
     daily_cache = build_daily_cache_from_lake(
         lake_root, symbols, session_date, feed=feed,
+        daily_adjustment=daily_adjustment_for_config(cfg),
     )
     cache_by_sym = {row["symbol"]: row.to_dict()
                     for _, row in daily_cache.iterrows()} if not daily_cache.empty else {}

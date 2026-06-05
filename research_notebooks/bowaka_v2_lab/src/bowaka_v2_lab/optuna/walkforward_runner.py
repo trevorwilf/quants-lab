@@ -508,10 +508,14 @@ def _run_fold_backtest(
         )
         forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
         universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
+        from ..data.adjustment import daily_adjustment_for_config
+
         daily_cache = {}
         for s in sessions:
             sess_syms = eligible_symbols(universe.get(s, {})) or symbols
-            daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
+            daily_cache[s] = build_daily_cache_from_lake(
+                lake_root, sess_syms, s, feed=feed,
+                daily_adjustment=daily_adjustment_for_config(cfg))
         scan_times_callable = lambda d: scan_times_for_session(d, cfg)  # noqa: E731
     else:
         sessions = list(ctx.sessions)
@@ -610,10 +614,14 @@ def _run_fold_backtest_objective(
         )
         forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
         universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
+        from ..data.adjustment import daily_adjustment_for_config
+
         daily_cache: dict[_dt.date, Any] = {}
         for s in sessions:
             sess_syms = eligible_symbols(universe.get(s, {})) or symbols
-            daily_cache[s] = build_daily_cache_from_lake(lake_root, sess_syms, s, feed=feed)
+            daily_cache[s] = build_daily_cache_from_lake(
+                lake_root, sess_syms, s, feed=feed,
+                daily_adjustment=daily_adjustment_for_config(cfg))
         scan_times_callable = lambda d: scan_times_for_session(d, cfg)  # noqa: E731
     else:
         sessions = list(ctx.sessions)
