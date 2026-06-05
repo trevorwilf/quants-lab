@@ -1,31 +1,33 @@
 #!/usr/bin/env pwsh
 # rebuild_scan_matrices.ps1
 #
-# Rebuild the bowaka_v2 SIP scan matrices (validation + holdout) used by the
-# vectorized walk-forward studies and the top-N robustness/holdout sweep.
+# Rebuild the bowaka_v2 scan matrices (validation + holdout) that notebook 10's
+# walk-forward study and top-N holdout sweep consume.
 #
-# Runs INSIDE the ql-jupyter container (which holds the quants-lab conda env).
-# The matrices are a rebuildable cache on the container overlay
-# (/opt/scan_matrix_cache/sip/{validation,holdout}); this script regenerates
-# them from the current SIP lake. Intended to be scheduled WEEKLY so the
-# matrices stay in sync with the nightly market-data backfill.
+# It resolves the SAME base config notebook 10 uses (configs/_local_container_matrix.yml)
+# the SAME way (resolve_walkforward_config, feed auto-detected from the lake), then builds
+# + verifies each scope at the store_root the fold-context resolves to. Building against
+# the notebook's resolved config is REQUIRED so the matrix config-hash matches what the
+# study/sweep checks (a matrix built from a different config is silently rejected).
 #
-#   .\rebuild_scan_matrices.ps1                 # SIP val + holdout, verify each
-#   .\rebuild_scan_matrices.ps1 -Workers 10     # override worker count
-#   .\rebuild_scan_matrices.ps1 -Config configs/_local_container_matrix_sip.yml
+# Runs INSIDE the ql-jupyter container. The matrices are a rebuildable cache on the
+# container overlay; this regenerates them from the current lake. Schedule WEEKLY so they
+# stay in sync with the nightly market-data backfill.
 #
-# Register as a weekly Windows scheduled task (Saturday 02:00, your user):
-#   schtasks /Create /TN "bowaka_v2 SIP scan-matrix rebuild" /SC WEEKLY /D SAT /ST 02:00 `
+#   .\rebuild_scan_matrices.ps1                 # default notebook config, 6 workers
+#   .\rebuild_scan_matrices.ps1 -Workers 10
+#   .\rebuild_scan_matrices.ps1 -Config configs/_local_container_matrix.yml
+#
+# Weekly Windows scheduled task (Saturday 02:00, your user):
+#   schtasks /Create /TN "bowaka_v2 scan-matrix rebuild" /SC WEEKLY /D SAT /ST 02:00 `
 #     /TR "pwsh -NoProfile -ExecutionPolicy Bypass -File E:\tradingsoftware\quants-lab\rebuild_scan_matrices.ps1"
 #
-# Schedule it for a window when NO study is running — a rebuild overwrites the
-# store a running study reads from. Requires SIP bars present in the lake
-# (build fails loud otherwise).
+# Schedule it for a window when NO study is running (a rebuild overwrites the store a
+# running study reads). Requires SIP (or IEX) bars in the lake (build fails loud otherwise).
 #
 param(
-    [string]$Config    = "configs/_local_container_matrix_sip.yml",
-    [int]   $Workers   = 8,
-    [string]$StoreBase = "/opt/scan_matrix_cache/sip"
+    [string]$Config  = "configs/_local_container_matrix.yml",
+    [int]   $Workers = 6
 )
 $ErrorActionPreference = "Stop"
 $Container = "ql-jupyter"
@@ -36,30 +38,43 @@ if ($running -ne $Container) {
     exit 1
 }
 
-# MARKET_DATA_ROOT is exported INSIDE the container, NOT via `docker exec -e`:
-# Git Bash / MSYS on a Windows host rewrites a bare /opt/... argument into a
-# Windows path (e.g. C:/Program Files/Git/opt/...), silently mis-targeting the
-# lake. Exporting it inside the bash -lc string (one argument) avoids that.
+# MARKET_DATA_ROOT is exported INSIDE the container (NOT via `docker exec -e`): Git Bash /
+# MSYS on a Windows host rewrites a bare /opt/... argument into a Windows path. The Python
+# heredoc resolves the config + per-scope store roots exactly as notebook 10 does, then
+# builds + verifies both scopes.
 $inner = @"
 set -euo pipefail
 export MARKET_DATA_ROOT=/opt/market_data_cache
 export PYTHONPATH=src:../bowaka_common/src
 cd /quants-lab/research_notebooks/bowaka_v2_lab
-mkdir -p artifacts/cache/scan_matrix/build_logs
-PY=/opt/conda/envs/quants-lab/bin/python
-echo "[rebuild] start `$(date -u +%FT%TZ)  config=$Config  workers=$Workers  store=$StoreBase"
-for scope in validation holdout; do
-  echo "[rebuild] ===== build `$scope ====="
-  `$PY -m bowaka_v2_lab.cli scan-matrix build  --config $Config --scope `$scope --workers $Workers --store-root $StoreBase/`$scope
-  echo "[rebuild] ===== verify `$scope ====="
-  `$PY -m bowaka_v2_lab.cli scan-matrix verify --config $Config --store-root $StoreBase/`$scope --vectorized-check
-done
-echo "[rebuild] DONE `$(date -u +%FT%TZ)"
+echo "[rebuild] start config=$Config workers=$Workers"
+/opt/conda/envs/quants-lab/bin/python - "$Config" "$Workers" <<'PYEOF'
+import sys, subprocess
+from bowaka_v2_lab.optuna.autoconfig import resolve_walkforward_config
+from bowaka_v2_lab.scanner.scan_matrix import resolve_scan_matrix_store_root
+from bowaka_v2_lab.config.loader import load_config
+
+base, workers = sys.argv[1], sys.argv[2]
+resolved = "/tmp/scan_matrix_rebuild_resolved.yml"
+r = resolve_walkforward_config(base, feed_override="auto", out_path=resolved)
+print(f"[rebuild] resolved feed={r.feed} mode={r.mode}", flush=True)
+sm = load_config(resolved)["optuna"]["acceleration"]["scan_matrix"]
+for scope in ("validation", "holdout"):
+    root = str(resolve_scan_matrix_store_root(sm, scope))
+    print(f"[rebuild] ===== build {scope} -> {root} =====", flush=True)
+    subprocess.run([sys.executable, "-m", "bowaka_v2_lab.cli", "scan-matrix", "build",
+                    "--config", resolved, "--scope", scope, "--workers", str(workers),
+                    "--store-root", root], check=True)
+    print(f"[rebuild] ===== verify {scope} =====", flush=True)
+    subprocess.run([sys.executable, "-m", "bowaka_v2_lab.cli", "scan-matrix", "verify",
+                    "--config", resolved, "--store-root", root, "--vectorized-check"], check=True)
+print("[rebuild] DONE", flush=True)
+PYEOF
 "@
 
 $ts      = Get-Date -Format "yyyyMMdd_HHmmss"
 $hostLog = Join-Path $PSScriptRoot "rebuild_scan_matrices_$ts.log"
-Write-Host "Rebuilding SIP scan matrices (validation + holdout) -> $StoreBase"
+Write-Host "Rebuilding scan matrices (validation + holdout) for $Config"
 Write-Host "Log: $hostLog"
 docker exec $Container bash -lc $inner 2>&1 | Tee-Object -FilePath $hostLog
 $code = $LASTEXITCODE
