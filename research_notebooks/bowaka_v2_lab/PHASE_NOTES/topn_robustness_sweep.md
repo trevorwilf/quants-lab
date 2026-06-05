@@ -45,6 +45,42 @@ The neighbour-robustness pass is independent of the holdout and works as-is — 
 already separates the stable plateau (small dev→neighbour drop, low fold
 variance) from the fragile spikes.
 
+## PnL + quant metrics (the report now leads with PnL)
+
+`_agg_fold_metrics` pulls each finalist's per-fold metrics straight from the
+trial's `user_attrs["fold_metrics"]` (no re-run): **net_return_pct** (mean of
+folds), **mtm_max_drawdown_pct** (worst fold), worst_day_loss, win_rate,
+avg/median_trade_return_pct, n_trades (sum), fill_rate, frac_trades_ge_min_profit,
+plus per-fold detail. KEY READING NOTE surfaced in the report: the v2 **objective
+is log-return minus edge/turnover/fill penalties → it is negative even when PnL is
+positive**. On study `5f7a4857` the top-12 are all PROFITABLE (~+15–17% net
+return, 58–67% win rate, ~2–3% max DD, 73–95 trades) despite ~−0.87 objectives.
+The comparison table leads with Net ret% / Max DD% / Win% / Trades / Avg trade%,
+then Objective / FoldVar / NbObj-min / Robust? / Holdout net% / Combined; per
+finalist a full PnL + objective + robustness + holdout + params block.
+
+## Two single-best YAMLs + notebook integration
+
+`_export_yaml` writes `wr.apply_trial_params(base_cfg, params)` (gap/ratio →
+actual-strategy fields, optuna block stripped) for BOTH the **robustness winner**
+(combined-score #1 passing the gates) and the **study #1 by objective** (★ in the
+table) — `<out>_winner.yml` / `<out>_study_best.yml`. `--from-json` regenerates
+the markdown (+ YAMLs) from a prior run's JSON with the current verdict logic.
+
+**Runner flag:** `run_walkforward_study(..., skip_best_trial_report=True)` skips
+ONLY the slow internal single-best neighbour sweep (it re-runs folds in FULL
+artifact mode → DQ not cached → was the ~hours hang) while keeping the cheap
+ranking / best_params / clustering / promotion_evidence. The notebook passes it.
+
+**Notebook (`notebooks/10_optuna_walkforward.ipynb`):** cell 4 (the study) passes
+`skip_best_trial_report=True`; two new cells after the timing cell — a markdown
+header + a code cell that runs `scripts/topn_robustness_sweep.py` **as a
+subprocess** (fork-parallel is unsafe inside a Jupyter kernel — see the
+parity-speedup note) against `resolved.path` (the resolved config the study ran),
+streams progress, renders the markdown inline (`IPython.display.Markdown`), and
+lists the exported YAMLs. Knobs `TOP_N` / `NEIGHBOURS` / `JOBS` / `STUDY_NAME`
+(None → auto-detect the latest study).
+
 ## First run (study `5f7a4857_20260603`, pre-SIP — objectives negative by design)
 
 12 finalists, 7 neighbours, 8 fork-workers; contexts built in ~40 min, sweep
