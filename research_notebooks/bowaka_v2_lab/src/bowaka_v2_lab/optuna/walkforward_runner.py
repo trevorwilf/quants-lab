@@ -1788,6 +1788,7 @@ def run_walkforward_study(
     allow_current_code_parity_study: bool = False,
     tier: str | None = None,
     incumbent_trial: bool = False,
+    skip_best_trial_report: bool = False,
     log: logging.Logger | None = None,
 ) -> dict:
     """Run a real walk-forward Optuna study driven entirely by the config.
@@ -2810,8 +2811,20 @@ def run_walkforward_study(
     )
 
     # ---- best-trial reporting (Phase 9, Task 5) --------------------------
+    # ``skip_best_trial_report`` skips ONLY the single-best neighbour/robustness
+    # sweep (which re-runs folds in FULL artifact mode — DQ not cached, ~minutes
+    # per neighbour). The ranking, best_params, top-k clustering and promotion
+    # evidence below are cheap (no backtests) and still produced. Callers that
+    # do their own finalist evaluation (the top-N robustness sweep cell/tool)
+    # pass ``skip_best_trial_report=True`` to return as soon as the trials are in.
     best_report: dict[str, Any] = {}
-    if best is not None:
+    if best is not None and skip_best_trial_report:
+        best_report = {
+            "skipped": "single-best neighbour sweep skipped (skip_best_trial_report=True); "
+                       "evaluate finalists with the top-N robustness sweep "
+                       "(scripts/topn_robustness_sweep.py / notebook cell)",
+        }
+    elif best is not None:
         try:
             best_report = build_best_trial_report(
                 best, cfg, plan, lake_root=lake_root, feed=feed, symbols=symbols,
