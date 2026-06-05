@@ -43,6 +43,17 @@ minute_bars:
   # policy == all_daily -> minute bars for every symbol with daily bars (heavy).
   # policy == none      -> daily bars + assets only.
 
+# SIP NBBO quotes — required for full intended_realism (quote-aware fills/exits
+# + the quote-coverage gate). Fetched for the SAME (symbol, session) universe as
+# minute_bars (so keep minute_bars enabled), then down-sampled to one prevailing
+# NBBO per regular-session minute. SIP-only: set feed: sip above — IEX quotes are
+# partial-tape and are NOT used by realism. Heavy on a first run (the NBBO tick
+# stream must be fetched before sampling); scope start_date/end_date to the
+# windows you need and let nightly runs extend it incrementally.
+quotes:
+  enabled: false           # set true once on a SIP plan + feed: sip
+  batch_size_symbols: 25   # smaller than bars — quote tick volume is high
+
 # Alpaca API rate limiting.
 rate_limit_rpm: 180
 batch_size_symbols: 200

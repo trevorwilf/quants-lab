@@ -459,6 +459,218 @@ def make_alpaca_bars_fetcher(
 
 
 # ---------------------------------------------------------------------------
+# Quotes (SIP NBBO) — fetcher + per-minute sampling
+# ---------------------------------------------------------------------------
+# (batch_symbols, start_dt, end_dt) -> {symbol: [coerced quote-tick dict, ...]}
+QuotesFetcher = Callable[[list, datetime, datetime], dict]
+
+
+def _coerce_quote_row(symbol: str, q: Any) -> dict[str, Any]:
+    """Normalise one Alpaca NBBO quote (SDK object OR raw dict) to the canonical
+    lake quote schema: ``symbol, timestamp(UTC), bid, ask, bid_size, ask_size,
+    conditions`` — exactly what ``MarketDataStore.quotes_at_or_before`` reads."""
+    ts = getattr(q, "timestamp", None)
+    if ts is None and isinstance(q, dict):
+        ts = q.get("timestamp", q.get("t"))
+    ts = pd.Timestamp(ts)
+    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+    def _a(name: str, alt: str, default: Any = 0.0) -> Any:
+        if hasattr(q, name):
+            return getattr(q, name)
+        if isinstance(q, dict):
+            return q.get(name, q.get(alt, default))
+        return default
+
+    cond = _a("conditions", "c", None)
+    if isinstance(cond, (list, tuple)):
+        cond = ",".join(str(x) for x in cond)
+    return {
+        "symbol": symbol,
+        "timestamp": ts,
+        "bid": float(_a("bid_price", "bp", 0.0) or 0.0),
+        "ask": float(_a("ask_price", "ap", 0.0) or 0.0),
+        "bid_size": float(_a("bid_size", "bs", 0.0) or 0.0),
+        "ask_size": float(_a("ask_size", "as", 0.0) or 0.0),
+        "conditions": "" if cond is None else str(cond),
+    }
+
+
+def make_alpaca_quotes_fetcher(
+    cfg: BackfillConfig, limiter: RateLimiter, log: logging.Logger
+) -> QuotesFetcher:
+    """Return a :data:`QuotesFetcher` backed by the Alpaca historical quotes API.
+
+    Mirrors :func:`make_alpaca_bars_fetcher` but uses ``StockQuotesRequest`` /
+    ``get_stock_quotes`` and the configured ``feed`` (SIP for intended_realism).
+    Returns the full NBBO tick stream per symbol for the window; the caller
+    (:func:`fetch_quotes`) samples it down to one prevailing-NBBO snapshot per
+    minute.
+    """
+
+    def _fetch(batch: list, start_dt: datetime, end_dt: datetime) -> dict:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockQuotesRequest
+
+        client = StockHistoricalDataClient(api_key=cfg.api_key, secret_key=cfg.api_secret)
+        rows: dict[str, list[dict]] = {sym: [] for sym in batch}
+        page_token = None
+        while True:
+            limiter.acquire()
+            req = StockQuotesRequest(
+                symbol_or_symbols=batch,
+                start=start_dt,
+                end=end_dt,
+                feed=cfg.feed_enum,
+                page_token=page_token,
+            )
+            resp = with_retries(client.get_stock_quotes, req, log=log)
+            data = resp.data if hasattr(resp, "data") and isinstance(resp.data, dict) else {}
+            for sym, qlist in data.items():
+                for q in qlist or []:
+                    rows.setdefault(sym, []).append(_coerce_quote_row(sym, q))
+            page_token = getattr(resp, "next_page_token", None)
+            if not page_token:
+                break
+        return rows
+
+    return _fetch
+
+
+def _session_minute_boundaries_utc(session_date: date) -> pd.DatetimeIndex:
+    """The regular-session (09:30–16:00 ET, DST-aware) minute boundaries as UTC
+    timestamps — 09:30 … 15:59 (390 points), matching the minute-bar grid."""
+    open_et = pd.Timestamp(f"{session_date} 09:30", tz="America/New_York")
+    close_et = pd.Timestamp(f"{session_date} 16:00", tz="America/New_York")
+    return pd.date_range(open_et, close_et, freq="1min", inclusive="left").tz_convert("UTC")
+
+
+def _sample_session_nbbo(ticks: pd.DataFrame, session_date: date) -> pd.DataFrame:
+    """Down-sample a session's NBBO tick stream to one prevailing quote per minute.
+
+    For each regular-session minute boundary, keep the last quote at-or-before it
+    (its ACTUAL tick timestamp is preserved so quote-age telemetry is real). This
+    is exactly what the consumer's ``quotes_at_or_before(bar_ts)`` looks up and
+    the cardinality the synthetic-SIP fixture uses (≤390 rows/symbol/session).
+    """
+    if ticks is None or ticks.empty:
+        return ticks if ticks is not None else pd.DataFrame()
+    ticks = ticks.sort_values("timestamp").reset_index(drop=True)
+    boundaries = _session_minute_boundaries_utc(session_date)
+    merged = pd.merge_asof(
+        pd.DataFrame({"_boundary": boundaries}), ticks,
+        left_on="_boundary", right_on="timestamp", direction="backward",
+    )
+    cols = ["symbol", "timestamp", "bid", "ask", "bid_size", "ask_size", "conditions"]
+    out = merged.dropna(subset=["timestamp"])[[c for c in cols if c in merged.columns]]
+    return out.drop_duplicates(subset=["timestamp"]).reset_index(drop=True)
+
+
+def fetch_quotes(
+    cfg: BackfillConfig,
+    targets: pd.DataFrame,
+    log: logging.Logger,
+    limiter: RateLimiter,
+    *,
+    quotes_fetcher: QuotesFetcher | None = None,
+    batch_size: int | None = None,
+) -> dict:
+    """Fetch SIP NBBO quotes for every ``(session_date, symbol)`` in ``targets``,
+    down-sampled to one prevailing quote per minute. Writes per-symbol/month
+    Parquet at ``layout.quotes_path(feed=cfg.feed)``. Resume-aware: a pair whose
+    session is already present in the symbol's month file is skipped.
+
+    The (symbol, session) target set is the SAME as the minute-bar stage (the
+    traded universe), so quotes exist exactly where bars do.
+    """
+    stats = {
+        "pairs_requested": int(0 if targets is None else len(targets)),
+        "pairs_written": 0, "pairs_skipped_resume": 0, "pairs_empty": 0,
+        "batches_failed": 0, "months_written": 0,
+    }
+    if targets is None or len(targets) == 0:
+        return stats
+    fetcher = quotes_fetcher or make_alpaca_quotes_fetcher(cfg, limiter, log)
+    bsize = int(batch_size or cfg.batch_size_symbols)
+
+    tdf = targets.copy()
+    tdf["session_date"] = pd.to_datetime(tdf["session_date"]).dt.date
+    tdf["symbol"] = tdf["symbol"].astype(str)
+
+    covered: dict[str, set] = {}
+    if cfg.resume:
+        for sym in tdf["symbol"].unique():
+            sym_dir = _layout.quotes_symbol_dir(cfg.lake_root, sym, feed=cfg.feed)
+            dates: set = set()
+            if sym_dir.is_dir():
+                for f in sym_dir.rglob("part.parquet"):
+                    try:
+                        ts = pd.to_datetime(
+                            pd.read_parquet(f, columns=["timestamp"])["timestamp"], utc=True)
+                        dates |= set(ts.dt.date.unique())
+                    except Exception:  # noqa: BLE001
+                        continue
+            covered[sym] = dates
+
+    pairs_by_session: dict[date, list[str]] = {}
+    for sess, group in tdf.groupby("session_date"):
+        syms = sorted(set(group["symbol"]))
+        pending = [s for s in syms if not (cfg.resume and sess in covered.get(s, set()))]
+        stats["pairs_skipped_resume"] += len(syms) - len(pending)
+        if pending:
+            pairs_by_session[sess] = pending
+
+    accumulated: dict[tuple, list[pd.DataFrame]] = {}
+    for session, symbols in sorted(pairs_by_session.items()):
+        start_dt = datetime.combine(session, datetime.min.time()).replace(tzinfo=timezone.utc)
+        end_dt = start_dt + timedelta(days=1)
+        for batch in _chunks(symbols, bsize):
+            try:
+                ticks_acc = fetcher(batch, start_dt, end_dt)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("quote batch failed (session %s, %d symbols): %s",
+                              session, len(batch), exc)
+                stats["batches_failed"] += 1
+                continue
+            for sym in batch:
+                sym_ticks = ticks_acc.get(sym) or []
+                if not sym_ticks:
+                    stats["pairs_empty"] += 1
+                    continue
+                ticks = pd.DataFrame(sym_ticks)
+                ticks["timestamp"] = pd.to_datetime(ticks["timestamp"], utc=True)
+                sampled = _sample_session_nbbo(ticks, session)
+                if sampled is None or sampled.empty:
+                    stats["pairs_empty"] += 1
+                    continue
+                for (year, month), grp in sampled.groupby(
+                    [sampled["timestamp"].dt.year, sampled["timestamp"].dt.month]):
+                    accumulated.setdefault((sym, int(year), int(month)), []).append(grp)
+                stats["pairs_written"] += 1
+
+    for (sym, year, month), frames in accumulated.items():
+        new_df = pd.concat(frames, ignore_index=True)
+        target = _layout.quotes_path(cfg.lake_root, sym, year, month, feed=cfg.feed)
+        if target.exists():
+            try:
+                existing = pd.read_parquet(target)
+                if not existing.empty:
+                    new_df = pd.concat([existing, new_df], ignore_index=True)
+            except Exception:  # noqa: BLE001
+                pass
+        new_df["timestamp"] = pd.to_datetime(new_df["timestamp"], utc=True)
+        new_df = (
+            new_df.drop_duplicates(subset=["timestamp"], keep="last")
+            .sort_values("timestamp").reset_index(drop=True)
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(pa.Table.from_pandas(new_df, preserve_index=False), target)
+        stats["months_written"] += 1
+
+    return stats
+
+
+# ---------------------------------------------------------------------------
 # Stage: assets
 # ---------------------------------------------------------------------------
 def fetch_assets(

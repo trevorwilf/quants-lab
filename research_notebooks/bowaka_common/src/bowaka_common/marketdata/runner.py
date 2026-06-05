@@ -32,6 +32,7 @@ from .backfill import (
     fetch_assets,
     fetch_daily_bars,
     fetch_minute_bars,
+    fetch_quotes,
     find_and_load_dotenv,
     write_audits,
     write_ingestion_run,
@@ -162,6 +163,7 @@ def run_configured_backfill(
     log: logging.Logger | None = None,
     assets_fetcher: Callable[[], Iterable[Any]] | None = None,
     bars_fetcher: Any | None = None,
+    quotes_fetcher: Any | None = None,
 ) -> dict:
     """Run the configurable, incremental backfill described by ``config``.
 
@@ -212,13 +214,32 @@ def run_configured_backfill(
     # -- daily bars (incremental: head + tail) ---------------------------
     daily_stats = fetch_daily_bars(bcfg, assets_df, log, limiter, bars_fetcher=bars_fetcher)
 
-    # -- minute bars (incremental: resume skips covered sessions) ---------
+    # -- minute bars + quotes (incremental: resume skips covered sessions) --
+    # Quotes share the minute-bar (symbol, session) universe, so they exist
+    # exactly where bars do. Compute the target set once for both stages.
     minute_cfg = config.get("minute_bars", {}) or {}
+    quotes_cfg = config.get("quotes", {}) or {}
     minute_stats: dict = {}
-    if minute_cfg.get("enabled", False):
+    quote_stats: dict = {}
+    targets = None
+    if minute_cfg.get("enabled", False) or quotes_cfg.get("enabled", False):
         targets = _minute_targets(minute_cfg, bcfg, lake, assets_df, log)
+    if minute_cfg.get("enabled", False) and targets is not None and len(targets) > 0:
+        minute_stats = fetch_minute_bars(bcfg, targets, log, limiter, bars_fetcher=bars_fetcher)
+    # SIP NBBO quotes — required for intended_realism (quote-aware fills/exits +
+    # the quote-coverage gate). IEX quotes are partial-tape and unused by realism.
+    if quotes_cfg.get("enabled", False):
+        if feed != "sip":
+            log.warning("quotes.enabled with feed=%s — IEX quotes are partial-tape and are "
+                        "NOT used by intended_realism; SIP is the intended feed.", feed)
         if targets is not None and len(targets) > 0:
-            minute_stats = fetch_minute_bars(bcfg, targets, log, limiter, bars_fetcher=bars_fetcher)
+            quote_stats = fetch_quotes(
+                bcfg, targets, log, limiter, quotes_fetcher=quotes_fetcher,
+                batch_size=int(quotes_cfg.get("batch_size_symbols", 25)),
+            )
+        else:
+            log.warning("quotes.enabled but no (symbol, session) targets — enable "
+                        "minute_bars (quotes use its universe).")
 
     # -- audit + manifest + ingestion-run record -------------------------
     audits = audit_daily_bars(bcfg, log)
@@ -228,6 +249,7 @@ def run_configured_backfill(
         "assets": int(len(assets_df)),
         "daily": daily_stats,
         "minute": minute_stats,
+        "quotes": quote_stats,
         "audit_rows": int(len(audits)),
     }
     write_manifest_json(bcfg, counts, {"lake": compute_dataset_hash(lake)})
@@ -254,5 +276,6 @@ def run_configured_backfill(
         "snapshot_id": snapshot_id,
         "counts": counts,
     }
-    log.info("backfill done: run_id=%s daily=%s minute=%s", run_id, daily_stats, minute_stats)
+    log.info("backfill done: run_id=%s daily=%s minute=%s quotes=%s",
+             run_id, daily_stats, minute_stats, quote_stats)
     return result
