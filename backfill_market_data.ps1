@@ -11,11 +11,14 @@
 #   .\backfill_market_data.ps1                       # use the config as-is
 #   .\backfill_market_data.ps1 --feed sip            # override the feed
 #   .\backfill_market_data.ps1 --start 2020-01-01    # override the start date
-#   .\backfill_market_data.ps1 --feed sip --quotes --start 2025-01-01
+#   .\backfill_market_data.ps1 --feed sip --quotes --start 2025-09-01 --rpm 8000
 #                                                    # SIP bars + NBBO quotes
 #                                                    # (full intended_realism). Quotes
 #                                                    # are heavy on a first run — scope
-#                                                    # --start; it is incremental.
+#                                                    # --start to the backtested windows;
+#                                                    # --rpm = your Alpaca data limit
+#                                                    # (X-RateLimit-Limit header; 10000 on
+#                                                    # SIP). It is incremental.
 #
 # Requires ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY in the container
 # environment or a repo .env (the runner loads .env best-effort).

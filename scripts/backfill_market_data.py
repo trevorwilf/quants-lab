@@ -59,6 +59,14 @@ def main(argv: list[str] | None = None) -> int:
              "first run (the NBBO tick stream is fetched then sampled to one "
              "prevailing quote per minute) — scope --start/--end; it is incremental.",
     )
+    ap.add_argument(
+        "--rpm", type=int,
+        help="override rate_limit_rpm = your Alpaca data-API per-minute request "
+             "limit (read it from any data response's X-RateLimit-Limit header; "
+             "10000 on the SIP / Algo-Trader-Plus tier). The config's 180 is "
+             "conservative — raise it for the heavy quote backfill. If this key is "
+             "shared with live trading, leave headroom or run off-hours.",
+    )
     args = ap.parse_args(argv)
 
     config = load_backfill_config(args.config)
@@ -70,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
         config["end_date"] = args.end
     if args.quotes:
         config.setdefault("quotes", {})["enabled"] = True
+    if args.rpm:
+        config["rate_limit_rpm"] = args.rpm
 
     result = run_configured_backfill(config, lake_root=args.lake_root)
     print(json.dumps(result, indent=2, default=str))
