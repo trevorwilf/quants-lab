@@ -566,6 +566,46 @@ def _sample_session_nbbo(ticks: pd.DataFrame, session_date: date) -> pd.DataFram
     return out.drop_duplicates(subset=["timestamp"]).reset_index(drop=True)
 
 
+def _flush_accumulated_months(
+    accumulated: dict[tuple, list[pd.DataFrame]],
+    keys: Iterable[tuple],
+    target_for: Callable[[str, int, int], Path],
+    stats: dict,
+) -> None:
+    """Write + drop the given ``(symbol, year, month)`` keys from ``accumulated``.
+
+    Identical merge/dedup/sort/write semantics to the original end-of-run write
+    loop — only the TIMING changes: the minute-bar / quote stages call this to
+    flush COMPLETED months as the date-sorted session loop crosses a month
+    boundary, instead of buffering the whole range in memory and writing once at
+    the end. Output parquet is byte-identical, but peak RAM stays bounded to the
+    in-flight month(s) and already-written months survive an interruption (the
+    next run's resume scan skips them).
+    """
+    for key in list(keys):
+        frames = accumulated.pop(key, None)
+        if not frames:
+            continue
+        sym, year, month = key
+        new_df = pd.concat(frames, ignore_index=True)
+        target = target_for(sym, year, month)
+        if target.exists():
+            try:
+                existing = pd.read_parquet(target)
+                if not existing.empty:
+                    new_df = pd.concat([existing, new_df], ignore_index=True)
+            except Exception:  # noqa: BLE001
+                pass
+        new_df["timestamp"] = pd.to_datetime(new_df["timestamp"], utc=True)
+        new_df = (
+            new_df.drop_duplicates(subset=["timestamp"], keep="last")
+            .sort_values("timestamp").reset_index(drop=True)
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(pa.Table.from_pandas(new_df, preserve_index=False), target)
+        stats["months_written"] += 1
+
+
 def fetch_quotes(
     cfg: BackfillConfig,
     targets: pd.DataFrame,
@@ -620,8 +660,22 @@ def fetch_quotes(
         if pending:
             pairs_by_session[sess] = pending
 
+    # Incremental per-month flush (bounded RAM + resumable): sessions are
+    # processed in ascending date order and every session's sampled NBBO falls
+    # in its own UTC month, so once the loop crosses into a new month all earlier
+    # months are complete and are written immediately. Byte-identical to a single
+    # end-of-run flush; only the timing differs.
+    def _quote_target(sym: str, year: int, month: int) -> Path:
+        return _layout.quotes_path(cfg.lake_root, sym, year, month, feed=cfg.feed)
+
     accumulated: dict[tuple, list[pd.DataFrame]] = {}
+    prev_month: tuple | None = None
     for session, symbols in sorted(pairs_by_session.items()):
+        sess_month = (session.year, session.month)
+        if prev_month is not None and sess_month != prev_month:
+            done = [k for k in accumulated if (k[1], k[2]) < sess_month]
+            _flush_accumulated_months(accumulated, done, _quote_target, stats)
+        prev_month = sess_month
         start_dt = datetime.combine(session, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_dt = start_dt + timedelta(days=1)
         for batch in _chunks(symbols, bsize):
@@ -648,24 +702,7 @@ def fetch_quotes(
                     accumulated.setdefault((sym, int(year), int(month)), []).append(grp)
                 stats["pairs_written"] += 1
 
-    for (sym, year, month), frames in accumulated.items():
-        new_df = pd.concat(frames, ignore_index=True)
-        target = _layout.quotes_path(cfg.lake_root, sym, year, month, feed=cfg.feed)
-        if target.exists():
-            try:
-                existing = pd.read_parquet(target)
-                if not existing.empty:
-                    new_df = pd.concat([existing, new_df], ignore_index=True)
-            except Exception:  # noqa: BLE001
-                pass
-        new_df["timestamp"] = pd.to_datetime(new_df["timestamp"], utc=True)
-        new_df = (
-            new_df.drop_duplicates(subset=["timestamp"], keep="last")
-            .sort_values("timestamp").reset_index(drop=True)
-        )
-        target.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(pa.Table.from_pandas(new_df, preserve_index=False), target)
-        stats["months_written"] += 1
+    _flush_accumulated_months(accumulated, list(accumulated.keys()), _quote_target, stats)
 
     return stats
 
@@ -882,8 +919,22 @@ def fetch_minute_bars(
         if pending:
             pairs_by_session[sess] = pending
 
+    # Incremental per-month flush (bounded RAM + resumable): sessions are
+    # processed in ascending date order and every session's bars fall in its own
+    # UTC month, so once the loop crosses into a new month all earlier months are
+    # complete and written immediately. Byte-identical to a single end-of-run
+    # flush; only the timing differs.
+    def _minute_target(sym: str, year: int, month: int) -> Path:
+        return minute_file(cfg, sym, year, month)
+
     accumulated: dict[tuple, list[pd.DataFrame]] = {}
+    prev_month: tuple | None = None
     for session, symbols in sorted(pairs_by_session.items()):
+        sess_month = (session.year, session.month)
+        if prev_month is not None and sess_month != prev_month:
+            done = [k for k in accumulated if (k[1], k[2]) < sess_month]
+            _flush_accumulated_months(accumulated, done, _minute_target, stats)
+        prev_month = sess_month
         start_dt = datetime.combine(session, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_dt = start_dt + timedelta(days=1)
         for batch in _chunks(symbols, cfg.batch_size_symbols):
@@ -904,25 +955,7 @@ def fetch_minute_bars(
                     accumulated.setdefault((sym, int(year), int(month)), []).append(grp)
                 stats["pairs_written"] += 1
 
-    for (sym, year, month), frames in accumulated.items():
-        new_df = pd.concat(frames, ignore_index=True)
-        target = minute_file(cfg, sym, year, month)
-        if target.exists():
-            try:
-                existing = pd.read_parquet(target)
-                if not existing.empty:
-                    new_df = pd.concat([existing, new_df], ignore_index=True)
-            except Exception:
-                pass
-        new_df["timestamp"] = pd.to_datetime(new_df["timestamp"], utc=True)
-        new_df = (
-            new_df.drop_duplicates(subset=["timestamp"], keep="last")
-            .sort_values("timestamp")
-            .reset_index(drop=True)
-        )
-        target.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(pa.Table.from_pandas(new_df, preserve_index=False), target)
-        stats["months_written"] += 1
+    _flush_accumulated_months(accumulated, list(accumulated.keys()), _minute_target, stats)
 
     return stats
 
