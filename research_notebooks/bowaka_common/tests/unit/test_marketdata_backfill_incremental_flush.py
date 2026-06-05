@@ -24,6 +24,7 @@ from bowaka_common.marketdata import layout
 from bowaka_common.marketdata.backfill import (
     BackfillConfig,
     RateLimiter,
+    daily_file,
     fetch_minute_bars,
     fetch_quotes,
     minute_file,
@@ -135,3 +136,35 @@ def test_quotes_completed_months_durable_before_interruption():
     assert layout.quotes_path(lake, _SYM, 2024, 1, feed="sip").is_file()
     assert layout.quotes_path(lake, _SYM, 2024, 2, feed="sip").is_file()
     assert not layout.quotes_path(lake, _SYM, 2024, 3, feed="sip").exists()
+
+
+# --- minute bars are RAW, daily uses cfg.adjustment ------------------------
+def test_minute_stored_raw_even_when_cfg_is_split_adjusted():
+    """Minute bars are the live-traded RAW prices everywhere in the lab;
+    cfg.adjustment (split_adjusted) governs DAILY bars only. A regression here
+    silently mis-files minute bars so every reader (preflight, suppliers, scan
+    matrix) — which all read adjustment='raw' — finds nothing."""
+    cfg = BackfillConfig(
+        api_key="x", api_secret="x", paper=True, feed="sip",
+        start_date=_SESSIONS[0], end_date=_SESSIONS[-1],
+        lake_root=Path("/tmp/lk"), adjustment="split_adjusted",
+    )
+    assert "adjustment=raw" in str(minute_file(cfg, "AAA", 2025, 8))
+    assert "adjustment=split_adjusted" in str(daily_file(cfg, "AAA"))
+
+
+def test_fetched_minute_bars_land_in_raw_partition():
+    """End-to-end: fetch_minute_bars writes to the raw partition (where the lab
+    reads), not the cfg.adjustment partition."""
+    lake = Path(tempfile.mkdtemp())
+    cfg = BackfillConfig(
+        api_key="x", api_secret="x", paper=True, feed="sip",
+        start_date=_SESSIONS[0], end_date=_SESSIONS[0],
+        lake_root=lake, adjustment="split_adjusted", resume=True,
+    )
+    fetch_minute_bars(cfg, _targets([_SESSIONS[0]]), _LOG, RateLimiter(6000),
+                      bars_fetcher=_minute_fetcher())
+    assert minute_file(cfg, _SYM, 2024, 1).is_file()            # raw partition
+    assert "adjustment=raw" in str(minute_file(cfg, _SYM, 2024, 1))
+    assert not layout.minute_bars_path(
+        lake, _SYM, 2024, 1, feed="sip", adjustment="split_adjusted").is_file()

@@ -312,6 +312,16 @@ def _default_logger() -> logging.Logger:
 # ---------------------------------------------------------------------------
 # Path helpers (delegate to the canonical layout)
 # ---------------------------------------------------------------------------
+# Minute bars are always stored + read RAW (the actual live-traded intraday
+# prices). The whole lab/strategy reads minute bars at adjustment="raw"
+# (layout.DEFAULT_ADJUSTMENT, store.minute_bars' default, every supplier, the
+# scan matrix, and the per-fold preflight). RAW is required for backtest-to-live
+# parity: split-adjusted retroactively rewrites pre-split prices, which would
+# skew the $1-20 price gate for any symbol that splits in-window. cfg.adjustment
+# (e.g. split_adjusted) governs DAILY bars only (continuous ADV history).
+MINUTE_ADJUSTMENT = "raw"
+
+
 def daily_file(cfg: BackfillConfig, symbol: str) -> Path:
     return _layout.daily_bars_path(cfg.lake_root, symbol, feed=cfg.feed, adjustment=cfg.adjustment)
 
@@ -321,7 +331,8 @@ def daily_root(cfg: BackfillConfig) -> Path:
 
 
 def minute_file(cfg: BackfillConfig, symbol: str, year: int, month: int) -> Path:
-    return _layout.minute_bars_path(cfg.lake_root, symbol, year, month, feed=cfg.feed, adjustment=cfg.adjustment)
+    return _layout.minute_bars_path(
+        cfg.lake_root, symbol, year, month, feed=cfg.feed, adjustment=MINUTE_ADJUSTMENT)
 
 
 def assets_file(cfg: BackfillConfig, snapshot_id: str) -> Path:
@@ -431,7 +442,13 @@ def make_alpaca_bars_fetcher(
             "all": Adjustment.ALL,
             "adjusted": Adjustment.ALL,
         }
-        _adj = _adjustment_enum_by_cfg.get(str(cfg.adjustment).lower(), Adjustment.RAW)
+        # Minute bars are RAW everywhere in the lab (see MINUTE_ADJUSTMENT) —
+        # request raw from Alpaca so the payload matches the raw partition the
+        # readers use. Only DAILY uses cfg.adjustment (split_adjusted for ADV).
+        if timeframe == "1m":
+            _adj = Adjustment.RAW
+        else:
+            _adj = _adjustment_enum_by_cfg.get(str(cfg.adjustment).lower(), Adjustment.RAW)
         rows: dict[str, list[dict]] = {sym: [] for sym in batch}
         page_token = None
         while True:
@@ -900,7 +917,7 @@ def fetch_minute_bars(
     covered: dict[str, set] = {}
     if cfg.resume:
         for sym in tdf["symbol"].unique():
-            sym_dir = _layout.minute_bars_symbol_dir(cfg.lake_root, sym, feed=cfg.feed, adjustment=cfg.adjustment)
+            sym_dir = _layout.minute_bars_symbol_dir(cfg.lake_root, sym, feed=cfg.feed, adjustment=MINUTE_ADJUSTMENT)
             dates: set = set()
             if sym_dir.is_dir():
                 for f in sym_dir.rglob("part.parquet"):
