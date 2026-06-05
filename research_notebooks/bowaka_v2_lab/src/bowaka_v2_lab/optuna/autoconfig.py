@@ -76,8 +76,20 @@ def _lake_has_daily_partition(lake_root: Path, feed: str, adjustment: str) -> bo
 
 
 def lake_has_bars(lake_root: Path, feed: str) -> bool:
-    """True when the lake has at least one daily-bar symbol for ``feed`` (raw)."""
-    return _lake_has_daily_partition(lake_root, feed, "raw")
+    """True when the lake has at least one daily-bar symbol for ``feed`` under any
+    backfilled adjustment.
+
+    Checks legacy ``raw`` AND ``split_adjusted`` (the current backfill default —
+    the bowaka_v2 actual-IEX/SIP config requires split-adjusted bars). A fresh
+    feed (e.g. a first SIP backfill, which writes ONLY ``split_adjusted``) would
+    be invisible to a raw-only probe, so ``feed='auto'`` would never cut over to
+    SIP even with SIP bars+quotes present. Mirrors ``probe_lake_capability``,
+    which already checks ``raw`` OR the required adjustment.
+    """
+    return (
+        _lake_has_daily_partition(lake_root, feed, "raw")
+        or _lake_has_daily_partition(lake_root, feed, "split_adjusted")
+    )
 
 
 @dataclass(frozen=True)

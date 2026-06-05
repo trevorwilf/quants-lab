@@ -52,6 +52,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--start", help="override start_date (YYYY-MM-DD)")
     ap.add_argument("--end", help="override end_date (YYYY-MM-DD or 'auto')")
     ap.add_argument("--lake-root", help="override the lake root")
+    ap.add_argument(
+        "--quotes", action="store_true",
+        help="enable the SIP NBBO quote stage (overrides config quotes.enabled). "
+             "Required for full intended_realism; use with --feed sip. Heavy on a "
+             "first run (the NBBO tick stream is fetched then sampled to one "
+             "prevailing quote per minute) — scope --start/--end; it is incremental.",
+    )
     args = ap.parse_args(argv)
 
     config = load_backfill_config(args.config)
@@ -61,6 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         config["start_date"] = args.start
     if args.end:
         config["end_date"] = args.end
+    if args.quotes:
+        config.setdefault("quotes", {})["enabled"] = True
 
     result = run_configured_backfill(config, lake_root=args.lake_root)
     print(json.dumps(result, indent=2, default=str))
