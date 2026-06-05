@@ -516,11 +516,29 @@ def main(argv=None) -> int:
     if args.from_json:
         doc = json.loads(Path(args.from_json).read_text(encoding="utf-8"))
         results = doc.get("finalists") or []
-        s = _setup(cfg_path)  # cheap: config + plan only (no study / lake load)
-        study_name = doc.get("study") or args.study_name or "unknown_study"
+        s = _setup(cfg_path)  # cheap: config + plan only (no lake load)
+        study_name = doc.get("study") or args.study_name
+        # Backfill dev PnL / quant metrics from the study for JSONs saved before
+        # the enrichment (no re-run — just reads the trials' stored fold_metrics).
+        if results and not results[0].get("dev_metrics"):
+            try:
+                study = optuna.load_study(
+                    study_name=study_name or _pick_study_name(s["storage_uri"], None),
+                    storage=s["storage_uri"])
+                by_num = {t.number: t for t in study.trials}
+                for r in results:
+                    t = by_num.get(r.get("number"))
+                    if t is not None and not r.get("dev_metrics"):
+                        r["dev_metrics"] = _agg_fold_metrics(
+                            list(t.user_attrs.get("fold_metrics") or []))
+                study_name = study_name or study.study_name
+                print(f"backfilled dev PnL/metrics from study {study_name}", flush=True)
+            except Exception as exc:  # noqa: BLE001
+                print(f"(could not backfill dev metrics from study: {exc})", flush=True)
         out_path = Path(args.out) if args.out else Path(args.from_json).with_suffix(".md")
-        return _emit(results, study_name, cfg_path, s["plan"], args.neighbours,
-                     time.strftime("%Y-%m-%d %H:%M:%S"), out_path, base_cfg=s["cfg"])
+        return _emit(results, study_name or "unknown_study", cfg_path, s["plan"],
+                     args.neighbours, time.strftime("%Y-%m-%d %H:%M:%S"), out_path,
+                     base_cfg=s["cfg"])
     s = _setup(cfg_path)
     study_name = _pick_study_name(s["storage_uri"], args.study_name)
     study = optuna.load_study(study_name=study_name, storage=s["storage_uri"])
