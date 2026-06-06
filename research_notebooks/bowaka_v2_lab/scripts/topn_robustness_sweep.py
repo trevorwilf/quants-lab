@@ -299,9 +299,58 @@ def _dm(r, key):
     return (r.get("dev_metrics") or {}).get(key)
 
 
+def _months_between(a, b) -> float:
+    """Calendar months between two dates (days / average-month)."""
+    try:
+        return max((b - a).days, 0) / (365.25 / 12.0)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _compound_return(per_fold) -> Optional[float]:
+    """Geometric cumulative DECIMAL return from a list of per-fold decimal returns."""
+    rs = [float(x) for x in (per_fold or []) if x is not None]
+    if not rs:
+        return None
+    cum = 1.0
+    for r in rs:
+        cum *= (1.0 + r)
+    return cum - 1.0
+
+
+def _ann_yield(cum_return, months) -> Optional[float]:
+    """Annualize a cumulative DECIMAL return over ``months`` to a 12-month yield:
+    ``(1 + cum_return) ** (12 / months) - 1``. Returns a decimal (``_pct`` formats it).
+
+    NOTE on interpretation: annualizing IN-SAMPLE (validation) returns is an
+    extrapolation, not a forecast — the finalist is the best-of-N trial selected
+    *for* those folds, so the number is optimistically biased and compounds that
+    bias 12x. The OUT-OF-SAMPLE (holdout) annualization is the honest estimate.
+    """
+    if cum_return is None or not months or months <= 0:
+        return None
+    base = 1.0 + float(cum_return)
+    if base <= 0.0:
+        return -1.0  # wiped out
+    return base ** (12.0 / float(months)) - 1.0
+
+
+def _ann_pct(x) -> str:
+    """Format an annualized yield, capping absurd extrapolations so an in-sample
+    overfit artifact prints as a flag, not a 7-figure percent."""
+    if x is None:
+        return "—"
+    if float(x) > 9.99:  # > +999%/yr — not a real forward yield
+        return ">+999% (overfit artifact)"
+    return _pct(x)
+
+
 def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
                     n_neighbours, ts, yaml_paths) -> str:
     md: list[str] = []
+    _ho_months = _months_between(plan.final_holdout_start, plan.final_holdout_end)
+    _splits = getattr(plan, "splits", None) or []
+    _val_months_each = _months_between(_splits[0].val_start, _splits[0].val_end) if _splits else 1.0
     md += [f"# Top-N robustness + holdout sweep — `{study_name}`", ""]
     md += [
         f"- generated: {ts}",
@@ -314,7 +363,11 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
         "PnL is positive**. So judge profitability from **Net return** / win rate / "
         "drawdown, and judge *what was optimised* from Objective. *Robustness* = how "
         "far the ±10% parameter neighbours fall below the candidate (a flat plateau "
-        "vs a fragile spike).",
+        "vs a fragile spike). **Net return is a decimal portfolio return *per fold*** "
+        "(0.20 = +20% over that ~1-month window). **12-mo OOS%** annualizes the "
+        "**out-of-sample holdout** return — *that* is the honest forward estimate; the "
+        "in-sample (validation) annualization in the detail is an extrapolation of the "
+        "best-of-N tuned folds, **optimistically biased — not a forecast**.",
         "",
     ]
     ho_errs = [r for r in results if r.get("holdout_error")]
@@ -359,7 +412,7 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
     ]
     # ---- comparison table (PnL-led) --------------------------------------
     headers = ["Rank", "Trial", "Net ret%", "Max DD%", "Win%", "Trades", "Avg trade%",
-               "Objective", "FoldVar", "NbObj min", "Robust?", "Holdout net%", "Combined"]
+               "Objective", "FoldVar", "NbObj min", "Robust?", "Holdout net%", "12-mo OOS%", "Combined"]
     rows = []
     for i, r in enumerate(results, 1):
         star = " ★" if (study_best and r["number"] == study_best["number"]) else ""
@@ -372,6 +425,7 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
             _fmt(r.get("median_fold_score")), _fmt(r.get("fold_variance")),
             _fmt(r.get("neighbour_min")), _fmt(r.get("robust_ok")),
             _pct(hm.get("net_return_pct")) if not r.get("holdout_error") else "—",
+            _ann_pct(_ann_yield(hm.get("net_return_pct"), _ho_months)) if not r.get("holdout_error") else "—",
             _fmt(r.get("combined_score")),
         ])
     md += ["## Finalist comparison (ranked by combined score · ★ = study #1 by objective)", ""]
@@ -412,6 +466,17 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
                 f"max DD {_pct(hm.get('max_drawdown_pct'), signed=False)} · "
                 f"trades {hm.get('n_trades', '—')} · collapse {_fmt(r.get('holdout_collapse'))}",
             ]
+        # 12-month annualized yield — OOS holdout is the honest estimate; the
+        # in-sample (validation) one extrapolates the best-of-N tuned folds.
+        _vpf = _dm(r, "per_fold_net_return_pct") or []
+        _val_ann = _ann_yield(_compound_return(_vpf), len(_vpf) * _val_months_each)
+        _ho_ann = None if r.get("holdout_error") else _ann_yield((r.get("holdout_metrics") or {}).get("net_return_pct"), _ho_months)
+        md += [
+            f"- **12-month yield (annualized):** out-of-sample (holdout) "
+            f"**{_ann_pct(_ho_ann)}** *(honest estimate)* · "
+            f"in-sample (validation) {_ann_pct(_val_ann)} "
+            f"*(extrapolation of the best-of-N tuned folds — optimistically biased, NOT a forecast)*",
+        ]
         params = r.get("params") or {}
         ptxt = ", ".join(f"`{k}`={_fmt(v, 5) if isinstance(v, float) else v}"
                          for k, v in sorted(params.items()))
