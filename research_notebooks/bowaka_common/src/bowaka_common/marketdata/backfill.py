@@ -182,9 +182,19 @@ def incremental_window(
 
     cal = calendar if calendar is not None else _get_xnys_calendar()
     next_session_ts = cal.next_session(pd.Timestamp(existing_max))
+    next_session_date = pd.Timestamp(next_session_ts).date()
+    # The file's last bar is already the most recent trading session on or before
+    # the target end: existing_max < target_end_date only because target_end_date
+    # falls on a weekend/holiday, and the next trading session is past it. There is
+    # nothing to fetch. Without this guard the tail window inverts (start > end) and
+    # every symbol fires a guaranteed-400 "end should not be before start" request —
+    # the root cause of the thousands of "Stage 2 ... N failed" tracebacks whenever
+    # the auto end_date lands on a weekend.
+    if next_session_date > target_end_date:
+        return IncrementalPlan(action="up_to_date", existing_max_session=existing_max)
     return IncrementalPlan(
         action="fetch_tail",
-        start=pd.Timestamp(next_session_ts).date(),
+        start=next_session_date,
         end=target_end_date,
         existing_max_session=existing_max,
     )
