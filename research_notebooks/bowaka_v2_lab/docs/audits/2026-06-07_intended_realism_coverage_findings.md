@@ -1,0 +1,309 @@
+# intended_realism minute-bar coverage preflight — expert findings
+
+**Date:** 2026-06-07
+**Subsystem:** `bowaka_v2_lab` walk-forward preflight (replay-level data-quality gates)
+**Config under test:** `$2M`-floor `intended_realism` SIP walk-forward (`/tmp/ir2m.yml`, `universe.max_price=20`, `min_adv_dollars=2000000`)
+**Lake:** Alpaca SIP minute bars (`adjustment=raw`) + SIP NBBO quotes + SIP daily (`adjustment=split_adjusted`), Aug-2025..Jun-2026, native FS at `/opt/market_data_cache`
+**Status:** Diagnosis complete **for the probed window**. The headline failure is dominated by over-inclusive-PIT-universe symbols, not a realism deficiency. Restricted to the actually-tradeable universe the minute-coverage replay gates fall well inside threshold on the 5 probed sessions (late-session 2.16%, exit-path 0.39%, both < 5%; the combined tradeable rate is 3.42%). **This is established only on the lake's first 5 sessions (2025-08-27..09-03); it is NOT yet confirmed on an interior fold** (see §10 to-do #1). The recommended fix touches an intentional P0 design decision (the uncapped PIT-union preflight, audit 2026-05-23 §6.6) and must be reconciled with it (§6.1) before it can be acted on; a secondary `coverage_missing` probe-construction issue (§7.2) is also open.
+
+---
+
+## 1. Executive summary
+
+The `$2M`-floor `intended_realism` walk-forward preflight fails four replay-coverage checks, headlined by `coverage_missing_late_session` at **35.65%** missing minute bars (34,584 / 97,000 probes) against a 5% fail threshold. The question is whether this is a genuine gap in the lake's faithful minute-by-minute replay, or an artifact of *which symbols* the preflight probes. We instrumented the real preflight (143,075 minute-bar probes, 52,622 misses = 36.78% overall) and staged a per-(symbol, session) dataset, then re-derived eligibility against the actual PIT universe builder and spot-checked the lake. **The decisive number on the probed window: restricting probes to the genuinely-tradeable universe (PIT-eligible on a `$2M`/`$1-$20` basis AND having a minute month-file) gives miss = 2,304 / 67,464 = 3.42% — inside the 5% gate, with a 1,069-probe (1.6 pp) headroom on these 5 sessions.** The 35.65% headline is dominated by symbols the strategy could never trade on the probed dates: out-of-band price (>$20 or <$1), below-`$2M` ADV, and not-yet-listed names. **94.66% of all misses (49,813 / 52,622) come from `daily_eligible==0` symbols.**
+
+Two material caveats temper the verdict, both surfaced by adversarial review and **not yet closed** (§6.1, §10): (a) the recommended fix (filter the coverage probe to the per-session PIT-eligible set, §6) narrows the symbol set the preflight scores, which is in tension with the **intentional** audit-2026-05-23 §6.6 P0 decision to probe the *full, uncapped* PIT-union precisely to stop coverage under-reporting — this tension must be reconciled before Option A is adopted (§6.1); and (b) the 3.42% is measured on the lake's **first 5 sessions only**, where the ingestion-boundary residual (§7.2) is over-represented, and is **not yet verified on an interior fold**. The genuine residual on the probed window (§7) is thin-stock no-trade microstructure plus a lake-start ingestion boundary; on this window it sits inside the gate, but lake-wide generalization is an open question, not a settled result.
+
+---
+
+## 2. Background & the realism contract
+
+`bowaka_v2_lab` supports two simulation fidelities:
+
+- **`current_code_parity`** — reproduces the live scanner/executor code path bug-for-bug (including its documented warts, e.g. the halt gate failing open). A finalist already exists under this mode.
+- **`intended_realism`** — the stricter contract: a *faithful minute-by-minute replay*. Every scan timestamp the live scanner would evaluate must be backed by real minute bars; every entry candidate must have forward minute data through its max-hold exit; quotes must be present within the max-age window; halts must be modelable (or the gate explicitly disabled). It **fails closed**: absent data that *should* exist is a hard failure, not a warning.
+
+The strategy trades a US-equity intraday scanner universe. Point-in-time (PIT) eligibility per session: prior-session close in **\$1–\$20**, trailing-20-session prior ADV (mean of `close × volume`) **≥ \$2,000,000** (raised from the legacy \$250k floor), operating-equity instrument class, not delisted, not blocklisted. The lake holds SIP minute bars + SIP NBBO quotes for Aug-2025..Jun-2026 and SIP split-adjusted daily bars (the only daily partition present; the raw-daily union is empty).
+
+Going in, two checks were already resolved: `quote_coverage` passes (the SIP quote backfill landed prevailing-NBBO-per-minute coverage), and `halt_data_unavailable_when_required` was cleared by a parity sidecar declaring `execution.halt_gate.enabled=false` (so halts need not be modeled). The four remaining failures are all minute-bar coverage checks.
+
+---
+
+## 3. The exact check mechanism
+
+Replay-level coverage is built in `research_notebooks/bowaka_v2_lab/src/bowaka_v2_lab/data/dq_levels.py::build_replay_checks` (lines 346–488) and the first-scan coverage check in `…/data/data_quality.py::build_coverage_check`. The minute-bar supplier is `…/data/suppliers.py::make_lake_suppliers` (lines 121–166).
+
+**Probe window.** `minute_bars_supplier(sym, cutoff)` returns `store.minute_bars(sym, intraday_window_start(cutoff, policy), cutoff)` (`suppliers.py:152–157`). The default policy `scanner_start_to_scan` sets the window start to **09:45 ET** (`suppliers.py:37–44, 47–71`), matching the live scanner. So each probe asks: *does the lake have minute bars in `[09:45 ET, scan_ts]`?*
+
+**Thresholds.** `REPLAY_COVERAGE_FAIL_FRACTION = 0.05` (`dq_levels.py:72`) gates `coverage_missing_late_session` and `coverage_missing_exit_path`; `_coverage_check` (`dq_levels.py:429–457`) fails when `missing/probes ≥ 0.05`. `build_coverage_check` (`data_quality.py:391`) gates `coverage_missing` at `COVERAGE_MISSING_FAIL_FRACTION = 0.01` (1%). `audit_missing_sessions` is a hard gate at threshold 0 (any missing session fails) and is sourced from the pre-computed lake audit parquet, not the minute supplier.
+
+**`coverage_missing` is a daily-OR-minute union (provenance note).** `build_coverage_check` records a pair as missing if it lacks a daily bar **or** a minute bar at the first scan: `missing_pairs = set(missing_daily) | set(missing_minute)` (`data_quality.py:442`). Our 6,619/12,125 figure below is the **minute-only** 09:45 first-scan miss; the daily leg (`missing_daily`) is a separate contributor we did not isolate from the CSV. The true `coverage_missing` numerator is therefore **≥ 6,619** (minute ∪ daily), and any fix to `coverage_missing` (§7.2, §10) must address the daily-coverage leg as well as the minute-window construction. We label the 6,619 a *minute-leg lower bound*, not the full `coverage_missing` count.
+
+**`coverage_missing_exit_path` numerator is deduplicated; the denominator is not (disclosure).** `_coverage_check` reports `n_missing = len(set(missing))` where each miss string is `f"{sym}@{fwd.isoformat()}"` — symbol + forward-session date, **no timestamp** (`dq_levels.py:427, 430`). In the raw log the exit-path family has **7,332 total miss-rows but only 3,264 unique `sym@date` strings**. The check's published rate (and ours, below) is therefore `3,264 unique / 21,825 total probes` — a deduplicated numerator over a non-deduplicated denominator. This is the check's own (debatable) arithmetic; we inherit it but flag it as apples-to-oranges. The same caveat applies to the tradeable "40 unique / 10,325 total."
+
+**8-scan sampling.** `LATE_SESSION_PROBE_CAP_PER_SESSION = 8` (`dq_levels.py:80`). The check does not visit all ~350 60-second scans; it samples 8 evenly-spaced post-first scan timestamps per session (`dq_levels.py:384–394`), plus the first-scan probe (counted by `coverage_missing`) and a forward exit-path probe per `max_hold_days` session (`dq_levels.py:406–427`). This bounds an O(scans × symbols × sessions) walk while still detecting *systemic* missing minutes.
+
+**The four minute-probe families (full census of the 143,075 probes).** ET-time-of-day bucketing of `_probe_log_2m.jsonl` (UTC−4 = EDT for these dates) resolves the raw log into exactly four probe families, three of which map to the failing checks and one of which (16:00 ET) we had previously left unaccounted:
+
+| ET time | Probes | Miss | Check it feeds |
+|---|---:|---:|---|
+| 09:45 (first scan) | 12,125 | 6,619 | `coverage_missing` (minute leg) |
+| 09:46, 10:29, 11:12, 11:55, 12:38, 13:21, 14:04, 14:47 (8 sampled post-first) | 97,000 | 34,584 | `coverage_missing_late_session` |
+| 15:30 (last-scan-of-forward-session) | 21,825 | 7,332 rows | `coverage_missing_exit_path` |
+| **16:00** (session-close fallback) | **12,125** | **4,087** | **Level-2 `session_minute_count_violation` / `intraday_gap`** (NOT a `coverage_*` check) |
+
+The 16:00 ET family is **not** part of any `coverage_*` check. It is the Level-2 session-check fallback in `data_quality.py:1142–1146`: when `session_minute_supplier` is `None`, `_build_multi_level_checks` probes `minute_bars_supplier(sym, session+16h)` to obtain a per-(symbol, session) minute frame for the session-level checks (`session_minute_count_violation`, `intraday_gap`, `session_stale_segment`). Its 4,087 misses (49 on the tradeable set) feed those session-level gates, not late-session coverage — so 12,125 + 97,000 + 21,825 + 12,125 = **143,075** is the complete probe census and the late-session denominator is **97,000** (the 16:00 family does NOT inflate it). The session-level checks did not appear in the four-failing-checks list, consistent with their permissive fail-fractions (`SESSION_MINUTE_COUNT_FAIL_FRACTION = 0.80`, `INTRADAY_GAP_FAIL_FRACTION = 0.50`).
+
+**Symbol set (the load-bearing input).** Both replay checks iterate `requested_symbols` (`dq_levels.py:372, 396`). `_probe_fold` (`preflight.py:570`) receives this `symbols` list from its caller and **does not re-filter PIT eligibility per session before probing** — it probes the full set on every session of every fold. This is **by design** under `intended_realism`: see §6.1 for the audit-2026-05-23 §6.6 P0 rationale (the uncapped PIT-union is the deliberate anti-under-reporting mechanism), which the over-inclusion framing below must be reconciled with.
+
+---
+
+## 4. Method: how we instrumented the real preflight
+
+We did not synthesize the probe set — we captured the *real* one. `scripts/_tmp_instrument_preflight.py` monkeypatches `bowaka_v2_lab.data.suppliers.make_lake_suppliers` to wrap `minute_bars_supplier`, logging `{sym, ts, n}` (bar count) for every probe, then runs the actual `$2M` `intended_realism` preflight via the CLI (`cli optuna --config /tmp/ir2m.yml --incumbent-trial`). The preflight aborts at the coverage gate — which is exactly the probe set we want.
+
+This produced **`scripts/_probe_log_2m.jsonl`** (host `E:\…\scripts\_probe_log_2m.jsonl`; container `/quants-lab/scripts/_probe_log_2m.jsonl`): **143,075 probes / 52,622 misses (36.78%) over 2,425 symbols**.
+
+`scripts/_extract_pair_dataset.py` joins the probe log against the lake (minute month-files, split-adjusted daily, quote month-files) and reconstructs PIT eligibility, staging a clean per-(symbol, session) CSV at **`scripts/_pair_dataset.csv`** (12,125 rows; **2,424** distinct symbols; 5 sessions 2025-08-27..2025-09-03 — the lake's earliest, which is the first validation window the preflight probes). Downstream analysis reads only this CSV (`C:/Python312/python.exe` + pandas) plus targeted lake spot-checks.
+
+**Symbol-count reconciliation (2,425 vs 2,424) — resolved.** The raw probe log `_probe_log_2m.jsonl` carries **2,425** distinct symbols; the staged CSV has **12,125 rows = 2,425 symbols × 5 sessions**, but `df.symbol.nunique()` returns **2,424** because **one symbol's ticker is `NaN` in the CSV** (5 rows, one per session — verified: `df.symbol.isna().sum() == 5`, and `df.symbol.nunique(dropna=False) == 2,425`). The null ticker is a probe-log symbol whose name parsed to null in the CSV staging (most likely a literal `"NA"`/`"NaN"`/`"NULL"` ticker coerced to `NaN` by pandas' default NA-parsing). Its 5 rows carry only 10–13 probes/session with 0–2 misses each — a low-probe `no_minute_file`-class name, **not** a tradeable symbol: it has no minute month-file and would be excluded from the tradeable restriction regardless, so it has **zero** effect on the 3.42% (which conditions on `has_min_month_file==1 & daily_eligible==1`). **We use 2,424 (the CSV non-null distinct count) as the canonical figure**; "2,425" refers to the raw probe log (= 2,424 named + 1 null). *Minor open item:* recover the original ticker by disabling NA-parsing in the staging read (`keep_default_na=False`) — cosmetic, no numeric impact.
+
+**Column dictionary (`_pair_dataset.csv`):**
+
+| Column | Meaning |
+|---|---|
+| `symbol`, `session` | the probed (symbol, ET session date) |
+| `n_probes`, `n_miss` | probes issued / probes returning 0 bars for this pair |
+| `max_n` | max bars returned across the session's probes (`>0` ⇒ the symbol DID trade the regular session) |
+| `has_min_month_file` | a minute month-file exists in the lake for this symbol/year/month |
+| `has_session_bars`, `has_regular_bars` | the month-file has any bar / any 09:30–15:59 bar for this session |
+| `prior_close`, `prior_adv` | reconstructed from split-adjusted daily: last close before the session / trailing-20 mean(`close×volume`) |
+| `has_quote_month_file` | a SIP quote month-file exists |
+| `daily_eligible` | `1` iff `1 ≤ prior_close ≤ 20` AND `prior_adv ≥ 2e6` (PIT-eligibility reconstruction) |
+| `first_trade_et` | session-wide first trade time |
+| `category` | one of {`no_minute_file`, `no_session_bars_has_month_file`, `no_daily_history`, `intra_session_sparse`, `no_regular_bars`} |
+
+**Reproduction scripts** (all under `scripts/`): `_tmp_instrument_preflight.py` (capture), `_extract_pair_dataset.py` (stage CSV), `_check_ir2m_basis.py` and `_check_window_union.py` (eligibility-basis settlement, §9). Exact commands in §11.
+
+---
+
+## 5. Findings
+
+### 5.1 Overall and the 5-way categorization
+
+Whole population: **143,075 probes / 52,622 miss = 36.78%**. By category (share of all misses; reproduced exactly from `_pair_dataset.csv`):
+
+| Category | Misses | % of total miss | Nature |
+|---|---:|---:|---|
+| `no_minute_file` | 24,885 | 47.29% | symbol has no minute month-file at all that month |
+| `no_session_bars_has_month_file` | 11,845 | 22.51% | month-file exists but 0 bars this session |
+| `no_daily_history` | 11,454 | 21.77% | no prior split-adjusted daily bar (see caveat) |
+| `intra_session_sparse` | 4,425 | 8.41% | symbol DID trade (`max_n>0`); scattered no-trade minutes |
+| `no_regular_bars` | 13 | 0.02% | edge case |
+
+*Caveat on `no_daily_history` ("not-yet-listed").* This category is defined operationally as **"no prior split-adjusted daily bar exists on the probed sessions"** — it is an *absence-of-data* label, not a confirmed listing-date verdict. We interpret it as "not-yet-listed," but that interpretation is **partly inferential**: the lake's asset master is a single future-dated snapshot with no listing/delisting dates (§10 to-do #4), so we cannot independently confirm a PIT listing date. The §6 lake spot-check (182/198 acquire minute+quote data later; 0 have a daily bar before 2025-08-27) is strong corroboration that these are genuine post-window listings rather than backfill holes, but it is corroboration, not proof. *Open question / to validate:* the 16/198 not shown to acquire data later are unexplained; a PIT asset master would settle this definitively.
+
+### 5.2 THE decisive table
+
+| Probe restriction | Probes | Miss | Miss % | Gate (5%) |
+|---|---:|---:|---:|:--:|
+| All probed symbols | 143,075 | 52,622 | 36.78% | **FAIL** |
+| `has_min_month_file == 1` | 106,736 | 16,283 | 15.26% | **FAIL** |
+| `daily_eligible == 1` AND `has_min_month_file == 1` | 67,464 | 2,304 | **3.42%** | **PASS** |
+
+Restricting to the genuinely-tradeable universe drops the miss to **3.4152%**, with **headroom = 0.05 × 67,464 − 2,304 = 1,069 probes (1.6 pp)** to the gate.
+
+**On `daily_eligible` self-consistency (a circularity disclosure).** Recomputing `daily_eligible` from the CSV's own `prior_close`/`prior_adv` yields 0 / 12,125 mismatches vs the stored column — but this only confirms the column matches its own formula `(1 ≤ prior_close ≤ 20) AND (prior_adv ≥ 2e6)`. It does **not** prove the formula matches the real `build_pit_universe` verdict, which additionally applies instrument-class, blocklist, delisting, and `status_active` filters (`builder.py:545–573`) that our reconstruction omits. Those omitted legs are *additional* eligibility constraints, so the real eligible set is a **subset** of our `daily_eligible==1` set — meaning our restriction is, if anything, slightly *over-inclusive* of the tradeable universe (it admits names the builder might reject), which makes the 3.42% a conservative upper bound on the restricted miss rate rather than an optimistic one. *Open question / to validate:* a direct CSV-eligibility-vs-`build_pit_universe`-output reconciliation count is **not** shown here; §6 asserts the eligibility was "re-derived directly from `build_pit_universe`" for the per-session universe size (~1,148–1,162) but the per-row CSV `daily_eligible` column uses the reconstructed 2-leg formula, not the full builder. These should be reconciled before the gate is declared green.
+
+The same restriction clears the other three failing checks (probe-log time-of-day bucketing maps each probe to its check, per the §3 four-family census):
+
+| Check | All-symbols | Tradeable-only | Tradeable gate |
+|---|---|---|:--:|
+| `coverage_missing_late_session` | 34,584/97,000 = 35.65% | 988/45,664 = 2.16% | **PASS** |
+| `coverage_missing_exit_path` | 3,264 unique/21,825 total = 14.96% | 40 unique/10,325 total = 0.39% | **PASS** |
+| `audit_missing_sessions` | 1,762 | 0 | **PASS** |
+| `coverage_missing` (first-scan minute leg, 1% gate) | 6,619/12,125 = 54.6% | 1,156/5,708 = 20.25% | **STILL FAIL** (see §6.1/§7.2) |
+
+(The `exit_path` numerator is unique `sym@date` strings over a total-probe denominator — see the §3 disclosure. The `coverage_missing` row is the **minute leg only**; the gated check is minute ∪ daily, §3.)
+
+`audit_missing_sessions = 1,762` is reported (by the doc) to trace to **6 sub-`$2M`/out-of-band sparsely-listed tickers** (AIB 463, LIFE 413, VIA 311, SZZL 310, AKTS 264, ASBP 1), all `daily_eligible==0`. **Provenance caveat:** `audit_missing_sessions` reads the lake **audit parquet** filtered to `requested_symbols` (§3), *not* the minute supplier, so this 6-ticker breakdown is **not reproducible from `_pair_dataset.csv`** — it came from a separate lake-audit query whose output is not staged in the CSV the reviewer can re-run. *Open question / to validate:* the 6-ticker attribution and the "→ 0 under restriction" claim should be backed by the audit-parquet query output, which is not included here. The structural argument (it filters to `requested_symbols`, so removing ineligible symbols removes their missing-session counts) is sound; the exact 6-ticker decomposition is asserted, not shown.
+
+---
+
+## 6. Root cause: the probe set is over-inclusive *relative to per-session tradeability* (but intentionally so at the symbol-set level — see §6.1)
+
+**The preflight probes ~2× more symbols than the strategy can trade on any given probed session.** The true `$2M`/`$1-$20` PIT-eligible *per-session* universe is ~1,148–1,162 symbols (a lake spot-check figure, re-derived from `universe.builder.build_pit_universe`; see provenance caveat below); the probe set is **2,424 distinct symbols** (CSV; 2,425 in the raw probe log, §4). **94.66% of all misses (49,813 / 52,622) come from `daily_eligible==0` symbols**, and **1,218 of the 2,424 probed symbols are never eligible on any of the 5 probed sessions** (1,206 are eligible on at least one).
+
+Ineligible-miss decomposition (reproduced exactly from `_pair_dataset.csv`): price > \$20 out-of-band **19,016**; in-band but ADV < \$2M **16,246**; no daily history **11,454**; price < \$1 **3,097** (sum = 49,813).
+
+**Provenance caveat on the ~1,148–1,162 per-session figure and the 249-eligible claim.** The per-session PIT-universe size (~1,148–1,162) and the §9 "249 over-\$20 symbols all eligible somewhere in the plan window" claim come from `_check_window_union.py` / lake spot-checks, **not** from `_pair_dataset.csv`, and are therefore not independently re-runnable from the staged dataset. What *is* CSV-reproducible: 249 probed symbols have `prior_close > 20 AND prior_adv ≥ 2e6` **as-of the first session (2025-08-27)**; across all 5 probed sessions the union of such symbols is **264** (the doc's "249" is the single-session-snapshot count, not the all-session union). The "all 249 eligible somewhere in 2023-11..2026-05" claim requires the lake scan and is *plausible but unverified* from the dataset alone. We retain it as a spot-check result, flagged as such.
+
+### 6.1 The over-inclusion is the intentional anti-under-reporting design — reconcile before acting
+
+**This is the single most important caveat in the document, and it was previously absent.** The full-symbol-set probe that §6 calls a "probe-set basis defect" is, at the *symbol-set* level, a **deliberate P0 design decision** (audit 2026-05-23 §6.6 / P1-001), not a bug:
+
+- `walkforward_runner.py:325–329` (`_resolve_symbols` docstring): *"under `intended_realism` the preflight must probe the full per-fold PIT eligible-universe union (no cap). The capped 100-symbol sample silently underreported coverage."*
+- `pit_universe.py:5–7`: *"`intended_realism` now requires the preflight to cover the full union of eligible symbols across every session in every validation + holdout window — anything less is a silently capped preflight and the lab must fail closed."*
+- `pit_universe.py:108–109`: *"Preflight coverage telemetry is computed against this set: anything less than the union is a capped preflight and must be flagged with a waiver."*
+- Prior audit `2026-05-23_realism_audit.md` §6.6 (P0) + P1-001: the uncapped union was *added on purpose* to stop a prior 100-symbol cap that under-reported coverage.
+
+**What this means for Option A.** §6.6 was specifically about the *arbitrary 100-symbol cap* — "the preflight may probe only 100 of, e.g., the 3000+ symbols the per-fold PIT universe would actually trade." Our recommended fix (§10 Option A) is **not** a re-introduction of that 100-symbol cap; it is a different narrowing: *score each session's probes against that session's own per-session PIT-eligible set*, rather than against the cross-session window-union. These are distinct mechanisms, but they share a direction (narrowing the denominator), and the §6.6 authors' stated principle — "anything less than the union is a capped preflight [that] must be flagged with a waiver" — would, read literally, classify Option A's per-session scoring as exactly the kind of narrowing they guard against.
+
+The honest position is therefore: **the over-inclusion at the symbol-set level is intentional; what we are actually claiming is narrower** — that probing a symbol *on a session where it is PIT-ineligible* (out-of-band price / sub-floor ADV / not-yet-listed *on that session*) and counting the absent minute bar as a realism failure is **mis-attributed**, because the live scanner would never evaluate that symbol on that session. The window-union correctly says "this symbol is in the tradeable universe *somewhere* in the plan window"; it does **not** follow that the symbol is tradeable on *every* session, and the coverage check currently treats it as if it were. **Whether the right remedy is (i) a per-session eligibility filter inside `_probe_fold` (Option A), or (ii) keeping the full union but scoring coverage only over the per-(symbol, session) pairs that are PIT-eligible on that session (a denominator change, not a probe-set change — which preserves the §6.6 "no cap on the symbol set" invariant while fixing the mis-attribution), is an open design question.** Option (ii) is likely the §6.6-compatible form of the fix and should be evaluated against the §6.6 rationale explicitly; Option A as literally written narrows the probe set and must carry a waiver or an argument that per-session scoping is *not* the under-reporting §6.6 forbade. **Until this is reconciled with §6.6, the recommendation is not green-lit** — it is "the diagnosis is sound; the remedy needs a §6.6-compatible formulation."
+
+**Where `symbols` is built (the change point):**
+
+- `optuna/preflight.py::run_full_fold_preflight` is called from `optuna/walkforward_runner.py:2198`, passing `symbols=symbols`.
+- `symbols` is built at `walkforward_runner.py:1899` via `_resolve_symbols(cfg, md, sim_mode, plan)` (`walkforward_runner.py:315–381`). For `intended_realism` + lake + no waiver it returns `plan_pit_symbol_union(...)` (`optuna/pit_universe.py`).
+- `plan_pit_symbol_union` (`pit_universe.py`) unions `build_pit_universe` eligible symbols **across every session of every validation fold plus the holdout** — i.e. the full **2023-11..2026-05 plan window** (`include_holdout=True`). It is deliberately **uncapped**.
+- `_probe_fold` (`preflight.py:570`) then re-probes that one window-union `symbols` list on **every session** via `build_replay_checks`, with **no per-session PIT re-filter**.
+
+So a symbol that was eligible early in the plan window (≤\$20, ADV≥\$2M) but is far out-of-band on the probed Aug-2025 sessions is still probed there and counted missing. The `no_daily_history` category (21.8%) is the cleanest illustration: 198 distinct symbols with **zero** prior split-adjusted daily bars on the probed sessions — the builder rejects these as `no_prior_bar` (`builder.py:556–557`), so they are not in the tradeable universe at all, yet they are probed. Lake spot-check confirmed **0 contradictions**: not one of the 198 has a daily bar before 2025-08-27; 190/198 first list strictly after the window, 8 IPO within it, and 182/198 demonstrably acquire minute+quote data later — genuine post-window listings, not data gaps.
+
+The mechanism is a **per-(symbol, session) mis-attribution**: the symbol set is correctly the full uncapped union (intentional, §6.1), but the coverage check counts an absent minute bar as a failure for *(X, S)* pairs where X is PIT-ineligible *on session S* — pairs the live scanner would never evaluate. (We deliberately no longer call this a "probe-set basis defect": at the symbol-set level the broad probe is by design — §6.1.) The fix is a **per-(symbol, session) eligibility scoping of the coverage denominator**: count a missing minute bar against realism only when X is PIT-eligible on S. This can be implemented either by per-session filtering inside `_probe_fold` (Option A, narrows the probe set — must be reconciled with §6.6) or, preferably, by keeping the full union probe and excluding ineligible-on-session pairs from the coverage fraction (a denominator change that preserves §6.6's "no symbol-set cap" invariant). Secondary hardening: a PIT/survivorship-aware asset master (§10 to-do #4), and disambiguating the ADV/price-cap config keys across configs.
+
+---
+
+## 7. The genuine residual (3.42% on the probed window) — defensible on these 5 sessions
+
+The 2,304-miss residual inside the tradeable universe splits into two groups, characterized by targeted lake spot-checks (minute `adjustment=raw`, quotes `feed=sip`). **Note on method:** the sub-classifications below (96.2% / 3.8% in §7.1; the 30/14/5 split in §7.2) rest on **manual classification of small samples** plus named-ticker anecdotes, not a full programmatic pass over all 2,304 rows. The percentages are reported to 0.1% but the base is partly hand-classified — treat them as **well-supported estimates with ~tens-of-rows precision**, not exact census figures.
+
+### 7.1 `intra_session_sparse` — 1,709 misses (74.2% of residual; 2.53% of tradeable probes)
+Every row has `max_n>0`, `has_session_bars==1`, `has_regular_bars==1`, `has_quote_month_file==1` — the symbol *did* trade, all present bars have volume > 0, and gaps are scattered (multiple 5–30 min holes, not one contiguous block). Decomposed by `first_trade_et` (estimates):
+- **Window-edge effect — ~1,644 misses (≈96%)**: full/near-full-session names (e.g. ARKO 163 bars 09:30→16:00, ADEA 226, PLGO 317) whose 1–2 earliest post-first probes land at 09:45–09:46, just before the symbol's first *in-window* bar (ARKO's first ≥09:45 bar is 09:47). A 1-minute window-edge alignment plus thin-stock microstructure. (Characterized from named tickers; the ≈96% is an extrapolation from the `first_trade_et` distribution, not a per-row audit.)
+- **Genuinely-late — ~65 misses (≈4%)**: ~18 extremely thin marginal-ADV names right at the \$2M floor (median prior_adv \$2.39M; AACI/XRPN first trade 13:54 with 2 bars all session). Real no-trade microstructure for floor-ADV names. This is the component expected to persist lake-wide.
+
+### 7.2 `no_session_bars_has_month_file` — 595 misses (25.8% of residual; 0.88% of tradeable probes)
+All 0-bar sessions despite a quote month-file. **Classified by hand across the 49 distinct (symbol, session) rows** that carry these 595 probe-misses: 30 lake-start-boundary (target session predates the symbol's first minute-file session), 14 after-last (stale month file ends before the target), 5 missing-day-within-range. These include unquestionably-liquid names that traded those days (CWAN prior_adv \$102M, PENN \$72M, HP \$42M, CPRX \$31M, PSKY \$382M). This is consistent with an **ingestion/backfill-incompleteness artifact** concentrated at the lake-start boundary — and the probed 5 sessions are the lake's *first* 5, so this share is over-represented here and is expected to shrink on interior folds. **Caveat:** the 30/14/5 split is from 49 hand-classified rows; extrapolating it as a stable microstructure narrative to the full residual is an estimate, and the "would shrink on interior folds" claim is an *expectation* not yet measured (§10 to-do #1).
+
+**Net (probed window only):** of the 2,304 residual misses, ~595 (0.88% of probes) are consistent with ingestion artifacts that arguably should not count against realism; ~1,644 (2.44%) are a 09:45–09:46 window-edge alignment on full-session thin stocks; ~65 (0.10%) are genuinely-late floor-ADV no-trade. On this window the truly-no-data-when-data-should-exist component is **small (on the order of the ~65 floor-ADV no-trades plus any genuine intra-day holes), not zero**. We **withdraw the earlier "effectively zero" claim** as an overclaim: the defensible statement is *"small on this boundary fold, and dominated by a window-edge alignment artifact and a lake-start ingestion boundary; unmeasured on interior folds."* The 3.42% is plausibly conservative on these 5 sessions (the window-edge and ingestion components are arguably not realism failures), but whether a `$2M`-floor faithful replay sits inside the 5% gate **lake-wide** is an open question pending the interior-fold re-run (§10 to-do #1).
+
+---
+
+## 8. Honest correction log
+
+We reached the over-inclusion finding only after discarding three earlier conclusions. An expert reviewer should see the full reasoning trail:
+
+1. **(WRONG) "`intended_realism` is fundamentally incompatible with this illiquid universe."** The early read of a 35.65% miss was that sub-\$20 micro-caps simply don't trade every minute and the faithful-replay contract can never be met for them. *Why wrong:* the 35.65% is not measured over the tradeable universe — it is dominated (94.66%) by `daily_eligible==0` symbols outside it. On the actually-tradeable set the miss is 3.42% (on the probed window). The illiquid universe replays faithfully *for the symbols actually traded each session*; the headline conflated "untradeable symbol on this session" with "unfaithful replay."
+
+2. **(WRONG) "Raising the ADV floor (\$250k → \$2M) fixes it."** We did raise the floor, expecting the thin-stock misses to drop out. *Why wrong:* raising the floor *tightens the tradeable universe* but does **not** change the *probe set* — `plan_pit_symbol_union` still unions every PIT-eligible symbol across the whole plan window, and `_probe_fold` still probes all of them on every session regardless of floor. The floor change moved the eligibility line but the over-inclusion is in the probe machinery, upstream of where the floor bites per-session. The miss stayed ~36%.
+
+3. **(WRONG) "It's a minute-backfill gap — the lake is missing SIP minute bars."** Plausible given `no_minute_file` is 47% of misses. *Why wrong:* lake spot-checks showed those symbols are either not-yet-listed (no daily history at all), out-of-band on the probed dates, or below the ADV floor — they are not symbols the strategy trades, so their absent minute files are not a gap in the *tradeable* lake. Within the tradeable set, minute coverage is 96.6% (3.42% miss), and the small residual is thin-stock no-trade + a lake-start ingestion boundary, not a systemic backfill hole.
+
+4. **(CORRECT, with a design caveat) The miss is dominated by per-(symbol, session) pairs the strategy cannot trade on that session.** **1,218 symbols (50.25% of the 2,424 CSV-distinct)** are never PIT-eligible on any of the 5 probed sessions and drive 94.66% of misses. Restricting the coverage denominator to PIT-eligible-on-session + minute-backfilled pairs gives 3.42% on the probed window. **Design caveat (added this revision):** the broad *symbol set* is intentional (audit §6.6 — the uncapped PIT-union exists to prevent coverage under-reporting), so the correct framing is "the coverage *denominator* mis-attributes ineligible-on-session pairs," not "the probe set is a defect." Whether the remedy narrows the probe set (Option A) or only the scored denominator is an open §6.6-reconciliation question (§6.1).
+
+---
+
+## 9. Adversarial verification
+
+Three load-bearing claims were stress-tested. **Claim C (added this revision) is the one that most threatens the recommendation** and was previously omitted from this section.
+
+**Claim A — "The 35.65% is over-inclusion, not a realism gap; restricted to the tradeable universe the gate passes at 3.42%."**
+
+The strongest counterargument (and the reason this finding was initially graded **not-survived**): *the 3.42% is computed against the wrong eligibility basis.* The argument was that the as-run config was `bowaka_v2_research_sip.yml`, whose **`universe` block sets `max_price: 1000.0`** (lines 35–39) — and since `builder._price_band` reads `universe.max_price`, the builder would admit AAOI-class names (prior_close $25, $130M ADV) as genuinely eligible. On that basis the miss is 5,393/70,888 = **7.61%** (or 20.34% unrestricted) — a **FAIL** — and the favorable 3.42% only appears by silently substituting `signals.price_max=20` for `universe.max_price=1000`.
+
+**We settled this empirically and the counterargument does NOT survive.** The instrumentation ran the preflight against a temporary config `/tmp/ir2m.yml`, not a committed file. We recovered `/tmp/ir2m.yml` from the container and read its `universe` block directly:
+
+```yaml
+universe:
+  asset_classes: [operating_equity]
+  exclude_pattern_class: true
+  max_price: 20.0
+  min_adv_dollars: 2000000
+  min_price: 1.0
+```
+
+The as-run config caps at **\$20**, floors ADV at **\$2M**, and carries **no `avg_dollar_volume_min` in the `universe` block** — so `_adv_min` resolves cleanly to `min_adv_dollars=2000000` (no key-precedence override). This is exactly the basis the CSV's `daily_eligible` reconstruction uses. The counterargument's `max_price=1000` came from `bowaka_v2_research_sip.yml`, which is **not** the config that ran. The three committed resolved walk-forward configs likewise all carry `universe.max_price=20` (with `min_adv_dollars=250000`, the floor being lifted to \$2M by the overlay that produced `/tmp/ir2m.yml`).
+
+We then resolved the remaining puzzle the counterargument raised — **probed symbols with prior_close > \$20 and ADV ≥ \$2M (BMNR \$49.95, SOFI \$25.62, HIMS \$45.35, …).** Under a \$20 cap the builder should reject these as `price_above_max`, so why are they probed? **Count provenance:** as-of 2025-08-27 (first probed session) there are **249** such symbols (CSV-reproducible); across all 5 probed sessions the union is **264** (CSV-reproducible). The "249" figure is the single-session snapshot. A lake spot-check (`_check_window_union.py`, **not** CSV-reproducible) reports that all 249 were eligible (1 ≤ prior_close ≤ 20 AND ADV ≥ \$2M) on at least one session in the full plan window (2023-11-27..2026-05-20) with 0 never-eligible. They are in the probe set because `plan_pit_symbol_union` unions eligibility across the *whole plan window* (§6) — SOFI/BMNR were ≤\$20 earlier, became eligible then, and the window-union retains them. This is the over-inclusion mechanism, **not** a `max_price=1000` config bug. The counterargument mis-identified the config; the 3.42% basis is correct. **Claim A survives** (the window-union lake-scan leg is a spot-check, not independently re-runnable from the CSV).
+
+**Claim B — "Restricted to the tradeable PIT universe, minute coverage is 3.42% and passes the 5% gate (on the probed window)."**
+
+The counterargument: the pass is *contingent* on the \$2M ADV floor and the \$1–\$20 band — below \$2M (at \$250k or \$500k) it fails. **This survives**: that contingency is legitimate because the floor and band *are the config's own gate* — the tradeable universe is defined by them, so scoring coverage over that universe is correct, not cherry-picking. Exact figures confirmed: 67,464 probes / 2,304 miss / 3.42%; unrestricted 143,075 / 52,622 / 36.78%; **1,218 of 2,424** symbols never eligible drive **94.66%** of misses. **Claim B survives — scoped to the 5 probed sessions** (lake-wide generalization is Claim C / §10 to-do #1, not established here).
+
+**Claim C (the recommendation itself) — "The fix is to filter/scope the coverage probe to the per-session PIT-eligible set; this is correct, not a regression."**
+
+This is the claim a §6.6-aware reviewer would attack hardest, and it does **not** cleanly survive as originally written. The counterargument: the uncapped full-PIT-union probe is an **intentional P0 anti-under-reporting mechanism** (audit 2026-05-23 §6.6; `pit_universe.py:5–7,108–109` — "anything less than the union is a capped preflight [that] must be flagged with a waiver"). Narrowing the symbol set the preflight probes (Option A as literally written) re-introduces precisely the kind of narrowing §6.6 was added to forbid, and would need a waiver. **Verdict: PARTIALLY SURVIVES, conditionally.** The *diagnosis* (ineligible-on-session pairs are mis-attributed) survives — §6.6 was about not *capping the symbol set arbitrarily* (the old 100-symbol cap), not about scoring coverage over ineligible-on-session pairs. But the *remedy* must be re-formulated to be §6.6-compatible: keep the full uncapped union as the probe set (honoring §6.6), and change only the **coverage denominator** to exclude pairs that are PIT-ineligible *on that session*. The literal Option A (filter the probe set) is **not** green-lit without either (a) a §6.6 waiver, or (b) re-expressing it as the denominator-only change. **This is the load-bearing open item for the recommendation** (§6.1, §10 Option A).
+
+Two of three claims (A, B) survive on the probed window; the recommendation-bearing Claim C survives only as a diagnosis and requires a §6.6-compatible re-formulation of the remedy. The previously-claimed "both load-bearing claims survive" understated the work remaining, because the §6.6 tension was not among the stress-tested claims.
+
+---
+
+## 10. Options & recommendation
+
+### Option A (recommended diagnosis; remedy needs a §6.6-compatible form) — score coverage only over per-session PIT-eligible (symbol, session) pairs
+**Two implementable forms, with a strong preference:**
+
+- **A1 (preferred, §6.6-compatible) — denominator-only scoping.** Keep the full uncapped PIT-union as the probe *symbol set* (this honors the intentional audit-§6.6 anti-under-reporting invariant — see §6.1). Change only the **coverage fraction**: when computing `missing/probes` in `_coverage_check` / `build_coverage_check`, count a (symbol, session) pair only when the symbol is PIT-eligible *on that session*. This requires threading a per-session eligibility predicate into `build_replay_checks` / `build_coverage_check` (e.g. a `is_eligible(sym, session)` callback derived from `build_pit_universe_for_sessions`). No symbol is removed from the probe set, so no §6.6 waiver is needed; the telemetry still reports full-union coverage, and the *gate* fraction is computed over the genuinely-tradeable pairs.
+- **A2 (literal "filter the probe set") — narrows the probed symbols inside `_probe_fold` (`preflight.py:570`)** to `eligible_symbols(build_pit_universe_for_sessions(...)[session])` per session. This is simpler but **re-introduces a per-session narrowing of the symbol set that audit §6.6 classifies as a capped preflight requiring a waiver** (§6.1). Adopt A2 **only** with an explicit `research_waiver_capped_symbols`-style opt-in or an argued §6.6 exception; do **not** ship it silently.
+
+Both make the coverage fraction measure what it claims to: *can the lake faithfully replay the symbols the strategy would actually trade on each session.* **Prefer A1.**
+
+- **Pros:** Directly removes the 94.66% of misses from `daily_eligible==0` pairs; on the probed window the late-session fraction falls to 2.16% and exit-path to 0.39% (both < 5%). Makes the preflight's gate honest without touching the trading universe (folds already trade the per-session PIT set).
+- **Cons / still-to-do before declaring green:**
+  1. **(Generalization — the single biggest open item.)** The 3.42% is established only over the **first 5 sessions** (the lake's earliest, where the §7.2 ingestion-boundary residual is over-represented). The headroom is **1,069 probes / 1.6 pp**, which is thin. **Re-run the instrumented probe on an interior fold** to confirm coverage holds lake-wide. Expectation is ≤3.4% (the 0.88% ingestion-boundary share should shrink), but this is an *expectation, not a measurement* — a single boundary fold cannot establish lake-wide coverage, and the thin headroom means an unverified interior fold could plausibly move the verdict.
+  2. **Fix `coverage_missing` separately (correcting the earlier mischaracterization).** Restricting/scoping the universe only takes the **minute leg** of `coverage_missing` from 54.6% → 20.25% (still failing the 1% gate). The earlier draft attributed this to a *"degenerate zero-width window `[09:45, 09:45]` that returns 0 bars"* — **that characterization was wrong and is withdrawn.** Verified against source and the probe log: `build_coverage_check` uses `probe_ts = scan_times[0]` = 09:45 (`data_quality.py:421`), and the supplier asks the lake for `[09:45, 09:45]` — a **1-minute** window, not zero-width. In the raw probe log this 09:45 probe returns **≥1 bar for 5,506 of 12,125 symbols** (it returns the single 09:45 bar whenever the symbol traded at 09:45); the 6,619 miss is **genuine no-trade-at-09:45** for thin stocks, not a window bug. The proposed `[09:45, scan_ts]` widening is also **incoherent for the first-scan check**: at first-scan time `scan_ts` *is* 09:45, so there is no later `scan_ts` to widen to. The real issues with `coverage_missing` are different and twofold: **(a)** it is a strict per-pair check at the *single* 09:45 instant against a 1% gate — far stricter than the 5% replay gates — so even the tradeable 20.25% reflects that many tradeable thin stocks simply have no *first-minute* trade (this is the same per-session-eligibility scoping issue plus an arguably-too-strict single-instant requirement; consider whether the first-scan minute probe should require a bar within `[09:45, 09:45+ε]` or be folded into the 5% late-session contract); and **(b)** `coverage_missing` is a **daily ∪ minute** union (`data_quality.py:442`), so its true numerator includes a daily-coverage leg we did not isolate (§3) — any fix must address both legs. *This item is now an open design question on the `coverage_missing` contract, not a one-line "window bug" fix.*
+  3. Harden the eligibility-basis config keys so the probe basis can never silently diverge from the trading basis: disambiguate `universe.max_price` vs `signals.price_max` (the `research_sip` config's `universe.max_price=1000` is anomalous vs every `intended_realism` config's `=20`), and the `avg_dollar_volume_min`-over-`min_adv_dollars` precedence in `_adv_min` (`builder.py:228–231`).
+  4. Replace the **non-PIT, survivorship-free asset master** (a single future-dated 2026-06-05 snapshot, `status='active'` for all 6,527 rows, no listing/delisting dates) with a point-in-time-aware master, so not-yet-listed names are excluded by listing date rather than relying solely on `no_prior_bar`. *Until then, the `no_daily_history` → "not-yet-listed" attribution (§5.1, §6) is inferential, not PIT-confirmed.*
+
+### Option B — accept `current_code_parity` for the finalist
+Ship the existing `current_code_parity` finalist and defer `intended_realism`.
+- **Pros:** Zero new engineering; a validated finalist already exists.
+- **Cons:** Loses the faithful-replay realism guarantee (`current_code_parity` reproduces live warts, e.g. halt gate failing open); does not resolve the preflight mis-attribution, which will resurface on any future `intended_realism` attempt. The realism gap we *thought* blocked `intended_realism` does not appear to exist on the probed window, so Option A is cheap relative to its payoff — *contingent on the interior-fold confirmation (cons #1)*.
+
+**Recommendation: Option A1, then validate.** The diagnosis is sound — on the probed window the blocker is per-session-eligibility mis-attribution in the coverage denominator, not a data or realism deficiency. The path is: (i) implement A1 (denominator-only scoping — keeps the §6.6 full-union probe, so no waiver); (ii) reconcile explicitly with audit §6.6 (§6.1) and reject the literal A2 unless waivered; (iii) re-formulate the `coverage_missing` fix per cons #2 (the "window bug" framing is withdrawn); (iv) **re-run on an interior fold** before declaring the mode green. The mode is *plausibly* supportable; it is **not yet demonstrated green lake-wide.**
+
+---
+
+## 11. Reproducibility appendix
+
+**Host analysis (pandas):** `C:/Python312/python.exe`, CSV at `E:/tradingsoftware/quants-lab/scripts/_pair_dataset.csv`.
+
+```python
+import pandas as pd
+df = pd.read_csv(r"E:/tradingsoftware/quants-lab/scripts/_pair_dataset.csv")
+tp, tm = df.n_probes.sum(), df.n_miss.sum()                       # 143075, 52622 (36.78%)
+df.symbol.nunique()                                               # 2424 (canonical distinct count)
+el = df[(df.has_min_month_file==1) & (df.daily_eligible==1)]
+el.n_probes.sum(), el.n_miss.sum()                                # 67464, 2304 (3.4152%)
+df.groupby("category").n_miss.sum().sort_values(ascending=False)  # 5-way split
+ever = df.groupby("symbol").daily_eligible.max()
+int((ever==0).sum())                                              # 1218 never-eligible
+df[df.daily_eligible==0].n_miss.sum()/tm                          # 0.9466 ineligible miss share
+# ineligible decomposition: 19016 / 16246 / 11454 / 3097 (= 49813)
+# as-of-2025-08-27 over-$20 & ADV>=2M: 249 ; all-session union: 264
+```
+
+**Four probe-family decomposition (from the raw probe log, ET = UTC−4 for these dates):**
+```python
+import json, collections
+def et_hhmm(ts):
+    t = ts.replace("T"," "); hh=int(t.split(" ")[1][:2]); mm=int(t.split(" ")[1][3:5])
+    x=hh*60+mm-240; x+=1440 if x<0 else 0; return f"{x//60:02d}:{x%60:02d}"
+p=collections.Counter(); m=collections.Counter()
+for ln in open(r"E:/tradingsoftware/quants-lab/scripts/_probe_log_2m.jsonl"):
+    ln=ln.strip();
+    if not ln: continue
+    r=json.loads(ln); k=et_hhmm(r["ts"]); p[k]+=1; m[k]+= (r["n"]==0)
+# 09:45 -> 12125/6619 (coverage_missing minute leg)
+# 09:46..14:47 (8 buckets) -> 97000/34584 (late_session)
+# 15:30 -> 21825 probes / 7332 miss-rows (3264 unique sym@date) (exit_path)
+# 16:00 -> 12125/4087 (Level-2 session checks, NOT a coverage_* check)  <-- the previously-unaccounted family
+```
+
+**Scripts under `scripts/` (provenance labelled).** CSV-reproducible = derivable from `_pair_dataset.csv` alone; lake-scan = requires the container lake (not independently re-runnable from the staged dataset):
+- `_tmp_instrument_preflight.py` — *(capture)* monkeypatches `make_lake_suppliers`, runs the real `$2M` preflight, writes the probe log.
+- `_extract_pair_dataset.py` — *(stage; lake-scan)* joins probe log + lake → `_pair_dataset.csv` (constants: `MIN_ADV=2_000_000, MIN_PX=1.0, MAX_PX=20.0`; daily read from `…/timeframe=1d/adjustment=split_adjusted`).
+- `_check_ir2m_basis.py` — *(lake-scan)* recovers the as-run `/tmp/ir2m.yml` `universe` block; counts probed symbols with prior_close>20 & ADV≥2M (249 as-of 2025-08-27; 264 all-session union).
+- `_check_window_union.py` — *(lake-scan; NOT CSV-reproducible)* the "all 249 over-\$20 symbols eligible somewhere in 2023-11..2026-05" claim; the ~1,148–1,162 per-session PIT-universe size; the 182/198 `no_daily_history` later-acquire-data claim. These rest on lake scans whose outputs are not staged in the CSV — a reviewer cannot re-derive them from `_pair_dataset.csv` and must re-run the container scan to verify.
+
+**Probe log (raw):** host `E:/tradingsoftware/quants-lab/scripts/_probe_log_2m.jsonl`; container `/quants-lab/scripts/_probe_log_2m.jsonl` — one `{sym, ts, n}` per probe.
+
+**Container lake spot-checks** (lake is container-only; MSYS mangles leading `/paths`, so always use the prefix + a script file):
+```bash
+MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' docker exec ql-jupyter \
+  bash -lc 'cd /quants-lab/scripts && /opt/conda/envs/quants-lab/bin/python YOURFILE.py'
+```
+Lake paths: minute `…/bars/vendor=alpaca/feed=sip/timeframe=1m/adjustment=raw/symbol=X/year=Y/month=M/part.parquet`; daily `…/timeframe=1d/adjustment=split_adjusted/symbol=X/part.parquet`; quotes `…/quotes/vendor=alpaca/feed=sip/symbol=X/year=Y/month=M/part.parquet`.
+
+**Source citations:** `dq_levels.py:72,80,346–488` (replay checks; `_coverage_check:429–457` with `n_missing=len(set(missing))` at 430 and the `sym@fwd` miss-string at 427); `data_quality.py:391–480` (`build_coverage_check`; `probe_ts=scan_times[0]` at 421; `missing_pairs = set(missing_daily) | set(missing_minute)` at 442; `COVERAGE_MISSING_FAIL_FRACTION=0.01` at 259); `data_quality.py:1130–1150` (the 16:00 ET Level-2 session-fallback minute probe at `session+16h`, lines 1142–1146); `suppliers.py:121–166` (`make_lake_suppliers`, `intraday_window_start`); `preflight.py:570,2198` (`_probe_fold`, caller); `walkforward_runner.py:315–381,1899,2198` (`_resolve_symbols`; the **intentional uncapped PIT-union** docstring at 323–337); `pit_universe.py:1–12,96–124` (`plan_pit_symbol_union`, `fold_pit_symbol_union`; the §6.6 "anything less than the union is a capped preflight [that] must be flagged with a waiver" rationale at 5–7,108–109); `builder.py:220–231,545–573` (`_price_band`, `_adv_min`, eligibility incl. instrument-class / blocklist / `status_active` legs our `daily_eligible` reconstruction omits); prior audit `2026-05-23_realism_audit.md §6.6 / P1-001` (the P0 that added the uncapped union).

@@ -1,0 +1,11 @@
+schema_version: 1
+declared_diffs:
+- field_path: execution.halt_gate.enabled
+  actual_value: true
+  lab_value: false
+  reason: Alpaca historical data API exposes no trading-status/halt/LULD endpoint,
+    so the lake cannot carry statuses/ partitions and the halt gate cannot be satisfied
+    in backtest. Halts are rare over the backtested horizon; disabling reverts to
+    no-halt modeling (documented simplification). The live strategy retains real-time
+    halt handling.
+  risk_classification: scoped
