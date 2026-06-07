@@ -24,6 +24,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -685,6 +686,7 @@ def fetch_quotes(
     def _quote_target(sym: str, year: int, month: int) -> Path:
         return _layout.quotes_path(cfg.lake_root, sym, year, month, feed=cfg.feed)
 
+    _workers = max(1, int(os.environ.get("QUOTE_FETCH_WORKERS", "16")))
     accumulated: dict[tuple, list[pd.DataFrame]] = {}
     prev_month: tuple | None = None
     for session, symbols in sorted(pairs_by_session.items()):
@@ -695,29 +697,48 @@ def fetch_quotes(
         prev_month = sess_month
         start_dt = datetime.combine(session, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_dt = start_dt + timedelta(days=1)
-        for batch in _chunks(symbols, bsize):
+        # Fetch this session's symbol-batches CONCURRENTLY, and SAMPLE INSIDE each
+        # worker so only the tiny per-minute NBBO survives — the raw tick stream
+        # (tens of GB for a whole session) is freed inside the thread before the
+        # next batch, so peak RAM is bounded to the in-flight batches, NOT the
+        # whole session. A single-threaded loop only reached a few hundred of the
+        # configured rpm because each quote request pages serially; concurrency
+        # uses the real rate (each call builds its own Alpaca client; the
+        # RateLimiter is thread-safe and still caps total rpm). The session loop
+        # stays serial (per-month flush ordering intact) and ex.map yields in
+        # batch order, so accumulation is deterministic / byte-identical to the
+        # serial path. Tune concurrency with QUOTE_FETCH_WORKERS.
+        def _fetch_and_sample(_b, _s=start_dt, _e=end_dt, _sess=session):
             try:
-                ticks_acc = fetcher(batch, start_dt, end_dt)
+                ticks_acc = fetcher(_b, _s, _e)
             except Exception as exc:  # noqa: BLE001
                 log.exception("quote batch failed (session %s, %d symbols): %s",
-                              session, len(batch), exc)
-                stats["batches_failed"] += 1
-                continue
-            for sym in batch:
-                sym_ticks = ticks_acc.get(sym) or []
-                if not sym_ticks:
-                    stats["pairs_empty"] += 1
+                              _sess, len(_b), exc)
+                return None
+            out: list = []
+            for _sym in _b:
+                _raw = ticks_acc.get(_sym) or []
+                if not _raw:
+                    out.append((_sym, None))
                     continue
-                ticks = pd.DataFrame(sym_ticks)
-                ticks["timestamp"] = pd.to_datetime(ticks["timestamp"], utc=True)
-                sampled = _sample_session_nbbo(ticks, session)
-                if sampled is None or sampled.empty:
-                    stats["pairs_empty"] += 1
+                _t = pd.DataFrame(_raw)
+                _t["timestamp"] = pd.to_datetime(_t["timestamp"], utc=True)
+                out.append((_sym, _sample_session_nbbo(_t, _sess)))
+            return out
+        _batches = list(_chunks(symbols, bsize))
+        with ThreadPoolExecutor(max_workers=_workers) as _ex:
+            for _sampled_batch in _ex.map(_fetch_and_sample, _batches):
+                if _sampled_batch is None:
+                    stats["batches_failed"] += 1
                     continue
-                for (year, month), grp in sampled.groupby(
-                    [sampled["timestamp"].dt.year, sampled["timestamp"].dt.month]):
-                    accumulated.setdefault((sym, int(year), int(month)), []).append(grp)
-                stats["pairs_written"] += 1
+                for sym, sampled in _sampled_batch:
+                    if sampled is None or sampled.empty:
+                        stats["pairs_empty"] += 1
+                        continue
+                    for (year, month), grp in sampled.groupby(
+                        [sampled["timestamp"].dt.year, sampled["timestamp"].dt.month]):
+                        accumulated.setdefault((sym, int(year), int(month)), []).append(grp)
+                    stats["pairs_written"] += 1
 
     _flush_accumulated_months(accumulated, list(accumulated.keys()), _quote_target, stats)
 
