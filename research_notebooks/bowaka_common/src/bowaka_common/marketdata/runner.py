@@ -211,8 +211,18 @@ def run_configured_backfill(
     else:
         snapshot_id, assets_df = fetch_assets(bcfg, log, assets_fetcher=assets_fetcher)
 
+    # ``quotes_only`` (CLI --quotes-only) restricts the run to assets -> minute
+    # targets -> quotes, skipping the daily + minute FETCH and the shared
+    # audit/manifest/ingestion-run writes. This lets many processes backfill quotes
+    # for disjoint month ranges in parallel without racing on per-symbol daily files
+    # or the single manifest.json. Daily + minute bars must already be in the lake.
+    quotes_only = bool(config.get("quotes_only", False))
+
     # -- daily bars (incremental: head + tail) ---------------------------
-    daily_stats = fetch_daily_bars(bcfg, assets_df, log, limiter, bars_fetcher=bars_fetcher)
+    if quotes_only:
+        daily_stats = {"skipped": "quotes_only"}
+    else:
+        daily_stats = fetch_daily_bars(bcfg, assets_df, log, limiter, bars_fetcher=bars_fetcher)
 
     # -- minute bars + quotes (incremental: resume skips covered sessions) --
     # Quotes share the minute-bar (symbol, session) universe, so they exist
@@ -224,7 +234,7 @@ def run_configured_backfill(
     targets = None
     if minute_cfg.get("enabled", False) or quotes_cfg.get("enabled", False):
         targets = _minute_targets(minute_cfg, bcfg, lake, assets_df, log)
-    if minute_cfg.get("enabled", False) and targets is not None and len(targets) > 0:
+    if minute_cfg.get("enabled", False) and not quotes_only and targets is not None and len(targets) > 0:
         minute_stats = fetch_minute_bars(bcfg, targets, log, limiter, bars_fetcher=bars_fetcher)
     # SIP NBBO quotes — required for intended_realism (quote-aware fills/exits +
     # the quote-coverage gate). IEX quotes are partial-tape and unused by realism.
@@ -242,31 +252,39 @@ def run_configured_backfill(
                         "minute_bars (quotes use its universe).")
 
     # -- audit + manifest + ingestion-run record -------------------------
-    audits = audit_daily_bars(bcfg, log)
-    if not audits.empty:
-        write_audits(bcfg, audits)
-    counts = {
-        "assets": int(len(assets_df)),
-        "daily": daily_stats,
-        "minute": minute_stats,
-        "quotes": quote_stats,
-        "audit_rows": int(len(audits)),
-    }
-    write_manifest_json(bcfg, counts, {"lake": compute_dataset_hash(lake)})
-    run_id = f"ingest_{_dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%dT%H%M%SZ')}_{feed}"
-    write_ingestion_run(
-        bcfg,
-        {
-            "ingestion_run_id": run_id,
-            "vendor": "alpaca",
-            "feed": feed,
-            "adjustment": bcfg.adjustment,
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            "counts": counts,
-            "created_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
-        },
-    )
+    if quotes_only:
+        # Parallel quote-only workers skip the shared bookkeeping writes (audit,
+        # manifest.json, ingestion-run record) so they cannot clobber each other;
+        # regenerate them once with a normal run afterward. compute_dataset_hash
+        # would also needlessly rescan the entire lake here.
+        counts = {"quotes": quote_stats}
+        run_id = f"quotesonly_{feed}_{start.isoformat()}_{end.isoformat()}"
+    else:
+        audits = audit_daily_bars(bcfg, log)
+        if not audits.empty:
+            write_audits(bcfg, audits)
+        counts = {
+            "assets": int(len(assets_df)),
+            "daily": daily_stats,
+            "minute": minute_stats,
+            "quotes": quote_stats,
+            "audit_rows": int(len(audits)),
+        }
+        write_manifest_json(bcfg, counts, {"lake": compute_dataset_hash(lake)})
+        run_id = f"ingest_{_dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%dT%H%M%SZ')}_{feed}"
+        write_ingestion_run(
+            bcfg,
+            {
+                "ingestion_run_id": run_id,
+                "vendor": "alpaca",
+                "feed": feed,
+                "adjustment": bcfg.adjustment,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "counts": counts,
+                "created_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            },
+        )
     result = {
         "run_id": run_id,
         "feed": feed,

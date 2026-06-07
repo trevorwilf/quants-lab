@@ -60,6 +60,16 @@ def main(argv: list[str] | None = None) -> int:
              "prevailing quote per minute) — scope --start/--end; it is incremental.",
     )
     ap.add_argument(
+        "--quotes-only", action="store_true",
+        help="fetch ONLY quotes (implies --quotes): skip the daily + minute bar "
+             "fetch and the shared audit/manifest/ingestion-run writes. Daily + "
+             "minute bars must already be in the lake. Lets many processes backfill "
+             "quotes for disjoint --start/--end month ranges in parallel without "
+             "racing on per-symbol daily files or the single manifest.json. Run a "
+             "normal (non --quotes-only) backfill once afterward to refresh the "
+             "manifest/ingestion record.",
+    )
+    ap.add_argument(
         "--rpm", type=int,
         help="override rate_limit_rpm = your Alpaca data-API per-minute request "
              "limit (read it from any data response's X-RateLimit-Limit header; "
@@ -76,8 +86,10 @@ def main(argv: list[str] | None = None) -> int:
         config["start_date"] = args.start
     if args.end:
         config["end_date"] = args.end
-    if args.quotes:
+    if args.quotes or args.quotes_only:
         config.setdefault("quotes", {})["enabled"] = True
+    if args.quotes_only:
+        config["quotes_only"] = True
     if args.rpm:
         config["rate_limit_rpm"] = args.rpm
 

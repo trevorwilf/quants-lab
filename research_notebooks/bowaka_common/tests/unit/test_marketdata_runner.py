@@ -61,6 +61,47 @@ def _fake_bars(batch, timeframe, start, end):
     return out
 
 
+def _raising_bars(*_a, **_k):
+    raise AssertionError("bars_fetcher must NOT be called in quotes_only mode")
+
+
+def _fake_quotes(batch, start_dt, end_dt):
+    """Injected NBBO fetcher — ticks across the regular session, no network."""
+    out = {}
+    for s in batch:
+        t0 = pd.Timestamp(start_dt) + pd.Timedelta(hours=14)  # ~10:00 ET
+        rows = []
+        for i in range(60):
+            ts = t0 + pd.Timedelta(minutes=i)
+            if ts >= pd.Timestamp(end_dt):
+                break
+            rows.append({"symbol": s, "timestamp": ts, "bid": 9.99, "ask": 10.01,
+                         "bid_size": 100.0, "ask_size": 100.0, "conditions": "R"})
+        out[s] = rows
+    return out
+
+
+def test_quotes_only_skips_bars_and_shared_writes(tmp_path):
+    """--quotes-only must skip the daily/minute FETCH and the shared
+    audit/manifest/ingestion writes (so parallel month-range workers can't race),
+    while still fetching quotes for the existing minute universe."""
+    lake = tmp_path / "lake"
+    # Populate daily + minute + manifest with a normal run.
+    run_configured_backfill(_config(), lake_root=lake, bars_fetcher=_fake_bars)
+    manifest = layout.ingestion_manifest_path(lake)
+    assert manifest.is_file()
+    mtime0 = manifest.stat().st_mtime_ns
+
+    # quotes-only: bars_fetcher must NOT be called (would raise); manifest must NOT
+    # be rewritten; quotes for the minute universe (AAA) are written.
+    result = run_configured_backfill(
+        _config(quotes_only=True, quotes={"enabled": True, "batch_size_symbols": 10}),
+        lake_root=lake, bars_fetcher=_raising_bars, quotes_fetcher=_fake_quotes)
+    assert result["counts"]["quotes"]["pairs_written"] >= 1
+    assert manifest.stat().st_mtime_ns == mtime0  # shared bookkeeping untouched
+    assert layout.quotes_path(lake, "AAA", 2024, 9, feed="iex").is_file()
+
+
 def test_run_configured_backfill_writes_the_lake(tmp_path):
     lake = tmp_path / "lake"
     result = run_configured_backfill(_config(), lake_root=lake, bars_fetcher=_fake_bars)
