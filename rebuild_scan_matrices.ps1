@@ -76,6 +76,10 @@ $ts      = Get-Date -Format "yyyyMMdd_HHmmss"
 $hostLog = Join-Path $PSScriptRoot "rebuild_scan_matrices_$ts.log"
 Write-Host "Rebuilding scan matrices (validation + holdout) for $Config"
 Write-Host "Log: $hostLog"
+# `bash -lc` mis-parses CR in a multi-line script: CRLF breaks the embedded
+# heredoc (the closing `PYEOF\r` never matches `PYEOF`, so the build silently
+# no-ops and exits 0). Normalize to LF before handing the script to the container.
+$inner = $inner -replace "`r", ""
 docker exec $Container bash -lc $inner 2>&1 | Tee-Object -FilePath $hostLog
 $code = $LASTEXITCODE
 if ($code -ne 0) {

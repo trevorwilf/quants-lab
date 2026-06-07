@@ -82,6 +82,10 @@ cd /quants-lab
 $Python scripts/backfill_market_data.py --feed $Feed --quotes --start $start --rpm $Rpm
 "@
 
+# `bash -lc` mis-parses CR in a multi-line script: CRLF leaves a trailing \r on
+# every line (e.g. `export MARKET_DATA_ROOT=/opt/...​\r` -> wrong path, `cd ...\r`
+# -> wrong dir). Normalize to LF before handing the script to the container.
+$inner = $inner -replace "`r", ""
 docker exec $Container bash -lc $inner 2>&1 | Tee-Object -FilePath $hostLog
 $code = $LASTEXITCODE
 if ($code -ne 0) {
