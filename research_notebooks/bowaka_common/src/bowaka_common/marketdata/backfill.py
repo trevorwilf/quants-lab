@@ -699,11 +699,29 @@ def fetch_quotes(
     _workers = max(1, int(os.environ.get("QUOTE_FETCH_WORKERS", "16")))
     accumulated: dict[tuple, list[pd.DataFrame]] = {}
     prev_month: tuple | None = None
-    for session, symbols in sorted(pairs_by_session.items()):
+    # Progress heartbeat: the quote stage is the long pole (the raw NBBO tick
+    # stream is fetched then sampled), and a month only lands on disk once all its
+    # sessions complete — so without a per-session line the stage looks frozen for
+    # the better part of an hour. One INFO line per session with cumulative counts
+    # and elapsed time lets an operator (or the weekly scheduled job's log) read the
+    # real rate and extrapolate the ETA.
+    _ordered = sorted(pairs_by_session.items())
+    _total_sessions = len(_ordered)
+    _q_t0 = time.monotonic()
+    log.info(
+        "Stage quotes: %d sessions, %d (symbol,session) pairs, %d workers, batch=%d",
+        _total_sessions, sum(len(v) for v in pairs_by_session.values()), _workers, bsize,
+    )
+    for _sidx, (session, symbols) in enumerate(_ordered, start=1):
         sess_month = (session.year, session.month)
         if prev_month is not None and sess_month != prev_month:
             done = [k for k in accumulated if (k[1], k[2]) < sess_month]
             _flush_accumulated_months(accumulated, done, _quote_target, stats)
+            if done:
+                log.info(
+                    "quotes: flushed %d sym-months on entering %04d-%02d (months_written=%d)",
+                    len(done), sess_month[0], sess_month[1], stats["months_written"],
+                )
         prev_month = sess_month
         start_dt = datetime.combine(session, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_dt = start_dt + timedelta(days=1)
@@ -749,6 +767,16 @@ def fetch_quotes(
                         [sampled["timestamp"].dt.year, sampled["timestamp"].dt.month]):
                         accumulated.setdefault((sym, int(year), int(month)), []).append(grp)
                     stats["pairs_written"] += 1
+        _elapsed = time.monotonic() - _q_t0
+        _rate = _sidx / _elapsed if _elapsed > 0 else 0.0
+        _eta_s = (_total_sessions - _sidx) / _rate if _rate > 0 else 0.0
+        log.info(
+            "quotes: session %s (%d/%d) %d symbols | written=%d empty=%d skip=%d failed=%d | "
+            "elapsed=%.0fmin eta=%.0fmin",
+            session, _sidx, _total_sessions, len(symbols),
+            stats["pairs_written"], stats["pairs_empty"], stats["pairs_skipped_resume"],
+            stats["batches_failed"], _elapsed / 60.0, _eta_s / 60.0,
+        )
 
     _flush_accumulated_months(accumulated, list(accumulated.keys()), _quote_target, stats)
 
