@@ -164,16 +164,51 @@ def late_day_multiplier(minutes_to_close: int, cost_stress: str) -> float:
     return 1.0 + (peak - 1.0) * (30 - max(0, int(minutes_to_close))) / 30.0
 
 
-def _scan_bar(minute_bars: Optional[pd.DataFrame], scan_ts: Any) -> Optional[dict]:
-    """First forward bar at/after ``scan_ts`` as an ``{o,h,l,c}`` dict (or None)."""
+def _forward_window(
+    minute_bars: Optional[pd.DataFrame],
+    scan_ts: Any,
+    *,
+    horizon_seconds: Optional[int] = None,
+) -> Optional[pd.DataFrame]:
+    """Forward minute bars at/after ``scan_ts`` (optionally bounded ``horizon_seconds``
+    ahead), sorted ascending by timestamp — the shared forward-window selection the
+    fill-model helpers below use.
+
+    The supplier frames are already tz-aware ``datetime64`` and sorted, so this avoids
+    the per-call ``.copy()`` + element-wise ``pd.to_datetime`` reparse (the ~100x
+    pattern the store ``_normalise_bars`` fix removed); a non-datetime column is
+    normalized on a cold path. Byte-identical to the prior inline
+    ``df[df['timestamp'] >= cut].sort_values('timestamp')`` — minute timestamps are
+    unique (the store dedups ``keep='last'``) so the sort is order-deterministic.
+    Returns ``None`` for an unusable frame (matches the callers'
+    None/empty/no-timestamp guard).
+    """
     if minute_bars is None or len(minute_bars) == 0 or "timestamp" not in minute_bars.columns:
         return None
-    df = minute_bars.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    ts = minute_bars["timestamp"]
+    dt = ts.dtype
+    if isinstance(dt, pd.DatetimeTZDtype):
+        ts = ts.dt.tz_convert("UTC")
+    elif pd.api.types.is_datetime64_dtype(dt):
+        ts = ts.dt.tz_localize("UTC")
+    else:
+        ts = pd.to_datetime(ts, utc=True)
     cut = pd.Timestamp(scan_ts)
     cut = cut.tz_localize("UTC") if cut.tzinfo is None else cut.tz_convert("UTC")
-    fwd = df[df["timestamp"] >= cut].sort_values("timestamp")
-    if fwd.empty:
+    mask = ts >= cut
+    if horizon_seconds is not None:
+        horizon = cut + pd.Timedelta(seconds=int(horizon_seconds))
+        mask = mask & (ts <= horizon)
+    fwd = minute_bars[mask]
+    # Reproduce the prior ``.sort_values("timestamp")`` on the normalized ts (a
+    # stable sort; unique minute timestamps make the order deterministic).
+    return fwd.iloc[ts[mask].to_numpy().argsort(kind="stable")]
+
+
+def _scan_bar(minute_bars: Optional[pd.DataFrame], scan_ts: Any) -> Optional[dict]:
+    """First forward bar at/after ``scan_ts`` as an ``{o,h,l,c}`` dict (or None)."""
+    fwd = _forward_window(minute_bars, scan_ts)
+    if fwd is None or fwd.empty:
         return None
     row = fwd.iloc[0]
     return {
@@ -498,13 +533,9 @@ def simulate_market_fill(
 
 def _ask_path_from_bars(minute_bars: Optional[pd.DataFrame], scan_ts: Any) -> list[float]:
     """The forward minute-bar high path from ``scan_ts`` — proxy for the ask chasing."""
-    if minute_bars is None or len(minute_bars) == 0 or "timestamp" not in minute_bars.columns:
+    fwd = _forward_window(minute_bars, scan_ts)
+    if fwd is None:
         return []
-    df = minute_bars.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    cut = pd.Timestamp(scan_ts)
-    cut = cut.tz_localize("UTC") if cut.tzinfo is None else cut.tz_convert("UTC")
-    fwd = df[df["timestamp"] >= cut].sort_values("timestamp")
     col = "high" if "high" in fwd.columns else ("close" if "close" in fwd.columns else None)
     if col is None:
         return []
@@ -518,14 +549,8 @@ def _minute_dollar_volume(minute_bars: Optional[pd.DataFrame], scan_ts: Any) -> 
     one-minute dollar volume — a conservative liquidity ceiling that
     discourages a backtest from filling a 10k-share order against a thin name.
     """
-    if minute_bars is None or len(minute_bars) == 0 or "timestamp" not in minute_bars.columns:
-        return 0.0
-    df = minute_bars.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    cut = pd.Timestamp(scan_ts)
-    cut = cut.tz_localize("UTC") if cut.tzinfo is None else cut.tz_convert("UTC")
-    fwd = df[df["timestamp"] >= cut].sort_values("timestamp")
-    if fwd.empty or "volume" not in fwd.columns:
+    fwd = _forward_window(minute_bars, scan_ts)
+    if fwd is None or fwd.empty or "volume" not in fwd.columns:
         return 0.0
     row = fwd.iloc[0]
     vol = float(row.get("volume", 0.0) or 0.0)
@@ -544,14 +569,8 @@ def _minute_volume_shares(
     shares from the dollar volume divided by ``fallback_price`` (the ask).
     Returns ``0.0`` when neither is available.
     """
-    if minute_bars is None or len(minute_bars) == 0 or "timestamp" not in minute_bars.columns:
-        return 0.0
-    df = minute_bars.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    cut = pd.Timestamp(scan_ts)
-    cut = cut.tz_localize("UTC") if cut.tzinfo is None else cut.tz_convert("UTC")
-    fwd = df[df["timestamp"] >= cut].sort_values("timestamp")
-    if fwd.empty:
+    fwd = _forward_window(minute_bars, scan_ts)
+    if fwd is None or fwd.empty:
         return 0.0
     if "volume" in fwd.columns:
         return float(fwd.iloc[0].get("volume", 0.0) or 0.0)
@@ -659,15 +678,8 @@ def _ask_runs_above_limit(
     bar above limit" check while preserving the audit acceptance behaviour for
     the existing timeout tests.)
     """
-    if minute_bars is None or len(minute_bars) == 0 or "timestamp" not in minute_bars.columns:
-        return False
-    df = minute_bars.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-    cut = pd.Timestamp(scan_ts)
-    cut = cut.tz_localize("UTC") if cut.tzinfo is None else cut.tz_convert("UTC")
-    horizon = cut + pd.Timedelta(seconds=int(timeout_seconds))
-    fwd = df[(df["timestamp"] >= cut) & (df["timestamp"] <= horizon)].sort_values("timestamp")
-    if fwd.empty:
+    fwd = _forward_window(minute_bars, scan_ts, horizon_seconds=timeout_seconds)
+    if fwd is None or fwd.empty:
         return False
     if side.lower() == "buy":
         col = "high" if "high" in fwd.columns else ("close" if "close" in fwd.columns else None)
