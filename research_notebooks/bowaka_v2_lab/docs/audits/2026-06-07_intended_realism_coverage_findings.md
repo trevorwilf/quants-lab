@@ -393,6 +393,26 @@ Even with the check corrected to measure honestly (~66–78%), it FAILS 95%. The
 
 (Sub-decisions, all recommended: single-emit numerator over any-scan; 15s over 60s; drop genuine-flat 0-quote-0-bar pairs only after the guardrail confirms them — it changes the denominator, not the verdict.)
 
+### 10d.1 ADV-floor quote-coverage curve (operator chose option (b): find the floor that hits 95%)
+
+`scripts/_adv_floor_quote_curve.py` — sim-faithful single-emit quote coverage over the 5 probe sessions as the ADV floor rises. The eligibility approximation `{$2M-eligible} ∩ {prior_adv ≥ F}` was cross-checked exact against the real builder at $10M (symdiff = 0).
+
+| ADV floor | universe pairs | first-emit % | density % | 95%? |
+|---|---|---|---|---|
+| $2.0M (current) | 5758 | 77.84 | 69.50 | ❌ |
+| $3.0M | 4943 | 80.63 | 72.67 | ❌ |
+| $5.0M | 3989 | 83.09 | 76.61 | ❌ |
+| $7.5M | 3249 | 85.48 | 79.28 | ❌ |
+| $10.0M | 2800 | 87.60 | 81.47 | ❌ |
+| $15.0M | 2153 | 89.59 | 84.32 | ❌ |
+| $25.0M | 1477 | 93.40 | 88.90 | ❌ |
+| $50.0M | 768 | **97.11** | 93.82 | ⚠️ first-emit pass / density borderline |
+| $100.0M | 402 | 98.23 | **96.64** | ✅ both |
+
+**Conclusion: genuine 95% NBBO coverage requires a ~$50M (optimistic, first-emit) to ~$100M (conservative, density) ADV floor — a 25–50× jump from $2M, shrinking the universe to ~80–160 large-caps.** The `$2M` small-cap universe and a 95% real-quote gate are **fundamentally incompatible**: thin names lack a continuous NBBO, so real quote fidelity forces a large-cap universe — a different population than the small-cap momentum strategy targets. No floor gives both the small-cap universe and 95% real quotes.
+
+**Implied next decision:** (i) run `intended_realism` at a ~$50–100M floor accepting a large-cap universe (does the small-cap MACD/NATR edge even exist there?); (ii) keep the small-cap universe and accept `intended_realism` is the wrong realism model for it (use `current_code_parity`, already validated); (iii) keep small-cap + consciously lower `min_quote_coverage_pct` to ~77%, owning that ~23% of signals are unexecutable. The choice is now a strategy-design question, not a data-quality one.
+
 ---
 
 ## 11. Reproducibility appendix
