@@ -246,28 +246,44 @@ def evaluate_one_scan_vectorized(
     gap_pct = _f64_column(matrix_session, "gap_pct", scan_idx, order_idxs)
 
     # baseline-sourced arrays (from cache_by_sym, NaN where absent)
-    adv = np.full(n, np.nan, dtype=np.float64)
-    prior_atr_pct = np.full(n, np.nan, dtype=np.float64)
-    ema_slope = np.full(n, np.nan, dtype=np.float64)
-    has_baseline = np.zeros(n, dtype=bool)
-    instrument_pass = np.zeros(n, dtype=bool)
-    for i, sym in enumerate(symbols):
-        b = cache_by_sym.get(sym)
-        if b:
-            has_baseline[i] = True
-            v = _to_float_opt(b.get("avg_dollar_volume_20d"))
-            if v is not None:
-                adv[i] = v
-            v = _to_float_opt(b.get("prior_atr_pct"))
-            if v is not None:
-                prior_atr_pct[i] = v
-            v = _to_float_opt(b.get("ema_slope_prior"))
-            if v is not None:
-                ema_slope[i] = v
-        instrument_pass[i] = instrument_gate(
-            universe_meta_by_sym[sym].get("instrument_class"),
-            allow_unknown_for_research=allow_unknown,
-        )
+    # Opt A (§10h) — these arrays depend only on cache_by_sym + universe_meta_by_sym
+    # (session-constant) and allow_unknown (trial-constant), but were rebuilt EVERY
+    # scan (~346x/session). Memoize on the per-session scan_context keyed by
+    # allow_unknown so the loop runs ONCE per session. Byte-identical (the same
+    # arrays, computed once); they are read-only downstream (the gates build new
+    # mask arrays), so reuse is safe. The getattr fallback + shape guard keep a
+    # scan_context without the cache field (or a stale length) correct by recompute.
+    _bl_cache = getattr(scan_context, "_matrix_baseline_cache", None)
+    _bl = _bl_cache.get(allow_unknown) if _bl_cache is not None else None
+    if _bl is not None and _bl[0].shape[0] == n:
+        adv, prior_atr_pct, ema_slope, has_baseline, instrument_pass = _bl
+    else:
+        adv = np.full(n, np.nan, dtype=np.float64)
+        prior_atr_pct = np.full(n, np.nan, dtype=np.float64)
+        ema_slope = np.full(n, np.nan, dtype=np.float64)
+        has_baseline = np.zeros(n, dtype=bool)
+        instrument_pass = np.zeros(n, dtype=bool)
+        for i, sym in enumerate(symbols):
+            b = cache_by_sym.get(sym)
+            if b:
+                has_baseline[i] = True
+                v = _to_float_opt(b.get("avg_dollar_volume_20d"))
+                if v is not None:
+                    adv[i] = v
+                v = _to_float_opt(b.get("prior_atr_pct"))
+                if v is not None:
+                    prior_atr_pct[i] = v
+                v = _to_float_opt(b.get("ema_slope_prior"))
+                if v is not None:
+                    ema_slope[i] = v
+            instrument_pass[i] = instrument_gate(
+                universe_meta_by_sym[sym].get("instrument_class"),
+                allow_unknown_for_research=allow_unknown,
+            )
+        if _bl_cache is not None:
+            _bl_cache[allow_unknown] = (
+                adv, prior_atr_pct, ema_slope, has_baseline, instrument_pass
+            )
 
     # ---- vectorized gates (order matches apply_v2_gates) ----
     s = signals_cfg
@@ -304,9 +320,19 @@ def evaluate_one_scan_vectorized(
     naive_row = matrix_session.dynamic_uint8["bar_timestamp_was_naive"][scan_idx, :]
     bar_age_row = matrix_session.dynamic_float64["bar_age_seconds"][scan_idx, :]
 
-    def _flag(row, i: int, default: int = 0) -> int:
-        idx = int(order_idxs[i])
-        return int(row[idx]) if idx >= 0 else default
+    # Opt C (§10h per-trial scan floor) — gather the validity-flag / bar-age rows
+    # into SYMBOL order ONCE (vectorized) instead of a per-symbol ``_flag()`` call
+    # in the loop below (22M calls/fold). Byte-identical to the prior
+    # ``_flag(row, i)`` == ``int(row[order_idxs[i]]) if order_idxs[i] >= 0 else 0``;
+    # symbols absent from the matrix universe (order_idxs < 0) take the legacy
+    # default (0; NaN for age, which is unreached for those rows since the
+    # order_idxs<0 / has_bar==0 guard ``continue``s first).
+    _oi_ok = order_idxs >= 0
+    _oi_clip = np.where(_oi_ok, order_idxs, 0)
+    has_bar_sym = np.where(_oi_ok, has_bar_row[_oi_clip], 0)
+    has_valid_sym = np.where(_oi_ok, has_valid_row[_oi_clip], 0)
+    naive_sym = np.where(_oi_ok, naive_row[_oi_clip], 0)
+    bar_age_sym = np.where(_oi_ok, bar_age_row[_oi_clip], np.nan)
 
     # ---- per-symbol loop (legacy skip ordering + emit/cap + state) ----
     result = ScanResult(universe_size=n)
@@ -320,14 +346,21 @@ def evaluate_one_scan_vectorized(
         base.update(extra)
         return base
 
+    # Opt B (§10h) — bind the rejection-reason ``.value`` strings as locals so the
+    # hot per-symbol loop avoids re-resolving the Enum ``value`` descriptor per
+    # symbol (32M enum lookups/fold). Byte-identical (same interned strings).
+    gate_failed_v = ScanSkipReason.GATE_FAILED.value
+    max_cap_v = ScanSkipReason.MAX_ENTRIES_CAP.value
+
     def _record_skip(symbol: str, reason, **extra: Any) -> None:
+        rv = reason.value
         if collect_gate_dump:
             result.gate_dump.append(_row(
-                symbol, skipped=reason.value, rejection_reason=reason.value, **extra,
+                symbol, skipped=rv, rejection_reason=rv, **extra,
             ))
         else:
-            result.rejection_counts[reason.value] = (
-                int(result.rejection_counts.get(reason.value, 0)) + 1
+            result.rejection_counts[rv] = (
+                int(result.rejection_counts.get(rv, 0)) + 1
             )
 
     passing: list[tuple[float, dict[str, Any]]] = []
@@ -358,15 +391,14 @@ def evaluate_one_scan_vectorized(
         if not has_baseline[i]:
             _record_skip(symbol, ScanSkipReason.NO_BASELINES)
             continue
-        if order_idxs[i] < 0 or _flag(has_bar_row, i) == 0:
+        if order_idxs[i] < 0 or has_bar_sym[i] == 0:
             _record_skip(symbol, ScanSkipReason.NO_BARS)
             continue
-        if _flag(has_valid_row, i) == 1:
-            if _flag(naive_row, i) == 1:
+        if has_valid_sym[i] == 1:
+            if naive_sym[i] == 1:
                 _record_skip(symbol, ScanSkipReason.STALE_BAR, reason="naive_timestamp")
                 continue
-            idx = int(order_idxs[i])
-            age = float(bar_age_row[idx])
+            age = float(bar_age_sym[i])
             if not np.isnan(age) and age > max_bar_age_seconds:
                 _record_skip(
                     symbol, ScanSkipReason.STALE_BAR,
@@ -388,8 +420,8 @@ def evaluate_one_scan_vectorized(
         # dead-work elimination, NOT a semantic change); the existing three-way
         # parity tests run collect_gate_dump=False and guard it end-to-end.
         if not ok and not collect_gate_dump:
-            result.rejection_counts[ScanSkipReason.GATE_FAILED.value] = (
-                int(result.rejection_counts.get(ScanSkipReason.GATE_FAILED.value, 0)) + 1
+            result.rejection_counts[gate_failed_v] = (
+                int(result.rejection_counts.get(gate_failed_v, 0)) + 1
             )
             continue
 
@@ -424,8 +456,8 @@ def evaluate_one_scan_vectorized(
                 session_bar=sess, volume_curve_fraction=vcf,
                 instrument_class=meta.get("instrument_class"), score=score,
             )
-            dump_row["rejection_reason"] = ScanSkipReason.GATE_FAILED.value
-            dump_row["skipped"] = ScanSkipReason.GATE_FAILED.value
+            dump_row["rejection_reason"] = gate_failed_v
+            dump_row["skipped"] = gate_failed_v
             result.gate_dump.append(dump_row)
             continue
 
@@ -475,12 +507,12 @@ def evaluate_one_scan_vectorized(
             symbol_last_emit_ts[ev["symbol"]] = scan_iso
             signal_emits_per_symbol[ev["symbol"]] = signal_emits_per_symbol.get(ev["symbol"], 0) + 1
         else:
-            row["rejection_reason"] = ScanSkipReason.MAX_ENTRIES_CAP.value
-            row["skipped"] = ScanSkipReason.MAX_ENTRIES_CAP.value
+            row["rejection_reason"] = max_cap_v
+            row["skipped"] = max_cap_v
             row["effective_cap"] = effective_cap
             if not collect_gate_dump:
-                result.rejection_counts[ScanSkipReason.MAX_ENTRIES_CAP.value] = (
-                    int(result.rejection_counts.get(ScanSkipReason.MAX_ENTRIES_CAP.value, 0)) + 1
+                result.rejection_counts[max_cap_v] = (
+                    int(result.rejection_counts.get(max_cap_v, 0)) + 1
                 )
         if collect_gate_dump:
             result.gate_dump.append(row)

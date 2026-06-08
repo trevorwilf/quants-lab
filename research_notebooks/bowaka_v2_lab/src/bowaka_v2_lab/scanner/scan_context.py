@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 import pandas as pd
@@ -48,6 +48,12 @@ class ScanSessionContext:
     #: ``fallback_opening_15m_share`` configured in ``historical_features``.
     volume_curve_fraction_by_scan_bucket: Mapping[tuple[pd.Timestamp, str], float]
     collect_gate_dump: bool = True
+    #: §10h Opt A — mutable per-session memo for the matrix evaluator's
+    #: session-constant baseline arrays (adv / prior_atr_pct / ema_slope /
+    #: has_baseline / instrument_pass), keyed by ``allow_unknown``. Built ONCE per
+    #: session instead of every scan (~346x). Excluded from eq/hash (compare=False)
+    #: so it never affects the frozen-dataclass identity semantics.
+    _matrix_baseline_cache: dict = field(default_factory=dict, compare=False)
 
 
 def _config_hash(cfg: Mapping[str, Any]) -> str:
