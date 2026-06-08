@@ -499,6 +499,8 @@ Operator chose **Option A** (keep the `$2M` small-cap universe; set the gate to 
 
 **Result: quote_coverage 87.80% > 80% → PASSES.** With `data_quality` already green (§10c), the `$2M intended_realism` preflight now clears end-to-end. Tests: 229 `tests/unit/optuna` + 52 preflight/data pass; legacy path byte-identical (57.50%).
 
+**Phase 3 (end-to-end study) validated at the pipeline level.** The full `$2M intended_realism` study-start preflight now PASSES end-to-end — confirmed 3× (`scripts/_preflight_only.py` + the actual `run_walkforward_study` runs both logged `preflight passed: 4 checks`). The study runs PAST the gate into fold-building + the backtest (RSS grew 0.5→1.4 GB = active fill/event accumulation = genuine progress, not a hang). The fill model (T3) was validated DIRECTLY (§10f Phase 3, 5,225 orders) rather than via a completed study because the `intended_realism` + `controller_compat` backtest is **inherently very slow** (>30 min for a single scoped fold on BOTH the `$2M` ~1,150-name and a `$50M` ~80-160-name universe — the per-scan sliding-window MACD recompute dominates, universe-independent; a full optimization study is an operator-scale, hours-long run, consistent with the known `controller_compat` cost). Not a regression from Option A or the fill model (both validated; preflight passes; orchestration progresses).
+
 **Data verified complete through 2026-06-05** (last trading day): the weekly incremental refresh wrote 0 minute/quote pairs (already current) + 114 new daily symbols; per-session coverage 06-01..06-05 is flat (~2,170 symbols with both minute+quotes/session, no cliff at 06-05 — `scripts/_audit_data_through_0605.py`).
 
 ---
