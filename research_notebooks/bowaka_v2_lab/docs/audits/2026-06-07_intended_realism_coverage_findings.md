@@ -289,6 +289,40 @@ Post-fix the study-start abort message reads exactly `2 required data-quality ch
 
 ---
 
+## 10c. Remaining two gates: evidence + recommended fix per check (2026-06-07)
+
+After the §10b denominator fix, two checks still gate the `$2M` study-start preflight. Both were deep-dived (instrumented probe + sim-source read + adversarial safety verification). Neither is a data defect; each carries an **open policy decision** for the operator.
+
+### Check 1 — `coverage_missing` (gated 1205/5758 = 20.93%, gate = 1%)
+
+**Root cause: the check requires a minute bar in the *exact* 09:45 ET minute, but thin-yet-eligible names don't always print in that single minute.** Instrumented split of the 1205 eligible misses (raw-parquet verified, `scripts/_instrument_coverage_missing.py`):
+- **0 daily-leg misses** — every eligible symbol HAS a session-day daily bar.
+- **1111 (92.2%) "traded_later"** — no bar in `[09:45,09:45]` but ≥1 bar in `[09:45, close]`. Staleness of the last price *at* 09:45: median 2 min, p95 14 min; 98.1% have a real intraday pre-09:45 bar (only 1.7% fall back to prior close).
+- **94 (7.8%) "no_trade_today"** — flat all session; 94/94 have a valid prior daily close.
+- **0 backfill defects** — all month files present; spot-checked raw bytes (ABEO 09:43→09:47, ABX 09:44/09:46) are second-aligned with genuine single-minute holes — NOT a timezone/window/off-by-one artifact.
+
+**Sim reality (`scan_loop.py:369-399`, `forming_bar.py:183`, `quote_model.py:130-146`, high confidence):** the sim carries forward the last real bar's close, **bounded by `max_bar_age_seconds = 90s`** (the scanner skips any symbol whose last bar is >90s old with `STALE_BAR`). On this lake there are no quote partitions, so `resolve_quote` falls back to a zero-spread synthetic quote with age 0 — `quote_stale` (15s) never trips. So the **realism-correct coverage criterion is "a minute bar within `max_bar_age_seconds` (90s) of 09:45,"** an asof-within-90s probe — NOT a literal bar in the 09:45 minute. The current check is mis-calibrated for an illiquid universe.
+
+**Recommended fix:** change the minute-leg probe from `minute_bars_supplier(sym, 09:45)` (degenerate `[09:45,09:45]` window) to an asof query `store.minute_bars(sym, 09:45 − max_bar_age_seconds, 09:45)` requiring ≥1 bar — mirroring the sim's own stale-bar gate. Pairs with no bar within 90s are ones the **sim itself skips as stale** (correct behaviour, not a coverage defect), so they should not count as "missing." Keep the `#1` `no_minute_file` backfill-gap detection and the full-union telemetry so a *real* gap still fails.
+
+**Adversarial check:** "carry-forward-aware coverage masks illiquidity that should disqualify a name." Rebuttal: the sim already handles illiquidity (90s stale-skip + zero-spread quote); the DQ check's job is to detect *missing data*, and there is none. The objection is not fatal **provided** the backfill-gap detector stays. **OPEN POLICY DECISION:** how to treat eligible-but-doesn't-print-at-09:45 names — (a) 90s-asof coverage criterion [recommended, matches sim]; (b) keep the literal probe but raise/relax the 1% gate for the illiquid universe; (c) tighten the ADV floor to exclude the deep-illiquid tail (e.g. AACI: first trade 13:54 ET).
+
+### Check 2 — `audit_missing_sessions` (count = 1762, gate = 0)
+
+**Root cause: a SYMBOL-LEVEL missing-session count over each ticker's entire 2.5-year expected calendar, which conflates pre-eligibility illiquid early-life with missing data.** Decomposition (`scripts/_audit_safety_check.py`, `_audit_missing_vs_eligible_window.py`):
+- All 1762 probe-universe missing sessions come from **6 symbols** (AIB 463, LIFE 413, VIA 311, AKTS 264, SZZL 310, ASBP 1) — SPAC-in-trust → de-SPAC / ticker-reuse names (cf. the SPAC-unit cohort TWLVU/GPACU/HCMAU) that became liquid/eligible only in **2025-2026**.
+- The earlier "5-session → 0" reading (§10b-era) was **misleading**: those 6 are not eligible in the Aug-Sep probe window but ARE eligible in the *full study* (2026), so the real check (over the full-study symbol set) still counts them.
+- **For all 6: 100% of missing sessions fall BEFORE the first eligible date; 0 fall inside any eligible window; 0 eligible sessions lack a daily bar.** The audit over-counts each ticker's thin early life (e.g. AIB: 169 observed of 632 expected; minute data only from 2026-04), which the study never trades.
+
+**Recommended fix:** scope the audit count to **per-session PIT-eligibility** (count a missing session only when the symbol is PIT-eligible on that session) — the §6.6 pattern. Empirically → **0 → PASS**. **Verified SAFE:** no eligible-window gap is hidden (the proxy eligibility is a superset of the builder's, so the "0 missing during eligible" is conservative).
+
+**Adversarial check:** "ticker reuse means the 2023 bars may be a different entity than the 2026 bars under the same symbol." This is real but ORTHOGONAL — per-session-eligibility scoping correctly restricts the study to the 2026 (eligible, complete) window regardless; flag ticker-identity for the **survivorship/PIT asset-master** work (separate deferred item). **OPEN POLICY DECISION:** (a) per-session-eligibility scoping of the audit check [recommended]; (b) regenerate the audit listing-/identity-date-aware; (c) both.
+
+### Net
+With §10b shipped and these two fixes, all four study-start gates would pass on the `$2M` config — `intended_realism` becomes runnable on the liquidity-floored universe. **Still required before declaring green lake-wide:** the interior-fold confirmation (§10 cons #1), and a survivorship/ticker-reuse pass on the asset master.
+
+---
+
 ## 11. Reproducibility appendix
 
 **Host analysis (pandas):** `C:/Python312/python.exe`, CSV at `E:/tradingsoftware/quants-lab/scripts/_pair_dataset.csv`.
