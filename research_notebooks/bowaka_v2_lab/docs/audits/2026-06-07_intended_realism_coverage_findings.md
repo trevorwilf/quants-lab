@@ -542,6 +542,23 @@ A 38-agent workflow mapped the remaining opportunity space (the matrix already c
 
 **Lesson:** the workflow's a-priori menu sized #1 at ~6% and never surfaced `evaluate_one_scan_vectorized` (54% of the fold) because its agents were — correctly — forbidden from running heavy profiles. The profile-then-adversarially-verify loop found the real per-trial lever. **#5 finding refuted its own premise**: the build's 62.8% daily-read is a one-time cold-cache warmup that amortizes across the serial loop; the real build lever was parallelism, not a read optimization. Remaining per-trial hotspots (for next time): the exit path (`_close_lots_until` + `_walk_lot_exit_pandas`, ~17 s cumtime) and `posix.stat` on the matrix memmap opens (7.5 s).
 
+## 10j. Run-mode & realism resolved — `fast_realism` mode (Path 4 + Path 3, 2026-06-08)
+
+The run-mode/realism decision (§10e: the dominant gap is the FILL model, not the quote) was resolved by adding a **third simulation mode, `fast_realism`** — intended_realism's semantics + the T3 depth/impact fill, but NON-blocking — for a fast SEARCH stage, with finalists validated under full `intended_realism`. Commits `eae7b6f` (core) + `eb878ed` (Path 3 wiring). `current_code_parity` + `intended_realism` stay **byte-identical** (294 sim/parity tests pass).
+
+| axis | `current_code_parity` | **`fast_realism`** | `intended_realism` |
+|---|---|---|---|
+| quote (no real NBBO) | synthetic → **T0 (manufactured)** | synthetic → **participation cap** | reject |
+| fill model | legacy (manufactures liquidity) | **T3 (honest size + impact)** | T3 |
+| coverage/quote/halt gates | none | **none (never blocks)** | fail-closed |
+| suitability cap | research_only | **research_only** | backtesting_only |
+
+**Why the surface was small (the architecture did the work):** mode behavior is table-driven (`_SIMULATION_MODE_DEFAULTS`, 4 policy fields/mode), so `fast_realism` = `regular_open_to_scan`+`post_submit` (IR semantics — SEARCH agrees with the IR gate) + `fail_open`+`zero_spread` (non-blocking). The honest fill is ONE line (`has_nbbo_depth` true under fast_realism): `detect_execution_tier` checks `has_nbbo_depth` BEFORE the synthetic→T0 fallback, and `synthesize_zero_spread_quote` has `ask_size=0`, so T3's `max(touch=0, participation·minute_vol)` degrades to a minute-volume participation cap. MEASURED: a 577-share order into an 800-share minute fills **80** (participation), vs CCP's **577** (manufactured). Gate decoupling was mostly free (require_real is policy-driven; halt + coverage key on `mode=="intended_realism"`; `evaluate_startup_dq`'s fallback gates unknown modes on adjustment-only) — the edits just add `fast_realism` to the `non_smoke` / preflight / DQ-cache-reuse tuples (a real run that gates only on the invariant adjustment checks).
+
+**Path 3 (search→validate)** — the stages were already separate (`run_walkforward_study` vs `evaluate_finalists`/`score_final_holdout`); `fast_realism` is freely admissible as a study mode (the opt-in gate only refuses CCP — optimizing against honest fills is legitimate). Added: `optuna.autoconfig.derive_validation_config(search_cfg, validation_mode="intended_realism")` (one-step IR validation config from the fast_realism search config) + the `research_only` suitability cap (the SAFETY: a fast_realism result is screening-only, can't deploy without IR re-validation).
+
+**Operator workflow:** study under a `mode: fast_realism` config → `derive_validation_config` → evaluate-finalists / score-final-holdout under intended_realism → deploy IR survivors. Expect honest-search PnL ≪ CCP, and possibly *"at $4000/order this universe barely fills"* surfacing during SEARCH (cheap) — turning the next decision into sizing/execution, not strategy params.
+
 ---
 
 ## 11. Reproducibility appendix
