@@ -15,11 +15,12 @@ quote-gated) for any real feed; ``smoke_fixture`` when there is no lake data.
 """
 from __future__ import annotations
 
+import copy
 import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 import yaml
 
@@ -256,6 +257,51 @@ def resolve_walkforward_config(
     )
 
 
+def derive_validation_config(
+    search_config: "str | Path | Mapping[str, Any]",
+    *,
+    validation_mode: str = "intended_realism",
+    out_path: "Optional[str | Path]" = None,
+) -> dict:
+    """§10i Path 3 — derive the finalist-VALIDATION config from a fast_realism SEARCH config.
+
+    Path 4 + Path 3 pipeline: the SEARCH stage runs a fast Optuna study under
+    ``fast_realism`` (honest participation/depth fills, non-blocking); the top-N
+    finalists are then re-scored under ``intended_realism`` (real NBBO required,
+    fail-closed coverage/quote gates) — the honest deploy gate. The two configs are
+    IDENTICAL (same strategy, universe, window, search space) except
+    ``simulation.mode`` and the four mode-coupled policy fields, which are dropped
+    so the config validator re-resolves them from ``validation_mode`` (e.g.
+    ``quote_fallback_policy`` zero_spread -> require_real; ``unknown_instrument_class
+    _policy`` fail_open -> fail_closed). Optionally written to ``out_path`` (YAML).
+
+    Usage::
+
+        run_walkforward_study(search_cfg_path)                      # fast_realism search
+        derive_validation_config(search_cfg_path, out_path="val.yml")
+        # then `evaluate-finalists` / `score-final-holdout` against val.yml (intended_realism)
+    """
+    if isinstance(search_config, Mapping):
+        cfg = copy.deepcopy(dict(search_config))
+    else:
+        cfg = load_config(search_config)
+    cfg.pop("_source_path", None)
+    sim = dict(cfg.get("simulation") or {})
+    sim["mode"] = str(validation_mode)
+    # Drop the mode-coupled policy fields so they re-resolve from validation_mode.
+    # A fast_realism search config leaves them mode-resolved (unset in YAML); any
+    # explicit override is intentionally NOT carried across the mode switch.
+    for _field in (
+        "intraday_window_policy", "accepted_event_sequencing",
+        "unknown_instrument_class_policy", "quote_fallback_policy",
+    ):
+        sim.pop(_field, None)
+    cfg["simulation"] = sim
+    if out_path is not None:
+        Path(out_path).write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    return cfg
+
+
 __all__ = [
     "ResolvedWalkforwardConfig",
     "LakeCapability",
@@ -265,4 +311,5 @@ __all__ = [
     "lake_has_quotes",
     "detect_best_feed",
     "resolve_walkforward_config",
+    "derive_validation_config",
 ]

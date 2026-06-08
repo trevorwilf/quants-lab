@@ -107,8 +107,12 @@ def assert_not_above_research_only_for_iex(
 #: The three simulation contracts a run/study can declare (realism remediation 2
 #: Phase 0). The contract is exactly ``simulation.mode`` — it names *which
 #: strategy* the simulator reproduced.
-SIMULATION_CONTRACTS = ("current_code_parity", "intended_realism", "smoke_fixture")
-SimulationContract = Literal["current_code_parity", "intended_realism", "smoke_fixture"]
+SIMULATION_CONTRACTS = (
+    "current_code_parity", "intended_realism", "fast_realism", "smoke_fixture",
+)
+SimulationContract = Literal[
+    "current_code_parity", "intended_realism", "fast_realism", "smoke_fixture",
+]
 
 #: Mechanical tier *cap* per simulation contract (realism remediation 2 Phase 0,
 #: audit §P0-001 / §P0-011). A run can never be suitable above this cap from the
@@ -117,12 +121,17 @@ SimulationContract = Literal["current_code_parity", "intended_realism", "smoke_f
 #: - ``smoke_fixture``       — synthetic plumbing data; never research-grade.
 #: - ``current_code_parity`` — reproduces the live code *warts and all*; valid
 #:   only as paper-reconciliation evidence, not parameter recommendation.
+#: - ``fast_realism``        — §10i Path 4 search mode: honest (participation/
+#:   depth) fills but a synthetic zero-spread quote optimism, so its results are
+#:   SEARCH / screening evidence only — caps at ``research_only``. Promote a
+#:   finalist by re-validating it under ``intended_realism``.
 #: - ``intended_realism``    — the only contract that *can* support a higher
 #:   tier, and only with SIP data + real quotes + adjusted baselines + paper
 #:   reconciliation (gated elsewhere). On its own it caps at ``backtesting_only``.
 _CONTRACT_TIER_CAP: dict[str, str] = {
     "smoke_fixture": "research_only",
     "current_code_parity": "research_only",
+    "fast_realism": "research_only",
     "intended_realism": "backtesting_only",
 }
 
