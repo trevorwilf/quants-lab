@@ -471,6 +471,22 @@ The drop tilts the kept set toward more-liquid, calmer names (a universe-composi
 
 **Phased build:** (1) core T3 model + config knobs + unit tests, default-off byte-identical; (2) wire `has_nbbo_depth` + thread real touch size + minute volume under `intended_realism`; (3) re-approve golden/regression/parity baselines (intentional realism upgrade — changelog) + validate the `$2M` run (fills capped, impact paid, partials occur). Note: this gap affects `current_code_parity` too (shared `fills.py`), so Phase 2's enable is `intended_realism`-scoped first.
 
+### Phases 1–3 SHIPPED & VALIDATED (2026-06-07)
+
+- **Phase 1** (`_t3_depth_impact_fill`, default-off): 7 new + 58 existing fills tests pass, byte-identical.
+- **Phase 2** (wire `has_nbbo_depth = intended_realism and quote.is_historical` + thread real touch/minute-vol/knobs into both fill calls; `ExecutionConfig.market_impact_coef_bps`/`market_impact_model`/`minute_volume_participation_frac`): **1570 unit/parity/reconcile/scanner tests pass, 0 new failures** (4 failures are PRE-EXISTING — confirmed by stashing the change: the 2 modified notebooks + 2 reference-script tests, none touching `fills.py`/`strategy_consumer.py`). The legacy path is byte-identical (`current_code_parity`/smoke/IEX all unchanged because `has_nbbo_depth=False` there).
+- **Phase 3 validation** (`scripts/_validate_fillmodel.py`, OLD vs NEW on **5,225 real eligible $4,000 first-emit orders**, conservative stress):
+
+  | Outcome | OLD (5%-ADV proxy) | NEW (T3) |
+  |---|---|---|
+  | Full fill | 100.0% | 32.7% |
+  | Partial | 0.0% | 42.3% |
+  | No-fill | 0.0% | 25.0% |
+
+  Median fill fraction 1.00 → **0.77**; real impact **~11 bps** (median≈p90, orders hitting the 10% participation cap: `5 half-spread + 10·√0.10·2 stress`) vs OLD ~0. **25% of signals can't fill even the $500 minimum** — the honest illiquidity of the `$2M` universe, now modelled instead of manufactured.
+
+**Note — a full end-to-end `$2M` `intended_realism` study still aborts at the `quote_coverage` preflight (57.5% < 95%, the §10d/§10e policy decision — NOT changed here).** So the fill model is validated directly against real lake data rather than via a completed study. To run an end-to-end study, the operator must first resolve `quote_coverage` (correct to presence-based ~78–92% and set the threshold) per §10d/§10e.
+
 ---
 
 ## 11. Reproducibility appendix

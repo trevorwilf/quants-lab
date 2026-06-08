@@ -277,6 +277,13 @@ class ExecutionConfig(_StrictBase):
     limit_offset_bps: int = 5
     max_quote_age_seconds: int = Field(default=5, ge=0)
     max_spread_bps: int = Field(default=50, ge=1)
+    # Audit §10f — real depth+impact fill (T3_NBBO_DEPTH). The single-order
+    # market-impact model applied to size beyond the displayed touch, capped at
+    # ``minute_volume_participation_frac`` of the contemporaneous minute volume.
+    # Active only under ``intended_realism`` (has_nbbo_depth); no-op otherwise.
+    market_impact_coef_bps: float = Field(default=10.0, ge=0.0)
+    market_impact_model: Literal["sqrt", "linear"] = "sqrt"
+    minute_volume_participation_frac: float = Field(default=0.10, gt=0.0, le=1.0)
 
 
 class SizingConfig(_StrictBase):

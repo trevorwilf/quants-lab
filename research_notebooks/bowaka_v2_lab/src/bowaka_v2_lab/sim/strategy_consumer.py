@@ -565,6 +565,18 @@ class StrategyConsumer:
                 minutes_to_close = None
             _atr = candidate_event.get("atr", candidate_event.get("entry_atr"))
             entry_atr = float(_atr) if _atr not in (None, "") else None
+        # Audit §10f Phase 2 — the real depth+impact fill (T3_NBBO_DEPTH) engages
+        # ONLY under intended_realism with a real (historical) quote; otherwise
+        # has_nbbo_depth=False keeps the legacy fill path BYTE-IDENTICAL, so
+        # current_code_parity / smoke / all non-realism goldens are unchanged.
+        has_nbbo_depth = (
+            str(self._sim_cfg.mode) == "intended_realism" and quote.is_historical
+        )
+        market_impact_coef_bps = float(execution_cfg.get("market_impact_coef_bps", 10.0))
+        market_impact_model = str(execution_cfg.get("market_impact_model", "sqrt"))
+        minute_volume_participation_frac = float(
+            execution_cfg.get("minute_volume_participation_frac", 0.10)
+        )
         if plan.order_style == "market":
             fill: FillResult = simulate_market_fill(
                 side="buy", requested_qty=qty, quote=quote,
@@ -577,6 +589,13 @@ class StrategyConsumer:
                 slippage_bps_offset=slippage_bps_offset,
                 spread_multiplier=spread_multiplier,
                 adv_dollar=adv_dollar_for_caps,
+                # Audit §10f Phase 2 — real depth+impact (no-op unless intended_realism).
+                has_nbbo_depth=has_nbbo_depth,
+                minute_bars=forward_minute_bars,
+                scan_ts=ts_pts,
+                participation_cap=minute_volume_participation_frac,
+                market_impact_coef_bps=market_impact_coef_bps,
+                market_impact_model=market_impact_model,
             )
         else:  # marketable_limit (and "limit" — treated as marketable_limit here)
             fill = simulate_marketable_limit_fill(
@@ -599,9 +618,11 @@ class StrategyConsumer:
                 # Realism remediation 2 Phase 5 (audit P0-006) — tier auto-
                 # detected from the quote source; intended_realism rejects T0.
                 simulation_mode=self._sim_cfg.mode,
-                minute_volume_participation_frac=float(
-                    execution_cfg.get("minute_volume_participation_frac", 0.10)
-                ),
+                minute_volume_participation_frac=minute_volume_participation_frac,
+                # Audit §10f Phase 2 — real depth+impact (T3); no-op unless intended_realism.
+                has_nbbo_depth=has_nbbo_depth,
+                market_impact_coef_bps=market_impact_coef_bps,
+                market_impact_model=market_impact_model,
                 slippage_bps_offset=slippage_bps_offset,
                 spread_multiplier=spread_multiplier,
                 adv_dollar=adv_dollar_for_caps,
