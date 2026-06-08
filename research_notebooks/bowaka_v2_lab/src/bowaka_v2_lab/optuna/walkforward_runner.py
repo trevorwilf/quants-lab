@@ -1991,6 +1991,9 @@ def run_walkforward_study(
         quote_cov_pct = probe_quote_coverage(
             symbols=symbols, sessions=probe_sessions, quote_supplier=quote_supplier,
             scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+            # Option A (audit §10d) — scope the quote-coverage estimate to the
+            # PIT-eligible universe (removes the ~32pp PIT-over-inclusion drag).
+            eligible_per_session=eligible_per_session,
         )
     except Exception as exc:  # noqa: BLE001 — probe failure handling depends on mode
         # Audit 2026-05-23 §P0-003 — leave dq_report / quote_cov_pct as None;

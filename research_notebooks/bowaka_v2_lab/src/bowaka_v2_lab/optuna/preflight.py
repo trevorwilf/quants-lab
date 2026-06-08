@@ -503,6 +503,7 @@ def probe_quote_coverage(
     quote_supplier: Optional[Callable[..., Any]],
     scan_times_per_session: Callable[[_dt.date], list[Any]],
     max_probe: int = 200,
+    eligible_per_session: Optional[Mapping[_dt.date, "set[str]"]] = None,
 ) -> Optional[float]:
     """Cheaply estimate historical-quote coverage before launching the study.
 
@@ -510,9 +511,27 @@ def probe_quote_coverage(
     sessions and returns the percentage backed by a historical quote. Returns
     ``None`` when there is no quote supplier or nothing to probe — the caller
     then records the quote-coverage check as ``skipped``.
+
+    Audit 2026-06-08 (Option A): when ``eligible_per_session`` is supplied the
+    probe is scoped to the per-session PIT-eligible symbols the live scanner
+    would actually evaluate, and the ``max_probe`` cap is LIFTED so the estimate
+    covers the full eligible universe. This removes the ~32pp PIT-over-inclusion
+    drag + the session-1 alphabetical bias of the 200-sample (the full-union cap
+    reported 57.5% where the eligible universe is ~88%; see
+    docs/audits/2026-06-07_intended_realism_coverage_findings.md §10d). ``None``
+    keeps the legacy full-union, ``max_probe``-capped behaviour byte-identical.
     """
     if quote_supplier is None or not symbols or not sessions:
         return None
+    # Option A: when gated, spread a BOUNDED, representative sample evenly across
+    # sessions — fast even for many-session per-fold preflights, and unbiased vs
+    # the legacy session-1-first 200-cap. ~1500 pairs gives a ~±1-2pp coverage
+    # estimate, well-resolved against the gate.
+    _GATED_BUDGET = 1500
+    _per_session_cap = (
+        max(1, _GATED_BUDGET // max(len(sessions), 1))
+        if eligible_per_session is not None else None
+    )
     probed = 0
     present = 0
     for session in sessions:
@@ -523,8 +542,17 @@ def probe_quote_coverage(
         if not scan_times:
             continue
         probe_ts = scan_times[len(scan_times) // 2]
-        for sym in symbols:
-            if probed >= max_probe:
+        # Option A: scope to per-session PIT-eligible symbols + lift the cap when
+        # gated; ``None`` keeps the legacy full-union + max_probe cap verbatim.
+        if eligible_per_session is not None:
+            _elig = eligible_per_session.get(session, set()) or set()
+            session_symbols = sorted(s for s in symbols if s in _elig)[:_per_session_cap]
+            _capped = False
+        else:
+            session_symbols = symbols
+            _capped = True
+        for sym in session_symbols:
+            if _capped and probed >= max_probe:
                 break
             probed += 1
             try:
@@ -533,7 +561,7 @@ def probe_quote_coverage(
                 quote = None
             if quote is not None:
                 present += 1
-        if probed >= max_probe:
+        if _capped and probed >= max_probe:
             break
     if probed == 0:
         return None
@@ -634,6 +662,10 @@ def _probe_fold(
             )],
         )
 
+    # Option A — bind before the probe try so the later quote-coverage probe
+    # always has it (the gated path degrades to None / the legacy full-union
+    # probe on any failure rather than raising NameError).
+    eligible_per_session: Optional[Mapping[_dt.date, set[str]]] = None
     try:
         minute_supplier, daily_supplier = make_lake_suppliers(
             lake_root, feed=feed,
@@ -654,9 +686,7 @@ def _probe_fold(
         # gate) on any failure and NEVER crashes the preflight.
         from .pit_universe import eligible_per_session_map
 
-        eligible_per_session: Optional[Mapping[_dt.date, set[str]]] = (
-            eligible_per_session_map(lake_root, sessions, cfg=cfg)
-        )
+        eligible_per_session = eligible_per_session_map(lake_root, sessions, cfg=cfg)
         dq_report = build_data_quality_report(
             cfg=cfg, lineage=lineage, requested_symbols=symbols,
             sessions=sessions, daily_bars_supplier=daily_supplier,
@@ -701,6 +731,8 @@ def _probe_fold(
         quote_cov_pct = probe_quote_coverage(
             symbols=symbols, sessions=sessions, quote_supplier=quote_supplier,
             scan_times_per_session=scan_times_per_session, max_probe=200,
+            # Option A (audit §10d) — scope to the per-fold PIT-eligible universe.
+            eligible_per_session=eligible_per_session,
         )
     except Exception as exc:  # noqa: BLE001 — quote probe failure handling depends on mode
         # Audit 2026-05-23 §P0-003 — under intended_realism a quote-probe

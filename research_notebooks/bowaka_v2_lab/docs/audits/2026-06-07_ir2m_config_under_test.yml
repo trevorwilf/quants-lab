@@ -194,6 +194,12 @@ signals:
   rvol_so_far_min: 0.7
 simulation:
   mode: intended_realism
+  # Option A (audit §10d/§10e) — the $2M small-cap universe cannot reach the
+  # 95% default real-quote coverage (thin names lack a continuous NBBO). The
+  # corrected, PIT-eligible-scoped probe reports the honest ~88%; the gate is set
+  # to 80 (deliberate, documented small-cap realism floor — a genuine quote
+  # backfill gap would still drop coverage below 80 and fail).
+  min_quote_coverage_pct: 80.0
 sizing:
   bankroll_fixed_dollars: 90000
   equal_slice_bankroll_fraction: 0.8

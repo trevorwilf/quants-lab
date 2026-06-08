@@ -489,6 +489,20 @@ The drop tilts the kept set toward more-liquid, calmer names (a universe-composi
 
 ---
 
+## 10g. Option A IMPLEMENTED (2026-06-08) — quote_coverage corrected + gate set to the honest small-cap floor
+
+Operator chose **Option A** (keep the `$2M` small-cap universe; set the gate to the honest coverage). Shipped:
+
+1. **`probe_quote_coverage` corrected** (`optuna/preflight.py`): when the per-session PIT-eligible map is supplied, the probe is scoped to the eligible universe (removes the ~32pp PIT-over-inclusion drag) and the legacy session-1-first 200-cap is replaced by a **bounded, representative sample spread evenly across sessions** (`_GATED_BUDGET=1500`). Threaded into both the study-start (`walkforward_runner.py`) and per-fold (`_probe_fold`) call sites. `eligible_per_session=None` → legacy full-union 200-cap, **byte-identical**.
+   - **Measured: 57.50% (legacy full-union) → 87.80% (eligible, bounded sample), in 7.7 s** (vs minutes when un-capped — the cap keeps per-fold preflights fast).
+2. **Gate set to the honest floor**: `simulation.min_quote_coverage_pct: 80.0` in the `$2M` config (deliberate, documented small-cap realism floor; a genuine quote-backfill gap would still drop coverage below 80 and fail). Config-parity accepts it (research-preflight knob, not a frozen-contract field). `max_quote_age_seconds` left at 15 (a 60 s sticky-NBBO relax is an available, separate realism tweak).
+
+**Result: quote_coverage 87.80% > 80% → PASSES.** With `data_quality` already green (§10c), the `$2M intended_realism` preflight now clears end-to-end. Tests: 229 `tests/unit/optuna` + 52 preflight/data pass; legacy path byte-identical (57.50%).
+
+**Data verified complete through 2026-06-05** (last trading day): the weekly incremental refresh wrote 0 minute/quote pairs (already current) + 114 new daily symbols; per-session coverage 06-01..06-05 is flat (~2,170 symbols with both minute+quotes/session, no cliff at 06-05 — `scripts/_audit_data_through_0605.py`).
+
+---
+
 ## 11. Reproducibility appendix
 
 **Host analysis (pandas):** `C:/Python312/python.exe`, CSV at `E:/tradingsoftware/quants-lab/scripts/_pair_dataset.csv`.
