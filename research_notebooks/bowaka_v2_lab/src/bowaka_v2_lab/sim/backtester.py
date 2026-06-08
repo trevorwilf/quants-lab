@@ -1013,6 +1013,14 @@ def run_backtest(
         # gate-dump rows are replaced with bounded rejection counters
         # (collect_gate_dump=False); full mode keeps the dump for forensics.
         collect_gate_dump = (artifact_mode == "full")
+        # §10h opt #1 — the per-event event-log rows (built by ``_log_event``
+        # below, ~185k rows/fold) are consumed ONLY by the events.parquet writes,
+        # which are gated to ``artifact_mode == "full"``. In ``objective_minimal``
+        # (the per-trial path) the whole log is built then discarded — profiled at
+        # ~6% of the fold (cumtime). Skip the construction in minimal mode; full
+        # mode is byte-for-byte unchanged. ``event_log`` feeds no
+        # signal/objective/summary/BacktestResult path (verified).
+        collect_event_log = (artifact_mode == "full")
         scan_session_ctx = build_scan_session_context(
             cfg_dict, daily_cache, universe, session_scan_times,
             volume_curve=volume_curve, collect_gate_dump=collect_gate_dump,
@@ -1614,10 +1622,11 @@ def run_backtest(
                 # PROTECTION_CHECK / TIME_STOP_CHECK / QUOTE (fill_poll):
                 # exits already evaluated above; the event itself is just a
                 # log marker in Phase 4. Phase 6 / Phase 7 fill in lifecycle.
-                _log_event(
-                    sess_acc, event=event, portfolio=portfolio,
-                    extras=log_extras or None,
-                )
+                if collect_event_log:  # §10h opt #1 — skip discarded rows in objective_minimal
+                    _log_event(
+                        sess_acc, event=event, portfolio=portfolio,
+                        extras=log_extras or None,
+                    )
 
             # Roll the session accumulators into the cross-session lists.
             all_candidate_events.extend(sess_acc.candidate_events)
@@ -1631,7 +1640,8 @@ def run_backtest(
             all_fade_telemetry.extend(sess_acc.fade_telemetry)
             missing_quote_count += sess_acc.missing_quote_count
             ambiguous_bar_count += sess_acc.ambiguous_count
-            event_log_by_session[session_key] = list(sess_acc.event_log)
+            if collect_event_log:
+                event_log_by_session[session_key] = list(sess_acc.event_log)
             # Realism remediation 2 Phase 7 (audit P1-003): record BOTH
             # counters per session — the scanner-dedup view (signal emits) and
             # the portfolio view (PARENT_FILL entries). The two are
@@ -1647,10 +1657,11 @@ def run_backtest(
             # The canonical roll-up parquet honors the per-session cap so the
             # default file is bounded; the per-session partition (written
             # below) keeps the FULL log when the session overflowed.
-            if len(sess_acc.event_log) > _EVENTS_PER_SESSION_CAP:
-                all_event_log_rows.extend(sess_acc.event_log[:_EVENTS_PER_SESSION_CAP])
-            else:
-                all_event_log_rows.extend(sess_acc.event_log)
+            if collect_event_log:
+                if len(sess_acc.event_log) > _EVENTS_PER_SESSION_CAP:
+                    all_event_log_rows.extend(sess_acc.event_log[:_EVENTS_PER_SESSION_CAP])
+                else:
+                    all_event_log_rows.extend(sess_acc.event_log)
         for pos in portfolio.open_positions.values():
             all_positions.append({
                 "session_date": session_date.isoformat(),
