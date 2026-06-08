@@ -7,6 +7,19 @@ committed parquet payloads + the fixed run config + the normalisation
 guarantee determinism — two CI runs against the same committed subset produce
 the same snapshot. A future phase that legitimately changes the DQ surface
 must re-approve the baseline via the snapshot script.
+
+GOLDEN CHANGELOG — ``approved/dq_report_snapshot.json`` re-approval:
+  * §6.6 denominator fix (commit f160ee2) added the ``eligible_expected`` /
+    ``eligible_missing`` / ``eligible_fraction`` / ``gated`` evidence keys to
+    ``coverage_missing`` (and ``eligible_probes`` / ``eligible_*`` / ``gated`` to
+    the two replay coverage checks) but the snapshot was never re-approved — the
+    baseline byte-comparison had been silently red.
+  * Audit 2026-06-07 §10c (Fix A/B/C) is byte-identical on this ungated
+    (``eligible_per_session is None``) replay: the Fix-A telemetry keys
+    (``dropped_flat_session_pairs`` / ``minute_leg_criterion``) and the Fix-B
+    ``coverage_backfill_present`` check are emitted ONLY on the gated path, so the
+    legacy snapshot surface is unchanged by §10c. The re-approval here merely
+    captures the long-standing §6.6 ``eligible_*`` keys.
 """
 from __future__ import annotations
 

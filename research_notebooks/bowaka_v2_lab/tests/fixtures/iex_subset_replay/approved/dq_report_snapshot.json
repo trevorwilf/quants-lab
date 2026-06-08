@@ -88,7 +88,11 @@
     {
       "count": 3,
       "evidence": {
+        "eligible_expected": 21,
+        "eligible_fraction": 0.142857,
+        "eligible_missing": 3,
         "expected_pairs": 21,
+        "gated": false,
         "missing_daily": [],
         "missing_fraction": 0.142857,
         "missing_minute": [
@@ -109,6 +113,10 @@
     {
       "count": 0,
       "evidence": {
+        "eligible_fraction": 0.0,
+        "eligible_missing": 0,
+        "eligible_probes": 21,
+        "gated": false,
         "missing": 0,
         "missing_examples": [],
         "missing_fraction": 0.0,
@@ -125,6 +133,10 @@
     {
       "count": 2,
       "evidence": {
+        "eligible_fraction": 0.011905,
+        "eligible_missing": 2,
+        "eligible_probes": 168,
+        "gated": false,
         "missing": 2,
         "missing_examples": [
           "HTZ@2026-04-02T13:46",

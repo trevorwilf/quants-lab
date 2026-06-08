@@ -92,6 +92,12 @@ _REQUIRED_CHECK_NAMES: frozenset[str] = frozenset(
         "audit_ohlc_violations",
         "audit_passed_research_audit",
         "coverage_missing",
+        # Audit 2026-06-07 §10c Fix B — strict structural-absence guardrail. The
+        # tolerant coverage_missing gate drops genuine illiquid no-trade sessions
+        # from its denominator; this check is the un-maskable detector that a
+        # missing-month / wrong-feed backfill catastrophe still fails the run.
+        # No-op pass when eligible_per_session is None (legacy safe).
+        "coverage_backfill_present",
         "adjustment_mismatch",
         "split_adjustment_mismatch",
         "quotes_required_but_absent",
@@ -134,7 +140,11 @@ _REQUIRED_CHECK_NAMES: frozenset[str] = frozenset(
 #: when the search space starts tuning a previously-frozen knob). The cache
 #: invalidation key includes the version so a bump force-rebuilds every
 #: study's cached report.
-DQ_CHECK_INVARIANCE_VERSION = 1
+#: Bumped to 2 (audit 2026-06-07 §10c Fix B): ``coverage_backfill_present`` was
+#: added to :data:`_DQ_CHECK_INVARIANCE` (classified ``invariant``). The version
+#: is part of the cache-invalidation key, so the bump force-rebuilds every
+#: study's cached report.
+DQ_CHECK_INVARIANCE_VERSION = 2
 _DQ_CHECK_INVARIANCE: dict[str, str] = {
     # ---- audit-derived (lineage / lake state — never trial-tuned) ----------
     "audit_missing_sessions": "invariant",
@@ -153,6 +163,11 @@ _DQ_CHECK_INVARIANCE: dict[str, str] = {
     # universe snapshot, so the cache key's ``symbols_hash`` matches and
     # the cached coverage_missing result is reused.
     "coverage_missing": "invariant",
+    # Audit 2026-06-07 §10c Fix B. ``coverage_backfill_present`` probes only
+    # physical parquet presence + daily-bar presence over the fixed per-fold
+    # PIT-eligible universe — no tuned search-space leaf — so it is invariant
+    # across trials within a fold (classified like ``coverage_missing``).
+    "coverage_backfill_present": "invariant",
     "adjustment_mismatch": "invariant",
     "split_adjustment_mismatch": "invariant",
     "quotes_partitions_available": "invariant",
@@ -297,11 +312,42 @@ def _check(
     }
 
 
+def _eligible_missing_sessions(
+    *,
+    sessions: Iterable[_dt.date],
+    eligible_per_session: Mapping[_dt.date, "set[str]"],
+    daily_bars_supplier,
+) -> list[str]:
+    """PIT-eligible (sym, session) pairs that LACK a daily bar (Fix C).
+
+    Iterates every (session, eligible-symbol) pair and probes
+    ``daily_bars_supplier(sym, session)``; a pair whose daily bar is absent /
+    empty / raises is a missing session WITHIN an eligible window. Returns the
+    sorted ``sym@session`` keys (the gate count is ``len(...)``).
+    """
+    misses: list[str] = []
+    for session_date in sessions:
+        eligible = eligible_per_session.get(session_date, set()) or set()
+        for sym in sorted(str(s) for s in eligible):
+            day_ok = False
+            try:
+                day = daily_bars_supplier(sym, session_date)
+                day_ok = day is not None and len(day) > 0
+            except Exception:  # noqa: BLE001 — a supplier error counts as missing
+                day_ok = False
+            if not day_ok:
+                misses.append(f"{sym}@{session_date.isoformat()}")
+    return sorted(set(misses))
+
+
 def build_audit_checks(
     audit_path: Optional[Path],
     *,
     feed: str,
     requested_symbols: Optional[Iterable[str]] = None,
+    sessions: Optional[Iterable[_dt.date]] = None,
+    eligible_per_session: Optional[Mapping[_dt.date, "set[str]"]] = None,
+    daily_bars_supplier=None,
 ) -> list[dict[str, Any]]:
     """Build per-audit checks from the lake's research-audit parquet.
 
@@ -310,6 +356,20 @@ def build_audit_checks(
     ``large_gap_flags``, ``passed_research_audit``), each carrying per-symbol
     evidence for the offending symbols. When ``requested_symbols`` is given the
     audit is filtered to that universe so the checks reflect the run's selection.
+
+    Audit 2026-06-07 §10c — Fix C (per-session-eligibility scoping of
+    ``audit_missing_sessions``). The audit parquet's ``missing_sessions`` count
+    is SYMBOL-LEVEL — it tallies every gap over each ticker's full multi-year
+    calendar, including sessions long before the ticker became PIT-eligible
+    (ticker-reuse / de-SPAC names dominate this count, and 100% of their misses
+    are PRE-first-eligible). When BOTH ``eligible_per_session`` and
+    ``daily_bars_supplier`` (and ``sessions``) are provided, the
+    ``audit_missing_sessions`` GATE is recomputed as the number of PIT-eligible
+    (sym, session) pairs that LACK a daily bar — i.e. missing sessions WITHIN the
+    eligible windows. The parquet symbol-level tally is retained as telemetry
+    under ``lake_audit_missing_sessions``. When the eligibility scoping inputs
+    are absent (legacy), the parquet symbol-level count gates exactly as before
+    (byte-identical).
     """
     if audit_path is None or not Path(audit_path).is_file():
         return []
@@ -330,6 +390,14 @@ def build_audit_checks(
     if df.empty:
         return []
 
+    # Fix C: scope ``audit_missing_sessions`` to PIT-eligible windows when the
+    # eligibility map + a daily supplier + the session list are all available.
+    scope_missing_sessions = (
+        eligible_per_session is not None
+        and daily_bars_supplier is not None
+        and sessions is not None
+    )
+
     checks: list[dict[str, Any]] = []
     for column, severity in _AUDIT_COUNT_CHECKS:
         if column not in df.columns:
@@ -346,6 +414,46 @@ def build_audit_checks(
             if not offending.empty
             else {}
         )
+        if column == "missing_sessions" and scope_missing_sessions:
+            # Recompute the GATING count as the number of PIT-eligible
+            # (sym, session) pairs lacking a daily bar (missing sessions WITHIN
+            # eligible windows). The parquet symbol-level tally is telemetry only.
+            eligible_missing = _eligible_missing_sessions(
+                sessions=sessions,
+                eligible_per_session=eligible_per_session,
+                daily_bars_supplier=daily_bars_supplier,
+            )
+            gate_count = len(eligible_missing)
+            status = severity if gate_count > 0 else "pass"
+            checks.append(
+                _check(
+                    name="audit_missing_sessions",
+                    status=status,
+                    count=gate_count,
+                    threshold=0,
+                    source_file=src,
+                    evidence={
+                        "audited_symbols": int(len(df)),
+                        "offending_symbols": int(len(offending)),
+                        "per_symbol": dict(sorted(per_symbol.items())[:50]),
+                        # Fix C telemetry + gate provenance.
+                        "gated": True,
+                        "lake_audit_missing_sessions": total,
+                        "eligible_missing_sessions": gate_count,
+                        "eligible_missing_examples": eligible_missing[:50],
+                        "note": (
+                            "audit_missing_sessions is SYMBOL-LEVEL over each "
+                            "ticker's full calendar; the gate is the per-session "
+                            "PIT-eligibility-scoped recomputation (eligible "
+                            "(sym, session) pairs lacking a daily bar). The "
+                            "symbol-level total is telemetry only. Ticker-reuse / "
+                            "de-SPAC identity is flagged for the survivorship/PIT "
+                            "asset-master (separate work)."
+                        ),
+                    },
+                )
+            )
+            continue
         status = severity if total > 0 else "pass"
         checks.append(
             _check(
@@ -417,6 +525,21 @@ def build_coverage_check(
     ``None`` the behaviour is byte-identical to the legacy gate. The eligible-only
     numbers are always surfaced under ``eligible_expected`` / ``eligible_missing``
     / ``eligible_fraction`` with a ``gated`` flag.
+
+    Audit 2026-06-07 §10c — Fix A (sim-faithful minute criterion + flat-session
+    drop). The live sim re-scans the regular session on a 60 s grid
+    (09:45 -> 15:30, 346 scans, no per-day disable latch), so a (sym, session)
+    is *simulable* iff it has ANY real bar somewhere in the regular session, not
+    just at the very first scan. When ``gated`` the minute leg therefore probes
+    ``minute_bars_supplier(sym, scan_times[-1])`` — the supplier window is
+    ``[intraday_window_start(t), t] = [09:45, scan_times[-1]]`` under
+    ``scanner_start_to_scan`` — and treats a non-empty result as
+    ``session_minute_ok``. A PIT-eligible pair that has a daily bar but NO
+    regular-session minute bar is a genuine illiquid no-trade session (the sim
+    correctly never trades it): it is EXCLUDED from the gated denominator
+    ``expected_g`` and from the gated missing entirely. When
+    ``eligible_per_session is None`` the legacy exact-``scan_times[0]`` probe is
+    kept verbatim so all legacy / frozen numbers stay byte-identical.
     """
     symbols = [str(s) for s in requested_symbols]
     session_list = list(sessions)
@@ -430,6 +553,13 @@ def build_coverage_check(
     expected_g = 0
     missing_daily_g: list[str] = []
     missing_minute_g: list[str] = []
+    # Fix A: count of eligible pairs dropped from the gated denominator because
+    # they have a daily bar but NO regular-session minute bar (genuine illiquid
+    # no-trade sessions — the sim never trades them, so they are not gaps).
+    dropped_flat_session = 0
+    # Fix A: the gated minute leg probes "any regular-session bar"; the legacy
+    # (ungated) leg keeps the exact first-scan probe. Recorded in evidence.
+    minute_leg_criterion = "any_regular_session_bar" if gated else "first_scan_ts"
 
     def _eligible_on(session_date: _dt.date, sym: str) -> bool:
         if eligible_per_session is None:
@@ -441,12 +571,15 @@ def build_coverage_check(
             scan_times = list(scan_times_per_session(session_date))
         except Exception:  # noqa: BLE001
             scan_times = []
+        # Legacy (ungated) leg probes the FIRST scan timestamp; the gated leg
+        # probes the LAST scan timestamp so the supplier window
+        # [09:45, scan_times[-1]] covers the whole regular session — a
+        # sim-faithful "any regular-session bar" criterion.
         probe_ts = scan_times[0] if scan_times else None
+        session_probe_ts = scan_times[-1] if scan_times else None
         for sym in symbols:
             pair = f"{sym}@{session_date.isoformat()}"
             eligible = _eligible_on(session_date, sym)
-            if eligible:
-                expected_g += 1
             day_ok = False
             try:
                 day = daily_bars_supplier(sym, session_date)
@@ -455,19 +588,53 @@ def build_coverage_check(
                 day_ok = False
             if not day_ok:
                 missing_daily.append(pair)
-                if eligible:
+            if not gated:
+                # ---- Legacy path: byte-identical to the pre-Fix-A behaviour.
+                # ``eligible`` is always True here (eligible_per_session is None),
+                # so the gated tallies mirror the full-union tallies exactly.
+                expected_g += 1
+                if not day_ok:
                     missing_daily_g.append(pair)
-            if probe_ts is not None:
-                minute_ok = False
-                try:
-                    minute = minute_bars_supplier(sym, probe_ts)
-                    minute_ok = minute is not None and len(minute) > 0
-                except Exception:  # noqa: BLE001
+                if probe_ts is not None:
                     minute_ok = False
-                if not minute_ok:
-                    missing_minute.append(pair)
-                    if eligible:
+                    try:
+                        minute = minute_bars_supplier(sym, probe_ts)
+                        minute_ok = minute is not None and len(minute) > 0
+                    except Exception:  # noqa: BLE001
+                        minute_ok = False
+                    if not minute_ok:
+                        missing_minute.append(pair)
                         missing_minute_g.append(pair)
+                continue
+            # ---- Gated path (Fix A): sim-faithful any-session-bar minute leg +
+            # flat-session denominator drop. The minute leg probes the whole
+            # regular session [09:45, scan_times[-1]] (the supplier window under
+            # scanner_start_to_scan).
+            session_minute_ok: Optional[bool] = None
+            if session_probe_ts is not None:
+                try:
+                    minute = minute_bars_supplier(sym, session_probe_ts)
+                    session_minute_ok = minute is not None and len(minute) > 0
+                except Exception:  # noqa: BLE001
+                    session_minute_ok = False
+                if not session_minute_ok:
+                    # Full-union telemetry tracks the any-session-bar criterion.
+                    missing_minute.append(pair)
+            if not eligible:
+                continue
+            # A genuine illiquid no-trade session (daily bar present, no
+            # regular-session minute bar) is NOT simulable: drop it from the
+            # gated denominator and gated missing entirely. day_ok=False is still
+            # a real daily-leg gap and counts as a gated miss.
+            if day_ok and session_minute_ok is False:
+                dropped_flat_session += 1
+                continue
+            expected_g += 1
+            if not day_ok:
+                missing_daily_g.append(pair)
+                if session_minute_ok is False:
+                    # Both legs are gaps; the daily leg already records the miss.
+                    missing_minute_g.append(pair)
 
     missing_pairs = sorted(set(missing_daily) | set(missing_minute))
     n_missing = len(missing_pairs)
@@ -511,6 +678,14 @@ def build_coverage_check(
         "eligible_fraction": round(frac_g, 6),
         "gated": gated,
     }
+    if gated:
+        # Fix A telemetry (audit 2026-06-07 §10c). Genuine illiquid no-trade
+        # sessions dropped from the gated denominator, and the minute-leg
+        # criterion actually in force (gated => any-session-bar). Emitted only
+        # on the gated path so the legacy / ungated evidence stays byte-identical
+        # to the pre-Fix-A report (frozen / snapshot goldens are unaffected).
+        evidence["dropped_flat_session_pairs"] = dropped_flat_session
+        evidence["minute_leg_criterion"] = minute_leg_criterion
     if empty_detail is not None:
         evidence["detail"] = empty_detail
     return _check(
@@ -518,6 +693,127 @@ def build_coverage_check(
         status=status,
         count=gate_missing if gate_expected else 1,
         threshold={"fail_fraction": COVERAGE_MISSING_FAIL_FRACTION, "expected_pairs": gate_expected},
+        source_file=source_file,
+        evidence=evidence,
+    )
+
+
+def build_backfill_presence_check(
+    *,
+    requested_symbols: Iterable[str],
+    sessions: Iterable[_dt.date],
+    eligible_per_session: Optional[Mapping[_dt.date, "set[str]"]],
+    lake_root: Optional[Path],
+    feed: str,
+    daily_bars_supplier,
+    source_file: str = "(lake backfill-presence probe)",
+) -> dict[str, Any]:
+    """Strict structural-absence detector for the lake backfill (Fix B).
+
+    Audit 2026-06-07 §10c — the tolerant ``coverage_missing`` gate (Fix A) drops
+    genuine illiquid no-trade sessions from its denominator, so a *catastrophic*
+    structural gap (a missing minute MONTH parquet, a wrong-feed backfill) at
+    15-20% could be masked by the drop. This guardrail is the un-maskable
+    structural check: for every PIT-eligible (sym, session) pair it asserts both
+    legs of the backfill are physically present —
+
+    1. the minute MONTH parquet exists for ``(sym, year, month)`` via
+       :func:`bowaka_common.marketdata.layout.minute_bars_path`, AND
+    2. a daily bar exists for that session (``daily_bars_supplier`` non-empty).
+
+    A pair failing EITHER leg is a structural-absence miss. ``status`` is ``fail``
+    when the miss fraction is at or above :data:`COVERAGE_MISSING_FAIL_FRACTION`
+    (1%), ``warn`` when any pair misses, else ``pass``. (Measured 0.78% -> PASS;
+    a missing-month / wrong-feed catastrophe at 15-20% -> FAIL.)
+
+    When ``eligible_per_session is None`` this is a no-op ``pass`` (legacy
+    safe) — it never gates a run that did not opt into per-session eligibility.
+    Returns the ``coverage_backfill_present`` ``_check``.
+    """
+    # Legacy / no-eligibility: no-op pass (never gates a non-eligibility run).
+    if eligible_per_session is None:
+        return _check(
+            name="coverage_backfill_present",
+            status="pass",
+            count=0,
+            threshold={"fail_fraction": COVERAGE_MISSING_FAIL_FRACTION},
+            source_file=source_file,
+            evidence={
+                "gated": False,
+                "detail": (
+                    "no per-session PIT-eligibility supplied; structural "
+                    "backfill-presence check is a no-op pass"
+                ),
+            },
+        )
+
+    symbols = {str(s) for s in requested_symbols}
+    expected = 0
+    missing_month: list[str] = []
+    missing_daily: list[str] = []
+    missing_pairs: list[str] = []
+    for session_date in sessions:
+        eligible = (eligible_per_session.get(session_date, set()) or set()) & symbols
+        for sym in sorted(eligible):
+            expected += 1
+            pair = f"{sym}@{session_date.isoformat()}"
+            # Leg (i): the minute MONTH parquet must physically exist.
+            month_ok = False
+            if lake_root is not None:
+                try:
+                    mpath = _layout.minute_bars_path(
+                        lake_root, sym, session_date.year, session_date.month, feed=feed
+                    )
+                    month_ok = Path(mpath).is_file()
+                except Exception:  # noqa: BLE001 — a path/layout error counts as missing
+                    month_ok = False
+            if not month_ok:
+                missing_month.append(pair)
+            # Leg (ii): a daily bar must exist that session.
+            day_ok = False
+            try:
+                day = daily_bars_supplier(sym, session_date)
+                day_ok = day is not None and len(day) > 0
+            except Exception:  # noqa: BLE001
+                day_ok = False
+            if not day_ok:
+                missing_daily.append(pair)
+            if not (month_ok and day_ok):
+                missing_pairs.append(pair)
+
+    n_missing = len(set(missing_pairs))
+    frac = (n_missing / expected) if expected else 0.0
+    if expected == 0:
+        # No eligible pairs to assert structural presence over — nothing to
+        # fail. (The degenerate empty-universe case is caught by coverage_missing.)
+        status = "pass"
+    elif frac >= COVERAGE_MISSING_FAIL_FRACTION:
+        status = "fail"
+    elif n_missing > 0:
+        status = "warn"
+    else:
+        status = "pass"
+    evidence: dict[str, Any] = {
+        "gated": True,
+        "expected": expected,
+        "missing": n_missing,
+        "fraction": round(frac, 6),
+        "missing_minute_month": sorted(set(missing_month))[:50],
+        "missing_daily": sorted(set(missing_daily))[:50],
+        "examples": sorted(set(missing_pairs))[:50],
+    }
+    if status == "fail":
+        evidence["detail"] = (
+            f"{n_missing}/{expected} PIT-eligible (symbol, session) pairs "
+            f"({frac:.2%}) lack a physically-present minute MONTH parquet and/or "
+            f"daily bar — a structural backfill absence (missing month / wrong "
+            f"feed) the tolerant coverage_missing gate must not mask"
+        )
+    return _check(
+        name="coverage_backfill_present",
+        status=status,
+        count=n_missing,
+        threshold={"fail_fraction": COVERAGE_MISSING_FAIL_FRACTION, "expected": expected},
         source_file=source_file,
         evidence=evidence,
     )
@@ -985,12 +1281,24 @@ def build_data_quality_report(
 
     lake_root = Path(lineage["lake_root"]) if lineage.get("lake_root") else None
     symbols = [str(s) for s in requested_symbols]
+    # Materialise sessions once — Fix C iterates them in build_audit_checks
+    # before the coverage probe, and they are consumed again by the coverage /
+    # multi-level checks below; a generator would otherwise be exhausted.
+    session_list = list(sessions)
     checks: list[dict[str, Any]] = []
 
     # --- audit-derived checks ---
     audit_path = find_latest_audit(lake_root, feed=feed) if lake_root is not None else None
     audit_checks = build_audit_checks(
-        audit_path, feed=feed, requested_symbols=symbols
+        audit_path,
+        feed=feed,
+        requested_symbols=symbols,
+        # Fix C (audit 2026-06-07 §10c): scope audit_missing_sessions to the
+        # per-session PIT-eligible windows when eligibility + a daily supplier are
+        # available. ``None`` => legacy parquet symbol-level gating (byte-identical).
+        sessions=session_list,
+        eligible_per_session=eligible_per_session,
+        daily_bars_supplier=daily_bars_supplier,
     )
     if audit_checks:
         checks.extend(audit_checks)
@@ -1015,13 +1323,31 @@ def build_data_quality_report(
     checks.append(
         build_coverage_check(
             requested_symbols=symbols,
-            sessions=sessions,
+            sessions=session_list,
             daily_bars_supplier=daily_bars_supplier,
             minute_bars_supplier=minute_bars_supplier,
             scan_times_per_session=scan_times_per_session,
             eligible_per_session=eligible_per_session,
         )
     )
+
+    # --- structural backfill presence (Fix B, audit 2026-06-07 §10c) ---
+    # The un-maskable structural-absence guardrail that the tolerant
+    # coverage_missing gate must not hide. Emitted ONLY when the run opted into
+    # per-session PIT-eligibility — when ``eligible_per_session is None`` the
+    # legacy report is left byte-identical (the check is a no-op pass and is not
+    # added to the report, so frozen / snapshot goldens are unaffected).
+    if eligible_per_session is not None:
+        checks.append(
+            build_backfill_presence_check(
+                requested_symbols=symbols,
+                sessions=session_list,
+                eligible_per_session=eligible_per_session,
+                lake_root=lake_root,
+                feed=feed,
+                daily_bars_supplier=daily_bars_supplier,
+            )
+        )
 
     # --- adjustment / corporate actions ---
     from .lineage import lake_split_adjustment_applied
@@ -1091,7 +1417,7 @@ def build_data_quality_report(
             cfg=cfg,
             lineage=lineage,
             requested_symbols=symbols,
-            sessions=list(sessions),
+            sessions=session_list,
             daily_bars_supplier=daily_bars_supplier,
             minute_bars_supplier=minute_bars_supplier,
             session_minute_supplier=session_minute_supplier,
@@ -1283,6 +1609,7 @@ __all__ = [
     "build_data_quality_report",
     "build_audit_checks",
     "build_coverage_check",
+    "build_backfill_presence_check",
     "build_adjustment_check",
     "build_split_adjustment_check",
     "build_quote_check",

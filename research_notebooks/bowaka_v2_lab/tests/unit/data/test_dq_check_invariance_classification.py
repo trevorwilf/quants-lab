@@ -52,6 +52,10 @@ def test_audit_and_coverage_missing_checks_are_invariant() -> None:
         "audit_ohlc_violations",
         "audit_passed_research_audit",
         "coverage_missing",
+        # Audit 2026-06-07 §10c Fix B — structural backfill presence is
+        # classified like coverage_missing (physical-presence probe, no tuned
+        # leaf) => invariant.
+        "coverage_backfill_present",
         "adjustment_mismatch",
         "split_adjustment_mismatch",
     ):
