@@ -330,8 +330,23 @@ After the §10b denominator fix, two checks still gate the `$2M` study-start pre
 
 **Adversarial check:** "ticker reuse means the 2023 bars may be a different entity than the 2026 bars under the same symbol." This is real but ORTHOGONAL — per-session-eligibility scoping correctly restricts the study to the 2026 (eligible, complete) window regardless; flag ticker-identity for the **survivorship/PIT asset-master** work (separate deferred item). **OPEN POLICY DECISION:** (a) per-session-eligibility scoping of the audit check [recommended]; (b) regenerate the audit listing-/identity-date-aware; (c) both.
 
-### Net
-With §10b shipped and these two fixes, all four study-start gates would pass on the `$2M` config — `intended_realism` becomes runnable on the liquidity-floored universe. **Still required before declaring green lake-wide:** the interior-fold confirmation (§10 cons #1), and a survivorship/ticker-reuse pass on the asset master.
+### Net — IMPLEMENTED & VALIDATED (2026-06-07, commit e6e3ae4)
+
+Both §10c fixes shipped (Fix A `coverage_missing` sim-faithful criterion + flat-session denominator drop; Fix B new `coverage_backfill_present` guardrail; Fix C `audit_missing_sessions` per-session-eligibility scoping). Re-running the real `$2M` study-start gate (`scripts/_verify_studystart_gate.py`):
+
+| Check | Before | After |
+|---|---|---|
+| `audit_missing_sessions` | FAIL (1762) | **pass** (gated → 0) |
+| `coverage_missing` | FAIL (20.93%) | **pass** (eligible_missing=0; denom 5664 = 5758−94 flat) |
+| `coverage_backfill_present` (new) | — | **warn** (0.78%, non-gating; catastrophe → fail) |
+| `coverage_missing_late_session` (§10b) | FAIL (35.65%) | **warn** (2.93%) |
+| `coverage_missing_exit_path` (§10b) | FAIL (14.96%) | **warn** (0.69%) |
+
+**The `data_quality` preflight check now PASSES (`required_failures: None`).** 285 unit tests + the IEX-replay snapshot are green; the `eligible_per_session=None` legacy path is byte-identical (the snapshot re-approval only captured the §6.6 `eligible_*` keys left un-approved by f160ee2).
+
+**NEW remaining blocker — a SEPARATE gate, not part of §10c:** the overall preflight still fails on **`quote_coverage` = 57.50% < required 95.00%** (`min_quote_coverage_pct`). This is the SIP-NBBO-availability analog of the `coverage_missing` illiquidity story — thin `$2M`-ADV names do not have a prevailing NBBO at 95% of scan instants. It was failing in the §10b/§10c-era runs too, merely masked by the `data_quality` failure. Likely the same mis-calibration class (probing quote *presence* at scan instants vs the sim's carry-forward/`max_quote_age` semantics) and warrants its own deep-dive.
+
+**Still required before declaring `intended_realism` green lake-wide:** (1) resolve/triage `quote_coverage` (57.5% vs 95%); (2) the interior-fold confirmation (§10 cons #1); (3) a survivorship/ticker-reuse pass on the asset master.
 
 ---
 
