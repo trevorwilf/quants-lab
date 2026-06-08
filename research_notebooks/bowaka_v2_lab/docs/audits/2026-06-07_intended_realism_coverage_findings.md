@@ -452,6 +452,27 @@ The drop tilts the kept set toward more-liquid, calmer names (a universe-composi
 
 ---
 
+## 10f. Real depth + impact fill model (T3_NBBO_DEPTH) — design (operator-approved)
+
+**Operator decision (§10e follow-on):** build the real fill model — **participation-capped partial fill + real impact**. Sub-choices (configurable defaults): **square-root temporary-impact** `impact_bps = k·√(filled_shares / minute_volume_shares)`; **10% minute-volume participation cap**; **default-off / backward-compatible** (only the new `T3_NBBO_DEPTH` tier, enabled under `intended_realism` with SIP depth, changes behaviour).
+
+**What already exists (reuse):** `fills.py` has the tier system (T0–T4); `T3_NBBO_DEPTH` is scaffolded (currently falls back to T2). The `marketable_limit` path already applies a minute-volume participation cap (`minute_volume_participation_frac=0.10`) + partial-fill (lines 877–908). The cost model has an `impact_bps_per_pct_adv` term.
+
+**The two real gaps (root cause of §10e):**
+1. **Entries use `order_type=market`** → `simulate_market_fill` (fills.py:394), which bypasses the tier/cap machinery: it sizes off a **5%-of-ADV proxy** (`liquidity_proxy_adv_frac=0.05`), never the real touch, and prices a flat `slippage_bps` fed a **constant** participation (~1 bp regardless of size).
+2. **Impact pricing is cent-stepping** (`_t1_fill` walks a fabricated book at $0.01/level), not a real impact curve.
+
+**Design (T3 = real touch + participation cap + √-impact):**
+- `fillable = min(order_qty, max(displayed_touch_size, participation_cap × minute_volume_shares))` — you always get the displayed size; beyond it, up to the participation cap of the contemporaneous minute volume; **no fabricated depth**.
+- `impact_bps = market_impact_coef_bps × √(fillable / minute_volume_shares)` (configurable `linear` alternative); `avg_price = ask × (1 + half_spread_bps/1e4 + impact_bps/1e4)`.
+- `remainder = order_qty − fillable` → partial; `notional < min_order_notional` → no-fill (`partial_below_min`).
+- Route BOTH order styles through this when `has_nbbo_depth` (T3). Wire `has_nbbo_depth=True` under `intended_realism` when SIP quotes carry `bid_size/ask_size`.
+- **Default-off:** `has_nbbo_depth=False` (current_code_parity / no SIP depth) → T0/T1/T2 paths **byte-identical**.
+
+**Phased build:** (1) core T3 model + config knobs + unit tests, default-off byte-identical; (2) wire `has_nbbo_depth` + thread real touch size + minute volume under `intended_realism`; (3) re-approve golden/regression/parity baselines (intentional realism upgrade — changelog) + validate the `$2M` run (fills capped, impact paid, partials occur). Note: this gap affects `current_code_parity` too (shared `fills.py`), so Phase 2's enable is `intended_realism`-scoped first.
+
+---
+
 ## 11. Reproducibility appendix
 
 **Host analysis (pandas):** `C:/Python312/python.exe`, CSV at `E:/tradingsoftware/quants-lab/scripts/_pair_dataset.csv`.
