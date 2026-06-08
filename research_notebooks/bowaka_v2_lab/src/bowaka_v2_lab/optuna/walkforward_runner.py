@@ -359,8 +359,6 @@ def _resolve_symbols(
             # the underlying lake gap.
             from bowaka_common.marketdata import available_symbols
 
-            from ..data.adjustment import daily_adjustment_for_config
-
             return available_symbols(
                 lake_root, timeframe="1d", feed=md.get("feed", "iex"),
                 adjustment=daily_adjustment_for_config(cfg),
@@ -370,8 +368,6 @@ def _resolve_symbols(
     if is_lake:
         from ..data.lineage import _coerce_lake_root, resolve_lake_root
         from bowaka_common.marketdata import available_symbols
-
-        from ..data.adjustment import daily_adjustment_for_config
 
         return available_symbols(
             _coerce_lake_root(resolve_lake_root(cfg)),
@@ -508,8 +504,6 @@ def _run_fold_backtest(
         )
         forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
         universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
-        from ..data.adjustment import daily_adjustment_for_config
-
         daily_cache = {}
         for s in sessions:
             sess_syms = eligible_symbols(universe.get(s, {})) or symbols
@@ -614,8 +608,6 @@ def _run_fold_backtest_objective(
         )
         forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
         universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
-        from ..data.adjustment import daily_adjustment_for_config
-
         daily_cache: dict[_dt.date, Any] = {}
         for s in sessions:
             sess_syms = eligible_symbols(universe.get(s, {})) or symbols
