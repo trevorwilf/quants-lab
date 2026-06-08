@@ -503,6 +503,32 @@ Operator chose **Option A** (keep the `$2M` small-cap universe; set the gate to 
 
 **Data verified complete through 2026-06-05** (last trading day): the weekly incremental refresh wrote 0 minute/quote pairs (already current) + 114 new daily symbols; per-session coverage 06-01..06-05 is flat (~2,170 symbols with both minute+quotes/session, no cliff at 06-05 — `scripts/_audit_data_through_0605.py`).
 
+## 10h. Per-scan backtest speed — measured: the scan_matrix is THE per-trial lever (2026-06-08)
+
+Deep dive into "why is a `controller_compat` study so slow". Two observability/perf fixes + a controlled A/B that quantifies the dominant cost. Commit `65cfa92` (fixes); profiler `scripts/_profile_multitrial.py`.
+
+**Fix (a1) — `store._normalise_bars` (shared `bowaka_common`)**: the raw minute supplier re-parsed the `timestamp` column element-wise via `pd.to_datetime(..., utc=True)` every read (cProfile: ~31% of raw per-scan time in `datetimes.__iter__`). Replaced with dtype-aware vectorized paths (`tz_convert`/`tz_localize`/fallback). **~105× faster on the lake's `datetime64[us, UTC]` schema, byte-identical output** (`base.equals(cand)`; 12 common + 11 v2 supplier + 3 v1 adapter tests pass).
+
+**Fix (a2) — matrix-miss is no longer silent** (`sim/backtester.py` + `utils/profile_counters.py`): when the scan_matrix runtime is active but a session has no partition, the backtester still falls back to per-scan recompute (unchanged numerics) but now **warns once** + bumps a first-class **`matrix_session_miss`** counter. A non-zero count = the matrix doesn't cover the study window — the exact trap that silently ran a study at per-scan speed (the old `/opt/scan_matrix_cache/validation` only covered 2025-08-27..09-05).
+
+**(b) Matrix rebuilt for a real window**: scoped validation-scope build for the smoke window (`/tmp/ir2m_smoke.yml`, val 2025-11) completed in **~3.3 min at 6 cores**; store now covers a contiguous 08-27..11-28 (66 sessions, 15 G), 27/30 fixed probe symbols present, 346 scans/session.
+
+**(c) Adversarial A/B — "ctx-build is the one-time dominator, per-trial collapses"**: `_profile_multitrial.py` builds the fold ctx ONCE (reused across trials, as the real study does) then times N fold-objective calls. Fixed 30-symbol universe, `current_code_parity` (the intended_realism startup DQ gate aborts on an ad-hoc non-PIT-eligible slice; the scan-feature recompute the matrix accelerates is mode-independent, so CCP is the valid isolation — intended_realism only adds heavier fill cost on top). Same core, sequential:
+
+| | matrix OFF | matrix ON | |
+|---|---|---|---|
+| ctx build (one-time) | 321 s | 324 s | matrix-independent |
+| **per-trial warm** | **2361 s** (2304/2385/2395, <4% spread) | **49.9 s** (52.1/47.6) | **47.3× faster** |
+| cold call | 2339 s | 54.1 s | 43× |
+| cold→warm collapse | 0.99× | 1.08× | no JIT/lazy tax either way |
+| **per-trial ÷ ctx-build** | **7.36** | **0.15** | the flip |
+| matrix fired | `evals=0` | `evals=6424, miss=0` | served ~100% of scans |
+| `win_cache_hits` | 7,648,788 | 87 | feature-recompute path eliminated |
+
+**VERDICT — the hypothesis is FALSE without the matrix, TRUE with it.** Off-matrix, per-trial (the per-scan sliding-window MACD/NATR recompute, ~12 ms × ~197k scans ≈ 39 min) is **7.4× the entire one-time ctx build and pays in full every trial** — so a multi-trial study is `O(n_trials × folds × 39 min × universe_scale)` = infeasible. The session-window **bar** cache works (7.6 M hits, read-once) but does NOT help the **feature** compute. The matrix precomputes those features → per-trial collapses to 0.15× ctx (now the one-time ctx build dominates and trials amortize). **The matrix is not an optimization; it is what makes a `controller_compat` study tractable.** Extrapolating: full ~1,150-name universe off-matrix ≈ ~25 h/trial; on-matrix the per-trial is dominated by the irreducible fill/sim, not the feature lookup.
+
+**Parity**: matrix runtime ≡ legacy scanner byte-for-byte (`tests/parity/test_scan_matrix_vectorized_full_fold_parity.py` + `…full_fold_backtest_parity.py` pass). The probe's 78-vs-70 trade diff is the 3 fixed symbols outside the per-session PIT-eligible matrix universe — an artifact of the ad-hoc probe universe, not a parity bug (a real study's universe IS the matrix universe).
+
 ---
 
 ## 11. Reproducibility appendix
