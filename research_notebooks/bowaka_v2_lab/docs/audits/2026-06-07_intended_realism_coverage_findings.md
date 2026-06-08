@@ -350,6 +350,51 @@ Both §10c fixes shipped (Fix A `coverage_missing` sim-faithful criterion + flat
 
 ---
 
+## 10d. quote_coverage: evidence + recommended fix (2026-06-07)
+
+**Root cause (one line):** the quote-coverage gate fails NOT from a real backfill gap but because it (a) scores a full-union denominator the PIT scanner never evaluates and (b) uses the wrong numerator estimator — AND, unlike `coverage_missing`, the realism-correct number is **genuinely below 95%**, so any "fix" that swaps in an any-scan numerator (→ 98%) is **gaming the gate**.
+
+### The decisive difference from `coverage_missing`: the emit-latch
+
+Under `intended_realism`, `quote_fallback_policy=require_real` (`config/models.py:36-41`). The scanner latches a symbol out for the whole session at its first emit — `scanner/scan_loop.py:514-528` writes `symbol_last_emit_ts` + `signal_emits_per_symbol` **unconditionally at emit, BEFORE any quote is fetched** — and with `same_symbol_entries_per_day=1` / `symbol_cooldown_minutes=390` each `(sym,session)` gets exactly **one** quote shot at its single first-emit scan. The `require_real` `missing_quote` rejection early-returns without writing back to scanner state (`strategy_consumer.py:260-280`), so a quote-rejected symbol is **NOT** re-scanned (contrast `coverage_missing`, where stale-bar skips ARE re-scanned). So a missing/stale quote at that one scan → the candidate is lost. The any-scan metric (credit a quote at any of 346 scans) systematically **inflates** coverage relative to what the sim actually experiences.
+
+### Measured coverage table (5 probe sessions; `scripts/_scout_quote_coverage.py`, `_scout_quote_emit_latch.py`; independently reproduced by the verification workflow)
+
+| Estimator | Denominator | Coverage | vs 95% |
+|---|---|---|---|
+| `probe_quote_coverage` (current check: full-union, 200-cap, middle scan, 60s) | — | **57.5%** | ❌ |
+| Full-union any-scan 15s | 12120 | 66.16% | ❌ (32.18pp PIT over-inclusion drag) |
+| Eligible middle-scan 15s | 5758 | 56.06% | ❌ |
+| Eligible middle-scan 60s | 5758 | 87.58% | ❌ |
+| Eligible **any-scan** 15s (optimistic, **wrong** — assumes re-scan) | 5758 | 98.33% | ✅ but GAMING |
+| **Eligible single-emit proxy (first fresh-bar scan, 15s)** | 5758 | **76.57%** (77.84% of fresh-bar pairs) | ❌ |
+| mean per-scan density 5/15/60s (E[random emit scan]) | — | 48.1 / **66.6** / 88.8% | ❌ |
+
+The sim-faithful one-shot coverage sits at **~66–78%** (mean density 66.6%; single-scan band 56% mid → 78% first-emit-proxy) — **below 95% across the whole band**, so the verdict does not depend on pinning the exact point.
+
+### Recommended fix (corrects the check to measure HONESTLY — it then still fails)
+
+1. **Eligibility scoping** (keep) — score only PIT-eligible `(sym,session)` pairs (removes the 32.18pp over-inclusion drag).
+2. **Remove the 200-cap** (keep) — measure all eligible pairs (read each symbol's session quotes once); the cap biased the sample to session-1 'A' symbols.
+3. **Sim-faithful numerator** (the real fix) — replace any-scan with a **single-emit-scan** estimator (each pair's first-emit scan; or a uniformly-random scan whose expectation = the 66.6% mean density). Do NOT credit a quote at any-of-346 scans.
+4. **Staleness = run config** — use `max_quote_age_seconds=15` (sim), never the 60s preflight default, in BOTH the study-start probe and `_probe_fold`.
+5. **Structural quote-backfill guardrail** (separate) — for every PIT-eligible pair with ≥1 raw minute bar, assert a non-empty quote partition (`bars>0 / quotes=0` count must stay 0). Verified currently 0 (no masked backfill gap: of all 96 any-scan misses, 94 are genuine-flat 0-quote-0-bar, 2 sparse-quote, **0** are `bars>0/quotes=0`).
+
+### Adversarial verdict: `fix_unsafe`
+
+The "scope-to-eligible + any-scan → 98.33% → PASS" path is **gaming** — any-scan is staleness-insensitive (5/15/60s = 98.25/98.33/98.37%) because its binding constraint is merely "did the symbol trade at all," not quote age. The sim's one-shot `require_real` path is highly staleness-sensitive and lands at ~66–78% — **below 95%**. So quote_coverage is a **genuine realism constraint** on the illiquid `$2M`-ADV universe (~1 in 4 signals fires at a minute with no tradeable NBBO, and the emit-latch loses that shot — which matches live), NOT a measurement artifact like `coverage_missing`.
+
+### OPEN POLICY DECISION (operator) — this one is consequential
+
+Even with the check corrected to measure honestly (~66–78%), it FAILS 95%. The real choice:
+- **(a) Correct the check + accept `intended_realism` is infeasible on the `$2M` universe** (keep 95%; conclude the universe is too illiquid for research-grade quote fidelity → raise the ADV floor or run `current_code_parity`). The principled stance; the adversary's recommendation is "keep 95%, do not lower it."
+- **(b) Correct the check + raise the ADV floor** until quote coverage reaches 95% (measure what ADV gives 95% — a more liquid, smaller universe).
+- **(c) Correct the check + consciously lower `min_quote_coverage_pct`** to ~75–80%, documenting that ~77% signal-executability is the accepted realism for this universe (NOT hidden — a deliberate, recorded choice). The adversary flags this as the gaming risk; defensible only if explicit.
+
+(Sub-decisions, all recommended: single-emit numerator over any-scan; 15s over 60s; drop genuine-flat 0-quote-0-bar pairs only after the guardrail confirms them — it changes the denominator, not the verdict.)
+
+---
+
 ## 11. Reproducibility appendix
 
 **Host analysis (pandas):** `C:/Python312/python.exe`, CSV at `E:/tradingsoftware/quants-lab/scripts/_pair_dataset.csv`.
