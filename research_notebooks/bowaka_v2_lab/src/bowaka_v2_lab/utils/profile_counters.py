@@ -94,6 +94,11 @@ class ProfileCounters:
     # the live parity gate and the benchmark harness assert on (a silent legacy
     # fallthrough leaves this at 0).
     matrix_scans_evaluated: int = 0
+    # §10g per-scan-speed audit — sessions where the scan_matrix runtime was
+    # active but no matrix partition existed, so the backtester silently fell
+    # back to the (far slower) per-scan recompute. A non-zero value means the
+    # matrix doesn't cover the study window; rebuild it (rebuild_scan_matrices).
+    matrix_session_miss: int = 0
     # Speedup report v2 §9.4 / Phase 6 prep — scanner subphase timers and
     # skip-reason counters. Bumped per-symbol inside evaluate_one_scan when
     # _profile_counters_enabled() is True; zero-overhead when disabled.

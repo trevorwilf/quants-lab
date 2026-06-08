@@ -14,12 +14,18 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, Mapping, Optional
 
 import numpy as np
 import pandas as pd
+
+_log = logging.getLogger("bowaka_v2_lab.sim.backtester")
+#: §10g per-scan-speed audit — fire the matrix-miss warning once per process
+#: (the ``matrix_session_miss`` profile counter tallies every miss).
+_MATRIX_MISS_WARNED = False
 
 from bowaka_common.artifacts.code_manifest import build_code_manifest, code_manifest_hash
 from bowaka_common.artifacts.dataset_manifest import build_dataset_manifest
@@ -1024,6 +1030,28 @@ def run_backtest(
                 )
             except FileNotFoundError:
                 matrix_session_partition = None
+                # §10g per-scan-speed audit: a missing matrix partition under an
+                # active matrix runtime silently degrades to the (far slower)
+                # per-scan recompute path. Surface it LOUDLY (once) + count every
+                # miss so an operator running on a window the matrix doesn't
+                # cover sees the perf cliff instead of an unexplained slowdown.
+                global _MATRIX_MISS_WARNED
+                if not _MATRIX_MISS_WARNED:
+                    _log.warning(
+                        "scan_matrix runtime active but NO matrix partition for "
+                        "session %s — falling back to per-scan recompute (SLOW). "
+                        "Build the matrix for this study window "
+                        "(rebuild_scan_matrices) or expect a much slower run. "
+                        "This warning fires once; the matrix_session_miss counter "
+                        "tallies every miss.",
+                        session_date,
+                    )
+                    _MATRIX_MISS_WARNED = True
+                if _profile_counters_enabled():
+                    try:
+                        _profile_counters_current().inc(matrix_session_miss=1)
+                    except LookupError:
+                        pass
 
         # Realism remediation 2 Phase 4: ROUTING by simulation mode.
         # ``smoke_fixture`` retains the pre-Phase-4 batch-scan-then-exits flow

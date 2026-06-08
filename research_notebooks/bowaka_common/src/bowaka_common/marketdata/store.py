@@ -129,7 +129,20 @@ def _normalise_bars(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or "timestamp" not in df.columns:
         return df
     df = df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    col = df["timestamp"]
+    dt = col.dtype
+    # Dtype-aware vectorized timestamp normalisation. ``pd.to_datetime(utc=True)``
+    # is ~100x slower on an ALREADY-datetime column (profiled: ~31% of minute-read
+    # self-time was ``datetimes.__iter__`` — pd.to_datetime iterating element-wise),
+    # yet the lake stores ``datetime64[us, UTC]`` already. The fast paths below are
+    # byte-identical (verified ``base.equals(cand)`` on the lake schema) and only
+    # fall back to ``pd.to_datetime`` for object/string timestamps.
+    if isinstance(dt, pd.DatetimeTZDtype):
+        df["timestamp"] = col.dt.tz_convert("UTC")
+    elif pd.api.types.is_datetime64_dtype(dt):
+        df["timestamp"] = col.dt.tz_localize("UTC")
+    else:
+        df["timestamp"] = pd.to_datetime(col, utc=True)
     return df
 
 
