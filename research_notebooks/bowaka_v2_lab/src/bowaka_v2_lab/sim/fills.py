@@ -36,13 +36,14 @@ so a 30-second timeout is honoured exactly.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Iterable, Optional
 
 import pandas as pd
 
-from .cost_model import slippage_bps
+from .cost_model import get_params, slippage_bps
 from .quote_model import QuoteSnapshot, SOURCE_HISTORICAL
 
 
@@ -405,6 +406,12 @@ def simulate_market_fill(
     slippage_bps_offset: int = 0,
     spread_multiplier: float = 1.0,
     adv_dollar: Optional[float] = None,
+    has_nbbo_depth: bool = False,
+    minute_bars: Optional[pd.DataFrame] = None,
+    scan_ts: Any = None,
+    participation_cap: float = 0.10,
+    market_impact_coef_bps: float = 10.0,
+    market_impact_model: str = "sqrt",
 ) -> FillResult:
     """Simulate a **market** parent-order fill.
 
@@ -420,6 +427,23 @@ def simulate_market_fill(
     """
     if requested_qty <= 0:
         return _no_fill("zero_qty", order_style="market")
+
+    # Audit §10f — when real NBBO depth is available, route the market order
+    # through the T3 touch + minute-volume participation impact model. Reachable
+    # only via has_nbbo_depth=True; the default-off path below is unchanged.
+    if has_nbbo_depth:
+        return _t3_depth_impact_fill(
+            side=side, requested_qty=requested_qty, quote=quote,
+            minute_bars=minute_bars, scan_ts=scan_ts,
+            participation_cap=float(participation_cap),
+            impact_coef_bps=float(market_impact_coef_bps),
+            impact_model=str(market_impact_model),
+            cost_stress=cost_stress,
+            min_order_notional=min_order_notional,
+            commission_per_share=commission_per_share,
+            regulatory_fee_bps=regulatory_fee_bps,
+            order_style="market",
+        )
 
     quote = _apply_spread_multiplier(quote, spread_multiplier)
     side_l = side.lower()
@@ -509,6 +533,109 @@ def _minute_dollar_volume(minute_bars: Optional[pd.DataFrame], scan_ts: Any) -> 
         row.get("close", row.get("high", row.get("vwap", 0.0))) or 0.0
     )
     return vol * price
+
+
+def _minute_volume_shares(
+    minute_bars: Optional[pd.DataFrame], scan_ts: Any, *, fallback_price: float = 0.0
+) -> float:
+    """Share volume of the scan minute bar (T3 participation cap denominator).
+
+    Prefers the bar's ``volume`` column (shares) directly; if absent, derives
+    shares from the dollar volume divided by ``fallback_price`` (the ask).
+    Returns ``0.0`` when neither is available.
+    """
+    if minute_bars is None or len(minute_bars) == 0 or "timestamp" not in minute_bars.columns:
+        return 0.0
+    df = minute_bars.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    cut = pd.Timestamp(scan_ts)
+    cut = cut.tz_localize("UTC") if cut.tzinfo is None else cut.tz_convert("UTC")
+    fwd = df[df["timestamp"] >= cut].sort_values("timestamp")
+    if fwd.empty:
+        return 0.0
+    if "volume" in fwd.columns:
+        return float(fwd.iloc[0].get("volume", 0.0) or 0.0)
+    if fallback_price and fallback_price > 0:
+        return _minute_dollar_volume(minute_bars, scan_ts) / float(fallback_price)
+    return 0.0
+
+
+def _t3_depth_impact_fill(
+    *,
+    side: str,
+    requested_qty: int,
+    quote: QuoteSnapshot,
+    minute_bars: Optional[pd.DataFrame],
+    scan_ts: Any,
+    participation_cap: float,
+    impact_coef_bps: float,
+    impact_model: str,
+    cost_stress: str,
+    min_order_notional: float,
+    commission_per_share: float,
+    regulatory_fee_bps: float,
+    order_style: str,
+) -> FillResult:
+    """T3 NBBO + depth impact fill (audit §10f).
+
+    The REAL displayed top-of-book size is always fillable; beyond it, the
+    order may consume up to ``participation_cap`` of the scan minute's share
+    volume. No depth beyond that is fabricated. The fill price pays the real
+    half-spread plus a square-root (or linear) market-impact term scaled by the
+    order's participation in the minute volume.
+    """
+    side_l = side.lower()
+    tier = ExecutionTier.T3_NBBO_DEPTH
+    if side_l == "buy":
+        touch = float(quote.ask)
+        touch_size = float(quote.ask_size or 0.0)
+    else:
+        touch = float(quote.bid)
+        touch_size = float(quote.bid_size or 0.0)
+    if touch <= 0:
+        return _no_fill("no_liquidity", order_style=order_style, execution_tier=tier)
+
+    minute_vol_shares = _minute_volume_shares(
+        minute_bars, scan_ts, fallback_price=touch
+    )
+    cap_shares = float(participation_cap) * minute_vol_shares
+    fillable = min(int(requested_qty), int(max(touch_size, cap_shares)))
+    if fillable <= 0:
+        return _no_fill("no_liquidity", order_style=order_style, execution_tier=tier)
+
+    participation = fillable / minute_vol_shares if minute_vol_shares > 0 else 0.0
+    frac = (
+        math.sqrt(participation) if str(impact_model) == "sqrt" else participation
+    )
+    impact_bps = (
+        float(impact_coef_bps) * frac * COST_STRESS_SLIPPAGE_MULT.get(
+            str(cost_stress), COST_STRESS_SLIPPAGE_MULT["conservative"]
+        )
+    )
+    half_spread_bps = get_params(str(cost_stress)).half_spread_bps
+    total_bps = half_spread_bps + impact_bps
+    if side_l == "buy":
+        price = round(quote.ask * (1.0 + total_bps / 1e4), 4)
+    else:
+        price = round(quote.bid * (1.0 - total_bps / 1e4), 4)
+
+    notional = fillable * price
+    is_partial = fillable < int(requested_qty)
+    if is_partial and notional < float(min_order_notional):
+        return _no_fill("partial_below_min", order_style=order_style, execution_tier=tier)
+
+    commission, regulatory = _fees(
+        notional, commission_per_share=commission_per_share,
+        qty=fillable, regulatory_bps=regulatory_fee_bps,
+    )
+    return FillResult(
+        filled=True, filled_qty=int(fillable), avg_fill_price=price,
+        slippage_bps_total=round(total_bps, 4), notional=round(notional, 4),
+        commission=commission, regulatory_fees=regulatory,
+        is_partial=is_partial, reason="partial_fill" if is_partial else None,
+        order_style=order_style, execution_tier=tier.value,
+        liquidity_participation_frac=round(participation, 6),
+    )
 
 
 def _ask_runs_above_limit(
@@ -758,6 +885,8 @@ def simulate_marketable_limit_fill(
     minute_volume_participation_frac: float = 0.10,
     has_nbbo_depth: bool = False,
     has_calibration_artifact: bool = False,
+    market_impact_coef_bps: float = 10.0,
+    market_impact_model: str = "sqrt",
     slippage_calibrator: Optional[Any] = None,
     slippage_bps_offset: int = 0,
     spread_multiplier: float = 1.0,
@@ -778,7 +907,10 @@ def simulate_marketable_limit_fill(
       partial for the rest, walking up to ``limit_price`` one cent at a time.
     - T2 (T1 + minute volume): T1 plus a participation cap of
       ``minute_volume_participation_frac * minute_dollar_volume`` (default 10%).
-    - T3 (NBBO/depth): scaffolded for Phase 10 — falls back to T2 for now.
+    - T3 (NBBO/depth): real touch + minute-volume participation impact model
+      (audit §10f) — the displayed touch is always fillable, beyond it up to
+      ``minute_volume_participation_frac`` of the minute share volume, with a
+      sqrt/linear market-impact term (``market_impact_coef_bps``).
     - T4 (calibrated): paper-residual shift applied on top of the T2 fill,
       sourced from ``slippage_calibrator`` (realism remediation 2 Phase 9).
 
@@ -851,6 +983,32 @@ def simulate_marketable_limit_fill(
             entry_atr=entry_atr, bar_close=_adverse_close,
         )
 
+    if tier == ExecutionTier.T3_NBBO_DEPTH:
+        # T3 (audit §10f): the REAL NBBO touch + minute-volume participation
+        # impact model, NOT the T1 walk + T2 cap. The displayed touch is always
+        # fillable; beyond it, up to the participation cap of the minute volume;
+        # no fabricated depth. Price pays the real half-spread + impact term.
+        t3 = _t3_depth_impact_fill(
+            side=side_l, requested_qty=requested_qty, quote=quote,
+            minute_bars=minute_bars, scan_ts=scan_ts,
+            participation_cap=float(minute_volume_participation_frac),
+            impact_coef_bps=float(market_impact_coef_bps),
+            impact_model=str(market_impact_model),
+            cost_stress=cost_stress,
+            min_order_notional=min_order_notional,
+            commission_per_share=commission_per_share,
+            regulatory_fee_bps=regulatory_fee_bps,
+            order_style="marketable_limit",
+        )
+        return _finalize_stressed_fill(
+            t3, side=side_l, quote=quote, offset_bps=slippage_bps_offset,
+            spread_multiplier=spread_multiplier,
+            commission_per_share=commission_per_share,
+            regulatory_fee_bps=regulatory_fee_bps,
+            adverse_selection_active=adverse_selection_active,
+            entry_atr=entry_atr, bar_close=_adverse_close,
+        )
+
     # Sub-minute timeout (T1+): the limit-walked path must not run past the
     # limit before the timeout fires.
     if _ask_runs_above_limit(
@@ -876,7 +1034,6 @@ def simulate_marketable_limit_fill(
 
     if tier in (
         ExecutionTier.T2_QUOTES_AND_VOLUME,
-        ExecutionTier.T3_NBBO_DEPTH,
         ExecutionTier.T4_CALIBRATED,
     ):
         # Apply the minute-volume participation cap (T2+). If the fill exceeds
