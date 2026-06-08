@@ -415,6 +415,43 @@ Even with the check corrected to measure honestly (~66–78%), it FAILS 95%. The
 
 ---
 
+## 10e. Emit-latch / FOK execution model — the real realism gap is the FILL model
+
+**Operator intent:** small-cap momentum, maximise small-cap inclusion + realism, live execution ≈ FOK. Pressure-testing that intent (workflow: sim-model + FOK-coverage-with-size + selection-bias + adversarial refute) surfaced a gap **larger than the quote-coverage gate itself.**
+
+### (1) "No-quote loses the signal" IS FOK-faithful (high confidence)
+`quote_fallback_policy→require_real` → `resolve_quote` returns `missing_quote=True` (`quote_model.py:216-254`) → `consume()` creates no position (`strategy_consumer.py:271-280`) → the emit-latch (`scan_loop.py:514-528`, one shot) never re-scans it. That is a drop-and-cancel = correct FOK on the no-quote leg. Not in dispute.
+
+### (2) But the sim's FILL leg MANUFACTURES LIQUIDITY (high confidence) — the real gap
+Entry path is `order_type=market` → `simulate_market_fill` (`fills.py:394-472`), which **never reads displayed `ask_size`**. It fills `min(qty, ADV_proxy·0.85)` at `ask·(1+slippage_bps)`, where `ADV_proxy=(adv/ask)·0.05`. Empirically (probe sessions, 45,618 quote rows): displayed `ask_size` pctiles `[1,2,5,16,51]` shares vs a ~577-share order ($4,000 / median ask $6.93) — **0.0%** of touches cover the order. So a true FOK-at-touch would kill ~100% of entries; **the sim fills ~100% of them at trivial slippage**, manufacturing 5%-of-ADV depth the real book (≈5 shares) does not have. The `walk-the-book one-cent-per-level` mechanism (`_t1_fill`) is the *exit* (marketable_limit) path, also optimistic but not what gates entries.
+
+### (3) True FOK executability (quote AND size) — size-bound, not presence-bound
+| Leg | @15s | @60s |
+|---|---|---|
+| Quote present (presence only) | 77.84% | 92.25% |
+| Full FOK (quote AND size, as-coded raw-share `ask_size`) | **0.09%** | 0.09% |
+
+Of quote-present emits, **99.89% fail purely on size** (`ask_size` median 4 vs order qty median ~455). NBBO is **sticky** (59.6% unchanged min-to-min) so 60s is defensible for *presence* (→92%), but a longer window cannot fix executability. **Adversarial caveat (load-bearing):** a "round-lot ×100" reading would lift FOK to ~32%, but the refute agent **refuted** it universe-wide — thin names (ABEO/ABOS/ABSI/ABAT) show raw sizes 1,2,3…9 with ~0% multiples of 100 = **raw shares**; only AAOI is lot-quoted. So literal FOK ≈ **0.1–1%** (also bankroll-assumption-dominated, swings 0.97%→67% as notional $4000→$1111). The single FOK number is **not robust**; the *direction* (size binds; sim over-states fillability) is high-confidence.
+
+### (4) Selection bias of the ~22% no-quote drops — return-neutral (high confidence)
+| Dimension | Kept | Killed | Significant? |
+|---|---|---|---|
+| Prior ADV (median) | $11.9M | $5.4M | yes (p≈3e-89) — killed 2.2× less liquid |
+| 14d ATR% (median) | 4.5% | 6.1% | yes (p≈9e-55) — killed more volatile |
+| **Fwd +30min return (median)** | **−0.139%** | **−0.136%** | **NO (p≈0.82)** |
+The drop tilts the kept set toward more-liquid, calmer names (a universe-composition shift) but is **return-neutral** — it does NOT flatter the backtest. The realism concern is **fill/impact modelling, not selection bias**.
+
+### (5) Recommendation + OPEN POLICY DECISION
+**Recommended execution model: `walk_the_book` with a REAL book + REAL impact** — not literal FOK (universe untradeable ~0.1–1%), not the current ADV-proxy/cent-stepped synthetic depth (manufactures liquidity). Refute verdict: `sound_with_caveats`, `model_gap_real=true`, `fok_number_robust=false`.
+
+1. **Execution model** — literal FOK ⇒ ~0.1–1% executable (untradeable as a long book); walk-the-book-with-real-impact is the honest middle ground but needs a *real depth model* the sim lacks. Decision: build a real-impact book model, or accept the strict-FOK "untradeable" conclusion.
+2. **The gate number** — do NOT use the refuted 32%. Either **(a) quote-presence ≈78%@15s / 92%@60s** (matches the as-coded `market` entry path, explicitly NOT claiming FOK executability) or **(b) literal-FOK ≈0.1–1%** (concede untradeable). Must not be conflated.
+3. **Is small-cap `intended_realism` defensible?** Only under (a) presence-based, *acknowledging the sim over-states fillability and under-states size/impact cost on thin names.* Under strict FOK, no.
+
+**The deeper point:** the `quote_coverage` 95% gate was never the first-order realism issue. **The fill model is** — it fills 577 shares against a 5-share book at trivial slippage, over-stating small-cap performance far more than the quote gate ever did. Fixing the gate makes `intended_realism` *run*; a real market-impact/depth model is what would make its *results* trustworthy on small-caps.
+
+---
+
 ## 11. Reproducibility appendix
 
 **Host analysis (pandas):** `C:/Python312/python.exe`, CSV at `E:/tradingsoftware/quants-lab/scripts/_pair_dataset.csv`.
