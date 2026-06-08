@@ -39,6 +39,20 @@ _SIMULATION_MODE_DEFAULTS: dict[str, dict[str, str]] = {
         "unknown_instrument_class_policy": "fail_closed",
         "quote_fallback_policy": "require_real",
     },
+    "fast_realism": {
+        # §10i Path 4 — intended_realism's signal/event semantics + honest fills,
+        # but NON-blocking: a synthetic zero-spread quote fallback (never rejects;
+        # its ask_size=0 makes the T3 depth+impact fill degrade to a minute-volume
+        # participation cap — honest SIZE without a real quote) and fail-open on an
+        # unknown instrument class. The honest fill is engaged in strategy_consumer
+        # (has_nbbo_depth); the IR-only coverage / quote-coverage / halt / require_real
+        # gates do NOT fire (they key on mode == "intended_realism"). Use for the
+        # fast SEARCH stage; validate finalists under intended_realism.
+        "intraday_window_policy": "regular_open_to_scan",
+        "accepted_event_sequencing": "post_submit",
+        "unknown_instrument_class_policy": "fail_open",
+        "quote_fallback_policy": "zero_spread",
+    },
     "smoke_fixture": {
         "intraday_window_policy": "regular_open_to_scan",
         "accepted_event_sequencing": "pre_submit",
@@ -56,6 +70,10 @@ class SimulationConfig(_StrictBase):
     - ``current_code_parity`` — reproduce the *live code as written* (warts and
       all) so the lab can reconcile a run against live Bowaka v2.
     - ``intended_realism`` — model the *intended* strategy (audit §16 fixes).
+    - ``fast_realism`` — §10i Path 4: intended_realism's semantics + honest
+      (depth/participation) fills, but NON-blocking (synthetic-quote fallback, no
+      fail-closed coverage/quote/halt gates). The fast SEARCH stage; validate
+      finalists under ``intended_realism``.
     - ``smoke_fixture`` — deterministic synthetic data for plumbing tests; never
       a research- or promotion-grade run.
 
@@ -64,7 +82,9 @@ class SimulationConfig(_StrictBase):
     validation every field is concrete and can be written to the run manifest.
     """
 
-    mode: Literal["current_code_parity", "intended_realism", "smoke_fixture"] = "smoke_fixture"
+    mode: Literal[
+        "current_code_parity", "intended_realism", "fast_realism", "smoke_fixture"
+    ] = "smoke_fixture"
     allow_research_relaxed: bool = False
     intraday_window_policy: Optional[
         Literal["scanner_start_to_scan", "regular_open_to_scan", "extended_hours_to_scan"]
@@ -526,7 +546,7 @@ class BowakaV2Config(_StrictBase):
         set — a missing threshold would silently disable a gate.
         """
         if (
-            self.simulation.mode in ("current_code_parity", "intended_realism")
+            self.simulation.mode in ("current_code_parity", "intended_realism", "fast_realism")
             and not self.simulation.allow_research_relaxed
         ):
             missing = [
@@ -560,7 +580,7 @@ class BowakaV2Config(_StrictBase):
         ``bool``, so the data-quality layer / run manifest never see ``None``.
         """
         if self.market_data.require_adjusted_daily_bars is None:
-            if self.simulation.mode in ("intended_realism", "current_code_parity"):
+            if self.simulation.mode in ("intended_realism", "current_code_parity", "fast_realism"):
                 raise ValueError(
                     f"simulation.mode={self.simulation.mode!r} requires "
                     f"market_data.require_adjusted_daily_bars to be set explicitly "

@@ -777,12 +777,12 @@ def _probe_fold(
         ))
     fold_passed = result.passed
 
-    # Audit 2026-05-29 §5.4 / Phase 1 — extra hard-fail gates that apply to BOTH
-    # intended_realism AND current_code_parity (skipped for smoke_fixture). The
-    # legacy run_preflight is quote/DQ-centric and is tolerant under parity; a
-    # parity study against a fold with NO minute bars or an empty PIT universe
-    # is still un-runnable, so these gates fail closed regardless of mode.
-    if str(sim_mode) in ("intended_realism", "current_code_parity"):
+    # Audit 2026-05-29 §5.4 / Phase 1 — extra hard-fail gates that apply to every
+    # real run (intended_realism / current_code_parity / fast_realism; skipped for
+    # smoke_fixture). The legacy run_preflight is quote/DQ-centric and is tolerant
+    # under parity; a study against a fold with NO minute bars or an empty PIT
+    # universe is still un-runnable, so these gates fail closed regardless of mode.
+    if str(sim_mode) in ("intended_realism", "current_code_parity", "fast_realism"):
         # (a) Minute coverage — does a minute partition exist for any
         # (sampled symbol, fold-month)? A partition-existence probe (not an
         # in-window supplier call) is robust to the forming-window policy and

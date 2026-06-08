@@ -565,12 +565,19 @@ class StrategyConsumer:
                 minutes_to_close = None
             _atr = candidate_event.get("atr", candidate_event.get("entry_atr"))
             entry_atr = float(_atr) if _atr not in (None, "") else None
-        # Audit §10f Phase 2 — the real depth+impact fill (T3_NBBO_DEPTH) engages
-        # ONLY under intended_realism with a real (historical) quote; otherwise
-        # has_nbbo_depth=False keeps the legacy fill path BYTE-IDENTICAL, so
-        # current_code_parity / smoke / all non-realism goldens are unchanged.
+        # Audit §10f Phase 2 / §10i Path 4 — the real depth+impact fill
+        # (T3_NBBO_DEPTH) engages under:
+        #   • intended_realism + a real (historical) quote, OR
+        #   • fast_realism (always): a real quote → real touch + participation cap;
+        #     a synthetic zero-spread quote (ask_size=0) → T3's max(touch=0,
+        #     participation·minute_vol) degrades to the honest minute-volume
+        #     participation cap (honest SIZE without a real quote, zero-spread price).
+        # has_nbbo_depth=False otherwise keeps the legacy fill path BYTE-IDENTICAL,
+        # so current_code_parity / smoke / all non-realism goldens are unchanged.
+        _mode = str(self._sim_cfg.mode)
         has_nbbo_depth = (
-            str(self._sim_cfg.mode) == "intended_realism" and quote.is_historical
+            (_mode == "intended_realism" and quote.is_historical)
+            or _mode == "fast_realism"
         )
         market_impact_coef_bps = float(execution_cfg.get("market_impact_coef_bps", 10.0))
         market_impact_model = str(execution_cfg.get("market_impact_model", "sqrt"))

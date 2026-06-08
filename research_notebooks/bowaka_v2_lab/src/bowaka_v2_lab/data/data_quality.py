@@ -1189,11 +1189,12 @@ def evaluate_startup_dq(report: Mapping[str, Any], *, simulation_mode: str) -> O
 
     - ``intended_realism`` — gated on EVERY required check (audit / coverage /
       adjustment / quote).
-    - ``current_code_parity`` — gated ONLY on the adjustment-enforcement checks
-      (``adjustment_mismatch`` / ``split_adjustment_mismatch``): a parity run
-      against a raw lake whose config requires adjusted daily bars must still
-      fail closed (audit §P0-005). Other DQ failures are tolerated — parity mode
-      reproduces the live code warts and all.
+    - ``current_code_parity`` / ``fast_realism`` — gated ONLY on the adjustment-
+      enforcement checks (``adjustment_mismatch`` / ``split_adjustment_mismatch``):
+      a run against a raw lake whose config requires adjusted daily bars must
+      still fail closed (audit §P0-005). Other DQ failures are tolerated —
+      ``current_code_parity`` reproduces the live code warts and all;
+      ``fast_realism`` (§10i Path 4) is the non-blocking fast search stage.
     - ``smoke_fixture`` — never gated by data quality.
 
     See :data:`_ADJUSTMENT_GATING_CHECK_NAMES`.
@@ -1202,7 +1203,11 @@ def evaluate_startup_dq(report: Mapping[str, Any], *, simulation_mode: str) -> O
         return None
     if simulation_mode == "intended_realism":
         gating_failures = list(report.get("required_failures") or [])
-    elif simulation_mode == "current_code_parity":
+    elif simulation_mode in ("current_code_parity", "fast_realism"):
+        # §10i Path 4 — fast_realism is a real run (consumes the PIT universe +
+        # real lake) but is NON-blocking on the IR-only required checks (coverage /
+        # quote): like current_code_parity it gates ONLY on the adjustment-
+        # enforcement checks (a raw-vs-adjusted catastrophe still fails closed).
         gating_failures = list(report.get("adjustment_gating_failures") or [])
     else:
         # Unknown mode — fail closed on the adjustment-enforcement checks only,

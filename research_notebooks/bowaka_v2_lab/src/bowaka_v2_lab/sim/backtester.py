@@ -194,7 +194,7 @@ def _normalise_universe_by_session(
     """
     snapshots: dict[_dt.date, dict] = {}
     pit_records: dict[_dt.date, dict[str, UniverseRecord]] = {}
-    non_smoke = sim_mode in ("current_code_parity", "intended_realism")
+    non_smoke = sim_mode in ("current_code_parity", "intended_realism", "fast_realism")
     for session_date, value in universe_snapshot_by_session.items():
         is_snapshot_dict = isinstance(value, Mapping) and (
             "symbols" in value or "universe_hash" in value
@@ -770,13 +770,15 @@ def run_backtest(
         cache_key_symbols=cache_key_symbols,
         # Per-trial speedup: in the per-trial objective path (objective_minimal)
         # under a mode that gates only on the invariant adjustment checks
-        # (current_code_parity / smoke_fixture), reuse the cached invariant DQ
-        # report and skip the trial-dependent rebuild's redundant daily-bar
-        # reads. Full-artifact runs and intended_realism keep the complete
-        # report (the latter gates on trial-dependent checks too).
+        # (current_code_parity / fast_realism / smoke_fixture), reuse the cached
+        # invariant DQ report and skip the trial-dependent rebuild's redundant
+        # daily-bar reads. Full-artifact runs and intended_realism keep the
+        # complete report (the latter gates on trial-dependent checks too).
+        # §10i Path 4 — fast_realism gates ONLY on adjustment (invariant), so it
+        # reuses the cached invariant report; this keeps the SEARCH stage fast.
         reuse_cached_invariant_only=(
             artifact_mode == "objective_minimal"
-            and sim_cfg.mode in ("current_code_parity", "smoke_fixture")
+            and sim_cfg.mode in ("current_code_parity", "fast_realism", "smoke_fixture")
         ),
     )
     if artifact_mode == "full":

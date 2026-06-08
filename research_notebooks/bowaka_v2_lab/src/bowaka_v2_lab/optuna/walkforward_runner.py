@@ -2178,14 +2178,15 @@ def run_walkforward_study(
     # gates intended_realism — current_code_parity / smoke_fixture are not data
     # -prerequisite-failure-modes (the cheap preflight already records warnings).
     full_fold_preflight_result: Optional[Any] = None
-    # Audit 2026-05-29 §5.4 / Phase 1 — the full per-fold preflight now runs for
-    # current_code_parity too (not just intended_realism). It proves daily
-    # adjustment is satisfiable, minute coverage + PIT universe exist per fold,
-    # and the folds never touch the holdout — BEFORE a multi-hour study starts.
-    # Under current_code_parity the IEX partial-tape gaps (missing quotes / SIP)
-    # are recorded as non-blocking limitations rather than hard failures.
+    # Audit 2026-05-29 §5.4 / Phase 1 — the full per-fold preflight runs for every
+    # real study (current_code_parity / fast_realism, not just intended_realism).
+    # It proves daily adjustment is satisfiable, minute coverage + PIT universe
+    # exist per fold, and the folds never touch the holdout — BEFORE a multi-hour
+    # study starts. Under current_code_parity / fast_realism the partial-tape gaps
+    # (missing quotes / SIP) are recorded as non-blocking limitations, not hard
+    # failures (fast_realism falls back to a synthetic zero-spread quote).
     iex_partial_tape_limitations: list[str] = []
-    if sim_cfg.mode in ("intended_realism", "current_code_parity"):
+    if sim_cfg.mode in ("intended_realism", "current_code_parity", "fast_realism"):
         from .preflight import FoldWindow, run_full_fold_preflight
 
         fold_windows = [
