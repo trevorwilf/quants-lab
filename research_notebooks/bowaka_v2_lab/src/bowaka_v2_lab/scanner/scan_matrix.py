@@ -898,6 +898,82 @@ def _resolve_lineage_symbols(
     return out
 
 
+def _prewarm_pit_daily_cache(sessions: Sequence[_dt.date], cfg: Mapping[str, Any], lake_root: Any) -> None:
+    """§10h #5 — warm ``_PIT_DAILY_FULL_HISTORY_CACHE`` for the candidate universe
+    in THIS (parent) process so fork workers inherit it copy-on-write and skip the
+    cold daily read (~22s of the per-session build is the PIT-baseline daily read).
+
+    The candidate universe is the fixed asset snapshot, so warming ONE session
+    covers every session. Best-effort + idempotent: a warm cache hits, no lake / a
+    failure is a no-op (the workers then cold-read, same as before). NB the budget
+    probe in :func:`build_scan_matrix` typically warms this already; this makes the
+    fork-inheritance benefit explicit and robust to that probe being skipped.
+    """
+    if not lake_root or not sessions:
+        return
+    try:
+        from bowaka_common.marketdata import MarketDataStore
+        from ..universe.builder import build_pit_universe_for_sessions
+
+        build_pit_universe_for_sessions([sessions[0]], dict(cfg), MarketDataStore(lake_root))
+    except Exception:  # noqa: BLE001 — pre-warm is an optimization, never fatal
+        pass
+
+
+def _build_session_partitions(
+    sessions: Sequence[_dt.date],
+    cfg: Mapping[str, Any],
+    lake_root: Any,
+    feed: str,
+    *,
+    store_root: Path,
+    scope: str,
+    n_workers: int,
+) -> list[dict[str, Any]]:
+    """Build each session's matrix partition, returning the per-session manifest
+    fragments in SESSION order.
+
+    §10h #5 — sessions are independent (each writes its own atomically-renamed
+    ``session=<date>`` partition with no shared mutable state), so they parallelise
+    across a **fork**-based ``ProcessPoolExecutor``: the workers inherit the
+    parent's pre-warmed ``_PIT_DAILY_FULL_HISTORY_CACHE`` copy-on-write (Linux), so
+    each skips the cold daily read. Byte-identical to the serial build regardless of
+    worker count (per-session computation is deterministic + order-independent). A
+    worker exception propagates (fail-loud). Falls back to serial when
+    ``n_workers <= 1``, a single session, or ``fork`` is unavailable
+    (Windows / macOS spawn — where workers could not inherit the cache anyway).
+    """
+    def _serial() -> list[dict[str, Any]]:
+        return [
+            build_session_partition(sd, cfg, lake_root, feed, store_root=store_root, scope=scope)
+            for sd in sessions
+        ]
+
+    if int(n_workers) <= 1 or len(sessions) <= 1:
+        return _serial()
+    import multiprocessing as mp
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    try:
+        ctx = mp.get_context("fork")
+    except ValueError:
+        return _serial()
+    results: dict[_dt.date, dict[str, Any]] = {}
+    with ProcessPoolExecutor(
+        max_workers=min(int(n_workers), len(sessions)), mp_context=ctx,
+    ) as ex:
+        futs = {
+            ex.submit(
+                build_session_partition, sd, cfg, lake_root, feed,
+                store_root=store_root, scope=scope,
+            ): sd
+            for sd in sessions
+        }
+        for fut in as_completed(futs):
+            results[futs[fut]] = fut.result()  # fail-loud — propagate worker errors
+    return [results[sd] for sd in sessions]
+
+
 def build_scan_matrix(
     config_path: str | Path,
     *,
@@ -1002,16 +1078,18 @@ def build_scan_matrix(
 
     n_workers = max(1, min(int(workers), int(max_optuna_workers)))
 
-    # Build sessions (serial in this phase; Phase 9 may parallelise via
-    # ProcessPoolExecutor with the spawn worker bootstrap).
-    session_manifests: list[dict[str, Any]] = []
-    for sd in sessions:
-        session_manifests.append(
-            build_session_partition(
-                sd, cfg, lake_root, feed,
-                store_root=store_root, scope=scope,
-            )
-        )
+    # §10h #5 — build the independent session partitions in parallel. Pre-warm the
+    # per-symbol daily-history cache in THIS process (the budget probe above
+    # usually has, but make it explicit + robust), then fork workers that inherit
+    # it copy-on-write and skip the ~22s cold PIT-baseline daily read. The result
+    # is byte-identical to the serial build (deterministic per-session partitions);
+    # falls back to serial when n_workers<=1 / a single session / fork is
+    # unavailable.
+    _prewarm_pit_daily_cache(sessions, cfg, lake_root)
+    session_manifests: list[dict[str, Any]] = _build_session_partitions(
+        sessions, cfg, lake_root, feed,
+        store_root=store_root, scope=scope, n_workers=n_workers,
+    )
 
     matrix_id = hashlib.sha256(
         f"{scope}:{lake_root}:{feed}:{sessions[:1]!r}:{sessions[-1:]!r}".encode("utf-8")
