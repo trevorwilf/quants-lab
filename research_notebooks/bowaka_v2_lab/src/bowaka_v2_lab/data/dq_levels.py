@@ -352,6 +352,7 @@ def build_replay_checks(
     max_hold_days: int,
     quote_coverage_rows: Optional[Iterable[Mapping[str, Any]]] = None,
     max_quote_age_seconds: float = 15.0,
+    eligible_per_session: Optional[Mapping[_dt.date, "set[str]"]] = None,
     source_file: str = "(replay-level probe)",
 ) -> list[dict[str, Any]]:
     """Replay-level checks — does the lake actually support the replay?
@@ -368,6 +369,19 @@ def build_replay_checks(
       supplied, every row that carries a quote has ``quote_age_seconds`` within
       ``max_quote_age_seconds`` (advisory ``warn``; the hard quote gate is
       ``quote_coverage`` in ``data_quality.py``).
+
+    ``eligible_per_session`` (audit 2026-06-07 §6.6-compatible "denominator-only"
+    fix) maps each session date to the set of symbols that are PIT-eligible *on
+    that session*. When supplied, EVERY symbol is still probed (the full-union
+    telemetry counters / ``probes`` / ``missing`` evidence are unchanged — audit
+    2026-05-23 §6.6 requires the uncapped union so coverage telemetry sees every
+    gap), but the PASS/FAIL fraction is computed over only the (symbol, session)
+    pairs eligible on that session — for late-session the *current* session, for
+    exit-path the *forward* session the exit would occur on. When ``None`` the
+    behaviour is byte-identical to the legacy gate (fraction over the full
+    union). The eligible-only numbers are always surfaced under
+    ``eligible_probes`` / ``eligible_missing`` / ``eligible_fraction`` with a
+    ``gated`` flag.
     """
     symbols = [str(s) for s in requested_symbols]
     session_list = sorted(sessions)
@@ -375,6 +389,19 @@ def build_replay_checks(
     late_probes = 0
     exit_missing: list[str] = []
     exit_probes = 0
+    # Gated (per-session-PIT-eligible) counters. They mirror the full counters
+    # but only increment when the symbol is eligible on the relevant session.
+    late_missing_g: list[str] = []
+    late_probes_g = 0
+    exit_missing_g: list[str] = []
+    exit_probes_g = 0
+
+    def _eligible_on(session_date: _dt.date, sym: str) -> bool:
+        # Default-None => the gated path counts every pair (byte-identical to
+        # the full path), so an absent ``eligible_per_session`` is a no-op.
+        if eligible_per_session is None:
+            return True
+        return sym in eligible_per_session.get(session_date, set())
 
     for i, session in enumerate(session_list):
         try:
@@ -395,6 +422,10 @@ def build_replay_checks(
         for ts in sampled:
             for sym in symbols:
                 late_probes += 1
+                # Gate on PIT-eligibility on the *current* session.
+                eligible = _eligible_on(session, sym)
+                if eligible:
+                    late_probes_g += 1
                 ok = False
                 try:
                     m = minute_bars_supplier(sym, ts)
@@ -402,7 +433,10 @@ def build_replay_checks(
                 except Exception:  # noqa: BLE001 — a supplier error counts as missing
                     ok = False
                 if not ok:
-                    late_missing.append(f"{sym}@{session.isoformat()}T{pd.Timestamp(ts):%H:%M}")
+                    miss = f"{sym}@{session.isoformat()}T{pd.Timestamp(ts):%H:%M}"
+                    late_missing.append(miss)
+                    if eligible:
+                        late_missing_g.append(miss)
         # Exit-path probe: the last scan timestamp of each of the next
         # ``max_hold_days`` sessions must have minute bars for each symbol.
         hold = max(1, int(max_hold_days))
@@ -417,6 +451,12 @@ def build_replay_checks(
                 continue
             for sym in symbols:
                 exit_probes += 1
+                # The exit must be evaluable on the day it would occur, so the
+                # exit-path pair is gated on PIT-eligibility on the FORWARD
+                # session ``fwd``.
+                eligible = _eligible_on(fwd, sym)
+                if eligible:
+                    exit_probes_g += 1
                 ok = False
                 try:
                     m = minute_bars_supplier(sym, probe_ts)
@@ -424,18 +464,42 @@ def build_replay_checks(
                 except Exception:  # noqa: BLE001
                     ok = False
                 if not ok:
-                    exit_missing.append(f"{sym}@{fwd.isoformat()}")
+                    miss = f"{sym}@{fwd.isoformat()}"
+                    exit_missing.append(miss)
+                    if eligible:
+                        exit_missing_g.append(miss)
 
-    def _coverage_check(name: str, missing: list[str], probes: int, detail_kind: str) -> dict[str, Any]:
+    # ``gated`` is True iff the caller supplied a per-session eligibility map; in
+    # that case the PASS/FAIL fraction is computed from the eligible-only
+    # numbers, otherwise (byte-identical legacy) from the full numbers.
+    gated = eligible_per_session is not None
+
+    def _coverage_check(
+        name: str,
+        missing: list[str],
+        probes: int,
+        missing_g: list[str],
+        probes_g: int,
+        detail_kind: str,
+    ) -> dict[str, Any]:
+        # Full-union telemetry (always recorded, unchanged from the legacy path).
         n_missing = len(set(missing))
         frac = (n_missing / probes) if probes else 0.0
-        if probes == 0:
+        # Eligible-only numbers (de-duped identically to the full path).
+        n_missing_g = len(set(missing_g))
+        frac_g = (n_missing_g / probes_g) if probes_g else 0.0
+        # When eligibility was supplied, the gate is scored over the eligible
+        # pairs; otherwise over the full union (legacy).
+        gate_probes = probes_g if gated else probes
+        gate_missing = n_missing_g if gated else n_missing
+        gate_frac = frac_g if gated else frac
+        if gate_probes == 0:
             # No probes -> nothing to assert. Not a failure (e.g. single-session
             # window has no later scans / no forward sessions).
             status = "pass"
-        elif frac >= REPLAY_COVERAGE_FAIL_FRACTION:
+        elif gate_frac >= REPLAY_COVERAGE_FAIL_FRACTION:
             status = "fail"
-        elif n_missing > 0:
+        elif gate_missing > 0:
             status = "warn"
         else:
             status = "pass"
@@ -444,22 +508,28 @@ def build_replay_checks(
             "missing": n_missing,
             "missing_fraction": round(frac, 6),
             "missing_examples": sorted(set(missing))[:50],
+            "eligible_probes": probes_g,
+            "eligible_missing": n_missing_g,
+            "eligible_fraction": round(frac_g, 6),
+            "gated": gated,
         }
         if status == "fail":
             ev["detail"] = (
-                f"{n_missing}/{probes} {detail_kind} probes lack minute bars — "
-                f"the lake cannot support a faithful replay"
+                f"{gate_missing}/{gate_probes} {detail_kind} probes lack minute "
+                f"bars — the lake cannot support a faithful replay"
             )
         return _check(
-            name, status, n_missing,
-            {"fail_fraction": REPLAY_COVERAGE_FAIL_FRACTION, "probes": probes},
+            name, status, gate_missing,
+            {"fail_fraction": REPLAY_COVERAGE_FAIL_FRACTION, "probes": gate_probes},
             source_file, ev,
         )
 
     checks = [
         _coverage_check("coverage_missing_late_session", late_missing, late_probes,
+                        late_missing_g, late_probes_g,
                         "late-session (post-first-scan)"),
         _coverage_check("coverage_missing_exit_path", exit_missing, exit_probes,
+                        exit_missing_g, exit_probes_g,
                         "exit-path (forward max_hold_days)"),
     ]
 

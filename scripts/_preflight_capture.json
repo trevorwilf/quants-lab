@@ -1,0 +1,47 @@
+[
+  {
+    "passed": false,
+    "checks": [
+      {
+        "name": "simulation_mode",
+        "status": "pass",
+        "detail": "simulation.mode='intended_realism' is a research mode",
+        "evidence": {
+          "simulation_mode": "intended_realism"
+        }
+      },
+      {
+        "name": "data_quality",
+        "status": "fail",
+        "detail": "intended_realism run aborted: 2 required data-quality check(s) failed: audit_missing_sessions: count=1762; coverage_missing: count=1205",
+        "evidence": {
+          "regime": "lake",
+          "failed": 2,
+          "required_failures": [
+            "audit_missing_sessions",
+            "coverage_missing"
+          ],
+          "adjustment_gating_failures": []
+        }
+      },
+      {
+        "name": "quote_coverage",
+        "status": "fail",
+        "detail": "historical quote coverage 57.50% is below the required 95.00% \u2014 the lake has insufficient historical quotes for a research-grade optimization",
+        "evidence": {
+          "historical_quote_coverage_pct": 57.5,
+          "min_quote_coverage_pct": 95.0
+        }
+      },
+      {
+        "name": "sip_data_present",
+        "status": "pass",
+        "detail": "lake carries SIP partitions for the requested feed",
+        "evidence": {
+          "feed": "sip",
+          "sip_partitions_present": true
+        }
+      }
+    ]
+  }
+]

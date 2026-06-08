@@ -124,7 +124,54 @@ def plan_pit_symbol_union(
     return union
 
 
+def eligible_per_session_map(
+    lake_root: Any,
+    sessions: Iterable[_dt.date],
+    *,
+    cfg: Optional[Mapping[str, Any]] = None,
+) -> Optional[dict[_dt.date, set[str]]]:
+    """Per-session PIT-eligible symbol sets for ``sessions``.
+
+    Returns ``{session_date: {eligible symbols}}`` built the SAME way as
+    :func:`fold_pit_symbol_union` (identical ``MarketDataStore`` + ``pit_cfg``
+    construction, same :func:`build_pit_universe_for_sessions` +
+    :func:`eligible_symbols`) but WITHOUT unioning across sessions.
+
+    The coverage gates consume this as a *denominator filter* (audit 2026-06-07
+    §6.6-compatible "denominator-only" fix): each gate scores its PASS/FAIL
+    fraction over only the ``(symbol, session)`` pairs the live PIT scanner would
+    actually evaluate on that session, while the FULL symbol union is still
+    PROBED for telemetry — so the audit-2026-05-23 §6.6 uncapped-union invariant
+    is preserved.
+
+    Returns ``None`` (the legacy full-union gate) when ``lake_root`` is ``None``,
+    there are no sessions, or the PIT build raises. Callers thread the result
+    straight into ``build_data_quality_report(..., eligible_per_session=...)``;
+    a ``None`` degrades to the full-union fraction and NEVER crashes.
+    """
+    sessions = list(sessions)
+    if lake_root is None or not sessions:
+        return None
+    try:
+        from bowaka_common.marketdata import MarketDataStore
+        from ..universe.builder import build_pit_universe_for_sessions, eligible_symbols
+
+        pit_cfg: Mapping[str, Any] = dict(cfg or {})
+        store = MarketDataStore(lake_root)
+        pit = build_pit_universe_for_sessions(sessions, pit_cfg, store)
+        return {sd: set(eligible_symbols(pit.get(sd, {}))) for sd in sessions}
+    except Exception as exc:  # noqa: BLE001 — degrade to the legacy full-union gate
+        _log().warning(
+            "eligible_per_session_map: per-session PIT-eligible build failed "
+            "(%s); coverage gates fall back to the full-union fraction "
+            "(eligible_per_session=None)",
+            exc,
+        )
+        return None
+
+
 __all__ = [
     "fold_pit_symbol_union",
     "plan_pit_symbol_union",
+    "eligible_per_session_map",
 ]

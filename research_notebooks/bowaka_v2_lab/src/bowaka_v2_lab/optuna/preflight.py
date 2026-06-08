@@ -38,6 +38,7 @@ was explicitly allowed via ``allow_smoke``.
 from __future__ import annotations
 
 import datetime as _dt
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
@@ -644,11 +645,24 @@ def _probe_fold(
             start=sessions[0], end=sessions[-1],
             lab_config_hash="full_fold_preflight",
         )
+        # Audit 2026-06-07 §6.6-compatible "denominator-only" fix: build the
+        # per-session PIT-eligible set so the coverage gates score their
+        # PASS/FAIL fraction over only the (symbol, session) pairs the live
+        # scanner would actually evaluate (the full union is still PROBED, so the
+        # audit-2026-05-23 §6.6 uncapped-union telemetry invariant is preserved).
+        # ``eligible_per_session_map`` degrades to ``None`` (legacy full-union
+        # gate) on any failure and NEVER crashes the preflight.
+        from .pit_universe import eligible_per_session_map
+
+        eligible_per_session: Optional[Mapping[_dt.date, set[str]]] = (
+            eligible_per_session_map(lake_root, sessions, cfg=cfg)
+        )
         dq_report = build_data_quality_report(
             cfg=cfg, lineage=lineage, requested_symbols=symbols,
             sessions=sessions, daily_bars_supplier=daily_supplier,
             minute_bars_supplier=minute_supplier,
             scan_times_per_session=scan_times_per_session,
+            eligible_per_session=eligible_per_session,
         )
     except Exception as exc:  # noqa: BLE001 — DQ probe failure handling depends on mode
         # Audit 2026-05-23 §P0-003 — under intended_realism a DQ probe

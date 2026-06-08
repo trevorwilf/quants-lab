@@ -395,6 +395,7 @@ def build_coverage_check(
     daily_bars_supplier,
     minute_bars_supplier,
     scan_times_per_session,
+    eligible_per_session: Optional[Mapping[_dt.date, "set[str]"]] = None,
     source_file: str = "(per-run coverage probe)",
 ) -> dict[str, Any]:
     """Probe daily + minute bar coverage for every (symbol, session) pair.
@@ -406,12 +407,34 @@ def build_coverage_check(
     (when some are missing) or ``pass``.
 
     The realism gate (:func:`evaluate_startup_dq`) only acts on ``fail``.
+
+    ``eligible_per_session`` (audit 2026-06-07 §6.6-compatible "denominator-only"
+    fix) maps each session date to the set of symbols that are PIT-eligible *on
+    that session*. When supplied, EVERY (symbol, session) pair is still probed
+    (the full-union telemetry — ``expected_pairs`` / ``missing_pairs`` /
+    ``missing_daily`` / ``missing_minute`` — is unchanged), but the PASS/FAIL
+    fraction is computed over only the pairs eligible on that session. When
+    ``None`` the behaviour is byte-identical to the legacy gate. The eligible-only
+    numbers are always surfaced under ``eligible_expected`` / ``eligible_missing``
+    / ``eligible_fraction`` with a ``gated`` flag.
     """
     symbols = [str(s) for s in requested_symbols]
     session_list = list(sessions)
     expected = len(symbols) * len(session_list)
     missing_daily: list[str] = []
     missing_minute: list[str] = []
+    gated = eligible_per_session is not None
+    # Eligible-only (gated) tallies, scored over the per-session PIT-eligible
+    # pairs only. ``expected_g`` counts every eligible pair (the denominator);
+    # ``missing_*_g`` the eligible misses (the numerator).
+    expected_g = 0
+    missing_daily_g: list[str] = []
+    missing_minute_g: list[str] = []
+
+    def _eligible_on(session_date: _dt.date, sym: str) -> bool:
+        if eligible_per_session is None:
+            return True
+        return sym in eligible_per_session.get(session_date, set())
 
     for session_date in session_list:
         try:
@@ -421,6 +444,9 @@ def build_coverage_check(
         probe_ts = scan_times[0] if scan_times else None
         for sym in symbols:
             pair = f"{sym}@{session_date.isoformat()}"
+            eligible = _eligible_on(session_date, sym)
+            if eligible:
+                expected_g += 1
             day_ok = False
             try:
                 day = daily_bars_supplier(sym, session_date)
@@ -429,6 +455,8 @@ def build_coverage_check(
                 day_ok = False
             if not day_ok:
                 missing_daily.append(pair)
+                if eligible:
+                    missing_daily_g.append(pair)
             if probe_ts is not None:
                 minute_ok = False
                 try:
@@ -438,11 +466,22 @@ def build_coverage_check(
                     minute_ok = False
                 if not minute_ok:
                     missing_minute.append(pair)
+                    if eligible:
+                        missing_minute_g.append(pair)
 
     missing_pairs = sorted(set(missing_daily) | set(missing_minute))
     n_missing = len(missing_pairs)
     frac = (n_missing / expected) if expected else 0.0
-    if expected == 0:
+    # Eligible-only (gated) numerator / denominator / fraction.
+    missing_pairs_g = sorted(set(missing_daily_g) | set(missing_minute_g))
+    n_missing_g = len(missing_pairs_g)
+    frac_g = (n_missing_g / expected_g) if expected_g else 0.0
+    # The gate is scored over the eligible pairs when eligibility was supplied,
+    # otherwise over the full union (legacy, byte-identical).
+    gate_expected = expected_g if gated else expected
+    gate_missing = n_missing_g if gated else n_missing
+    gate_frac = frac_g if gated else frac
+    if gate_expected == 0:
         # A lake-backed run with zero (symbol, session) pairs to cover is
         # degenerate — there is no data to test. This is a coverage failure,
         # not a benign warning: a realism run must not silently pass on an
@@ -452,10 +491,10 @@ def build_coverage_check(
             "the requested universe x date range resolved to ZERO "
             "(symbol, session) pairs — no market data to test"
         )
-    elif frac >= COVERAGE_MISSING_FAIL_FRACTION:
+    elif gate_frac >= COVERAGE_MISSING_FAIL_FRACTION:
         status = "fail"
         empty_detail = None
-    elif n_missing > 0:
+    elif gate_missing > 0:
         status = "warn"
         empty_detail = None
     else:
@@ -467,14 +506,18 @@ def build_coverage_check(
         "missing_fraction": round(frac, 6),
         "missing_daily": missing_daily[:50],
         "missing_minute": missing_minute[:50],
+        "eligible_expected": expected_g,
+        "eligible_missing": n_missing_g,
+        "eligible_fraction": round(frac_g, 6),
+        "gated": gated,
     }
     if empty_detail is not None:
         evidence["detail"] = empty_detail
     return _check(
         name="coverage_missing",
         status=status,
-        count=n_missing if expected else 1,
-        threshold={"fail_fraction": COVERAGE_MISSING_FAIL_FRACTION, "expected_pairs": expected},
+        count=gate_missing if gate_expected else 1,
+        threshold={"fail_fraction": COVERAGE_MISSING_FAIL_FRACTION, "expected_pairs": gate_expected},
         source_file=source_file,
         evidence=evidence,
     )
@@ -899,6 +942,7 @@ def build_data_quality_report(
     scan_times_per_session,
     daily_cache_by_session: Optional[Mapping[_dt.date, Any]] = None,
     session_minute_supplier=None,
+    eligible_per_session: Optional[Mapping[_dt.date, "set[str]"]] = None,
     classify_filter: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build the full ``data_quality_report.json`` document for a run.
@@ -913,6 +957,13 @@ def build_data_quality_report(
     full regular-session minute frame) drives the session-level checks. Both are
     optional — when absent the dependent levels degrade to a clean ``pass``
     rather than failing.
+
+    ``eligible_per_session`` (audit 2026-06-07 §6.6-compatible "denominator-only"
+    fix) maps each session date to the set of PIT-eligible symbols on that
+    session; when supplied it is threaded into ``build_coverage_check`` and
+    ``build_replay_checks`` so their PASS/FAIL fraction is scored over only the
+    genuinely-tradeable (symbol, session) pairs while the full-union telemetry is
+    still recorded. ``None`` (the default) keeps the legacy behaviour.
 
     Speedup report v2 §4 P4 / §5.6 / Phase 3 task 3 — when
     ``classify_filter="invariant"`` only checks classified
@@ -968,6 +1019,7 @@ def build_data_quality_report(
             daily_bars_supplier=daily_bars_supplier,
             minute_bars_supplier=minute_bars_supplier,
             scan_times_per_session=scan_times_per_session,
+            eligible_per_session=eligible_per_session,
         )
     )
 
@@ -1045,6 +1097,7 @@ def build_data_quality_report(
             session_minute_supplier=session_minute_supplier,
             scan_times_per_session=scan_times_per_session,
             daily_cache_by_session=daily_cache_by_session,
+            eligible_per_session=eligible_per_session,
             lake_root=lake_root,
             lake_adjustment_policy=lake_adjustment_policy,
         )
@@ -1078,6 +1131,7 @@ def _build_multi_level_checks(
     daily_cache_by_session: Optional[Mapping[_dt.date, Any]],
     lake_root: Optional[Path],
     lake_adjustment_policy: str,
+    eligible_per_session: Optional[Mapping[_dt.date, "set[str]"]] = None,
 ) -> list[dict[str, Any]]:
     """Append the five multi-level DQ check sets to a lake-backed run.
 
@@ -1171,6 +1225,7 @@ def _build_multi_level_checks(
                 max_hold_days=max_hold_days,
                 quote_coverage_rows=None,
                 max_quote_age_seconds=max_quote_age,
+                eligible_per_session=eligible_per_session,
             )
         )
     except Exception as exc:  # noqa: BLE001

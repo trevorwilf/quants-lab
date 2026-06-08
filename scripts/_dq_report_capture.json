@@ -1,0 +1,145 @@
+[
+  {
+    "eligible_per_session_passed": true,
+    "levels": [
+      {
+        "name": "audit_missing_sessions",
+        "status": "fail",
+        "ev": {}
+      },
+      {
+        "name": "audit_duplicate_sessions",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "audit_ohlc_violations",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "audit_zero_volume_sessions",
+        "status": "warn",
+        "ev": {}
+      },
+      {
+        "name": "audit_large_gap_flags",
+        "status": "warn",
+        "ev": {}
+      },
+      {
+        "name": "audit_passed_research_audit",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "coverage_missing",
+        "status": "fail",
+        "ev": {
+          "gated": true,
+          "eligible_fraction": 0.209274,
+          "eligible_missing": 1205,
+          "missing_fraction": 0.545897,
+          "eligible_expected": 5758,
+          "expected_pairs": 12125
+        }
+      },
+      {
+        "name": "adjustment_mismatch",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "split_adjustment_mismatch",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "quotes_partitions_available",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "sip_data_present",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "ingestion_level_error",
+        "status": "warn",
+        "ev": {}
+      },
+      {
+        "name": "session_minute_count_violation",
+        "status": "warn",
+        "ev": {}
+      },
+      {
+        "name": "intraday_gap",
+        "status": "warn",
+        "ev": {}
+      },
+      {
+        "name": "session_stale_segment",
+        "status": "warn",
+        "ev": {}
+      },
+      {
+        "name": "coverage_missing_late_session",
+        "status": "warn",
+        "ev": {
+          "gated": true,
+          "eligible_fraction": 0.029307,
+          "eligible_missing": 1350,
+          "eligible_probes": 46064,
+          "missing_fraction": 0.356536,
+          "missing": 34584,
+          "probes": 97000
+        }
+      },
+      {
+        "name": "coverage_missing_exit_path",
+        "status": "warn",
+        "ev": {
+          "gated": true,
+          "eligible_fraction": 0.00693,
+          "eligible_missing": 72,
+          "eligible_probes": 10389,
+          "missing_fraction": 0.149553,
+          "missing": 3264,
+          "probes": 21825
+        }
+      },
+      {
+        "name": "replay_quote_age_violation",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "feature_leakage",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "feature_split_unaware",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "quote_age_distribution",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "quote_spread_distribution",
+        "status": "pass",
+        "ev": {}
+      },
+      {
+        "name": "halt_data_unavailable_when_required",
+        "status": "pass",
+        "ev": {}
+      }
+    ]
+  }
+]

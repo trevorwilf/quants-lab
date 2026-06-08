@@ -69,7 +69,9 @@ def test_resolve_symbols_intended_realism_with_waiver_uses_capped(monkeypatch, t
     """A research-only waiver returns the capped sample, not the PIT union."""
     monkeypatch.setattr(
         "bowaka_common.marketdata.available_symbols",
-        lambda root, timeframe, feed: [f"SYM{i:03d}" for i in range(500)],
+        # **kwargs so the mock tolerates production's adjustment= kwarg
+        # (walkforward_runner._resolve_symbols passes adjustment=daily_adjustment_for_config).
+        lambda root, timeframe, feed, **kwargs: [f"SYM{i:03d}" for i in range(500)],
     )
     plan = _make_plan_with_two_folds()
     cfg = {"universe": {},
@@ -96,7 +98,9 @@ def test_resolve_symbols_parity_uses_capped(monkeypatch, tmp_path):
     """`current_code_parity` uses the capped sample (its preflight is plumbing)."""
     monkeypatch.setattr(
         "bowaka_common.marketdata.available_symbols",
-        lambda root, timeframe, feed: [f"SYM{i:03d}" for i in range(500)],
+        # **kwargs so the mock tolerates production's adjustment= kwarg
+        # (walkforward_runner._resolve_symbols passes adjustment=daily_adjustment_for_config).
+        lambda root, timeframe, feed, **kwargs: [f"SYM{i:03d}" for i in range(500)],
     )
     plan = _make_plan_with_two_folds()
     cfg = {"universe": {}, "optuna": {"preflight": {}}}

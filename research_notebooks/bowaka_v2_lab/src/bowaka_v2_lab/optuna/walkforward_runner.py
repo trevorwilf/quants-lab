@@ -1969,11 +1969,23 @@ def run_walkforward_study(
             end=probe_sessions[-1] if probe_sessions else None,
             lab_config_hash=_hash({k: v for k, v in cfg.items() if k != "_source_path"}),
         )
+        # Audit 2026-06-07 §6.6-compatible "denominator-only" fix: gate the
+        # study-start coverage checks on the per-session PIT-eligible set (the
+        # full symbol union is still PROBED for telemetry). This is the call site
+        # the ``intended_realism`` abort actually reaches first — the per-fold
+        # ``run_full_fold_preflight`` gating is downstream of this gate, so it
+        # must be threaded here too or the run aborts at the ungated fraction.
+        from .pit_universe import eligible_per_session_map
+
+        eligible_per_session = eligible_per_session_map(
+            lake_root, probe_sessions, cfg=cfg
+        )
         dq_report = build_data_quality_report(
             cfg=cfg, lineage=lineage, requested_symbols=symbols,
             sessions=probe_sessions, daily_bars_supplier=daily_supplier,
             minute_bars_supplier=minute_supplier,
             scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
+            eligible_per_session=eligible_per_session,
         )
         quote_supplier = make_quote_supplier(lake_root, feed=feed)
         quote_cov_pct = probe_quote_coverage(

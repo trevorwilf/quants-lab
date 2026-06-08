@@ -255,6 +255,40 @@ Ship the existing `current_code_parity` finalist and defer `intended_realism`.
 
 ---
 
+## 10b. Resolution (2026-06-07): A1 implemented & verified on the study-start window
+
+**Status: A1 (denominator-only scoping) IMPLEMENTED and VERIFIED on the probed study-start window.** The two coverage-replay checks the diagnosis blamed on per-session-eligibility mis-attribution flipped from gating-FAIL to non-gating, exactly as predicted, with the §6.6 full-union probe preserved (no waiver). The mode is **not yet declared green lake-wide** — two *different* checks still gate (below), and the interior-fold confirmation (§10 cons #1) is still open.
+
+### What was built
+A shared helper `optuna/pit_universe.py::eligible_per_session_map(lake_root, sessions, cfg=)` builds the per-session PIT-eligible set using the **identical** `MarketDataStore` + `pit_cfg` + `build_pit_universe_for_sessions` + `eligible_symbols` construction as `fold_pit_symbol_union` (the §6.6 union helper), but returns the per-session map instead of unioning. It is threaded into `build_data_quality_report(..., eligible_per_session=...)`, which forwards it to `_build_multi_level_checks` → `build_replay_checks` / `build_coverage_check`. The gates score their PASS/FAIL **fraction** over only the `(symbol, session)` pairs that were PIT-eligible *on that session*; the **full symbol union is still PROBED** (the `probes`/`missing`/`missing_fraction` telemetry is byte-identical), so the audit-2026-05-23 §6.6 uncapped-union invariant holds and **no waiver is required** (this is the A1, not the literal A2, path). `late_session` gates on the *current* session; `exit_path` gates on the *forward* session; `coverage_missing` gates on the scan session. `eligible_per_session=None` (any build failure, no lake, or no sessions) degrades to the legacy full-union gate, byte-identical to pre-fix — it never crashes the preflight.
+
+### The load-bearing correction: the fix had to be threaded into TWO call sites
+The diagnosis pointed at the per-fold `_probe_fold` (`preflight.py`, called from `run_full_fold_preflight` at `walkforward_runner.py:2198`). Wiring **only** that site does **nothing** for the `$2M` run: an `intended_realism` study aborts at an *earlier* **study-start preflight** — `build_data_quality_report` at `walkforward_runner.py:1972` → `run_preflight` at :2003 → `if not preflight.passed:` abort at :2016 — which runs *before* `run_full_fold_preflight` (:2198) is ever reached. The aborting probe is provably the study-start one: `late_probes = 97000 = 5 sessions × 8 samples × 2425 symbols`; `exit_probes = 21825 = 9 forward-sessions × 2425`. **Both** the study-start call (:1972) and `_probe_fold` now pass `eligible_per_session`; the helper de-duplicates the construction.
+
+### Verified before/after (real `run_walkforward_study("/tmp/ir2m.yml")`, study-start gate)
+Captured by spying on `build_data_quality_report` + `run_preflight` (`scripts/_verify_studystart_gate.py`); evidence JSON in `scripts/_dq_report_capture.json` / `_preflight_capture.json`.
+
+| Check | Full (ungated) fraction | Gated (eligible) fraction | Gate | Pre-fix | Post-fix |
+|---|---|---|---|---|---|
+| `coverage_missing_late_session` | 34584/97000 = **35.65%** | 1350/46064 = **2.93%** | 5% (`REPLAY_COVERAGE_FAIL_FRACTION`) | FAIL (gating) | **warn — non-gating** ✓ |
+| `coverage_missing_exit_path` | 3264/21825 = **14.96%** | 72/10389 = **0.69%** | 5% | FAIL (gating) | **warn — non-gating** ✓ |
+| `coverage_missing` | 6619/12125 = **54.59%** | 1205/5758 = **20.93%** | 1% (`COVERAGE_MISSING_FAIL_FRACTION`) | FAIL | **still FAIL** |
+| `audit_missing_sessions` | count=1762 (lake audit parquet) | n/a — not minute-supplier scored | 0 | FAIL | **still FAIL** |
+
+Post-fix the study-start abort message reads exactly `2 required data-quality check(s) failed: audit_missing_sessions: count=1762; coverage_missing: count=1205` — `late_session`/`exit_path` have dropped out of `required_failures` entirely. (`late_session`/`exit_path` are WARN-severity checks that *escalate to gating FAIL* only above the 5% fraction; the gated 2.93%/0.69% sit below it, so they report `warn` and no longer gate.)
+
+### Remaining gating failures — both pre-existing, both separate mechanisms (NOT addressed by A1)
+1. **`coverage_missing` (20.93% gated, 1205/5758).** The first-scan-minute (09:45 ET) leg. A1's denominator scoping *did* cut it from 6619→1205 (the eligible filter applies here too), but 20.93% ≫ the 1% gate: even among PIT-eligible names, one in five has no bar at the literal first scan minute (genuine no-trade-at-09:45 for thin-but-eligible symbols — see §4/§7). This is the deferred item #3 (the daily-OR-minute union leg / first-scan tolerance). **Not** a denominator artifact.
+2. **`audit_missing_sessions` (count=1762).** Reads the lake's own session-completeness **audit parquet**, not the minute supplier, so the eligibility denominator does not touch it; it needs a separate reconcile (regenerate/scope the lake audit, or stop requiring audit rows for PIT-over-included symbols).
+
+### Tests
+`tests/unit/data tests/unit/optuna tests/integration/test_dq_replay_level_missing_{exit_path,late_minute}.py` → **266 passed, 0 failed**. The two formerly-stale mocks in `test_full_pit_preflight_fail_closed.py` (`<lambda>() got an unexpected keyword argument 'adjustment'`, a pre-existing drift, reproduced on pristine HEAD) were widened to `**kwargs` in this change. The 7 frozen gates directly exercising the edited functions stay green; the `eligible_per_session=None` path is byte-identical to pre-fix.
+
+### Files
+`optuna/pit_universe.py` (helper), `optuna/walkforward_runner.py:1972` (study-start wiring), `optuna/preflight.py` (`_probe_fold` refactored to the helper), `data/dq_levels.py` + `data/data_quality.py` (gated denominators), `tests/unit/optuna/test_full_pit_preflight_fail_closed.py` (mock widening). Reproduction: `scripts/_verify_studystart_gate.py`.
+
+---
+
 ## 11. Reproducibility appendix
 
 **Host analysis (pandas):** `C:/Python312/python.exe`, CSV at `E:/tradingsoftware/quants-lab/scripts/_pair_dataset.csv`.
