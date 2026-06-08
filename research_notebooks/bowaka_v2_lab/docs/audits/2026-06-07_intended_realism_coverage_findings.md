@@ -529,6 +529,19 @@ Deep dive into "why is a `controller_compat` study so slow". Two observability/p
 
 **Parity**: matrix runtime ≡ legacy scanner byte-for-byte (`tests/parity/test_scan_matrix_vectorized_full_fold_parity.py` + `…full_fold_backtest_parity.py` pass). The probe's 78-vs-70 trade diff is the 3 fixed symbols outside the per-session PIT-eligible matrix universe — an artifact of the ad-hoc probe universe, not a parity bug (a real study's universe IS the matrix universe).
 
+## 10i. Further optimizations — implemented + measured (2026-06-08)
+
+A 38-agent workflow mapped the remaining opportunity space (the matrix already captured the dominant lever; the menu refuted ~20 candidates as done / unsafe / sub-1%). Profiling then found a lever the read-only agents could not — and it dwarfed the menu. All changes are **byte-identical** (parity-gated) and measured on the CCP+matrix probe (`scripts/_profile_eventlog.py`, 30 syms, same core; cProfile inflates ~2× — read shares).
+
+| # | change (commit) | measured |
+|---|---|---|
+| #1 | gate per-event `_log_event`/`_portfolio_snapshot` on `artifact_mode=='full'` (discarded in `objective_minimal`) (`1751d84`) | ~6% of the fold |
+| #2 | shared `_forward_window` removing `copy/to_datetime/sort` in 5 fill helpers (`ea82cc1`) | below noise (hygiene) |
+| **A/B/C** | **`evaluate_one_scan_vectorized`** (`c80a962`): **A** hoist the session-constant baseline loop off the per-scan path (346×→1×, cached on `scan_context`); **C** gather the 4 matrix flag rows once (this also killed ~30M per-symbol **memmap disk reads** — sliced rows are memmap views → `row[idx]`/symbol was a read each time → 100× drop); **B** bind `ScanSkipReason.value` as locals | **the function 58.9 s→20.65 s cumtime (2.85×); whole per-trial fold 109.0 s→59.9 s = −45% (1.82×)** |
+| #5 | parallelize the serial matrix **build** (`4565ee1`): fork `ProcessPoolExecutor` over independent sessions + parent pre-warms `_PIT_DAILY_FULL_HISTORY_CACHE` so fork workers inherit it copy-on-write | **3.1×** (serial 29.7 s → parallel 9.5 s / 3 sessions), byte-identical (`scripts/_verify_parallel_build.py`) |
+
+**Lesson:** the workflow's a-priori menu sized #1 at ~6% and never surfaced `evaluate_one_scan_vectorized` (54% of the fold) because its agents were — correctly — forbidden from running heavy profiles. The profile-then-adversarially-verify loop found the real per-trial lever. **#5 finding refuted its own premise**: the build's 62.8% daily-read is a one-time cold-cache warmup that amortizes across the serial loop; the real build lever was parallelism, not a read optimization. Remaining per-trial hotspots (for next time): the exit path (`_close_lots_until` + `_walk_lot_exit_pandas`, ~17 s cumtime) and `posix.stat` on the matrix memmap opens (7.5 s).
+
 ---
 
 ## 11. Reproducibility appendix
