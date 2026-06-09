@@ -15,10 +15,10 @@
 # ------------------------------------------------------------------
 contract_schema_version: 3
 data:
-  allow_non_sip_for_research_only: true
+  allow_non_sip_for_research_only: false
   daily_timeframe: 1D
   fail_on_missing_baseline: true
-  feed: iex
+  feed: sip
   intraday_timeframe: 1m
   live_requires_sip: true
   max_bar_age_seconds: 90
@@ -150,18 +150,18 @@ signals:
   avg_dollar_volume_min: 250000
   close_location_so_far_min: 0.6
   current_return_pct_max: 0.5
-  ema_distance_min: -0.05
+  ema_distance_min: 0.0
   ema_slope_min: -0.05
   gap_pct_max: 0.25
   price_max: 20.0
   price_min: 1.0
   prior_atr_pct_min: 0.06
   projected_full_day_rvol_max: 8.0
-  projected_full_day_rvol_min: 0.5
+  projected_full_day_rvol_min: 0.65
   range_expansion_so_far_max: 2.5
-  range_expansion_so_far_min: 0.5
+  range_expansion_so_far_min: 0.6
   rvol_so_far_max: 8.0
-  rvol_so_far_min: 0.7
+  rvol_so_far_min: 0.65
 sizing:
   bankroll_fixed_dollars: 90000
   equal_slice_bankroll_fraction: 0.8
@@ -176,14 +176,14 @@ source_manifest:
     bytes: 32103
     sha256: 7b0c53a801f18b9094cbe759816f303f05f993558495d2d6aa26f82851bcded2
   bowaka_universe_builder.yaml:
-    bytes: 3532
-    sha256: 2d5ef65e3a2999378b5a4c98345190e4f0c203b3a71c940e88283bd5c2792977
+    bytes: 3540
+    sha256: 9159800dd562e8f334ff57955ea4718a649d465f53f4c2b22a34c9693247b347
   bowaka_v2_backtest.py:
     bytes: 18296
     sha256: fadcab9fdd4df194d457bfde5d23ad703bac9e3df12723afaf296d54a85999fd
   bowaka_v2_config.yaml:
-    bytes: 9551
-    sha256: c60400be271db76f1b8e6ebc515677a4a5e363ba2116a97786a353dcb954a803
+    bytes: 9756
+    sha256: e255e259bd431141d30b02563cad3184eff6938c3de3b678109c4f703758b9ca
   bowaka_v2_features.py:
     bytes: 22027
     sha256: 5e252097c2e807d2889cbfa8ceb834d06fae1192f0f044973db3bfe3f5d7c6e1
@@ -199,8 +199,8 @@ source_manifest:
   bowaka_v2_strategy.py:
     bytes: 72798
     sha256: f729f3165b9c2028f0ed85e8162b0b41dbe047ebd61cf6625afbf7cf0ea15845
-source_manifest_hash: 6f22d8554a10258b1e0fcef31cfabbcfb1ad8028886248249e99371aab4fc548
-source_sha256: c60400be271db76f1b8e6ebc515677a4a5e363ba2116a97786a353dcb954a803
+source_manifest_hash: c8cdaa866d447fe171e42dfd751bfcbd3d9d94254bf43bc2fbcc802b3463770b
+source_sha256: e255e259bd431141d30b02563cad3184eff6938c3de3b678109c4f703758b9ca
 universe:
   allowed_exchanges:
   - NASDAQ
