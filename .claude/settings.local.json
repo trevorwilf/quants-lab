@@ -48,7 +48,7 @@
       "Bash(curl:*)",
       "Bash(wget:*)",
       "Bash(sudo:*)",
-      
+      "Bash(rm:*)",
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(./secrets/**)",
