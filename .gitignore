@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Generated run artifacts at the repo root (pytest junit output, deploy packages,
+# run dirs). The research_notebooks/bowaka_v2_lab/artifacts tree is ignored below.
+/artifacts/
+
 # C extensions
 *.so
 

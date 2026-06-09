@@ -19,3 +19,6 @@ __pycache__/
 *.log
 # stray Path("None") lake-root bug artifact
 /None/
+
+# container-local off-9p overlay (uncommitted)
+configs/_local_*.yml

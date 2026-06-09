@@ -53,6 +53,11 @@
 .EXAMPLE
     # Unconditional rebuild regardless of freshness:
     .\matrix_prep.ps1 -Force
+
+.EXAMPLE
+    # A previous run already built staging but aborted before promote: finish it
+    # (verify + promote) WITHOUT paying for another multi-hour rebuild.
+    .\matrix_prep.ps1 -SkipBuild
 #>
 
 [CmdletBinding()]
@@ -78,6 +83,10 @@ param(
 
     # Rebuild unconditionally (ignore freshness).
     [switch] $Force,
+
+    # Reuse an existing completed staging build (skip the multi-hour rebuild) and
+    # go straight to verify + promote. Errors if there is no staging manifest.
+    [switch] $SkipBuild,
 
     # Skip the build if the live matrix re-verifies clean (verifier_version==2).
     [switch] $SkipIfFresh,
@@ -119,7 +128,13 @@ function Invoke-Cli {
     if ($Python.Count -gt 1) { $args += $Python[1..($Python.Count-1)] }
     $args += @('-m', 'bowaka_v2_lab.cli') + $CliArgs
     Write-Host (">> $exe " + ($args -join ' '))
-    & $exe @args
+    # Stream the CLI's own stdout straight to the host (and the transcript) with
+    # Out-Host so it does NOT leak into this function's output stream. Without
+    # this, `$rc = Invoke-Cli ...` captures the CLI text AND the exit code as an
+    # array, and the caller's `$rc -ne 0` filters that array (returning the
+    # non-zero JSON lines) -> a truthy non-empty result that fakes a failure even
+    # when the CLI exited 0.
+    & $exe @args | Out-Host
     return $LASTEXITCODE
 }
 
@@ -159,20 +174,28 @@ try {
     }
 
     # --- 2. build into staging ----------------------------------------------
-    if (Test-Path -LiteralPath $StagingStore) {
-        Write-Host "[build] removing stale staging: $StagingStore"
-        Remove-Item -Recurse -Force -LiteralPath $StagingStore
+    if ($SkipBuild) {
+        if (-not (Test-Path -LiteralPath (Join-Path $StagingStore 'manifest.json'))) {
+            Write-Error "[build] -SkipBuild set but no completed staging build found at $StagingStore (manifest.json missing). Re-run WITHOUT -SkipBuild to build."
+            $ExitCode = 3; Stop-Transcript | Out-Null; exit $ExitCode
+        }
+        Write-Host "[build] -SkipBuild: reusing existing staging matrix (no rebuild): $StagingStore"
+    } else {
+        if (Test-Path -LiteralPath $StagingStore) {
+            Write-Host "[build] removing stale staging: $StagingStore"
+            Remove-Item -Recurse -Force -LiteralPath $StagingStore
+        }
+        Write-Host "[build] building matrix into staging (this is the multi-hour step)..."
+        $rc = Invoke-Cli @('scan-matrix','build','--config',$ConfigFull,
+                           '--scope',$Scope,'--workers',"$Workers",
+                           '--reserve-system-gib',"$ReserveGiB",
+                           '--store-root',$StagingStore)
+        if ($rc -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $StagingStore 'manifest.json'))) {
+            Write-Error "[build] FAILED (rc=$rc). Live store untouched. Staging kept for inspection: $StagingStore"
+            $ExitCode = 3; Stop-Transcript | Out-Null; exit $ExitCode
+        }
+        Write-Host "[build] OK."
     }
-    Write-Host "[build] building matrix into staging (this is the multi-hour step)..."
-    $rc = Invoke-Cli @('scan-matrix','build','--config',$ConfigFull,
-                       '--scope',$Scope,'--workers',"$Workers",
-                       '--reserve-system-gib',"$ReserveGiB",
-                       '--store-root',$StagingStore)
-    if ($rc -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $StagingStore 'manifest.json'))) {
-        Write-Error "[build] FAILED (rc=$rc). Live store untouched. Staging kept for inspection: $StagingStore"
-        $ExitCode = 3; Stop-Transcript | Out-Null; exit $ExitCode
-    }
-    Write-Host "[build] OK."
 
     # --- 3. verify staging + write proof ------------------------------------
     Write-Host "[verify] verifying staging with --vectorized-check..."
