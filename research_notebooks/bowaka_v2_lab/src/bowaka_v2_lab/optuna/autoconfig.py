@@ -30,6 +30,15 @@ from ..config.loader import load_config
 # research_notebooks -> quants-lab (repo root)
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _VALID_FEED_OVERRIDES = ("auto", "sip", "iex", "synthetic")
+#: Simulation modes a caller may pin via ``resolve_walkforward_config(mode_override=...)``
+#: when the feed-derived mode is infeasible (e.g. SIP+quotes auto-picks
+#: intended_realism but the lake lacks halt data -> pin current_code_parity).
+_VALID_MODE_OVERRIDES = (
+    "intended_realism",
+    "current_code_parity",
+    "fast_realism",
+    "smoke_fixture",
+)
 
 
 @dataclass
@@ -202,6 +211,7 @@ def resolve_walkforward_config(
     base_config_path: str | Path,
     *,
     feed_override: str = "auto",
+    mode_override: Optional[str] = None,
     lake_root: Optional[str] = None,
     out_path: str | Path | None = None,
 ) -> ResolvedWalkforwardConfig:
@@ -210,17 +220,35 @@ def resolve_walkforward_config(
     ``feed_override``: ``auto`` (SIP > IEX > synthetic), or ``sip`` / ``iex`` /
     ``synthetic`` to force a choice. The adapted config is written to a temp file
     (or ``out_path``) and returned ready for :func:`run_walkforward_study`.
+
+    ``mode_override``: pin ``simulation.mode`` regardless of the feed-derived
+    mode. The auto/sip resolution couples mode to the lake (SIP-with-quotes ->
+    ``intended_realism``); but IR can still be INFEASIBLE on a lake that has
+    quotes yet lacks halt/LULD data (the IR halt gate fail-closes). Passing
+    ``mode_override="current_code_parity"`` keeps the lake-detected feed (sip,
+    so the matrix + suppliers resolve) while running the feasible parity mode.
+    The returned opt-in flags (``allow_current_code_parity_study`` / ``tier`` /
+    ``allow_smoke``) are derived from the EFFECTIVE mode, so the override threads
+    through to :func:`run_walkforward_study` correctly.
     """
     if feed_override not in _VALID_FEED_OVERRIDES:
         raise ValueError(
             f"feed_override={feed_override!r} invalid; "
             f"expected one of {_VALID_FEED_OVERRIDES}"
         )
+    if mode_override is not None and mode_override not in _VALID_MODE_OVERRIDES:
+        raise ValueError(
+            f"mode_override={mode_override!r} invalid; "
+            f"expected one of {_VALID_MODE_OVERRIDES} or None"
+        )
     cfg = dict(load_config(base_config_path))
     cfg.pop("_source_path", None)
     md = dict(cfg.get("market_data", {}) or {})
     root = resolve_lake_root(lake_root or md.get("shared_root"))
     feed, mode, reason = _feed_for_override(feed_override, root)
+    if mode_override is not None and mode_override != mode:
+        reason = f"{reason}; mode_override={mode_override} (was {mode})"
+        mode = mode_override
 
     md["feed"] = feed
     cfg["market_data"] = md
@@ -253,7 +281,8 @@ def resolve_walkforward_config(
         # forces parity mode (IEX-only / SIP-bars-no-quotes). The mechanical
         # cap remains research_only.
         allow_current_code_parity_study=(mode == "current_code_parity"),
-        tier=("research_only" if mode == "current_code_parity" else None),
+        tier=("research_only"
+              if mode in ("current_code_parity", "fast_realism") else None),
     )
 
 

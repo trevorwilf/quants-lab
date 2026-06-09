@@ -110,6 +110,38 @@ def test_feed_override_iex_forces_iex(tmp_path: Path, lab_root: Path) -> None:
     assert resolved.mode == "current_code_parity"
 
 
+def test_mode_override_pins_ccp_while_keeping_sip(tmp_path: Path, lab_root: Path) -> None:
+    """SIP+quotes auto-picks intended_realism; ``mode_override`` keeps feed=sip
+    but pins current_code_parity (the gap-2 fix for an IR-infeasible lake — e.g.
+    no halt data), and the derived opt-in flags follow the EFFECTIVE mode."""
+    lake = tmp_path / "lake"
+    build_tiny_lake(lake, ["AAA"], start=_START, end=_END, feed="sip")
+    _write_sip_quote(lake)
+    base = lab_root / "configs" / "bowaka_v2_intended_realism.yml"
+    # Without the override, auto resolves to intended_realism.
+    auto = resolve_walkforward_config(base, lake_root=str(lake))
+    assert auto.feed == "sip" and auto.mode == "intended_realism"
+    assert auto.allow_current_code_parity_study is False
+    # With the override: feed stays sip (matrix/suppliers resolve), mode pinned.
+    pinned = resolve_walkforward_config(
+        base, mode_override="current_code_parity", lake_root=str(lake))
+    assert pinned.feed == "sip"
+    assert pinned.mode == "current_code_parity"
+    assert pinned.allow_current_code_parity_study is True
+    assert pinned.tier == "research_only"
+    cfg = yaml.safe_load(Path(pinned.path).read_text(encoding="utf-8"))
+    assert cfg["market_data"]["feed"] == "sip"
+    assert cfg["simulation"]["mode"] == "current_code_parity"
+
+
+def test_invalid_mode_override_rejected(tmp_path: Path, lab_root: Path) -> None:
+    lake = tmp_path / "lake"
+    build_tiny_lake(lake, ["AAA"], start=_START, end=_END, feed="sip")
+    base = lab_root / "configs" / "bowaka_v2_intended_realism.yml"
+    with pytest.raises(ValueError):
+        resolve_walkforward_config(base, mode_override="turbo", lake_root=str(lake))
+
+
 def test_invalid_feed_override_rejected(lab_root: Path) -> None:
     base = lab_root / "configs" / "bowaka_v2_intended_realism.yml"
     with pytest.raises(ValueError):
