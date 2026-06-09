@@ -119,10 +119,18 @@ best = top3[0]
 print("\n=== (a) best fast_realism trial — honest-fill stats + PnL ===", flush=True)
 _run(cfg, best.params, split, lake_root, feed, symbols, paths, holdout_guard, ctx, f"FR  #{best.number}")
 
-# (b) top-3 under intended_realism (Path 3 validation)
+# (b) top-3 under intended_realism (Path 3 validation) — build a SEPARATE IR ctx so
+# the IR runs reuse the IR-scoped invariant DQ cache (no per-finalist rebuild).
 ir_cfg = derive_validation_config(cfg, validation_mode="intended_realism")
 print("\n=== (b) top-3 finalists under intended_realism (Path 3 deploy gate) ===", flush=True)
+t0 = time.perf_counter()
+ctx_ir = _build_one_fold_context(
+    fold_id="finalist_ir", val_start=split.val_start, val_end=split.val_end, base_cfg=ir_cfg,
+    lake_root=lake_root, feed=feed, symbols=tuple(symbols), paths=paths,
+    holdout_guard=holdout_guard, cached_suppliers=True, scope="validation",
+)
+print(f"[setup] IR ctx built in {(time.perf_counter()-t0)/60:.1f}min", flush=True)
 for t in top3:
-    _run(ir_cfg, t.params, split, lake_root, feed, symbols, paths, holdout_guard, ctx,
+    _run(ir_cfg, t.params, split, lake_root, feed, symbols, paths, holdout_guard, ctx_ir,
          f"IR  #{t.number} (FR obj={t.value:.3f})")
 print("\n[done]", flush=True)
