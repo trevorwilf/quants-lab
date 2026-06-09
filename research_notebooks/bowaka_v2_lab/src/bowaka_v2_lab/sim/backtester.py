@@ -507,6 +507,7 @@ def _build_dq_report_with_optional_cache(
     daily_cache_by_session,
     session_minute_supplier,
     cache_key_symbols: Optional[list[str]] = None,
+    eligible_per_session: Optional[Mapping[Any, Any]] = None,
     reuse_cached_invariant_only: bool = False,
 ) -> dict[str, Any]:
     """Build the DQ report — using the cached invariant half when available.
@@ -541,6 +542,7 @@ def _build_dq_report_with_optional_cache(
             scan_times_per_session=scan_times_per_session,
             daily_cache_by_session=daily_cache_by_session,
             session_minute_supplier=session_minute_supplier,
+            eligible_per_session=eligible_per_session,  # §10c — scope the coverage gate
             classify_filter=classify_filter,
         )
 
@@ -670,6 +672,12 @@ def run_backtest(
     # to the legacy full rebuild with a logged warning. Default ``None``
     # preserves the legacy path verbatim.
     startup_dq_report: Optional[Mapping[str, Any]] = None,
+    # §10c/§10i — the per-session PIT-eligible symbol map. When supplied, the
+    # startup data-quality coverage gate scopes its denominator to the per-session
+    # eligible universe (removes the PIT-over-inclusion artifact that otherwise
+    # fails an ``intended_realism`` per-fold backtest on the coverage_missing /
+    # late_session / exit_path checks). Default ``None`` = legacy full-union.
+    eligible_per_session: Optional[Mapping[_dt.date, Any]] = None,
     # Speedup report v2 §6.1 / Phase 3 — when supplied AND the resolved
     # runtime_mode is "compatibility", the SCAN handler reads per-symbol
     # features from this read-only scan-matrix store (per session partition)
@@ -768,6 +776,7 @@ def run_backtest(
         daily_cache_by_session=daily_cache_by_session,
         session_minute_supplier=session_minute_supplier,
         cache_key_symbols=cache_key_symbols,
+        eligible_per_session=eligible_per_session,  # §10c — scope the coverage gate
         # Per-trial speedup: in the per-trial objective path (objective_minimal)
         # under a mode that gates only on the invariant adjustment checks
         # (current_code_parity / fast_realism / smoke_fixture), reuse the cached

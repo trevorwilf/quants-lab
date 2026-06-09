@@ -377,6 +377,11 @@ def _build_one_fold_context(
                 scan_times_per_session=lambda d: scan_times_for_session(d, cfg),
                 daily_cache_by_session=daily_cache,
                 session_minute_supplier=None,
+                # §10c — scope the coverage gate to the per-session PIT-eligible map
+                # so the cached invariant report agrees with the per-fold rebuild
+                # (both pass eligible_per_session) and an intended_realism fold does
+                # not abort on the PIT-over-inclusion artifact.
+                eligible_per_session={s: set(v) for s, v in eligible.items()},
                 classify_filter="invariant",
             )
             md = cfg.get("market_data") or {}

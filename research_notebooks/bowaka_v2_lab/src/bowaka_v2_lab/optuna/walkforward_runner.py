@@ -548,6 +548,14 @@ def _run_fold_backtest(
             run_dir=run_dir,
             startup_dq_report=_cached_dq,
             scan_matrix_store=(ctx.scan_matrix_store if ctx is not None else None),
+            # §10c — scope the per-fold coverage gate to the per-session PIT-eligible
+            # universe (so an intended_realism fold doesn't abort on the
+            # PIT-over-inclusion artifact). Derived from ``universe`` (the same
+            # source both the ctx and no-ctx paths use) so with-ctx == without-ctx,
+            # and matching fold_context's cache-side ``or symbols`` derivation.
+            eligible_per_session={
+                s: set(eligible_symbols(universe.get(s, {})) or symbols) for s in sessions
+            },
         )
         summary = dict(result.summary)
         if return_report:
@@ -651,6 +659,14 @@ def _run_fold_backtest_objective(
             artifact_mode="objective_minimal",
             startup_dq_report=_cached_dq,
             scan_matrix_store=(ctx.scan_matrix_store if ctx is not None else None),
+            # §10c — scope the per-fold coverage gate to the per-session PIT-eligible
+            # universe (so an intended_realism fold doesn't abort on the
+            # PIT-over-inclusion artifact). Derived from ``universe`` (the same
+            # source both the ctx and no-ctx paths use) so with-ctx == without-ctx,
+            # and matching fold_context's cache-side ``or symbols`` derivation.
+            eligible_per_session={
+                s: set(eligible_symbols(universe.get(s, {})) or symbols) for s in sessions
+            },
         )
         return result
     finally:
