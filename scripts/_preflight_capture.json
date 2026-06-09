@@ -12,16 +12,11 @@
       },
       {
         "name": "data_quality",
-        "status": "fail",
-        "detail": "intended_realism run aborted: 2 required data-quality check(s) failed: audit_missing_sessions: count=1762; coverage_missing: count=1205",
+        "status": "pass",
+        "detail": "data-quality report has no failing required checks (regime='lake', failed=0)",
         "evidence": {
           "regime": "lake",
-          "failed": 2,
-          "required_failures": [
-            "audit_missing_sessions",
-            "coverage_missing"
-          ],
-          "adjustment_gating_failures": []
+          "failed": 0
         }
       },
       {

@@ -4,8 +4,10 @@
     "levels": [
       {
         "name": "audit_missing_sessions",
-        "status": "fail",
-        "ev": {}
+        "status": "pass",
+        "ev": {
+          "gated": true
+        }
       },
       {
         "name": "audit_duplicate_sessions",
@@ -34,14 +36,22 @@
       },
       {
         "name": "coverage_missing",
-        "status": "fail",
+        "status": "pass",
         "ev": {
           "gated": true,
-          "eligible_fraction": 0.209274,
-          "eligible_missing": 1205,
-          "missing_fraction": 0.545897,
-          "eligible_expected": 5758,
+          "eligible_fraction": 0.0,
+          "eligible_missing": 0,
+          "missing_fraction": 0.337485,
+          "eligible_expected": 5664,
           "expected_pairs": 12125
+        }
+      },
+      {
+        "name": "coverage_backfill_present",
+        "status": "warn",
+        "ev": {
+          "gated": true,
+          "missing": 45
         }
       },
       {
