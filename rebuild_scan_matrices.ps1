@@ -11,19 +11,18 @@
 # study/sweep checks (a matrix built from a different config is silently rejected).
 #
 # Runs INSIDE the ql-jupyter container. The matrices are a rebuildable cache on the
-# container overlay; this regenerates them from the current lake. Schedule WEEKLY so they
-# stay in sync with the nightly market-data backfill.
+# container overlay; this regenerates them from the current lake.
 #
 #   .\rebuild_scan_matrices.ps1                 # default notebook config, 6 workers
 #   .\rebuild_scan_matrices.ps1 -Workers 10
 #   .\rebuild_scan_matrices.ps1 -Config configs/_local_container_matrix.yml
 #
-# Weekly Windows scheduled task (Saturday 02:00, your user):
-#   schtasks /Create /TN "bowaka_v2 scan-matrix rebuild" /SC WEEKLY /D SAT /ST 02:00 `
-#     /TR "pwsh -NoProfile -ExecutionPolicy Bypass -File E:\tradingsoftware\quants-lab\rebuild_scan_matrices.ps1"
-#
-# Schedule it for a window when NO study is running (a rebuild overwrites the store a
-# running study reads). Requires SIP (or IEX) bars in the lake (build fails loud otherwise).
+# DO NOT register a standalone scheduled task for this script. The weekly schedule is
+# scheduled_weekly_refresh.ps1, which runs the lake refresh + this rebuild behind a
+# STUDY GUARD. A rebuild OVERWRITES the matrix store a running study reads, so an
+# unguarded scheduled rebuild can clobber a live multi-day study. Run this by hand
+# only, when NO study/sweep is active (e.g. to clear a MATRICES_STALE.flag left by a
+# deferred weekly run). Requires SIP (or IEX) bars in the lake (build fails loud).
 #
 param(
     [string]$Config  = "configs/_local_container_matrix.yml",

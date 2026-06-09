@@ -31,17 +31,16 @@
 # slightly longer resume scan.
 #
 # US regular close is 16:00 ET; extended trading runs to 20:00 ET (= 18:00 in the
-# container's MDT). Schedule for Friday evening local so the full session is final
-# and Alpaca has published the consolidated SIP tape.
+# container's Mountain Time, MST/MDT -- the 2h ET->MT offset is constant across DST,
+# so no seasonal schedule change is needed). Schedule for Friday evening local so
+# the full session is final and Alpaca has published the consolidated SIP tape.
 #
-# Weekly Windows scheduled task (Friday 18:30, your user):
-#   schtasks /Create /TN "bowaka_v2 weekly data refresh" /SC WEEKLY /D FRI /ST 18:30 `
-#     /TR "pwsh -NoProfile -ExecutionPolicy Bypass -File E:\tradingsoftware\quants-lab\weekly_data_refresh.ps1"
-#
-# Pair it with rebuild_scan_matrices.ps1 on Saturday 02:00 -- that rebuilds the
-# matrices from whatever this refresh wrote. Or pass -RebuildMatrices to do both in
-# one task (the matrix rebuild then runs in the same window; make sure no study is
-# reading the matrix store at that time).
+# DO NOT register a standalone scheduled task for THIS script (and do NOT register a
+# separate Saturday rebuild_scan_matrices.ps1 task). The scheduled entry point is
+# scheduled_weekly_refresh.ps1 -- it wraps this refresh + the matrix rebuild behind
+# a STUDY GUARD so neither can clobber a running notebook-10 study. An unguarded
+# standalone refresh/rebuild on its own clock can corrupt a live study. Run this
+# script by hand only (e.g. an off-cycle catch-up).
 #
 # Requires ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY in the container env or repo .env.
 
