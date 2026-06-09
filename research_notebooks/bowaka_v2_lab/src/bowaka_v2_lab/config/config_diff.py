@@ -82,11 +82,20 @@ def load_parity_overrides(config_path: str | Path | None) -> set[str]:
     if config_path is None:
         return set()
     cfg = Path(config_path)
+    # The per-fold sidecar is ``<stem>.parity.yml`` (``intentional_overrides``).
+    # §10i — fall back to the study-start sidecar ``<stem>.parity_sidecar.yaml``
+    # (``declared_diffs`` with ``field_path`` entries) so ONE declared-overrides
+    # file serves both the assert_optuna_config_parity gate and this per-fold gate.
     sidecar = cfg.with_name(f"{cfg.stem}.parity.yml")
+    if not sidecar.is_file():
+        sidecar = cfg.with_name(f"{cfg.stem}.parity_sidecar.yaml")
     if not sidecar.is_file():
         return set()
     data = yaml.safe_load(sidecar.read_text(encoding="utf-8")) or {}
-    overrides = data.get("intentional_overrides") or []
+    overrides = list(data.get("intentional_overrides") or [])
+    for _d in (data.get("declared_diffs") or []):
+        if isinstance(_d, dict) and _d.get("field_path"):
+            overrides.append(_d["field_path"])
     return {str(p) for p in overrides}
 
 

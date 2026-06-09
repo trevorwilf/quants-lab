@@ -209,6 +209,30 @@ def search_space_bounds() -> dict[str, dict[str, Any]]:
     return out
 
 
+#: Strategy leaf paths DERIVED from search-space keys in ``apply_trial_params``
+#: (audit §6.8): the gap/ratio internal keys (``...hard_gap`` / ``...critical_gap``
+#: / ``exits.reward_risk_ratio``) are CONVERTED to these and the internal keys are
+#: dropped, so the FINAL tuned config carries these derived leaf paths.
+_DERIVED_STRATEGY_PATHS: frozenset[str] = frozenset({
+    "exits.signal_fade.score_thresholds.hard",
+    "exits.signal_fade.score_thresholds.critical",
+    "exits.target_pct",
+})
+
+
+def search_space_exempt_paths() -> frozenset[str]:
+    """Dotted config leaf paths the optimizer WRITES — the search-space params plus
+    the strategy fields derived from them in ``apply_trial_params``.
+
+    §10i — the per-fold ``intended_realism`` config-parity gate exempts these: a
+    TUNED finalist diverges from the frozen live contract ON THESE BY DESIGN (they
+    ARE the optimization output), so they must not abort the Path-3 validation run.
+    The gate still fires on any OTHER divergence (a genuine config defect). A
+    superset is safe — exempting a path that does not actually diverge is a no-op.
+    """
+    return frozenset(SEARCH_SPACE_SPEC.keys()) | _DERIVED_STRATEGY_PATHS
+
+
 __all__ = [
     "SEARCH_SPACE_VERSION",
     "SEARCH_SPACE_SPEC",
@@ -217,4 +241,5 @@ __all__ = [
     "resolve_search_space",
     "suggest_params",
     "search_space_bounds",
+    "search_space_exempt_paths",
 ]

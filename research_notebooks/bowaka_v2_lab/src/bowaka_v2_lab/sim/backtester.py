@@ -678,6 +678,13 @@ def run_backtest(
     # fails an ``intended_realism`` per-fold backtest on the coverage_missing /
     # late_session / exit_path checks). Default ``None`` = legacy full-union.
     eligible_per_session: Optional[Mapping[_dt.date, Any]] = None,
+    # §10i — dotted config leaf paths the optimizer writes (search-space params +
+    # their derivations). Under intended_realism the per-fold config-parity gate
+    # EXEMPTS these: a tuned finalist diverges from the frozen live contract on
+    # them BY DESIGN (the optimization output). Default ``None`` = no exemption (a
+    # non-validation run still flags every divergence). See
+    # ``optuna.search_space.search_space_exempt_paths``.
+    search_space_parity_exempt: Optional[Iterable[str]] = None,
     # Speedup report v2 §6.1 / Phase 3 — when supplied AND the resolved
     # runtime_mode is "compatibility", the SCAN handler reads per-symbol
     # features from this read-only scan-matrix store (per session partition)
@@ -846,6 +853,12 @@ def run_backtest(
             )
         if sim_cfg.mode == "intended_realism":
             _unannotated = unannotated_mismatches(_diff_rows)
+            if search_space_parity_exempt:
+                # §10i — a tuned finalist diverges from the contract on the
+                # search-space (+ derived) paths BY DESIGN; exempt them so the
+                # Path-3 IR validation runs. Genuine config defects still abort.
+                _exempt = set(search_space_parity_exempt)
+                _unannotated = [p for p in _unannotated if p not in _exempt]
             if _unannotated:
                 raise RuntimeError(
                     f"intended_realism run aborted: config_diff_vs_actual_bowaka_v2.yaml "

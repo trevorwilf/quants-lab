@@ -285,7 +285,9 @@ def derive_validation_config(
         cfg = copy.deepcopy(dict(search_config))
     else:
         cfg = load_config(search_config)
-    cfg.pop("_source_path", None)
+    # §10i — KEEP _source_path (points at the search config) so the per-fold
+    # config-parity gate finds the search config's parity sidecar (the
+    # halt_gate.enabled override etc.). It is stripped from any written YAML below.
     sim = dict(cfg.get("simulation") or {})
     sim["mode"] = str(validation_mode)
     # Drop the mode-coupled policy fields so they re-resolve from validation_mode.
@@ -298,7 +300,8 @@ def derive_validation_config(
         sim.pop(_field, None)
     cfg["simulation"] = sim
     if out_path is not None:
-        Path(out_path).write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+        _to_write = {k: v for k, v in cfg.items() if k != "_source_path"}
+        Path(out_path).write_text(yaml.safe_dump(_to_write, sort_keys=False), encoding="utf-8")
     return cfg
 
 

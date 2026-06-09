@@ -83,7 +83,9 @@ from .objective import (
     fold_score,
 )
 from .preflight import PreflightError, probe_quote_coverage, run_preflight
-from .search_space import SEARCH_SPACE_VERSION, resolve_search_space, suggest_params
+from .search_space import (
+    SEARCH_SPACE_VERSION, resolve_search_space, search_space_exempt_paths, suggest_params,
+)
 from .stability import top_k_cluster_stability
 from .walkforward import build_walkforward_splits
 
@@ -556,6 +558,11 @@ def _run_fold_backtest(
             eligible_per_session={
                 s: set(eligible_symbols(universe.get(s, {})) or symbols) for s in sessions
             },
+            # §10i — exempt the optuna-tuned search-space (+ derived) paths from the
+            # per-fold intended_realism config-parity gate: a tuned finalist diverges
+            # from the frozen live contract on them BY DESIGN. The gate is IR-only,
+            # so this is a no-op for the fast_realism / CCP search path.
+            search_space_parity_exempt=search_space_exempt_paths(),
         )
         summary = dict(result.summary)
         if return_report:
@@ -667,6 +674,11 @@ def _run_fold_backtest_objective(
             eligible_per_session={
                 s: set(eligible_symbols(universe.get(s, {})) or symbols) for s in sessions
             },
+            # §10i — exempt the optuna-tuned search-space (+ derived) paths from the
+            # per-fold intended_realism config-parity gate: a tuned finalist diverges
+            # from the frozen live contract on them BY DESIGN. The gate is IR-only,
+            # so this is a no-op for the fast_realism / CCP search path.
+            search_space_parity_exempt=search_space_exempt_paths(),
         )
         return result
     finally:
