@@ -140,6 +140,85 @@ def _cmd_import_actual_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def _search_space_drift(contract: dict) -> list[tuple]:
+    """Search params whose live (contract) value is OUTSIDE the search bounds.
+
+    The optuna search bounds (``SEARCH_SPACE_SPEC``) are hardcoded; if a live
+    threshold changes in prod to fall outside its bound, the study will never
+    explore the live region. Returns ``(dotted_path, live_value, lo, hi)`` for
+    each such param. Only numeric-bound kinds (uniform/int/log_uniform) at a
+    dotted path that exists verbatim in the contract are checked — derived /
+    remapped params (e.g. ``exits.reward_risk_ratio``, ``execution.max_spread_bps``)
+    have no direct contract leaf and are skipped.
+    """
+    from .optuna.search_space import SEARCH_SPACE_SPEC
+
+    out: list[tuple] = []
+    for dotted, spec in SEARCH_SPACE_SPEC.items():
+        if not spec or spec[0] not in ("uniform", "int", "log_uniform") or len(spec) < 3:
+            continue
+        lo, hi = spec[1], spec[2]
+        node: object = contract
+        for part in dotted.split("."):
+            if isinstance(node, dict) and part in node:
+                node = node[part]
+            else:
+                node = None
+                break
+        if node is None or isinstance(node, bool):
+            continue
+        try:
+            val = float(node)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if not (float(lo) <= val <= float(hi)):
+            out.append((dotted, node, lo, hi))
+    return out
+
+
+def _cmd_regen_actual_configs(args: argparse.Namespace) -> int:
+    """Regenerate every GENERATED-marked lab config from the frozen contract.
+
+    Run after the contract is refreshed (e.g. by ``mirror_bowaka_v2_source.ps1``)
+    so the shipped configs pick up the new live screener / signal values. The set
+    is auto-discovered from the GENERATED header marker, so a hand-tuned operator
+    overlay (``.workstation`` / ``.matrix`` — no marker) is never touched. Also
+    emits a non-fatal advisory if any live threshold has drifted outside the
+    hardcoded optuna search bounds.
+    """
+    from .reference import contract_available, load_actual_contract
+    from .reference.import_config import regenerate_generated_configs
+
+    if not contract_available():
+        print("error: frozen contract not generated -- run "
+              "`python -m bowaka_v2_lab.reference` first", file=sys.stderr)
+        return 2
+    contract = load_actual_contract()
+    configs_dir = Path(args.configs_dir)
+    records = regenerate_generated_configs(configs_dir, contract=contract)
+    if not records:
+        print(f"no GENERATED-marked configs found under {configs_dir}")
+        return 0
+    n_changed = sum(1 for r in records if r["changed"])
+    print(f"regenerated {len(records)} generated config(s) from the contract "
+          f"({n_changed} changed, {len(records) - n_changed} already in sync):")
+    for r in records:
+        tag = "UPDATED  " if r["changed"] else "unchanged"
+        extra = "" if r["feed_thresholds"] == "actual" else \
+            f" feed_thresholds={r['feed_thresholds']}"
+        print(f"  [{tag}] {Path(r['path']).name}  "
+              f"(feed={r['feed']} mode={r['mode']} purpose={r['purpose']}{extra})")
+    drift = _search_space_drift(contract)
+    if drift:
+        print("\nWARNING: live contract value(s) now fall OUTSIDE the optuna "
+              "search bounds (optuna/search_space.py SEARCH_SPACE_SPEC).")
+        print("The study will NOT explore the live region for these params -- "
+              "review/re-center the bounds (and the '# live X' comments):")
+        for dotted, val, lo, hi in drift:
+            print(f"  {dotted}: live={val} outside search range [{lo}, {hi}]")
+    return 0
+
+
 def _cmd_config_parity(args: argparse.Namespace) -> int:
     """Print a config's parity diff vs the frozen contract.
 
@@ -456,6 +535,15 @@ def build_parser() -> argparse.ArgumentParser:
                           "emits a walk-forward study config (adds optuna: block + "
                           "run.kind: optuna) per realism remediation 2 Phase 8")
     iac.set_defaults(func=_cmd_import_actual_config)
+
+    rgc = sub.add_parser(
+        "regen-actual-configs",
+        help="regenerate every GENERATED-marked lab config from the frozen "
+             "contract (run after refreshing the contract)",
+    )
+    rgc.add_argument("--configs-dir", default="configs",
+                     help="directory holding the generated lab configs")
+    rgc.set_defaults(func=_cmd_regen_actual_configs)
 
     pg = sub.add_parser("promotion-gate", help="run promotion checklist + bundler (Phase 9)")
     pg.add_argument("--run-id", required=True)
