@@ -426,7 +426,8 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
             f"- **Robustness winner (combined): trial #{winner['number']}** — "
             f"combined {_fmt(winner.get('combined_score'))} · "
             f"net return {_pct(_dm(winner, 'net_return_pct'))} · "
-            f"max DD {_pct(_dm(winner, 'mtm_max_drawdown_pct'), signed=False)} · "
+            f"val DD (1mo) {_pct(_dm(winner, 'mtm_max_drawdown_pct'), signed=False)} · "
+            f"holdout DD (5mo) {_pct((winner.get('holdout_metrics') or {}).get('max_drawdown_pct'), signed=False)} · "
             f"win {_pct(_dm(winner, 'win_rate'), signed=False)} · "
             f"robust **{_fmt(winner.get('robust_ok'))}**",
         ]
