@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures as cf
 import copy
+import datetime as dt
 import json
 import logging
 import multiprocessing as mp
@@ -103,7 +104,16 @@ def _pick_study_name(storage_uri: str, explicit: Optional[str]) -> str:
     cands = [s for s in summaries if "walkforward" in s.study_name]
     if not cands:
         raise SystemExit("no walk-forward study found in storage; pass --study-name")
-    cands.sort(key=lambda s: (s.datetime_start or 0, s.study_name), reverse=True)
+    # Pick the most-recently-started study. A study with no trials yet has
+    # datetime_start=None; keep those separate (first tuple element) so the None
+    # fallback is never compared against a real datetime (the old `or 0` mixed
+    # int and datetime and raised TypeError).
+    cands.sort(
+        key=lambda s: (s.datetime_start is not None,
+                       s.datetime_start or dt.datetime.min,
+                       s.study_name),
+        reverse=True,
+    )
     return cands[0].study_name
 
 
