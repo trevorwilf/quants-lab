@@ -432,12 +432,29 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
             f"robust **{_fmt(winner.get('robust_ok'))}**",
         ]
     if study_best is not None and (winner is None or study_best['number'] != winner['number']):
-        md += [
+        _sb_hm = study_best.get("holdout_metrics") or {}
+        _sb_ho_net = _sb_hm.get("net_return_pct")
+        _sb_line = (
             f"- **Study #1 by objective: trial #{study_best['number']}** — "
             f"objective {_fmt(study_best.get('median_fold_score'))} · "
             f"net return {_pct(_dm(study_best, 'net_return_pct'))} · "
-            f"robust {_fmt(study_best.get('robust_ok'))}",
-        ]
+            f"robust {_fmt(study_best.get('robust_ok'))}"
+        )
+        if not study_best.get("holdout_error") and _sb_ho_net is not None:
+            _sb_line += (
+                f" · holdout net {_pct(_sb_ho_net)} · "
+                f"holdout DD {_pct(_sb_hm.get('max_drawdown_pct'), signed=False)} · "
+                f"collapse {_fmt(study_best.get('holdout_collapse'))}"
+            )
+        md += [_sb_line]
+        if study_best.get("holdout_collapse") or (_sb_ho_net is not None and _sb_ho_net < 0):
+            _how = "lost money out-of-sample" if (_sb_ho_net is not None and _sb_ho_net < 0) else "collapsed out-of-sample"
+            md += [
+                f"  - ⚠️ **Do NOT deploy the study-best YAML.** #{study_best['number']} is best by "
+                f"*in-sample* objective but {_how} (holdout net {_pct(_sb_ho_net)}, DD "
+                f"{_pct(_sb_hm.get('max_drawdown_pct'), signed=False)}) — a textbook overfit. "
+                f"Exported for diagnostics only.",
+            ]
     elif study_best is not None:
         md += ["  - (study #1 by objective is the same trial)"]
     for key, label in (("winner", "robustness winner"), ("study_best", "study #1")):
@@ -450,6 +467,67 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
         "Every metric is below — override the pick on PnL / drawdown / your own weights.",
         "",
     ]
+    # ---- recommendation nuances (computed from the OOS numbers, not hardcoded) --
+    _ho_eval = [r for r in results
+                if not r.get("holdout_error")
+                and (r.get("holdout_metrics") or {}).get("net_return_pct") is not None]
+    _nuance: list[str] = []
+    if (len(results) >= 2 and results[0].get("combined_score") is not None
+            and results[1].get("combined_score") is not None):
+        def _spread(fn):
+            vs = [fn(r) for r in results if fn(r) is not None]
+            return (max(vs) - min(vs)) if vs else 0.0
+        _sp = {
+            "dev objective": _spread(lambda r: r.get("median_fold_score")),
+            "neighbour mean": _spread(lambda r: r.get("neighbour_mean")),
+            "holdout objective": _spread(lambda r: r.get("holdout_score")),
+        }
+        _driver = max(_sp, key=_sp.get)
+        _margin = results[0]["combined_score"] - results[1]["combined_score"]
+        _nuance.append(
+            f"- **Read the combined score with care.** It is the mean of three terms — dev "
+            f"objective median, neighbour mean, holdout objective — whose spreads across the "
+            f"{len(results)} finalists are: dev {_sp['dev objective']:.3f} · neighbour "
+            f"{_sp['neighbour mean']:.3f} · holdout {_sp['holdout objective']:.3f}. The "
+            f"**{_driver}** term has by far the widest spread, so the ranking is effectively "
+            f"driven by it; the other two vary much less and barely change the order. The #1→#2 "
+            f"combined margin is only **{_margin:.3f}**, and the three terms are not guaranteed "
+            f"scale-comparable — treat the top cluster as roughly equivalent, not the auto-winner "
+            f"as decisively best."
+        )
+    if winner is not None and _ho_eval:
+        def _ho(r, k):
+            return (r.get("holdout_metrics") or {}).get(k)
+        _by_dd = sorted(_ho_eval, key=lambda r: _ho(r, "max_drawdown_pct"))
+        _w_rank = next((i for i, r in enumerate(_by_dd, 1) if r["number"] == winner["number"]), None)
+        _cohort = [r for r in _ho_eval if not r.get("holdout_collapse")
+                   and (_ho(r, "net_return_pct") or 0) > 0 and _ho(r, "max_drawdown_pct")]
+        _best_ratio = (max(_cohort, key=lambda r: _ho(r, "net_return_pct") / _ho(r, "max_drawdown_pct"))
+                       if _cohort else None)
+        if _w_rank is not None and _by_dd and _by_dd[0]["number"] != winner["number"]:
+            _alt = _best_ratio or _by_dd[0]
+            _nuance.append(
+                f"- **Net return ≠ drawdown-adjusted.** Winner #{winner['number']} leads on holdout "
+                f"net return ({_pct(_ho(winner, 'net_return_pct'))}) but ranks {_w_rank} of "
+                f"{len(_by_dd)} on holdout drawdown "
+                f"({_pct(_ho(winner, 'max_drawdown_pct'), signed=False)}). Trial **#{_alt['number']}** "
+                f"has the strongest drawdown profile ({_pct(_ho(_alt, 'net_return_pct'))} net at "
+                f"{_pct(_ho(_alt, 'max_drawdown_pct'), signed=False)} holdout DD) — prefer it if you "
+                f"weight survival over raw return."
+            )
+        _surv = [r for r in _ho_eval if not r.get("holdout_collapse")
+                 and _ho(r, "max_drawdown_pct") is not None]
+        if _surv:
+            _dds = [_ho(r, "max_drawdown_pct") for r in _surv]
+            _nuance.append(
+                f"- **Passing the no-collapse gate is not a low-risk signal.** Collapse is flagged "
+                f"only when a finalist's holdout objective drops below 40% of its dev objective (or "
+                f"goes negative) — an objective test, not a drawdown one. The {len(_surv)} survivors "
+                f"still drew down **{_pct(min(_dds), signed=False)}–{_pct(max(_dds), signed=False)}** "
+                f"over the holdout under optimistic fills. Size accordingly."
+            )
+    if _nuance:
+        md += ["**Before you pick — caveats from the out-of-sample numbers:**", ""] + _nuance + [""]
     # ---- comparison table (PnL-led) --------------------------------------
     headers = ["Rank", "Trial", "Net ret%", "Val DD% (1mo)", "Win%", "Trades", "Avg trade%",
                "Objective", "FoldVar", "NbObj min", "Robust?", "Holdout net%", "Holdout DD% (5mo)",
@@ -537,6 +615,9 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
         "- **Combined score:** mean of the available {dev objective median, neighbour mean, "
         "holdout objective}.",
         "- **Robust?** worst neighbour objective within 50% of the candidate's dev objective.",
+        "- **Holdout collapse:** flagged when the holdout objective falls below 40% of the "
+        "candidate's dev objective, or goes negative; collapse-flagged finalists are excluded "
+        "from the auto-pick.",
         "- **PnL aggregation:** net return / win rate / trade returns = mean across folds; "
         "max drawdown / worst-day = worst fold; trades = sum.",
         "- **Holdout:** scored on the reserved final-holdout window when its scan-matrix is "
