@@ -355,8 +355,32 @@ def _ann_pct(x) -> str:
     return _pct(x)
 
 
+_OPTIMISTIC_SIM_MODES = {"current_code_parity"}
+
+
+def _fill_realism_caveat(sim_mode) -> str:
+    """A blockquote stating how the report's fills were simulated. Optimistic modes
+    (zero-spread fallback, no book-depth enforcement) get an explicit upper-bound
+    warning; other modes just name the mode so the reader can judge realism."""
+    m = sim_mode or "unknown"
+    if sim_mode in _OPTIMISTIC_SIM_MODES:
+        return (
+            "> ⚠️ **Fill realism — read first.** Every return below (validation **and** "
+            f"holdout) is simulated under sim mode **`{m}`**, which uses an **optimistic** "
+            "zero-spread quote fallback and a fill model that does **not** enforce order-book "
+            "depth (validation fill rate prints as 100%). The realistic `intended_realism` "
+            "model would **reduce every percentage shown here** — treat them as an **upper "
+            "bound, not a forecast.**"
+        )
+    return (
+        f"> **Fill realism.** Returns below are simulated under sim mode **`{m}`**. Fill "
+        "assumptions depend on this mode — confirm it matches your deployment realism before "
+        "trusting the magnitudes."
+    )
+
+
 def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
-                    n_neighbours, ts, yaml_paths) -> str:
+                    n_neighbours, ts, yaml_paths, sim_mode=None) -> str:
     md: list[str] = []
     _ho_months = _months_between(plan.final_holdout_start, plan.final_holdout_end)
     _splits = getattr(plan, "splits", None) or []
@@ -367,6 +391,9 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
         f"- config: `{cfg_path}`",
         f"- finalists: {len(results)}  ·  neighbours/finalist: {n_neighbours} (±10%)",
         f"- holdout window: {plan.final_holdout_start} … {plan.final_holdout_end}",
+        f"- sim mode: `{sim_mode or 'unknown'}`",
+        "",
+        _fill_realism_caveat(sim_mode),
         "",
         "> **Reading the numbers:** *Objective* is the tuned v2 score (log-return "
         "**minus edge/turnover/fill penalties**) — it can be **negative even when "
@@ -374,10 +401,12 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
         "drawdown, and judge *what was optimised* from Objective. *Robustness* = how "
         "far the ±10% parameter neighbours fall below the candidate (a flat plateau "
         "vs a fragile spike). **Net return is a decimal portfolio return *per fold*** "
-        "(0.20 = +20% over that ~1-month window). **12-mo OOS%** annualizes the "
-        "**out-of-sample holdout** return — *that* is the honest forward estimate; the "
-        "in-sample (validation) annualization in the detail is an extrapolation of the "
-        "best-of-N tuned folds, **optimistically biased — not a forecast**.",
+        "(0.20 = +20% over that ~1-month window). **12-mo OOS%** raw-compounds the "
+        "**out-of-sample holdout** return (one continuous ~5-month window) to a year — it "
+        "inherits that period's regime *and* the sim-mode fill bias, so it is an "
+        "**upper-bound extrapolation, NOT a forecast**; the in-sample (validation) "
+        "annualization in the detail extrapolates the best-of-N tuned folds and is even "
+        "more optimistically biased.",
         "",
     ]
     ho_errs = [r for r in results if r.get("holdout_error")]
@@ -421,8 +450,9 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
         "",
     ]
     # ---- comparison table (PnL-led) --------------------------------------
-    headers = ["Rank", "Trial", "Net ret%", "Max DD%", "Win%", "Trades", "Avg trade%",
-               "Objective", "FoldVar", "NbObj min", "Robust?", "Holdout net%", "12-mo OOS%", "Combined"]
+    headers = ["Rank", "Trial", "Net ret%", "Val DD% (1mo)", "Win%", "Trades", "Avg trade%",
+               "Objective", "FoldVar", "NbObj min", "Robust?", "Holdout net%", "Holdout DD% (5mo)",
+               "12-mo OOS%", "Combined"]
     rows = []
     for i, r in enumerate(results, 1):
         star = " ★" if (study_best and r["number"] == study_best["number"]) else ""
@@ -435,12 +465,20 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
             _fmt(r.get("median_fold_score")), _fmt(r.get("fold_variance")),
             _fmt(r.get("neighbour_min")), _fmt(r.get("robust_ok")),
             _pct(hm.get("net_return_pct")) if not r.get("holdout_error") else "—",
+            _pct(hm.get("max_drawdown_pct"), signed=False) if not r.get("holdout_error") else "—",
             _ann_pct(_ann_yield(hm.get("net_return_pct"), _ho_months)) if not r.get("holdout_error") else "—",
             _fmt(r.get("combined_score")),
         ])
     md += ["## Finalist comparison (ranked by combined score · ★ = study #1 by objective)", ""]
     md += _md_table(headers, rows, align_right_from=2)
-    md += [""]
+    md += [
+        "",
+        "> **Two different drawdowns.** *Val DD% (1mo)* is the worst single ~1-month "
+        "validation fold; *Holdout DD% (5mo)* is the continuous drawdown over the full "
+        "~5-month out-of-sample window. They are not comparable — the larger (holdout) "
+        "number is the one closer to live experience. Both are under the sim mode above.",
+        "",
+    ]
     # ---- per-finalist detail ---------------------------------------------
     md += ["## Per-finalist detail", ""]
     for i, r in enumerate(results, 1):
@@ -483,7 +521,7 @@ def _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
         _ho_ann = None if r.get("holdout_error") else _ann_yield((r.get("holdout_metrics") or {}).get("net_return_pct"), _ho_months)
         md += [
             f"- **12-month yield (annualized):** out-of-sample (holdout) "
-            f"**{_ann_pct(_ho_ann)}** *(honest estimate)* · "
+            f"**{_ann_pct(_ho_ann)}** *(upper-bound extrapolation of one ~5-mo window, NOT a forecast)* · "
             f"in-sample (validation) {_ann_pct(_val_ann)} "
             f"*(extrapolation of the best-of-N tuned folds — optimistically biased, NOT a forecast)*",
         ]
@@ -545,8 +583,9 @@ def _emit(results, study_name, cfg_path, plan, n_neighbours, ts, out_path: Path,
                          dev_net_return=(r.get("dev_metrics") or {}).get("net_return_pct"))
             yaml_paths[key] = str(yp)
 
+    sim_mode = ((base_cfg or {}).get("simulation") or {}).get("mode")
     md = _build_markdown(study_name, cfg_path, results, winner, study_best, plan,
-                         n_neighbours, ts, yaml_paths)
+                         n_neighbours, ts, yaml_paths, sim_mode=sim_mode)
     out_path.write_text(md, encoding="utf-8")
     json_path = out_path.with_suffix(".json")
     json_path.write_text(json.dumps(
