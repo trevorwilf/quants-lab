@@ -462,6 +462,28 @@ def apply_trial_params(base_cfg: dict, params: dict[str, Any]) -> dict:
     return cfg
 
 
+def _matrix_runtime_disabled_if_no_store(cfg: dict, store: Any) -> dict:
+    """Run a fold on the LEGACY scanner when no scan-matrix store is open for it.
+
+    A fold whose context opened no matrix store — most importantly the holdout
+    window under ``separate_holdout_matrix=true`` (holdout isolation deliberately
+    opens none) — has no matrix to run. But the backtester's runtime opt-in fires
+    on ``scan_matrix.enabled=True`` + ``runtime_mode!="disabled"`` regardless of
+    whether a store is present, so a vectorized config would raise the parity-proof
+    opt-in error on an honest legacy fold (e.g. the finalist holdout sweep). Force
+    the matrix runtime to ``disabled`` in that case. No-op when a store IS present,
+    so the validation-scope opt-in + parity check are unchanged.
+    """
+    if store is not None:
+        return cfg
+    sm = ((cfg.get("optuna") or {}).get("acceleration") or {}).get("scan_matrix") or {}
+    if not sm.get("enabled") or sm.get("runtime_mode", "disabled") == "disabled":
+        return cfg
+    eff = copy.deepcopy(cfg)
+    eff["optuna"]["acceleration"]["scan_matrix"]["runtime_mode"] = "disabled"
+    return eff
+
+
 def _run_fold_backtest(
     cfg: dict,
     *,
@@ -535,8 +557,9 @@ def _run_fold_backtest(
         _cached_dq = (
             ctx.startup_dq_report if ctx is not None else None
         )
+        _store = ctx.scan_matrix_store if ctx is not None else None
         result = run_backtest(
-            cfg=cfg,
+            cfg=_matrix_runtime_disabled_if_no_store(cfg, _store),
             sessions=sessions,
             scan_times_per_session=scan_times_callable,
             universe_snapshot_by_session=universe,
@@ -549,7 +572,7 @@ def _run_fold_backtest(
             paths=paths,
             run_dir=run_dir,
             startup_dq_report=_cached_dq,
-            scan_matrix_store=(ctx.scan_matrix_store if ctx is not None else None),
+            scan_matrix_store=_store,
             # §10c — scope the per-fold coverage gate to the per-session PIT-eligible
             # universe (so an intended_realism fold doesn't abort on the
             # PIT-over-inclusion artifact). Derived from ``universe`` (the same
@@ -650,8 +673,9 @@ def _run_fold_backtest_objective(
         _cached_dq = (
             ctx.startup_dq_report if ctx is not None else None
         )
+        _store = ctx.scan_matrix_store if ctx is not None else None
         result = run_backtest(
-            cfg=cfg,
+            cfg=_matrix_runtime_disabled_if_no_store(cfg, _store),
             sessions=sessions,
             scan_times_per_session=scan_times_callable,
             universe_snapshot_by_session=universe,
@@ -665,7 +689,7 @@ def _run_fold_backtest_objective(
             run_dir=run_dir,
             artifact_mode="objective_minimal",
             startup_dq_report=_cached_dq,
-            scan_matrix_store=(ctx.scan_matrix_store if ctx is not None else None),
+            scan_matrix_store=_store,
             # §10c — scope the per-fold coverage gate to the per-session PIT-eligible
             # universe (so an intended_realism fold doesn't abort on the
             # PIT-over-inclusion artifact). Derived from ``universe`` (the same
