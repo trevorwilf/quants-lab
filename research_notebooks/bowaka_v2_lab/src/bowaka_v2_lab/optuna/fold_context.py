@@ -36,6 +36,7 @@ from ..data.suppliers import (
     make_forward_minute_supplier,
     make_lake_suppliers,
     make_quote_supplier,
+    make_trades_supplier_for_config,
     resolve_intraday_window_policy,
 )
 from ..sim.schedule import scan_times_for_session
@@ -75,6 +76,9 @@ class FoldSupplierBundle:
     daily: Callable[[str, _dt.date], "pd.DataFrame | None"]
     quote: Callable[..., Optional[dict]]
     forward_minute: Callable[[str, Any], "pd.DataFrame | None"]
+    # PB.4 — raw trade-tape supplier for the tape_replay fill model. ``None``
+    # unless the config selects tape_replay (keeps legacy folds byte-identical).
+    trades: Optional[Callable[..., Any]] = None
 
 
 @dataclass(frozen=True)
@@ -261,6 +265,9 @@ def _build_one_fold_context(
         daily_sup = callables["daily"]
         quote_sup = callables["quote"]
         forward_sup = callables["forward_minute"]
+        # The cached-supplier search path has no tape reader; tape_replay is a
+        # finalist-validation mode that runs the uncached lake path below.
+        trades_sup = None
     else:
         minute_sup, daily_sup = make_lake_suppliers(
             lake_root, feed=feed, intraday_window_policy=intraday_policy,
@@ -270,6 +277,8 @@ def _build_one_fold_context(
             lake_root, feed=feed, default_max_age_seconds=quote_max_age,
         )
         forward_sup = make_forward_minute_supplier(lake_root, feed=feed)
+        # PB.4 — only wired when the config selects tape_replay (else None).
+        trades_sup = make_trades_supplier_for_config(cfg, lake_root, feed=feed)
     # Speedup report v2 §4 P1 / §5.3 / Phase 1 — opt into the batch daily
     # cache (one parquet read per symbol over the full span, in-memory slices
     # per session) via ``optuna.acceleration.batch_daily_cache.enabled``.
@@ -459,6 +468,7 @@ def _build_one_fold_context(
         suppliers=FoldSupplierBundle(
             minute=minute_sup, daily=daily_sup,
             quote=quote_sup, forward_minute=forward_sup,
+            trades=trades_sup,
         ),
         lake_root=lake_root,
         feed=feed,

@@ -54,6 +54,7 @@ from ..data.suppliers import (
     make_forward_minute_supplier,
     make_lake_suppliers,
     make_quote_supplier,
+    make_trades_supplier_for_config,
     resolve_intraday_window_policy,
 )
 from ..sim.backtester import run_backtest
@@ -527,6 +528,8 @@ def _run_fold_backtest(
             ),
         )
         forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
+        # PB.4 — only wired when the config selects tape_replay (else None).
+        trades_supplier = make_trades_supplier_for_config(cfg, lake_root, feed=feed)
         universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
         daily_cache = {}
         for s in sessions:
@@ -545,6 +548,7 @@ def _run_fold_backtest(
         daily_supplier = ctx.suppliers.daily
         quote_supplier = ctx.suppliers.quote
         forward_minute_supplier = ctx.suppliers.forward_minute
+        trades_supplier = ctx.suppliers.trades
         _scan_times = dict(ctx.scan_times_by_session)
         scan_times_callable = lambda d: list(_scan_times.get(d, ()))  # noqa: E731
 
@@ -567,6 +571,7 @@ def _run_fold_backtest(
             minute_bars_supplier=minute_supplier,
             daily_bars_supplier=daily_supplier,
             quote_supplier=quote_supplier,
+            trades_supplier=trades_supplier,
             forward_minute_supplier=forward_minute_supplier,
             initial_bankroll=100_000.0,
             paths=paths,
@@ -645,6 +650,8 @@ def _run_fold_backtest_objective(
             ),
         )
         forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
+        # PB.4 — only wired when the config selects tape_replay (else None).
+        trades_supplier = make_trades_supplier_for_config(cfg, lake_root, feed=feed)
         universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
         daily_cache: dict[_dt.date, Any] = {}
         for s in sessions:
@@ -663,6 +670,7 @@ def _run_fold_backtest_objective(
         daily_supplier = ctx.suppliers.daily
         quote_supplier = ctx.suppliers.quote
         forward_minute_supplier = ctx.suppliers.forward_minute
+        trades_supplier = ctx.suppliers.trades
         _scan_times = dict(ctx.scan_times_by_session)
         scan_times_callable = lambda d: list(_scan_times.get(d, ()))  # noqa: E731
 
@@ -683,6 +691,7 @@ def _run_fold_backtest_objective(
             minute_bars_supplier=minute_supplier,
             daily_bars_supplier=daily_supplier,
             quote_supplier=quote_supplier,
+            trades_supplier=trades_supplier,
             forward_minute_supplier=forward_minute_supplier,
             initial_bankroll=100_000.0,
             paths=paths,

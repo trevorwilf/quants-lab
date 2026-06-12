@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import math
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -66,7 +67,9 @@ except ImportError:  # pragma: no cover
     xcals = None  # type: ignore
 
 from .ambiguity import resolve_same_bar
+from .cost_model import get_params
 from .portfolio import Position
+from .tape_fill import replay_tape_fill
 
 #: ET clock time the time-stop / signal-fade evaluation defaults to.
 _DEFAULT_EXIT_TIME = "15:45"
@@ -364,6 +367,206 @@ def _next_bid(
     return float(close)
 
 
+def _exit_bid(
+    bar: Any,
+    symbol: str,
+    quote_supplier: Optional[Callable[..., Optional[dict]]],
+    *,
+    max_age_seconds: Optional[float] = None,
+) -> Optional[float]:
+    """The historical NBBO bid at the bar minute, or ``None`` when no quote is
+    wired/available.
+
+    Unlike :func:`_next_bid` this does NOT fall back to the close — a missing bid
+    means 'no spread-crossing info', so the caller keeps the legacy bracket fill.
+    PB.3: when ``max_age_seconds`` is given it is passed to the supplier so a
+    STALE quote is rejected (the supplier returns ``None``).
+    """
+    if quote_supplier is None:
+        return None
+    ts = _bar_ts(bar)
+    if ts is None:
+        return None
+    try:
+        if max_age_seconds is not None:
+            q = quote_supplier(symbol, ts, max_age_seconds=max_age_seconds)
+        else:
+            q = quote_supplier(symbol, ts)
+    except Exception:  # noqa: BLE001 — quote lookup is best-effort
+        return None
+    if q:
+        bid = q.get("bid")
+        if bid:
+            try:
+                return float(bid)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+#: Mirror of ``fills.COST_STRESS_SLIPPAGE_MULT`` (§10f) — kept local to avoid a
+#: sim import cycle; a unit test asserts the two stay equal.
+_COST_STRESS_SLIPPAGE_MULT: dict[str, float] = {"base": 1.0, "conservative": 2.0, "severe": 3.5}
+
+
+def _participation_impact_bps(
+    qty: float,
+    minute_vol: Optional[float],
+    participation_cap: float,
+    *,
+    impact_coef_bps: float = 10.0,
+    impact_model: str = "sqrt",
+    cost_stress: str = "conservative",
+) -> float:
+    """Square-root market-impact (bps) for a sell-side liquidation — the exit
+    mirror of the buy-side T3 cap+impact (``fills._t3_depth_impact_fill``).
+
+    Participation is capped at ``participation_cap`` (the lot is sliced across
+    bars at that rate), so a large lot pays at most ``impact(cap)`` — symmetric
+    with the buy side's ``max(touch, cap*vol)`` fillable. ``0.0`` when there is no
+    minute volume.
+    """
+    try:
+        mv = float(minute_vol) if minute_vol is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+    if not (mv > 0.0):  # 0 / negative / NaN volume → no impact
+        return 0.0
+    participation = min(float(qty) / mv, float(participation_cap))
+    if participation <= 0.0:
+        return 0.0
+    frac = math.sqrt(participation) if str(impact_model) == "sqrt" else participation
+    mult = _COST_STRESS_SLIPPAGE_MULT.get(
+        str(cost_stress), _COST_STRESS_SLIPPAGE_MULT["conservative"])
+    return float(impact_coef_bps) * frac * mult
+
+
+@dataclass(frozen=True)
+class _XFill:
+    """Per-lot sell-side fill parameters threaded into :func:`_bracket_fill`
+    (PB.1 spread + PB.2 size-cap impact + PB.3 quote freshness + PB.4 tape
+    replay). Built once per walk so the bracket call sites stay stable as the
+    model grows."""
+
+    symbol: str
+    quote_supplier: Optional[Callable[..., Optional[dict]]]
+    cross_spread: bool
+    half_spread_bps: float
+    qty: float
+    participation_cap: Optional[float]
+    impact_coef_bps: float
+    impact_model: str
+    cost_stress: str
+    require_fresh_quote: bool
+    max_quote_age_seconds: int
+    # PB.4 — replay the real trade tape for the bracket fill. ``fill_model``
+    # defaults to ``"legacy"`` (the tape branch is skipped → byte-identical);
+    # ``"tape_replay"`` consults ``trades_supplier`` over ``tape_window_seconds``.
+    fill_model: str = "legacy"
+    trades_supplier: Optional[Callable[..., Any]] = None
+    tape_window_seconds: float = 300.0
+    tape_participation: float = 1.0
+
+
+def _tape_replay_bracket(
+    bracket_price: float, bar: Any, xf: "_XFill", kind: str
+) -> Optional[tuple[float, float]]:
+    """PB.4 — fill the sell-side bracket against the REAL trade tape.
+
+    Replays the prints in ``[ts, ts + tape_window_seconds]`` for ``xf.symbol``
+    through :func:`replay_tape_fill`, honouring the trigger: a STOP sell only
+    fills at/through the trigger (``max_price=bracket``), a TARGET sell only
+    at/above it (``min_price=bracket``). Returns ``(fill, slip_bps)`` when the
+    tape supplies at least a partial fill (the whole lot closes at the achieved
+    size-weighted VWAP — the exit walk models one fill event per lot), or
+    ``None`` when there is no supplier / no tape / no qualifying print, so the
+    caller falls back to the PB.1-3 (or legacy) bracket fill.
+    """
+    if xf.trades_supplier is None:
+        return None
+    ts = _bar_ts(bar)
+    if ts is None:
+        return None
+    window = float(xf.tape_window_seconds)
+    try:
+        trades = xf.trades_supplier(xf.symbol, ts, ts + pd.Timedelta(seconds=window))
+    except Exception:  # noqa: BLE001 — supplier failure is "no tape" → fall back
+        return None
+    if trades is None or len(trades) == 0:
+        return None
+    result = replay_tape_fill(
+        trades,
+        qty=int(round(float(xf.qty))),
+        start_ts=ts,
+        window_seconds=window,
+        participation=float(xf.tape_participation),
+        min_price=float(bracket_price) if kind == "target" else None,
+        max_price=float(bracket_price) if kind == "stop" else None,
+    )
+    if result.filled_qty <= 0:
+        return None
+    fill = float(result.avg_fill_price)
+    slip = ((fill - float(bracket_price)) / float(bracket_price) * 10_000.0
+            if bracket_price else 0.0)
+    return float(fill), float(slip)
+
+
+def _bracket_fill(
+    bracket_price: float, bar: Any, xf: "_XFill", kind: str = "stop"
+) -> tuple[float, Optional[float]]:
+    """Resolve a sell-side bracket (stop/target) fill — PB.1 (spread) + PB.2 (size)
+    + PB.3 (quote freshness) + PB.4 (tape replay).
+
+    Default (``fill_model == "legacy"`` and ``cross_spread`` / ``participation_cap``
+    both off) → ``(bracket_price, None)``: fills exactly at the bracket price with
+    no slip override, BYTE-IDENTICAL to the legacy engine.
+
+    PB.4 (``fill_model == "tape_replay"``) — when a ``trades_supplier`` is wired
+    the fill is the size-weighted VWAP of the real prints honouring the trigger
+    (``kind`` ``"stop"`` → ``max_price=bracket``, ``"target"`` → ``min_price=bracket``);
+    a no-tape / no-print window falls through to the PB.1-3 path below.
+    PB.1 (``cross_spread``) — the long exit SELLS at the marketable bid (gives up
+    the half-spread): ``base = min(bracket_price, bid*(1 - half_spread_bps/1e4))``.
+    PB.3 (``require_fresh_quote``) — the bid lookup uses ``max_quote_age_seconds``
+    and a stale/absent NBBO widens the give-up by an extra half-spread instead of
+    filling cleanly. PB.2 (``participation_cap``) — the lot is sliced at
+    ``participation_cap * minute_volume`` per bar with a square-root impact
+    (mirroring the buy-side T3 fill); the blended-VWAP fill is
+    ``base * (1 - impact_bps/1e4)``. Returns ``(fill, slip_bps)`` with the realized
+    give-up vs the bracket price.
+    """
+    if xf.fill_model == "tape_replay":
+        tape = _tape_replay_bracket(bracket_price, bar, xf, kind)
+        if tape is not None:
+            return tape
+        # No tape / no qualifying print → fall through to PB.1-3 / legacy base.
+    if not xf.cross_spread and not xf.participation_cap:
+        return float(bracket_price), None
+    base = float(bracket_price)
+    if xf.cross_spread:
+        bid = _exit_bid(
+            bar, xf.symbol, xf.quote_supplier,
+            max_age_seconds=(xf.max_quote_age_seconds if xf.require_fresh_quote else None),
+        )
+        if bid and bid > 0.0:
+            base = min(float(bracket_price), float(bid) * (1.0 - xf.half_spread_bps / 1e4))
+        elif xf.require_fresh_quote:
+            # PB.3 — no fresh NBBO: don't fill cleanly at the bracket; widen the
+            # give-up by an extra half-spread (IR-consistent conservatism).
+            base = float(bracket_price) * (1.0 - 2.0 * xf.half_spread_bps / 1e4)
+    fill = base
+    if xf.participation_cap:
+        impact_bps = _participation_impact_bps(
+            xf.qty, _bar_field(bar, "volume", "Volume"), float(xf.participation_cap),
+            impact_coef_bps=xf.impact_coef_bps, impact_model=xf.impact_model,
+            cost_stress=xf.cost_stress,
+        )
+        fill = base * (1.0 - impact_bps / 1e4)
+    slip = ((fill - float(bracket_price)) / float(bracket_price) * 10_000.0
+            if bracket_price else 0.0)
+    return float(fill), float(slip)
+
+
 @dataclass
 class _LotPathState:
     """Mutable running state for one lot's minute-path walk."""
@@ -382,6 +585,7 @@ def _walk_lot_exit_pandas(
     same_minute_resolution: str = "conservative",
     cost_stress: str = "base",
     quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    trades_supplier: Optional[Callable[..., Any]] = None,
     signal_score_fn: Optional[Callable[[Position, pd.Timestamp], Optional[float]]] = None,
     seed: int = 0,
     fade_telemetry_out: Optional[list] = None,
@@ -499,6 +703,28 @@ def _walk_lot_exit_pandas(
             same_minute_resolution = tie
 
     is_severe = str(cost_stress) == "severe"
+    # PB.1 — sell-side spread-crossing exits (default off → byte-identical).
+    cross_spread = bool(cfg.get("cross_spread", False))
+    hs_bps = get_params(str(cost_stress)).half_spread_bps if cross_spread else 0.0
+    # PB.2 — sell-side size cap + sqrt-impact (default off; None = no cap).
+    participation_cap = cfg.get("participation_cap")
+    impact_coef_bps = float(cfg.get("impact_coef_bps", 10.0))
+    impact_model = str(cfg.get("impact_model", "sqrt"))
+    # PB.3 — require a fresh NBBO for the spread-crossing fill (default off).
+    require_fresh_quote = bool(cfg.get("require_fresh_quote", False))
+    exit_max_quote_age = int(cfg.get("max_quote_age_seconds", 15))
+    # PB.4 — replay the real trade tape for bracket fills (default "legacy" off).
+    fill_model = str(cfg.get("fill_model", "legacy"))
+    tape_window_seconds = float(cfg.get("tape_window_seconds", 300.0))
+    tape_participation = float(cfg.get("tape_participation", 1.0))
+    xf = _XFill(
+        symbol=pos.symbol, quote_supplier=quote_supplier, cross_spread=cross_spread,
+        half_spread_bps=hs_bps, qty=pos.qty, participation_cap=participation_cap,
+        impact_coef_bps=impact_coef_bps, impact_model=impact_model, cost_stress=str(cost_stress),
+        require_fresh_quote=require_fresh_quote, max_quote_age_seconds=exit_max_quote_age,
+        fill_model=fill_model, trades_supplier=trades_supplier,
+        tape_window_seconds=tape_window_seconds, tape_participation=tape_participation,
+    )
     state = _LotPathState()
     entry_price = pos.entry_price or 0.0
     seed_base = f"{seed}|{pos.position_id}"
@@ -604,27 +830,32 @@ def _walk_lot_exit_pandas(
                 state.halt_seen = True
                 state.halt_until = ts + pd.Timedelta(seconds=_HALT_SECONDS)
                 continue
+            _xbar = bar  # PB.1/PB.2 — Series carries timestamp + volume
             if stop_hit and target_hit:
                 winner = _resolve_same_minute(
                     same_minute_resolution, seed_key=f"{seed_base}|{ts.isoformat()}"
                 )
                 if winner == "stop":
+                    px, slip = _bracket_fill(stop_price, _xbar, xf, kind="stop")
                     return _mk_exit(
-                        pos, bar_date, float(stop_price), "stop", ts,
-                        state, entry_price, ambiguous=True,
+                        pos, bar_date, px, "stop", ts,
+                        state, entry_price, ambiguous=True, slip_bps_override=slip,
                     )
+                px, slip = _bracket_fill(target_price, _xbar, xf, kind="target")
                 return _mk_exit(
-                    pos, bar_date, float(target_price), "target", ts,
-                    state, entry_price, ambiguous=True,
+                    pos, bar_date, px, "target", ts,
+                    state, entry_price, ambiguous=True, slip_bps_override=slip,
                 )
             if stop_hit:
+                px, slip = _bracket_fill(stop_price, _xbar, xf, kind="stop")
                 return _mk_exit(
-                    pos, bar_date, float(stop_price), "stop", ts,
-                    state, entry_price,
+                    pos, bar_date, px, "stop", ts,
+                    state, entry_price, slip_bps_override=slip,
                 )
+            px, slip = _bracket_fill(target_price, _xbar, xf, kind="target")
             return _mk_exit(
-                pos, bar_date, float(target_price), "target", ts,
-                state, entry_price,
+                pos, bar_date, px, "target", ts,
+                state, entry_price, slip_bps_override=slip,
             )
 
         # ---- signal fade (Task 5) ----------------------------------------
@@ -761,6 +992,7 @@ def _walk_lot_exit_numpy(
     same_minute_resolution: str = "conservative",
     cost_stress: str = "base",
     quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    trades_supplier: Optional[Callable[..., Any]] = None,
     signal_score_fn: Optional[Callable[[Position, pd.Timestamp], Optional[float]]] = None,
     seed: int = 0,
     fade_telemetry_out: Optional[list] = None,
@@ -829,6 +1061,28 @@ def _walk_lot_exit_numpy(
             same_minute_resolution = tie
 
     is_severe = str(cost_stress) == "severe"
+    # PB.1 — sell-side spread-crossing exits (default off → byte-identical).
+    cross_spread = bool(cfg.get("cross_spread", False))
+    hs_bps = get_params(str(cost_stress)).half_spread_bps if cross_spread else 0.0
+    # PB.2 — sell-side size cap + sqrt-impact (default off; None = no cap).
+    participation_cap = cfg.get("participation_cap")
+    impact_coef_bps = float(cfg.get("impact_coef_bps", 10.0))
+    impact_model = str(cfg.get("impact_model", "sqrt"))
+    # PB.3 — require a fresh NBBO for the spread-crossing fill (default off).
+    require_fresh_quote = bool(cfg.get("require_fresh_quote", False))
+    exit_max_quote_age = int(cfg.get("max_quote_age_seconds", 15))
+    # PB.4 — replay the real trade tape for bracket fills (default "legacy" off).
+    fill_model = str(cfg.get("fill_model", "legacy"))
+    tape_window_seconds = float(cfg.get("tape_window_seconds", 300.0))
+    tape_participation = float(cfg.get("tape_participation", 1.0))
+    xf = _XFill(
+        symbol=pos.symbol, quote_supplier=quote_supplier, cross_spread=cross_spread,
+        half_spread_bps=hs_bps, qty=pos.qty, participation_cap=participation_cap,
+        impact_coef_bps=impact_coef_bps, impact_model=impact_model, cost_stress=str(cost_stress),
+        require_fresh_quote=require_fresh_quote, max_quote_age_seconds=exit_max_quote_age,
+        fill_model=fill_model, trades_supplier=trades_supplier,
+        tape_window_seconds=tape_window_seconds, tape_participation=tape_participation,
+    )
     state = _LotPathState()
     entry_price = pos.entry_price or 0.0
     seed_base = f"{seed}|{pos.position_id}"
@@ -857,6 +1111,7 @@ def _walk_lot_exit_numpy(
     h_arr = _col("high", "High")
     l_arr = _col("low", "Low")
     c_arr = _col("close", "Close")
+    v_arr = _col("volume", "Volume")  # PB.2 — minute volume for the size-cap impact
 
     fill_minute_ns = int(fill_minute.value)
     until_ns: Optional[int] = None
@@ -944,27 +1199,32 @@ def _walk_lot_exit_numpy(
                 halt_until_ns = ts_i_ns + _HALT_SECONDS * 1_000_000_000
                 continue
             ts = idx[i]
+            _xbar = {"timestamp": ts, "volume": (v_arr[i] if v_arr is not None else None)}
             if stop_hit and target_hit:
                 winner = _resolve_same_minute(
                     same_minute_resolution, seed_key=f"{seed_base}|{ts.isoformat()}"
                 )
                 if winner == "stop":
+                    px, slip = _bracket_fill(stop_price, _xbar, xf, kind="stop")
                     return _mk_exit(
-                        pos, bar_date, float(stop_price), "stop", ts,
-                        state, entry_price, ambiguous=True,
+                        pos, bar_date, px, "stop", ts,
+                        state, entry_price, ambiguous=True, slip_bps_override=slip,
                     )
+                px, slip = _bracket_fill(target_price, _xbar, xf, kind="target")
                 return _mk_exit(
-                    pos, bar_date, float(target_price), "target", ts,
-                    state, entry_price, ambiguous=True,
+                    pos, bar_date, px, "target", ts,
+                    state, entry_price, ambiguous=True, slip_bps_override=slip,
                 )
             if stop_hit:
+                px, slip = _bracket_fill(stop_price, _xbar, xf, kind="stop")
                 return _mk_exit(
-                    pos, bar_date, float(stop_price), "stop", ts,
-                    state, entry_price,
+                    pos, bar_date, px, "stop", ts,
+                    state, entry_price, slip_bps_override=slip,
                 )
+            px, slip = _bracket_fill(target_price, _xbar, xf, kind="target")
             return _mk_exit(
-                pos, bar_date, float(target_price), "target", ts,
-                state, entry_price,
+                pos, bar_date, px, "target", ts,
+                state, entry_price, slip_bps_override=slip,
             )
 
         # ---- signal fade (Task 5) ----------------------------------------
@@ -1052,6 +1312,7 @@ def walk_lot_exit(
     same_minute_resolution: str = "conservative",
     cost_stress: str = "base",
     quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    trades_supplier: Optional[Callable[..., Any]] = None,
     signal_score_fn: Optional[Callable[[Position, pd.Timestamp], Optional[float]]] = None,
     seed: int = 0,
     fade_telemetry_out: Optional[list] = None,
@@ -1079,7 +1340,8 @@ def walk_lot_exit(
         return _walk_lot_exit_numpy(
             pos, minute_bars, exit_cfg=exit_cfg,
             same_minute_resolution=same_minute_resolution, cost_stress=cost_stress,
-            quote_supplier=quote_supplier, signal_score_fn=signal_score_fn,
+            quote_supplier=quote_supplier, trades_supplier=trades_supplier,
+            signal_score_fn=signal_score_fn,
             seed=seed, fade_telemetry_out=fade_telemetry_out, until_ts=until_ts,
             feed=feed, activation_artifact_dir=activation_artifact_dir,
             status_supplier=status_supplier,
@@ -1087,7 +1349,8 @@ def walk_lot_exit(
     return _walk_lot_exit_pandas(
         pos, minute_bars, exit_cfg=exit_cfg,
         same_minute_resolution=same_minute_resolution, cost_stress=cost_stress,
-        quote_supplier=quote_supplier, signal_score_fn=signal_score_fn,
+        quote_supplier=quote_supplier, trades_supplier=trades_supplier,
+        signal_score_fn=signal_score_fn,
         seed=seed, fade_telemetry_out=fade_telemetry_out, until_ts=until_ts,
         feed=feed, activation_artifact_dir=activation_artifact_dir,
         status_supplier=status_supplier,
@@ -1130,6 +1393,7 @@ def _mk_exit(
     *,
     ambiguous: bool = False,
     halted: bool = False,
+    slip_bps_override: Optional[float] = None,
 ) -> ExitEvent:
     """Build an :class:`ExitEvent`, filling MFE/MAE + exit-slippage forensics."""
     mfe = (state.peak - entry_price) / entry_price if entry_price > 0 and state.peak > 0 else 0.0
@@ -1140,17 +1404,22 @@ def _mk_exit(
     )
     # Exit slippage: a bracket exit fills exactly at the bracket price (0 bps);
     # a time-stop / max-hold / fade / gap exit fills away from the bracket — the
-    # signed deviation from the nearer bracket reference, in bps.
-    slip_bps = 0.0
-    if reason in ("time_stop", "max_hold", "signal_fade_hard", "signal_fade_critical",
-                  "halt_resume_exit"):
-        # measured vs the entry price (a discretionary exit has no bracket).
-        if entry_price > 0:
-            slip_bps = (exit_price - entry_price) / entry_price * 10_000.0
-    elif reason in ("gap_stop", "gap_target"):
-        ref = pos.stop_price if reason == "gap_stop" else pos.target_price
-        if ref:
-            slip_bps = (exit_price - float(ref)) / float(ref) * 10_000.0
+    # signed deviation from the nearer bracket reference, in bps. PB.1: when a
+    # sell-side bracket crosses the spread the caller passes the realized give-up
+    # via ``slip_bps_override`` (None → the legacy forensic below, byte-identical).
+    if slip_bps_override is not None:
+        slip_bps = float(slip_bps_override)
+    else:
+        slip_bps = 0.0
+        if reason in ("time_stop", "max_hold", "signal_fade_hard", "signal_fade_critical",
+                      "halt_resume_exit"):
+            # measured vs the entry price (a discretionary exit has no bracket).
+            if entry_price > 0:
+                slip_bps = (exit_price - entry_price) / entry_price * 10_000.0
+        elif reason in ("gap_stop", "gap_target"):
+            ref = pos.stop_price if reason == "gap_stop" else pos.target_price
+            if ref:
+                slip_bps = (exit_price - float(ref)) / float(ref) * 10_000.0
     return ExitEvent(
         symbol=pos.symbol,
         exit_date=bar_date,

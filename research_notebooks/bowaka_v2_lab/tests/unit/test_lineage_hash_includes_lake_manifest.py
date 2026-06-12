@@ -99,3 +99,35 @@ def test_lab_config_hash_is_a_hash_component(tmp_path):
         cfg=_cfg(lake), symbols=["AAA"], start=start, end=end, lab_config_hash="cfgB"
     )
     assert lin1["dataset_hash"] != lin2["dataset_hash"]
+
+
+def test_trades_partitions_hash_gated_on_tape_replay(tmp_path):
+    """PB.6 — the trades/ tape only enters the dataset hash when the resolved sim
+    config consumes it (fill_model='tape_replay'); legacy runs stay byte-identical
+    (the component is simply absent)."""
+    lake = tmp_path / "lake"
+    _build_lake(lake, lake_manifest_hash="sha256:trades")
+    ts = pd.to_datetime(["2024-09-04 14:00:00", "2024-09-04 14:00:30"], utc=True)
+    _write(layout.trades_path(lake, "AAA", 2024, 9), pd.DataFrame({
+        "symbol": ["AAA"] * 2, "timestamp": ts, "price": [10.0, 10.01],
+        "size": [100.0, 200.0], "exchange": ["V"] * 2, "conditions": ["@"] * 2,
+        "tape": ["C"] * 2, "trade_id": [1, 2]}))
+    start, end = dt.date(2024, 9, 1), dt.date(2024, 9, 30)
+
+    legacy = build_dataset_lineage(cfg=_cfg(lake), symbols=["AAA"], start=start,
+                                   end=end, lab_config_hash="cfg1")
+    cfg_tape = _cfg(lake)
+    cfg_tape["execution"] = {"fill_model": "tape_replay"}
+    tape = build_dataset_lineage(cfg=cfg_tape, symbols=["AAA"], start=start,
+                                 end=end, lab_config_hash="cfg1")
+    # Legacy: no trades component -> byte-identical to before this feature.
+    assert "trades_partitions_hash" not in legacy["components"]
+    # tape_replay: the trades hash IS a component and the dataset hash differs.
+    assert "trades_partitions_hash" in tape["components"]
+    assert legacy["dataset_hash"] != tape["dataset_hash"]
+    # The exits side triggers the gate too.
+    cfg_exit = _cfg(lake)
+    cfg_exit["exits"] = {"fill_model": "tape_replay"}
+    tape_exit = build_dataset_lineage(cfg=cfg_exit, symbols=["AAA"], start=start,
+                                      end=end, lab_config_hash="cfg1")
+    assert "trades_partitions_hash" in tape_exit["components"]

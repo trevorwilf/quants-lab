@@ -45,6 +45,7 @@ import pandas as pd
 
 from .cost_model import get_params, slippage_bps
 from .quote_model import QuoteSnapshot, SOURCE_HISTORICAL
+from .tape_fill import replay_tape_fill
 
 
 class ExecutionTier(str, Enum):
@@ -654,6 +655,67 @@ def _t3_depth_impact_fill(
         is_partial=is_partial, reason="partial_fill" if is_partial else None,
         order_style=order_style, execution_tier=tier.value,
         liquidity_participation_frac=round(participation, 6),
+    )
+
+
+def _tape_replay_fill(
+    *,
+    side: str,
+    requested_qty: int,
+    quote: QuoteSnapshot,
+    forward_trades: Optional[pd.DataFrame],
+    scan_ts: Any,
+    tape_window_seconds: float,
+    tape_participation: float,
+    limit_price: Optional[float],
+    min_order_notional: float,
+    commission_per_share: float,
+    regulatory_fee_bps: float,
+    order_style: str,
+) -> Optional[FillResult]:
+    """PB.4 — buy-side entry fill replayed against the REAL trade tape.
+
+    The marketable parent order consumes the actual prints in
+    ``[scan_ts, scan_ts + tape_window_seconds]`` (size-weighted VWAP, capped at
+    ``tape_participation`` of each print) rather than fabricating depth from the
+    minute volume. A BUY only fills at/below its ``limit_price``
+    (``max_price=limit``) — a pure market order passes no ceiling; a SELL only at/
+    above it. Returns ``None`` when the tape is absent or no print qualifies, so
+    the caller falls back to the existing tier model (legacy stays byte-identical
+    because this path is only entered when ``execution.fill_model == "tape_replay"``).
+    """
+    tier = ExecutionTier.T3_NBBO_DEPTH  # tape replay is the most-honest depth fill
+    side_l = side.lower()
+    ref = float(quote.ask) if side_l == "buy" else float(quote.bid)
+    result = replay_tape_fill(
+        forward_trades,
+        qty=int(requested_qty),
+        start_ts=scan_ts,
+        window_seconds=float(tape_window_seconds),
+        participation=float(tape_participation),
+        max_price=float(limit_price) if (side_l == "buy" and limit_price) else None,
+        min_price=float(limit_price) if (side_l == "sell" and limit_price) else None,
+    )
+    if result.filled_qty <= 0:
+        return None
+    fillable = int(result.filled_qty)
+    price = round(float(result.avg_fill_price), 4)
+    notional = fillable * price
+    is_partial = fillable < int(requested_qty)
+    if is_partial and notional < float(min_order_notional):
+        return _no_fill("partial_below_min", order_style=order_style, execution_tier=tier)
+    commission, regulatory = _fees(
+        notional, commission_per_share=commission_per_share,
+        qty=fillable, regulatory_bps=regulatory_fee_bps,
+    )
+    signed_bps = _bps_signed(ref, price, side=side_l) if ref > 0 else 0.0
+    return FillResult(
+        filled=True, filled_qty=fillable, avg_fill_price=price,
+        slippage_bps_total=round(abs(signed_bps), 4), notional=round(notional, 4),
+        commission=commission, regulatory_fees=regulatory,
+        is_partial=is_partial, reason="partial_fill" if is_partial else None,
+        order_style=order_style, execution_tier=tier.value,
+        slippage_vs_ask_bps=round(signed_bps, 4),
     )
 
 

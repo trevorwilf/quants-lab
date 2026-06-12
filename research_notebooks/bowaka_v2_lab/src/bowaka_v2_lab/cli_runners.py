@@ -22,6 +22,7 @@ from .data.suppliers import (
     make_forward_minute_supplier,
     make_lake_suppliers,
     make_quote_supplier,
+    make_trades_supplier_for_config,
     resolve_intraday_window_policy,
 )
 from .features.volume_curve import build_volume_curve_from_minute_bars, synthesize_default_curve
@@ -231,6 +232,7 @@ def run_backtest_command(
 
     quote_supplier = None
     forward_minute_supplier = None
+    trades_supplier = None
     if _uses_lake(cfg):
         feed = md.get("feed", "iex")
         root = _coerce_lake_root(resolve_lake_root(cfg))
@@ -250,6 +252,9 @@ def run_backtest_command(
             ),
         )
         forward_minute_supplier = make_forward_minute_supplier(root, feed=feed)
+        # PB.4: wire the raw trade tape only when the config selects tape_replay
+        # (else None → byte-identical legacy bracket fills).
+        trades_supplier = make_trades_supplier_for_config(cfg, root, feed=feed)
         data_source = "lake"
     else:
         minute_supplier, daily_supplier = _synthetic_suppliers()
@@ -275,6 +280,7 @@ def run_backtest_command(
         minute_bars_supplier=minute_supplier,
         daily_bars_supplier=daily_supplier,
         quote_supplier=quote_supplier,
+        trades_supplier=trades_supplier,
         forward_minute_supplier=forward_minute_supplier,
         initial_bankroll=100_000.0,
         paths=paths,

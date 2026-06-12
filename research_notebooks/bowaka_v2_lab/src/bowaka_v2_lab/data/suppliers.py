@@ -240,6 +240,84 @@ def make_quote_supplier(
     return quote_supplier
 
 
+def make_trades_supplier(
+    shared_root: str | Path | None = None,
+    *,
+    feed: str = "iex",
+    vendor: str = "alpaca",
+) -> Callable[..., Any]:
+    """Return a ``trades_supplier(symbol, t0, t1) -> pd.DataFrame`` reading the raw
+    trade tape from the shared lake (PA.2), for the tape-replay fill oracle (PB.4).
+
+    On a lake without ``trades/`` partitions (the normal case until PA.4 lands)
+    every call returns an EMPTY frame, so the ``tape_replay`` fill model cleanly
+    falls back to the existing fill model.
+    """
+    store = _as_store(shared_root, vendor=vendor)
+
+    def trades_supplier(symbol: str, t0: Any, t1: Any):
+        return store.trades_between(symbol, t0, t1, feed=feed)
+
+    return trades_supplier
+
+
+def _config_uses_tape_replay(cfg: Any) -> bool:
+    """True when the resolved config selects ``fill_model="tape_replay"`` on the
+    entry (``execution``) or exit (``exits``) block. Mirrors
+    ``data.lineage._resolved_consumes_trades`` so the supplier wiring and the
+    ``dataset_hash`` gating agree on what "consumes the tape" means."""
+    for block in ("execution", "exits"):
+        if isinstance(cfg, dict):
+            sub = cfg.get(block) or {}
+        else:
+            sub = getattr(cfg, block, None) or {}
+        fm = sub.get("fill_model") if isinstance(sub, dict) else getattr(sub, "fill_model", None)
+        if str(fm or "legacy") == "tape_replay":
+            return True
+    return False
+
+
+def make_trades_supplier_for_config(
+    cfg: Any,
+    shared_root: str | Path | None = None,
+    *,
+    feed: str = "iex",
+    vendor: str = "alpaca",
+) -> Callable[..., Any] | None:
+    """Return a ``trades_supplier`` ONLY when ``cfg`` selects the tape-replay fill
+    model (PB.4), else ``None``.
+
+    This is the single wiring gate every ``run_backtest`` call site uses: a
+    ``"legacy"`` config gets ``None`` (the engine's tape branch is never entered →
+    BYTE-IDENTICAL to the pre-PB.4 engine), while a ``"tape_replay"`` config gets a
+    live :func:`make_trades_supplier` reading the lake's ``trades/`` tape. The
+    supplier itself is lazy — it only touches the lake when the exit walk actually
+    asks for a bracket fill — so wiring it costs nothing until a tape fill fires.
+    """
+    if not _config_uses_tape_replay(cfg):
+        return None
+    # Honesty guard: a config that REQUESTS tape_replay but points at a lake with
+    # no trades/ partitions would silently fall back to legacy on every fill. Warn
+    # loudly so legacy results are not mistaken for tape results.
+    if shared_root is not None:
+        try:
+            from .lineage import _coerce_lake_root, trades_partitions_available
+
+            if not trades_partitions_available(_coerce_lake_root(shared_root)):
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "fill_model='tape_replay' requested but the lake at %s has no "
+                    "trades/ partitions — every tape fill will fall back to the "
+                    "legacy model. Run the PA.2 trades backfill (scripts/"
+                    "backfill_market_data.py --trades) before relying on tape fills.",
+                    shared_root,
+                )
+        except Exception:  # noqa: BLE001 — the warning is best-effort, never fatal
+            pass
+    return make_trades_supplier(shared_root, feed=feed, vendor=vendor)
+
+
 def _daily_cache_row_from_prior(
     symbol: str,
     prior: pd.DataFrame,

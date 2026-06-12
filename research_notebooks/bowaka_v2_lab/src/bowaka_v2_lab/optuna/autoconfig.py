@@ -290,6 +290,7 @@ def derive_validation_config(
     search_config: "str | Path | Mapping[str, Any]",
     *,
     validation_mode: str = "intended_realism",
+    enable_tape_replay: bool = False,
     out_path: "Optional[str | Path]" = None,
 ) -> dict:
     """§10i Path 3 — derive the finalist-VALIDATION config from a fast_realism SEARCH config.
@@ -309,6 +310,13 @@ def derive_validation_config(
         run_walkforward_study(search_cfg_path)                      # fast_realism search
         derive_validation_config(search_cfg_path, out_path="val.yml")
         # then `evaluate-finalists` / `score-final-holdout` against val.yml (intended_realism)
+
+    PB.6 (opt-in): ``enable_tape_replay=True`` switches the entry+exit fill model
+    to ``"tape_replay"`` for the validation run — the most honest fill obtainable
+    (replays the real trade tape). Default ``False`` keeps the search/validation
+    split byte-identical. Turning it on makes the run consume ``trades/`` (the
+    ``dataset_hash`` gains the gated ``trades_partitions_hash``) and caps the
+    suitability tier at ``research_only`` until the model is deliberately promoted.
     """
     if isinstance(search_config, Mapping):
         cfg = copy.deepcopy(dict(search_config))
@@ -328,6 +336,13 @@ def derive_validation_config(
     ):
         sim.pop(_field, None)
     cfg["simulation"] = sim
+    if enable_tape_replay:
+        # Opt-in: route entry + exit fills through the real-tape oracle for the
+        # finalist validation. The config validator fills the rest of each block.
+        for _blk in ("execution", "exits"):
+            _sub = dict(cfg.get(_blk) or {})
+            _sub["fill_model"] = "tape_replay"
+            cfg[_blk] = _sub
     if out_path is not None:
         _to_write = {k: v for k, v in cfg.items() if k != "_source_path"}
         Path(out_path).write_text(yaml.safe_dump(_to_write, sort_keys=False), encoding="utf-8")

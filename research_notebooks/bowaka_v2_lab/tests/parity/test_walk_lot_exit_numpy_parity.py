@@ -113,11 +113,11 @@ def _run_both(pos: Position, bars: pd.DataFrame, *, ctx: str, **kwargs) -> None:
 def _lot(
     *, entry_price=100.0, stop_pct=0.08, target_pct=0.15, max_hold_days=3,
     entry_date=_dt.date(2024, 9, 4), entry_clock="09:30",
-    stop_price=None, target_price=None,
+    stop_price=None, target_price=None, qty=10,
 ) -> Position:
     base = pd.Timestamp(f"{entry_date} {entry_clock}", tz=_ET).tz_convert("UTC")
     return Position(
-        symbol="AAA", entry_date=entry_date, entry_price=entry_price, qty=10,
+        symbol="AAA", entry_date=entry_date, entry_price=entry_price, qty=qty,
         stop_pct=stop_pct, target_pct=target_pct, max_hold_days=max_hold_days,
         entry_session=entry_date, entry_timestamp=base.isoformat(),
         stop_price=stop_price, target_price=target_price,
@@ -293,6 +293,170 @@ def test_nan_cells_and_duplicate_and_unsorted_timestamps() -> None:
 
 
 # --------------------------------------------------------------------------
+# PB.1 — sell-side spread-crossing exits (exits.cross_spread)
+# --------------------------------------------------------------------------
+def _cfg_xspread(on: bool) -> dict:
+    return {"time_stop": {"enabled": False}, "cross_spread": on}
+
+
+def _stop_bars() -> pd.DataFrame:
+    return _path([
+        {"o": 100, "h": 100.5, "l": 99.8, "c": 100},
+        {"o": 100, "h": 100.5, "l": 91.0, "c": 95},   # low 91 <= stop 92
+    ])
+
+
+def test_cross_spread_off_fills_exactly_at_bracket():
+    # Knob OFF: even WITH a bid well below the stop, the fill is the exact bracket
+    # price and slippage is 0 — byte-identical to the legacy engine.
+    quote = lambda sym, ts: {"bid": 90.0}  # noqa: E731
+    ev = _walk_lot_exit_pandas(_lot(stop_price=92.0, target_price=115.0), _stop_bars(),
+                               exit_cfg=_cfg_xspread(False), quote_supplier=quote)
+    assert ev.exit_reason == "stop"
+    assert ev.exit_price == 92.0
+    assert ev.exit_slippage_bps == 0.0
+
+
+def test_cross_spread_stop_fills_at_bid_with_giveup():
+    quote = lambda sym, ts: {"bid": 90.0}  # noqa: E731 — bid below the stop
+    pos = _lot(stop_price=92.0, target_price=115.0)
+    ev = _walk_lot_exit_pandas(pos, _stop_bars(), exit_cfg=_cfg_xspread(True),
+                               quote_supplier=quote, cost_stress="conservative")
+    assert ev.exit_reason == "stop"
+    # fill = min(92, 90*(1 - 5/1e4))  (conservative half_spread_bps = 5)
+    assert ev.exit_price == pytest.approx(90.0 * (1 - 5.0 / 1e4))
+    assert ev.exit_price < 92.0
+    assert ev.exit_slippage_bps < 0.0  # adverse give-up
+    _run_both(pos, _stop_bars(), ctx="xspread_stop", exit_cfg=_cfg_xspread(True),
+              quote_supplier=quote, cost_stress="conservative")
+
+
+def test_cross_spread_no_quote_falls_back_to_bracket():
+    pos = _lot(stop_price=92.0, target_price=115.0)
+    ev = _walk_lot_exit_pandas(pos, _stop_bars(), exit_cfg=_cfg_xspread(True))  # no quote
+    assert ev.exit_reason == "stop"
+    assert ev.exit_price == 92.0  # no bid -> legacy bracket fill
+    assert ev.exit_slippage_bps == 0.0
+
+
+def test_cross_spread_target_gives_up_to_bid():
+    bars = _path([
+        {"o": 100, "h": 100.5, "l": 99.8, "c": 100},
+        {"o": 100, "h": 116.0, "l": 99.0, "c": 110},  # high 116 >= target 115
+    ])
+    quote = lambda sym, ts: {"bid": 114.0}  # noqa: E731 — bid below target
+    pos = _lot(stop_price=92.0, target_price=115.0)
+    ev = _walk_lot_exit_pandas(pos, bars, exit_cfg=_cfg_xspread(True),
+                               quote_supplier=quote, cost_stress="conservative")
+    assert ev.exit_reason == "target"
+    assert ev.exit_price == pytest.approx(min(115.0, 114.0 * (1 - 5.0 / 1e4)))
+    assert ev.exit_price < 115.0
+    assert ev.exit_slippage_bps < 0.0
+    _run_both(pos, bars, ctx="xspread_target", exit_cfg=_cfg_xspread(True),
+              quote_supplier=quote, cost_stress="conservative")
+
+
+# --------------------------------------------------------------------------
+# PB.2 — sell-side size cap + sqrt-impact (exits.participation_cap)
+# --------------------------------------------------------------------------
+def _cfg_pcap(cap, *, cross_spread=False):
+    c = {"time_stop": {"enabled": False}, "cross_spread": cross_spread}
+    if cap is not None:
+        c["participation_cap"] = cap
+    return c
+
+
+def test_participation_cap_off_is_byte_identical():
+    # cap absent -> exact bracket fill / 0 slip even for a lot huge vs the minute.
+    pos = _lot(stop_price=92.0, target_price=115.0, qty=5000)  # 5000 vs 1000-share min
+    ev = _walk_lot_exit_pandas(pos, _stop_bars(), exit_cfg={"time_stop": {"enabled": False}})
+    assert ev.exit_reason == "stop"
+    assert ev.exit_price == 92.0
+    assert ev.exit_slippage_bps == 0.0
+
+
+def test_participation_cap_applies_capped_sqrt_impact():
+    pos = _lot(stop_price=92.0, target_price=115.0, qty=5000)  # participation 5.0 -> cap 0.10
+    ev = _walk_lot_exit_pandas(pos, _stop_bars(), exit_cfg=_cfg_pcap(0.10),
+                               cost_stress="conservative")
+    assert ev.exit_reason == "stop"
+    exp_impact = 10.0 * math.sqrt(0.10) * 2.0  # impact_coef * sqrt(cap) * conservative mult
+    assert ev.exit_price == pytest.approx(92.0 * (1 - exp_impact / 1e4))
+    assert ev.exit_price < 92.0
+    assert ev.exit_slippage_bps < 0.0
+    _run_both(pos, _stop_bars(), ctx="pcap_stop", exit_cfg=_cfg_pcap(0.10),
+              cost_stress="conservative")
+
+
+def test_participation_cap_small_lot_uses_actual_participation():
+    pos = _lot(stop_price=92.0, target_price=115.0, qty=50)  # 50/1000 = 0.05 < cap 0.10
+    ev = _walk_lot_exit_pandas(pos, _stop_bars(), exit_cfg=_cfg_pcap(0.10), cost_stress="base")
+    exp_impact = 10.0 * math.sqrt(0.05) * 1.0  # base mult = 1.0
+    assert ev.exit_price == pytest.approx(92.0 * (1 - exp_impact / 1e4))
+
+
+def test_participation_cap_composes_with_cross_spread():
+    quote = lambda sym, ts: {"bid": 90.0}  # noqa: E731
+    pos = _lot(stop_price=92.0, target_price=115.0, qty=5000)
+    ev = _walk_lot_exit_pandas(pos, _stop_bars(), exit_cfg=_cfg_pcap(0.10, cross_spread=True),
+                               quote_supplier=quote, cost_stress="conservative")
+    base = min(92.0, 90.0 * (1 - 5.0 / 1e4))    # PB.1 marketable base
+    exp_impact = 10.0 * math.sqrt(0.10) * 2.0   # PB.2 impact on top
+    assert ev.exit_price == pytest.approx(base * (1 - exp_impact / 1e4))
+    _run_both(pos, _stop_bars(), ctx="pcap_xspread", exit_cfg=_cfg_pcap(0.10, cross_spread=True),
+              quote_supplier=quote, cost_stress="conservative")
+
+
+def test_exit_stress_mult_mirrors_buy_side():
+    from bowaka_v2_lab.sim import exits as _ex
+    from bowaka_v2_lab.sim import fills as _fl
+    assert _ex._COST_STRESS_SLIPPAGE_MULT == _fl.COST_STRESS_SLIPPAGE_MULT
+
+
+# --------------------------------------------------------------------------
+# PB.3 — exit quote-age / no-quote handling (exits.require_fresh_quote)
+# --------------------------------------------------------------------------
+def _cfg_fresh(on, *, cross_spread=True, max_age=15):
+    return {"time_stop": {"enabled": False}, "cross_spread": cross_spread,
+            "require_fresh_quote": on, "max_quote_age_seconds": max_age}
+
+
+def test_require_fresh_quote_off_uses_legacy_2arg_supplier():
+    # Knob off: the 2-arg supplier is called as in PB.1 (no max-age gating).
+    quote = lambda sym, ts: {"bid": 90.0}  # noqa: E731
+    pos = _lot(stop_price=92.0, target_price=115.0)
+    ev = _walk_lot_exit_pandas(pos, _stop_bars(), exit_cfg=_cfg_fresh(False),
+                               quote_supplier=quote, cost_stress="conservative")
+    assert ev.exit_price == pytest.approx(90.0 * (1 - 5.0 / 1e4))  # PB.1 bid fill
+
+
+def test_require_fresh_quote_on_uses_fresh_bid():
+    def quote(sym, ts, max_age_seconds=None):  # honors the freshness kwarg
+        return {"bid": 90.0}
+    pos = _lot(stop_price=92.0, target_price=115.0)
+    ev = _walk_lot_exit_pandas(pos, _stop_bars(), exit_cfg=_cfg_fresh(True),
+                               quote_supplier=quote, cost_stress="conservative")
+    assert ev.exit_price == pytest.approx(90.0 * (1 - 5.0 / 1e4))
+    _run_both(pos, _stop_bars(), ctx="fresh_ok", exit_cfg=_cfg_fresh(True),
+              quote_supplier=quote, cost_stress="conservative")
+
+
+def test_require_fresh_quote_on_widens_giveup_when_stale():
+    def stale(sym, ts, max_age_seconds=None):  # stale/absent -> supplier returns None
+        return None
+    pos = _lot(stop_price=92.0, target_price=115.0)
+    ev = _walk_lot_exit_pandas(pos, _stop_bars(), exit_cfg=_cfg_fresh(True),
+                               quote_supplier=stale, cost_stress="conservative")
+    assert ev.exit_reason == "stop"
+    # widened give-up = bracket * (1 - 2*half_spread/1e4), NOT the clean bracket.
+    assert ev.exit_price == pytest.approx(92.0 * (1 - 2.0 * 5.0 / 1e4))
+    assert ev.exit_price < 92.0
+    assert ev.exit_slippage_bps < 0.0
+    _run_both(pos, _stop_bars(), ctx="fresh_stale", exit_cfg=_cfg_fresh(True),
+              quote_supplier=stale, cost_stress="conservative")
+
+
+# --------------------------------------------------------------------------
 # Seeded fuzzer — broad input distribution
 # --------------------------------------------------------------------------
 def _rand_path(rng: random.Random, *, n: int, start_date: _dt.date,
@@ -359,6 +523,12 @@ def _rand_cfg(rng: random.Random) -> dict:
         }
     if rng.random() < 0.2:
         cfg["same_minute_tie"] = rng.choice(["stop_first", "target_first"])
+    if rng.random() < 0.5:
+        cfg["cross_spread"] = True  # PB.1 — exercise spread-crossing in the fuzzer
+    if rng.random() < 0.4:
+        cfg["participation_cap"] = rng.choice([0.05, 0.10, 0.25])  # PB.2 — size cap + impact
+    if rng.random() < 0.4:
+        cfg["require_fresh_quote"] = True  # PB.3 — quote-freshness gate
     return cfg
 
 
@@ -376,6 +546,7 @@ def test_fuzz_numpy_matches_reference() -> None:
             stop_price=(entry_price * (1 - stop_pct) if rng.random() < 0.8 else None),
             target_price=(entry_price * (1 + target_pct) if rng.random() < 0.8 else None),
             entry_clock=rng.choice(["09:30", "10:15", "13:00"]),
+            qty=rng.choice([10, 100, 5000]),  # PB.2 — vary participation vs minute volume
         )
         # Scale the random path around this lot's entry price.
         n = rng.randint(5, 200)
@@ -394,7 +565,8 @@ def test_fuzz_numpy_matches_reference() -> None:
         }
         if rng.random() < 0.6:
             bid = rng.uniform(10, 320)
-            kwargs["quote_supplier"] = (lambda b: (lambda sym, ts: {"bid": b}))(bid)
+            kwargs["quote_supplier"] = (
+                lambda b: (lambda sym, ts, max_age_seconds=None: {"bid": b}))(bid)
         if (cfg_fade := kwargs["exit_cfg"].get("signal_fade")) and rng.random() < 0.9:
             sc = rng.uniform(0.0, 1.0)
             kwargs["signal_score_fn"] = (lambda s: (lambda pos, ts: s))(sc)

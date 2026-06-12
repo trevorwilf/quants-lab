@@ -229,6 +229,13 @@ def decide_suitability(run_dir: Path, checklist_results: dict | None = None) -> 
     if sim_mode in _CONTRACT_TIER_CAP and _CONTRACT_TIER_CAP[sim_mode] == "research_only":
         return "research_only"
 
+    # PB.6 — a run that consumed the REAL trade tape (fill_model="tape_replay" on
+    # entries or exits) uses the honest-fill model that is NOT yet validated
+    # against the tape (PB.5). Cap it at research_only regardless of mode/feed
+    # until that validation lands and the model is deliberately promoted into IR.
+    if (manifest.get("fill_model") or {}).get("consumes_trade_tape"):
+        return "research_only"
+
     # IEX → research_only hard cap.
     if feed == "iex":
         return "research_only"

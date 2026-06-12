@@ -438,6 +438,7 @@ def run_one_scan(
     consumer: StrategyConsumer,
     quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
     forward_minute_supplier: Optional[Callable[[str, Any], pd.DataFrame | None]] = None,
+    trades_supplier: Optional[Callable[..., Any]] = None,
     status_supplier: Optional[Callable[..., Optional[dict]]] = None,
     # Speedup report §5.4 / §11.2 Phase 4 — precomputed per-session context
     # and gate-dump suppression. ``None`` + ``True`` preserve the legacy
@@ -489,7 +490,7 @@ def run_one_scan(
         fwd = forward_minute_supplier(ev["symbol"], scan_ts) if forward_minute_supplier else None
         cr = consumer.consume(
             ev, decision_ts=scan_ts, historical_quote=q, forward_minute_bars=fwd,
-            status_supplier=status_supplier,
+            status_supplier=status_supplier, trades_supplier=trades_supplier,
         )
         consumer_results.append(cr)
     return scan_result, consumer_results

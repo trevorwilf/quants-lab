@@ -304,6 +304,13 @@ class ExecutionConfig(_StrictBase):
     market_impact_coef_bps: float = Field(default=10.0, ge=0.0)
     market_impact_model: Literal["sqrt", "linear"] = "sqrt"
     minute_volume_participation_frac: float = Field(default=0.10, gt=0.0, le=1.0)
+    # PB.4 — trade-tape replay fill model (entries). Default "legacy" = the
+    # existing tiered fill model (byte-identical). "tape_replay" replays the actual
+    # trade tape (PA.2) for the achievable VWAP + fill fraction; falls back to
+    # legacy when no trades are wired/available.
+    fill_model: Literal["legacy", "tape_replay"] = "legacy"
+    tape_window_seconds: float = Field(default=300.0, gt=0.0)
+    tape_participation: float = Field(default=1.0, gt=0.0, le=1.0)
 
 
 class SizingConfig(_StrictBase):
@@ -377,6 +384,29 @@ class ExitsConfig(_StrictBase):
     )
     max_hold_days: int = Field(default=5, ge=1)
     signal_fade_mode: Literal["telemetry_only", "active"] = "telemetry_only"
+    # PB.1 — sell-side spread-crossing exits. Default off → a stop/target fills
+    # EXACTLY at the bracket price (byte-identical legacy behavior). When true, a
+    # stop/target SELL fills at the marketable bid (gives up the half-spread).
+    cross_spread: bool = False
+    # PB.2 — sell-side size cap + sqrt market-impact (the exit mirror of the
+    # buy-side T3 fill). ``participation_cap`` (None = off) caps how much of the
+    # lot prints per minute at ``participation_cap * minute_volume``; the blended
+    # exit then pays a sqrt-impact give-up. ``impact_coef_bps`` / ``impact_model``
+    # default to the buy-side execution defaults so the two sides are symmetric.
+    participation_cap: Optional[float] = None
+    impact_coef_bps: float = 10.0
+    impact_model: Literal["sqrt", "linear"] = "sqrt"
+    # PB.3 — require a FRESH NBBO at the exit minute (IR-consistent). Default off.
+    # When true, the spread-crossing bid lookup uses ``max_quote_age_seconds`` and
+    # a stale/absent quote widens the give-up instead of filling cleanly.
+    require_fresh_quote: bool = False
+    max_quote_age_seconds: int = 15
+    # PB.4 — trade-tape replay fill model (exits). Default "legacy" = the PB.1-3
+    # bracket fill (byte-identical). "tape_replay" replays the actual trade tape
+    # for the realized sell VWAP; falls back to the bracket fill when no trades.
+    fill_model: Literal["legacy", "tape_replay"] = "legacy"
+    tape_window_seconds: float = Field(default=300.0, gt=0.0)
+    tape_participation: float = Field(default=1.0, gt=0.0, le=1.0)
     # Live exit substructures (Phase 7 promotes these to typed sub-models).
     time_stop: Optional[dict[str, Any]] = None
     signal_fade: Optional[dict[str, Any]] = None

@@ -256,6 +256,33 @@ def _quotes_partitions_hash(lake_root: Path) -> str:
     )
 
 
+def _trades_partitions_hash(lake_root: Path) -> str:
+    """Per-partition hash of the ``trades/`` tree (PB.4/PB.6).
+
+    Gated: only included in the ``dataset_hash`` when the resolved sim config
+    actually consumes the tape (see :func:`_resolved_consumes_trades`), so two runs
+    over DIFFERENT trades data don't share a hash, while runs that don't read the
+    tape stay byte-identical.
+    """
+    return _cached_partition_hash(
+        lake_root, "trades",
+        lambda: _partition_files_hash(lake_root / _layout.DS_TRADES),
+    )
+
+
+def _resolved_consumes_trades(cfg: Mapping[str, Any]) -> bool:
+    """True when the resolved sim config uses the tape-replay fill model (PB.4) —
+    on entries (``execution.fill_model``) or exits (``exits.fill_model``)."""
+    for block in ("execution", "exits"):
+        sub = cfg.get(block) or {}
+        try:
+            if str(sub.get("fill_model", "legacy")) == "tape_replay":
+                return True
+        except AttributeError:  # not a mapping
+            continue
+    return False
+
+
 def _corp_actions_hash(lake_root: Path) -> str:
     """Per-partition hash of ``corporate_actions/``; ``"none"`` when the tree is absent.
 
@@ -276,6 +303,19 @@ def quotes_partitions_available(lake_root: Path) -> bool:
     if not quotes_root.is_dir():
         return False
     return any(quotes_root.rglob("*.parquet"))
+
+
+def trades_partitions_available(lake_root: Path) -> bool:
+    """True when a non-empty ``trades/`` directory exists in the lake (PA.2/PB.4).
+
+    Used to warn loudly when a config requests ``fill_model="tape_replay"`` but
+    the lake has no trade tape — otherwise every fill silently falls back to the
+    legacy model and the operator would mistake legacy results for tape results.
+    """
+    trades_root = lake_root / _layout.DS_TRADES
+    if not trades_root.is_dir():
+        return False
+    return any(trades_root.rglob("*.parquet"))
 
 
 def lake_provider(lake_manifest: Optional[Mapping[str, Any]]) -> str:
@@ -392,6 +432,12 @@ def build_dataset_lineage(
             "corp_actions_hash": _corp_actions_hash(lake_root),
             "lab_config_hash": lab_config_hash,
         }
+        # PB.6 — gated trades-tape component: only added when the resolved sim
+        # config consumes the tape (fill_model="tape_replay"), so a tape-replay run
+        # over different trades data hashes distinctly while every legacy run stays
+        # byte-identical (the key is simply absent).
+        if _resolved_consumes_trades(cfg):
+            components["trades_partitions_hash"] = _trades_partitions_hash(lake_root)
         provider = lake_provider(lake_manifest)
         regime = "lake"
     else:

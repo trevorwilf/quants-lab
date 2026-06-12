@@ -39,6 +39,7 @@ from ..schemas.decisions import (
 from .broker import SimulatedBroker
 from .fills import (
     FillResult,
+    _tape_replay_fill,
     simulate_market_fill,
     simulate_marketable_limit_fill,
 )
@@ -192,6 +193,7 @@ class StrategyConsumer:
         historical_quote: Optional[dict] = None,
         forward_minute_bars: Optional[Any] = None,
         status_supplier: Optional[Any] = None,
+        trades_supplier: Optional[Any] = None,
     ) -> StrategyConsumerResult:
         """Consume one candidate event and emit decision(s) / a position.
 
@@ -584,8 +586,42 @@ class StrategyConsumer:
         minute_volume_participation_frac = float(
             execution_cfg.get("minute_volume_participation_frac", 0.10)
         )
-        if plan.order_style == "market":
-            fill: FillResult = simulate_market_fill(
+        # PB.4 — buy-side entry fill replayed against the REAL trade tape. Only
+        # attempted when ``execution.fill_model == "tape_replay"`` and a
+        # ``trades_supplier`` is wired; ``None`` result (no tape / no qualifying
+        # print) falls through to the legacy tier model. Default "legacy" leaves
+        # the fill path BYTE-IDENTICAL (this block is skipped entirely).
+        _fill_model = str(execution_cfg.get("fill_model", "legacy"))
+        _tape_fill: Optional[FillResult] = None
+        if _fill_model == "tape_replay" and trades_supplier is not None:
+            _tape_window = float(execution_cfg.get("tape_window_seconds", 300.0))
+            _tape_part = float(execution_cfg.get("tape_participation", 1.0))
+            _limit_ceiling = None
+            if plan.order_style != "market":
+                _ml_slip = float(execution_cfg.get(
+                    "marketable_limit_slippage_pct",
+                    execution_cfg.get("limit_offset_bps", 5) / 10_000.0))
+                _ask = float(quote.ask) if quote.ask else 0.0
+                _limit_ceiling = _ask * (1.0 + _ml_slip) if _ask > 0 else None
+            try:
+                _fwd_trades = trades_supplier(
+                    symbol, ts_pts, ts_pts + _pd.Timedelta(seconds=_tape_window))
+            except Exception:  # noqa: BLE001 — supplier failure = no tape → fall back
+                _fwd_trades = None
+            if _fwd_trades is not None and len(_fwd_trades) > 0:
+                _tape_fill = _tape_replay_fill(
+                    side="buy", requested_qty=qty, quote=quote,
+                    forward_trades=_fwd_trades, scan_ts=ts_pts,
+                    tape_window_seconds=_tape_window, tape_participation=_tape_part,
+                    limit_price=_limit_ceiling, min_order_notional=min_order_notional,
+                    commission_per_share=commission_per_share,
+                    regulatory_fee_bps=regulatory_fee_bps,
+                    order_style=plan.order_style,
+                )
+        if _tape_fill is not None:
+            fill: FillResult = _tape_fill
+        elif plan.order_style == "market":
+            fill = simulate_market_fill(
                 side="buy", requested_qty=qty, quote=quote,
                 liquidity_proxy_shares=liquidity_proxy_shares,
                 cost_stress=cost_stress,

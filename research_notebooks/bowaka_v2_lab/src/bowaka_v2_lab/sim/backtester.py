@@ -445,6 +445,7 @@ def _check_lot_exits_until(
     cfg: Mapping[str, Any],
     bars_by_lot: dict[str, Optional[pd.DataFrame]],
     quote_supplier: Optional[Callable[..., Optional[dict]]],
+    trades_supplier: Optional[Callable[..., Any]],
     signal_score_fn: Optional[Callable[[Any, pd.Timestamp], Optional[float]]],
     same_minute_resolution: str,
     cost_stress: str,
@@ -476,6 +477,7 @@ def _check_lot_exits_until(
             same_minute_resolution=str(same_minute_resolution),
             cost_stress=cost_stress,
             quote_supplier=quote_supplier,
+            trades_supplier=trades_supplier,
             signal_score_fn=signal_score_fn,
             seed=seed,
             fade_telemetry_out=fade_telemetry_out,
@@ -641,6 +643,10 @@ def run_backtest(
     minute_bars_supplier: Callable[[str, Any], pd.DataFrame | None],
     daily_bars_supplier: Callable[[str, _dt.date], pd.DataFrame | None],
     quote_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    # PB.4 — raw trade-tape supplier ``trades_supplier(symbol, t0, t1) -> df``
+    # for the ``fill_model="tape_replay"`` bracket-fill oracle. Default ``None``
+    # → the exit walk's tape branch is inert (legacy bracket fills).
+    trades_supplier: Optional[Callable[..., Any]] = None,
     forward_minute_supplier: Optional[Callable[[str, Any], pd.DataFrame | None]] = None,
     # Realism Phase 7: returns the FULL regular-session minute bars for a
     # ``(symbol, session_date)`` — the path the per-lot minute exit walk
@@ -1104,6 +1110,7 @@ def run_backtest(
                     volume_curve=volume_curve, state=state, scan_ts=scan_ts,
                     bars_supplier=minute_bars_supplier, consumer=consumer,
                     quote_supplier=quote_supplier,
+                    trades_supplier=trades_supplier,
                     forward_minute_supplier=forward_minute_supplier,
                     status_supplier=status_supplier,
                     scan_context=scan_session_ctx,
@@ -1323,6 +1330,7 @@ def run_backtest(
                         same_minute_resolution=str(same_minute),
                         cost_stress=cost_stress,
                         quote_supplier=quote_supplier,
+                        trades_supplier=trades_supplier,
                         signal_score_fn=sess_fade_score_fn,
                         seed=run_seed,
                         fade_telemetry_out=sess_acc.fade_telemetry,
@@ -1423,6 +1431,7 @@ def run_backtest(
                     volume_curve=volume_curve, state=state, scan_ts=scan_ts,
                     bars_supplier=minute_bars_supplier, consumer=consumer,
                     quote_supplier=quote_supplier,
+                    trades_supplier=trades_supplier,
                     forward_minute_supplier=forward_minute_supplier,
                     status_supplier=status_supplier,
                     scan_context=scan_session_ctx,
@@ -1863,6 +1872,17 @@ def run_backtest(
             # run artifact declares which strategy it reproduced. suitability_tier
             # is added below, after the mechanical decision runs.
             "simulation_contract": sim_cfg.mode,
+            # PB.6 — declare the entry/exit fill model so the suitability gate can
+            # cap a tape-replay run at research_only until PB.5 validates the
+            # honest-fill model against the real tape (then promote into IR).
+            "fill_model": {
+                "execution": str((cfg_dict.get("execution") or {}).get("fill_model", "legacy")),
+                "exits": str((cfg_dict.get("exits") or {}).get("fill_model", "legacy")),
+                "consumes_trade_tape": any(
+                    str((cfg_dict.get(_b) or {}).get("fill_model", "legacy")) == "tape_replay"
+                    for _b in ("execution", "exits")
+                ),
+            },
             "lineage": lineage,
             # Realism Phase 3: per-session point-in-time universe hashes.
             "universe_hashes_by_session": universe_hashes_by_session,
