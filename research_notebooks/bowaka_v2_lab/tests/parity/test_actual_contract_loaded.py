@@ -13,30 +13,36 @@ import pytest
 
 from bowaka_v2_lab import reference
 
-# Durable spot-check values, pinned from the live bowaka_v2_config.yaml on
-# 2026-05-21. A genuine live change to one of these requires regenerating the
-# contract (and updating this table in the same commit, with a changelog note).
+# Durable spot-check values, pinned from the live bowaka_v2_config.yaml.
+# A genuine live change to one of these requires regenerating the contract
+# (mirror_bowaka_v2_source.ps1) and updating this table in the same commit.
+#
+# CHANGELOG:
+# - 2026-05-21: initial pin.
+# - 2026-06-12: prod re-mirror adopting OPTUNA WINNER TRIAL #3155 (2026-06-11)
+#   re-tuned signals / sizing / risk / exits. The 11 values below marked
+#   "#3155" updated from the regenerated contract; session/universe/scanner +
+#   sizing_mode/bankroll_fixed_dollars are unchanged. The live-only
+#   sizing.compounding block was preserved by the tuning (now modeled in the lab).
 _EXPECTED: dict[tuple[str, str], object] = {
     ("session", "scanner_start"): "09:45",
     ("session", "scanner_end"): "15:30",
     ("universe", "price_max"): 20.0,
     ("universe", "avg_dollar_volume_min"): 250000,
     ("scanner", "max_candidates_per_scan"): 25,
-    ("signals", "rvol_so_far_min"): 0.7,
-    ("signals", "projected_full_day_rvol_min"): 0.5,
-    ("signals", "prior_atr_pct_min"): 0.06,
-    ("signals", "close_location_so_far_min"): 0.60,
+    ("signals", "rvol_so_far_min"): 0.5008057683562838,            # #3155 (was 0.7)
+    ("signals", "projected_full_day_rvol_min"): 1.864062376763409,  # #3155 (was 0.5)
+    ("signals", "prior_atr_pct_min"): 0.10059887989166297,         # #3155 (was 0.06)
+    ("signals", "close_location_so_far_min"): 0.7610800219990064,   # #3155 (was 0.60)
     ("sizing", "sizing_mode"): "equal_slice",
     ("sizing", "bankroll_fixed_dollars"): 90000,
-    ("sizing", "max_concurrent_positions"): 18,
-    ("sizing", "equal_slice_bankroll_fraction"): 0.80,
-    ("risk", "daily_loss_pct"): 0.03,
-    ("risk", "max_lots_per_symbol"): 3,
-    # Speedup report v2 §1.2 / Phase 0 — tightened from 0.08 to 0.025
-    # per-stock per operator on 2026-05-26.
-    ("exits", "stop_pct"): 0.025,
-    ("exits", "target_pct"): 0.15,
-    ("exits", "max_hold_days"): 3,
+    ("sizing", "max_concurrent_positions"): 1,                     # #3155 (was 18)
+    ("sizing", "equal_slice_bankroll_fraction"): 0.7016473758770456,  # #3155 (was 0.80)
+    ("risk", "daily_loss_pct"): 0.09182164526340102,              # #3155 (was 0.03)
+    ("risk", "max_lots_per_symbol"): 4,                            # #3155 (was 3)
+    ("exits", "stop_pct"): 0.10383796823643686,                   # #3155 (was 0.025)
+    ("exits", "target_pct"): 0.4,                                  # #3155 (was 0.15)
+    ("exits", "max_hold_days"): 10,                                # #3155 (was 3)
 }
 
 

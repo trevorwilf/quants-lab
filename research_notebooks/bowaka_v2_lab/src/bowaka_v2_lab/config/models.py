@@ -239,6 +239,14 @@ class ScannerConfig(_StrictBase):
     symbol_cooldown_minutes: int = 390
     require_prior_daily_baseline: bool = True
     require_fresh_intraday_bar: bool = True
+    # Prod data-fetch INFRA (openalgo live scanner, winner #3155 sync 2026-06-12).
+    # The lab reads the shared lake, NOT openalgo, so these are accepted and
+    # IGNORED — present only so the frozen prod contract round-trips through the
+    # lab schema (extra='forbid' would otherwise reject them).
+    bar_source: Optional[str] = None
+    fetch_concurrency: Optional[int] = None
+    alpaca_chunk_size: Optional[int] = None
+    alpaca_fetch_concurrency: Optional[int] = None
 
 
 #: Live signal gates that must be set when simulation.mode is a real mode and
@@ -313,12 +321,32 @@ class ExecutionConfig(_StrictBase):
     tape_participation: float = Field(default=1.0, gt=0.0, le=1.0)
 
 
+class CompoundingConfig(_StrictBase):
+    """Live ``sizing.compounding`` block (prod 2026-06-09).
+
+    When ``enabled`` the equal-slice sizing bankroll grows with cumulative GROSS
+    realized PnL: ``bankroll = clamp(base + cum_realized, 0, cap_multiple*base)``
+    where ``base = base_dollars or sizing.bankroll_fixed_dollars``. At/below
+    ``floor_fraction*base`` effective equity ALL new entries are refused (open lots
+    are still managed + exited). Risk gates stay anchored to ``base``, NOT the
+    compounded bankroll, by design. Default ``enabled=False`` → legacy
+    fixed-bankroll sizing (byte-identical to the pre-compounding engine).
+    """
+
+    enabled: bool = False
+    base_dollars: Optional[float] = Field(default=None, gt=0.0)
+    floor_fraction: float = Field(default=0.50, ge=0.0, le=1.0)
+    cap_multiple: float = Field(default=4.0, ge=1.0)
+
+
 class SizingConfig(_StrictBase):
     """Position sizing.
 
     ``equal_slice`` (default) splits a fixed bankroll across
     ``max_concurrent_positions`` slots — the live strategy's model. ``fixed_dollar``
-    uses ``dollars_per_position`` and is retained for back-compat.
+    uses ``dollars_per_position`` and is retained for back-compat. The optional
+    ``compounding`` overlay (live, default off) grows the equal-slice bankroll with
+    realized PnL — see :class:`CompoundingConfig`.
     """
 
     sizing_mode: Literal["equal_slice", "fixed_dollar"] = "equal_slice"
@@ -333,6 +361,9 @@ class SizingConfig(_StrictBase):
     max_position_dollars: Optional[float] = None
     # Deprecated legacy key; tolerated so pre-remediation configs still parse.
     method: Optional[str] = None
+    # Live ``sizing.compounding`` overlay (prod 2026-06-09). None / disabled =
+    # legacy fixed-bankroll equal-slice sizing.
+    compounding: Optional[CompoundingConfig] = None
 
 
 class AdvTierCap(_StrictBase):

@@ -2,8 +2,12 @@
 
 The incumbent (Trial 0) must be the ACTUAL strategy, read from the mapped lab
 config (flat keys, derived gap/ratio), with NOTHING padded from search-space
-midpoints. The pre-fix run padded execution.max_quote_age_seconds (60) and
-execution.max_spread_bps (102); the actual contract values are 15 / 100.
+midpoints. The pre-fix run padded execution.max_quote_age_seconds + max_spread_bps;
+this test pins the mapped contract values so padding regressions are caught.
+
+CHANGELOG: 2026-06-12 prod re-mirror adopting optuna winner #3155 re-tuned the
+mapped values below (e.g. max_quote_age_seconds 15->104, max_spread_bps 100->94,
+stop_pct 0.025->0.1038, reward_risk_ratio 6.0->3.85, bankroll_fraction 0.80->0.70).
 """
 from __future__ import annotations
 
@@ -28,14 +32,15 @@ def test_incumbent_maps_every_key_without_padding(caplog) -> None:
     with caplog.at_level("WARNING"):
         p = _incumbent_baseline_params(lab_config=cfg)
 
-    assert p["execution.max_quote_age_seconds"] == 15
-    assert p["execution.max_spread_bps"] == 100
-    assert p["exits.stop_pct"] == pytest.approx(0.025)
-    assert p["exits.signal_fade.score_thresholds.soft"] == pytest.approx(0.34)
-    assert p["exits.signal_fade.score_thresholds.hard_gap"] == pytest.approx(0.16)
-    assert p["exits.signal_fade.score_thresholds.critical_gap"] == pytest.approx(0.17)
-    assert p["exits.reward_risk_ratio"] == pytest.approx(6.0)
-    assert p["sizing.equal_slice_bankroll_fraction"] == pytest.approx(0.80)
+    # Values pinned from the contract (optuna winner #3155, re-mirror 2026-06-12).
+    assert p["execution.max_quote_age_seconds"] == 104
+    assert p["execution.max_spread_bps"] == 94
+    assert p["exits.stop_pct"] == pytest.approx(0.10383796823643686)
+    assert p["exits.signal_fade.score_thresholds.soft"] == pytest.approx(0.11834737824481567)
+    assert p["exits.signal_fade.score_thresholds.hard_gap"] == pytest.approx(0.04533588415453149)
+    assert p["exits.signal_fade.score_thresholds.critical_gap"] == pytest.approx(0.1842737434556576)
+    assert p["exits.reward_risk_ratio"] == pytest.approx(3.8521554956584714)
+    assert p["sizing.equal_slice_bankroll_fraction"] == pytest.approx(0.7016473758770456)
     # No padding — not via the old WARNING, not via any side channel.
     assert "incumbent baseline padded" not in caplog.text
 

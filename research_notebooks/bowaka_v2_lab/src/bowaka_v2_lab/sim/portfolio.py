@@ -227,6 +227,11 @@ class PortfolioState:
     # risk gates would otherwise accept the candidate are rejected with reason
     # ``entries_blocked_by_protection``.
     entries_blocked: bool = False
+    # Lifetime GROSS realized PnL (sum of (exit-entry)*qty over ALL closes, no
+    # fees) — the input to the live ``sizing.compounding`` overlay. Carried across
+    # sessions (NEVER reset daily, mirroring prod's cumulative_realized_pnl_strategy);
+    # unused unless compounding is enabled, so legacy sizing is byte-identical.
+    compounding_gross_realized: float = 0.0
 
 
 @dataclass
@@ -351,6 +356,11 @@ class Portfolio:
             entered_symbols_today=entered,
             entries_per_symbol_today=entries_per_symbol_today,
             entries_blocked=carryover_block,
+            # Carry the lifetime gross-realized accumulator across sessions
+            # (compounding never resets it daily, matching prod).
+            compounding_gross_realized=(
+                self.state.compounding_gross_realized if self.state else 0.0
+            ),
         )
 
     def end_session(self, session_date: _dt.date) -> None:
@@ -458,6 +468,11 @@ class Portfolio:
         if self.state is not None:
             self.state.bankroll += pnl
             self.state.daily_realized_pnl += pnl
+            # Compounding overlay input: lifetime GROSS realized (== prod's
+            # cumulative_realized_pnl_strategy). ``pnl`` here is already
+            # (exit-entry)*qty. Accumulated regardless of whether compounding is
+            # on (cheap scalar); only READ when sizing.compounding.enabled.
+            self.state.compounding_gross_realized += pnl
             is_loss = pnl < 0
             # Phase 7 minute-path reasons (``stop`` / ``gap_stop``) count as
             # stop-outs alongside the legacy daily-bar reason names.

@@ -61,7 +61,9 @@ class StrategyConsumerResult:
     missing_quote_count: int = 0
 
 
-def compute_target_notional(sizing_cfg: Mapping[str, Any]) -> float:
+def compute_target_notional(
+    sizing_cfg: Mapping[str, Any], compounding_bankroll: Optional[float] = None
+) -> float:
     """Per-position target notional from the sizing config (realism Phase 1).
 
     ``equal_slice`` (live default): ``equal_slice_bankroll_fraction *
@@ -69,6 +71,12 @@ def compute_target_notional(sizing_cfg: Mapping[str, Any]) -> float:
     (back-compat): ``min(dollars_per_position, max_position_dollars)``. The
     result is floored at ``min_order_notional`` and capped at
     ``max_per_trade_dollars`` when set.
+
+    ``compounding_bankroll`` (default ``None``) — when the live
+    ``sizing.compounding`` overlay is on, the equal-slice bankroll is the
+    compounded bankroll (``base + cum realized``, clamped) instead of the static
+    ``bankroll_fixed_dollars``. ``None`` reproduces the legacy fixed-bankroll
+    sizing exactly. The overlay only affects ``equal_slice``.
     """
     mode = str(sizing_cfg.get("sizing_mode", "equal_slice"))
     if mode == "fixed_dollar":
@@ -79,7 +87,11 @@ def compute_target_notional(sizing_cfg: Mapping[str, Any]) -> float:
         ]
         target = min(vals) if vals else 5_000.0
     else:  # equal_slice
-        bankroll = float(sizing_cfg.get("bankroll_fixed_dollars", 90_000.0))
+        bankroll = (
+            float(compounding_bankroll)
+            if compounding_bankroll is not None
+            else float(sizing_cfg.get("bankroll_fixed_dollars", 90_000.0))
+        )
         n_slots = max(1, int(sizing_cfg.get("max_concurrent_positions", 18)))
         frac = float(sizing_cfg.get("equal_slice_bankroll_fraction", 0.80))
         target = frac * bankroll / n_slots
@@ -88,6 +100,38 @@ def compute_target_notional(sizing_cfg: Mapping[str, Any]) -> float:
     if cap is not None:
         target = min(target, float(cap))
     return target
+
+
+def resolve_compounding(
+    sizing_cfg: Mapping[str, Any], gross_realized: float
+) -> tuple[Optional[float], bool]:
+    """Resolve the live ``sizing.compounding`` overlay (prod 2026-06-09).
+
+    Returns ``(compounding_bankroll, floor_halt)``:
+
+    - ``compounding_bankroll`` is ``max(0, min(base + gross_realized,
+      cap_multiple*base))`` when ``compounding.enabled``, else ``None`` (legacy
+      fixed-bankroll sizing — the caller passes ``None`` to
+      :func:`compute_target_notional` and sizing is byte-identical).
+    - ``floor_halt`` is ``True`` when enabled AND ``base + gross_realized <=
+      floor_fraction*base`` — the strategy refuses ALL new entries (open lots are
+      still managed/exited). Anchored to ``base``, NOT the compounded bankroll.
+
+    ``base = compounding.base_dollars or sizing.bankroll_fixed_dollars``;
+    ``gross_realized`` is the portfolio's lifetime gross realized PnL.
+    """
+    comp = sizing_cfg.get("compounding") or {}
+    if not comp.get("enabled"):
+        return None, False
+    base = comp.get("base_dollars")
+    if base is None:
+        base = sizing_cfg.get("bankroll_fixed_dollars", 90_000.0)
+    base = float(base)
+    effective = base + float(gross_realized or 0.0)
+    cap_multiple = float(comp.get("cap_multiple", 4.0))
+    bankroll = max(0.0, min(effective, cap_multiple * base))
+    floor_fraction = float(comp.get("floor_fraction", 0.50))
+    return bankroll, (effective <= floor_fraction * base)
 
 
 def size_quantity(target_notional: float, price: float) -> int:
@@ -381,8 +425,24 @@ class StrategyConsumer:
             ))
             return result
 
-        # Sizing (equal-slice by default; see compute_target_notional).
-        target_notional = compute_target_notional(sizing_cfg)
+        # Sizing (equal-slice by default; see compute_target_notional). The live
+        # sizing.compounding overlay (default off → _comp_bankroll is None →
+        # byte-identical) grows the equal-slice bankroll with lifetime realized
+        # PnL and HALTS all new entries below the floor (open lots still exit).
+        _comp_bankroll, _comp_halt = resolve_compounding(
+            sizing_cfg,
+            self._portfolio.state.compounding_gross_realized if self._portfolio.state else 0.0,
+        )
+        if _comp_halt:
+            result.decisions.append(build_rejected_entry_decision(
+                candidate_event=candidate_event,
+                decision_ts=decision_ts,
+                entry_trigger=execution_cfg.get("order_type", "marketable_limit"),
+                reason="compounding_floor_halt",
+                quote=quote.__dict__,
+            ))
+            return result
+        target_notional = compute_target_notional(sizing_cfg, compounding_bankroll=_comp_bankroll)
         candidate_adv = float(
             (candidate_event.get("prior_daily_baselines") or {}).get("avg_dollar_volume_20d") or 0.0
         )
