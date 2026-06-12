@@ -55,6 +55,8 @@ SIP_DAILY_ADJUSTMENT = "split_adjusted"
 
 DS_BARS = "bars"
 DS_QUOTES = "quotes"
+DS_QUOTES_FINE = "quotes_fine"
+DS_TRADES = "trades"
 DS_ASSETS = "assets"
 DS_CORPORATE_ACTIONS = "corporate_actions"
 DS_STATUSES = "statuses"
@@ -201,6 +203,87 @@ def quotes_path(
         }
     )
     return ParquetStore(root).path_for(DS_QUOTES, parts, _PART_FILENAME)
+
+
+# --------------------------------------------------------------------------
+# Fine NBBO (sub-minute / exchange-coded) — PA.3
+# --------------------------------------------------------------------------
+def quotes_fine_symbol_dir(
+    root: Path | str,
+    symbol: str,
+    *,
+    vendor: str = DEFAULT_VENDOR,
+    feed: str = DEFAULT_FEED,
+) -> Path:
+    return Path(root) / DS_QUOTES_FINE / f"vendor={vendor}" / f"feed={feed}" / f"symbol={symbol}"
+
+
+def quotes_fine_path(
+    root: Path | str,
+    symbol: str,
+    year: int | str,
+    month: int | str,
+    *,
+    vendor: str = DEFAULT_VENDOR,
+    feed: str = DEFAULT_FEED,
+) -> Path:
+    """Canonical path to one symbol/month FINE quote file (sub-minute NBBO +
+    bid/ask exchange + tape).
+
+    A SIBLING of ``quotes/`` (never under it), so the canonical 1/min
+    ``quote_partitions_hash`` is unaffected by a fine-quote backfill
+    (dataset-lineage Guardrail 2).
+    """
+    parts = PathParts(
+        {
+            "vendor": vendor,
+            "feed": feed,
+            "symbol": str(symbol),
+            "year": _yyyy(year),
+            "month": _mm(month),
+        }
+    )
+    return ParquetStore(root).path_for(DS_QUOTES_FINE, parts, _PART_FILENAME)
+
+
+# --------------------------------------------------------------------------
+# Trades (raw tape) — PA.2
+# --------------------------------------------------------------------------
+def trades_symbol_dir(
+    root: Path | str,
+    symbol: str,
+    *,
+    vendor: str = DEFAULT_VENDOR,
+    feed: str = DEFAULT_FEED,
+) -> Path:
+    return Path(root) / DS_TRADES / f"vendor={vendor}" / f"feed={feed}" / f"symbol={symbol}"
+
+
+def trades_path(
+    root: Path | str,
+    symbol: str,
+    year: int | str,
+    month: int | str,
+    *,
+    vendor: str = DEFAULT_VENDOR,
+    feed: str = DEFAULT_FEED,
+) -> Path:
+    """Canonical path to one symbol/month RAW trade-tape file.
+
+    A SIBLING of ``quotes/`` (never under it), so the canonical 1/min
+    ``quote_partitions_hash`` is unaffected by a trades backfill (dataset-lineage
+    Guardrail 2). Stored raw — no per-minute sampling.
+    """
+    parts = PathParts(
+        {
+            "vendor": vendor,
+            "feed": feed,
+            "symbol": str(symbol),
+            "year": _yyyy(year),
+            "month": _mm(month),
+        }
+    )
+    return ParquetStore(root).path_for(DS_TRADES, parts, _PART_FILENAME)
 
 
 # --------------------------------------------------------------------------

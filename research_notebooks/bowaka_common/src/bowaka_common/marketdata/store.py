@@ -18,6 +18,13 @@ from . import layout as _layout
 
 _BAR_COLUMNS = ["symbol", "timestamp", "open", "high", "low", "close", "volume"]
 
+#: Optional microstructure columns the SIP lake already carries on every bar
+#: (written by ``_coerce_bar_row`` in ``backfill.py``). Surfaced via the opt-in
+#: ``with_microstructure=True`` read flag so the impact model (sell-side size
+#: cap, PB.2) gets a *stable, typed* per-minute volume signal regardless of the
+#: partition's source. ``vwap`` → ``Float64``, ``trade_count`` → ``Int64``.
+MICROSTRUCTURE_COLUMNS = ("vwap", "trade_count")
+
 
 # --------------------------------------------------------------------------
 # Quote row
@@ -150,6 +157,29 @@ def _empty_bars() -> pd.DataFrame:
     return pd.DataFrame(columns=_BAR_COLUMNS)
 
 
+def _apply_microstructure(df: pd.DataFrame, enabled: bool) -> pd.DataFrame:
+    """Guarantee :data:`MICROSTRUCTURE_COLUMNS` exist with stable nullable dtypes.
+
+    Purely additive: passes real values through when the partition already
+    carries them (the SIP lake does), fills ``pd.NA`` with the right dtype when a
+    source lacks them (synthetic minute fixtures / IEX / older partitions). Never
+    drops or reorders existing columns, and is a no-op when ``enabled`` is False —
+    so the default read path is byte-identical to before this flag existed.
+    """
+    if not enabled:
+        return df
+    df = df.copy()
+    if "vwap" in df.columns:
+        df["vwap"] = pd.to_numeric(df["vwap"], errors="coerce").astype("Float64")
+    else:
+        df["vwap"] = pd.Series(pd.NA, index=df.index, dtype="Float64")
+    if "trade_count" in df.columns:
+        df["trade_count"] = pd.to_numeric(df["trade_count"], errors="coerce").astype("Int64")
+    else:
+        df["trade_count"] = pd.Series(pd.NA, index=df.index, dtype="Int64")
+    return df
+
+
 # --------------------------------------------------------------------------
 # Store
 # --------------------------------------------------------------------------
@@ -180,16 +210,23 @@ class MarketDataStore:
         *,
         feed: str = "iex",
         adjustment: str = "raw",
+        with_microstructure: bool = False,
     ) -> pd.DataFrame:
-        """Daily bars for ``symbol`` over the inclusive date range ``[start, end]``."""
+        """Daily bars for ``symbol`` over the inclusive date range ``[start, end]``.
+
+        With ``with_microstructure=True`` the returned frame is guaranteed to
+        carry the :data:`MICROSTRUCTURE_COLUMNS` (``vwap``/``trade_count``) with
+        stable nullable dtypes — opt-in and purely additive; the default call is
+        byte-identical to before the flag existed.
+        """
         path = _layout.daily_bars_path(
             self.root, symbol, vendor=self.vendor, feed=feed, adjustment=adjustment
         )
         if not path.is_file():
-            return _empty_bars()
+            return _apply_microstructure(_empty_bars(), with_microstructure)
         df = _normalise_bars(pd.read_parquet(path))
         if df.empty:
-            return df
+            return _apply_microstructure(df, with_microstructure)
         start_d, end_d = _to_date(start), _to_date(end)
         if "session_date" in df.columns:
             sd = pd.to_datetime(df["session_date"]).dt.date
@@ -198,7 +235,9 @@ class MarketDataStore:
             lo = _to_utc_ts(start_d)
             hi = _to_utc_ts(end_d) + pd.Timedelta(days=1)
             df = df[(df["timestamp"] >= lo) & (df["timestamp"] < hi)]
-        return df.sort_values("timestamp").reset_index(drop=True)
+        return _apply_microstructure(
+            df.sort_values("timestamp").reset_index(drop=True), with_microstructure
+        )
 
     def minute_bars(
         self,
@@ -208,10 +247,13 @@ class MarketDataStore:
         *,
         feed: str = "iex",
         adjustment: str = "raw",
+        with_microstructure: bool = False,
     ) -> pd.DataFrame:
         """Minute bars for ``symbol`` in the inclusive range ``[start, end]``.
 
-        Reads only the per-symbol/month partitions that overlap the range.
+        Reads only the per-symbol/month partitions that overlap the range. With
+        ``with_microstructure=True`` the frame is guaranteed to carry the
+        :data:`MICROSTRUCTURE_COLUMNS` (opt-in, additive; default unchanged).
         """
         start_ts, end_ts = _to_utc_ts(start), _to_utc_ts(end)
         frames: list[pd.DataFrame] = []
@@ -223,13 +265,14 @@ class MarketDataStore:
             if path.is_file():
                 frames.append(pd.read_parquet(path))
         if not frames:
-            return _empty_bars()
+            return _apply_microstructure(_empty_bars(), with_microstructure)
         df = _normalise_bars(pd.concat(frames, ignore_index=True))
         df = df[(df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)]
-        return (
+        return _apply_microstructure(
             df.sort_values("timestamp")
             .drop_duplicates(subset=["timestamp"], keep="last")
-            .reset_index(drop=True)
+            .reset_index(drop=True),
+            with_microstructure,
         )
 
     # -- quotes ------------------------------------------------------------
@@ -253,6 +296,56 @@ class MarketDataStore:
         if "timestamp" in df.columns:
             df = df[(df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)]
         return df.sort_values("timestamp").reset_index(drop=True) if "timestamp" in df.columns else df
+
+    # -- trades (raw tape) — PA.2 -----------------------------------------
+    def trades_between(
+        self, symbol: str, start: Any, end: Any, *, feed: str = "iex"
+    ) -> pd.DataFrame:
+        """Raw trade prints for ``symbol`` in ``[start, end]`` (inclusive).
+
+        May return empty — the trade-tape stage is opt-in (PA.2); the layout
+        reserves the slot. Stored RAW (multiple prints share a timestamp), so
+        unlike :meth:`quotes` the result is NOT deduped on timestamp; it is
+        stable-sorted by timestamp so the tape sequence is preserved.
+        """
+        start_ts, end_ts = _to_utc_ts(start), _to_utc_ts(end)
+        frames: list[pd.DataFrame] = []
+        for year, month in _months_between(start_ts, end_ts):
+            path = _layout.trades_path(self.root, symbol, year, month, vendor=self.vendor, feed=feed)
+            if path.is_file():
+                frames.append(pd.read_parquet(path))
+        if not frames:
+            return pd.DataFrame()
+        df = _normalise_bars(pd.concat(frames, ignore_index=True))
+        if "timestamp" not in df.columns:
+            return df
+        df = df[(df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)]
+        return df.sort_values("timestamp", kind="stable").reset_index(drop=True)
+
+    def quotes_fine_between(
+        self, symbol: str, start: Any, end: Any, *, feed: str = "iex"
+    ) -> pd.DataFrame:
+        """Fine NBBO (sub-minute + bid/ask exchange + tape) for ``symbol`` in
+        ``[start, end]``.
+
+        May return empty — the fine-quote stage is opt-in (PA.3), a SIBLING of the
+        canonical ``quotes/`` tree (so it never drifts ``quote_partitions_hash``).
+        Stable-sorted by timestamp; NOT deduped on timestamp (sub-minute ticks may
+        share a minute).
+        """
+        start_ts, end_ts = _to_utc_ts(start), _to_utc_ts(end)
+        frames: list[pd.DataFrame] = []
+        for year, month in _months_between(start_ts, end_ts):
+            path = _layout.quotes_fine_path(self.root, symbol, year, month, vendor=self.vendor, feed=feed)
+            if path.is_file():
+                frames.append(pd.read_parquet(path))
+        if not frames:
+            return pd.DataFrame()
+        df = _normalise_bars(pd.concat(frames, ignore_index=True))
+        if "timestamp" not in df.columns:
+            return df
+        df = df[(df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)]
+        return df.sort_values("timestamp", kind="stable").reset_index(drop=True)
 
     def quotes_at_or_before(
         self,
@@ -377,13 +470,17 @@ class MarketDataStore:
         end: Any,
         *,
         adjustment: str = _layout.SIP_DAILY_ADJUSTMENT,
+        with_microstructure: bool = False,
     ) -> pd.DataFrame:
         """SIP daily bars for ``symbol`` over the inclusive date range.
 
         Convenience wrapper over :meth:`daily_bars` that pins ``feed="sip"``
         and defaults ``adjustment`` to ``split_adjusted`` (the SIP convention).
         """
-        return self.daily_bars(symbol, start, end, feed=_layout.FEED_SIP, adjustment=adjustment)
+        return self.daily_bars(
+            symbol, start, end, feed=_layout.FEED_SIP, adjustment=adjustment,
+            with_microstructure=with_microstructure,
+        )
 
     def sip_minute_bars(
         self,
@@ -392,13 +489,17 @@ class MarketDataStore:
         end: Any,
         *,
         adjustment: str = "raw",
+        with_microstructure: bool = False,
     ) -> pd.DataFrame:
         """SIP minute bars for ``symbol`` over the inclusive range.
 
         Convenience wrapper over :meth:`minute_bars` that pins ``feed="sip"``.
         SIP minute bars are raw by convention (same as IEX).
         """
-        return self.minute_bars(symbol, start, end, feed=_layout.FEED_SIP, adjustment=adjustment)
+        return self.minute_bars(
+            symbol, start, end, feed=_layout.FEED_SIP, adjustment=adjustment,
+            with_microstructure=with_microstructure,
+        )
 
     def sip_quotes(self, symbol: str, start: Any, end: Any) -> pd.DataFrame:
         """SIP quotes for ``symbol`` over the inclusive range."""
@@ -420,6 +521,20 @@ class MarketDataStore:
         return self.quotes_at_or_before(
             symbol, ts, max_age_seconds=max_age_seconds, feed=_layout.FEED_SIP,
         )
+
+    def sip_trades_between(self, symbol: str, start: Any, end: Any) -> pd.DataFrame:
+        """SIP raw trade prints for ``symbol`` over ``[start, end]``.
+
+        Convenience wrapper over :meth:`trades_between` pinning ``feed="sip"``.
+        """
+        return self.trades_between(symbol, start, end, feed=_layout.FEED_SIP)
+
+    def sip_quotes_fine_between(self, symbol: str, start: Any, end: Any) -> pd.DataFrame:
+        """SIP fine NBBO for ``symbol`` over ``[start, end]`` (feed pinned to sip).
+
+        Convenience wrapper over :meth:`quotes_fine_between`.
+        """
+        return self.quotes_fine_between(symbol, start, end, feed=_layout.FEED_SIP)
 
     def has_sip_partitions(self) -> bool:
         """Return ``True`` when the lake has any SIP partition (bars / quotes).

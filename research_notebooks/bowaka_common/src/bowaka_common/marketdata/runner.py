@@ -33,6 +33,8 @@ from .backfill import (
     fetch_daily_bars,
     fetch_minute_bars,
     fetch_quotes,
+    fetch_quotes_fine,
+    fetch_trades,
     find_and_load_dotenv,
     write_audits,
     write_ingestion_run,
@@ -164,6 +166,8 @@ def run_configured_backfill(
     assets_fetcher: Callable[[], Iterable[Any]] | None = None,
     bars_fetcher: Any | None = None,
     quotes_fetcher: Any | None = None,
+    trades_fetcher: Any | None = None,
+    quotes_fine_fetcher: Any | None = None,
 ) -> dict:
     """Run the configurable, incremental backfill described by ``config``.
 
@@ -217,10 +221,20 @@ def run_configured_backfill(
     # for disjoint month ranges in parallel without racing on per-symbol daily files
     # or the single manifest.json. Daily + minute bars must already be in the lake.
     quotes_only = bool(config.get("quotes_only", False))
+    # ``trades_only`` (PA.2) / ``quotes_fine_only`` (PA.3) mirror ``quotes_only``:
+    # restrict the run to assets -> minute targets -> that ONE stage, skipping the
+    # daily + minute FETCH and the shared audit/manifest/ingestion writes so
+    # parallel month-range workers don't race. Daily + minute bars must already be
+    # present.
+    trades_only = bool(config.get("trades_only", False))
+    quotes_fine_only = bool(config.get("quotes_fine_only", False))
+    _only = quotes_only or trades_only or quotes_fine_only
+    _only_tag = ("quotesonly" if quotes_only else "tradesonly" if trades_only
+                 else "quotesfineonly")
 
     # -- daily bars (incremental: head + tail) ---------------------------
-    if quotes_only:
-        daily_stats = {"skipped": "quotes_only"}
+    if _only:
+        daily_stats = {"skipped": _only_tag}
     else:
         daily_stats = fetch_daily_bars(bcfg, assets_df, log, limiter, bars_fetcher=bars_fetcher)
 
@@ -229,12 +243,17 @@ def run_configured_backfill(
     # exactly where bars do. Compute the target set once for both stages.
     minute_cfg = config.get("minute_bars", {}) or {}
     quotes_cfg = config.get("quotes", {}) or {}
+    trades_cfg = config.get("trades", {}) or {}
+    quotes_fine_cfg = config.get("quotes_fine", {}) or {}
     minute_stats: dict = {}
     quote_stats: dict = {}
+    trade_stats: dict = {}
+    quotes_fine_stats: dict = {}
     targets = None
-    if minute_cfg.get("enabled", False) or quotes_cfg.get("enabled", False):
+    if (minute_cfg.get("enabled", False) or quotes_cfg.get("enabled", False)
+            or trades_cfg.get("enabled", False) or quotes_fine_cfg.get("enabled", False)):
         targets = _minute_targets(minute_cfg, bcfg, lake, assets_df, log)
-    if minute_cfg.get("enabled", False) and not quotes_only and targets is not None and len(targets) > 0:
+    if minute_cfg.get("enabled", False) and not _only and targets is not None and len(targets) > 0:
         minute_stats = fetch_minute_bars(bcfg, targets, log, limiter, bars_fetcher=bars_fetcher)
     # SIP NBBO quotes — required for intended_realism (quote-aware fills/exits +
     # the quote-coverage gate). IEX quotes are partial-tape and unused by realism.
@@ -251,14 +270,44 @@ def run_configured_backfill(
             log.warning("quotes.enabled but no (symbol, session) targets — enable "
                         "minute_bars (quotes use its universe).")
 
+    # Raw SIP trade tape (PA.2) — opt-in; the tape-replay fill oracle (PB.4) needs
+    # every print. Shares the minute-bar (symbol, session) universe, stored raw.
+    if trades_cfg.get("enabled", False):
+        if feed != "sip":
+            log.warning("trades.enabled with feed=%s — the trade tape is intended for SIP; "
+                        "IEX is partial-tape.", feed)
+        if targets is not None and len(targets) > 0:
+            trade_stats = fetch_trades(
+                bcfg, targets, log, limiter, trades_fetcher=trades_fetcher,
+                batch_size=int(trades_cfg.get("batch_size_symbols", 25)),
+            )
+        else:
+            log.warning("trades.enabled but no (symbol, session) targets — enable "
+                        "minute_bars (trades use its universe).")
+
+    # Fine NBBO (PA.3) — sub-minute resolution + bid/ask exchange + tape, on a
+    # SIBLING path so the canonical quote_partitions_hash is unaffected.
+    if quotes_fine_cfg.get("enabled", False):
+        if feed != "sip":
+            log.warning("quotes_fine.enabled with feed=%s — fine NBBO is intended for SIP.", feed)
+        if targets is not None and len(targets) > 0:
+            quotes_fine_stats = fetch_quotes_fine(
+                bcfg, targets, log, limiter, quotes_fetcher=quotes_fine_fetcher,
+                batch_size=int(quotes_fine_cfg.get("batch_size_symbols", 25)),
+                samples_per_minute=quotes_fine_cfg.get("samples_per_minute"),
+            )
+        else:
+            log.warning("quotes_fine.enabled but no (symbol, session) targets — enable "
+                        "minute_bars (quotes_fine use its universe).")
+
     # -- audit + manifest + ingestion-run record -------------------------
-    if quotes_only:
-        # Parallel quote-only workers skip the shared bookkeeping writes (audit,
-        # manifest.json, ingestion-run record) so they cannot clobber each other;
-        # regenerate them once with a normal run afterward. compute_dataset_hash
+    if _only:
+        # Parallel quote/trade/fine-only workers skip the shared bookkeeping writes
+        # (audit, manifest.json, ingestion-run record) so they cannot clobber each
+        # other; regenerate them once with a normal run afterward. compute_dataset_hash
         # would also needlessly rescan the entire lake here.
-        counts = {"quotes": quote_stats}
-        run_id = f"quotesonly_{feed}_{start.isoformat()}_{end.isoformat()}"
+        counts = {"quotes": quote_stats, "trades": trade_stats, "quotes_fine": quotes_fine_stats}
+        run_id = f"{_only_tag}_{feed}_{start.isoformat()}_{end.isoformat()}"
     else:
         audits = audit_daily_bars(bcfg, log)
         if not audits.empty:
@@ -268,6 +317,8 @@ def run_configured_backfill(
             "daily": daily_stats,
             "minute": minute_stats,
             "quotes": quote_stats,
+            "trades": trade_stats,
+            "quotes_fine": quotes_fine_stats,
             "audit_rows": int(len(audits)),
         }
         write_manifest_json(bcfg, counts, {"lake": compute_dataset_hash(lake)})
@@ -294,6 +345,6 @@ def run_configured_backfill(
         "snapshot_id": snapshot_id,
         "counts": counts,
     }
-    log.info("backfill done: run_id=%s daily=%s minute=%s quotes=%s",
-             run_id, daily_stats, minute_stats, quote_stats)
+    log.info("backfill done: run_id=%s daily=%s minute=%s quotes=%s trades=%s quotes_fine=%s",
+             run_id, daily_stats, minute_stats, quote_stats, trade_stats, quotes_fine_stats)
     return result

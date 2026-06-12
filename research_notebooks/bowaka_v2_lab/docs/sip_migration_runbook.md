@@ -71,3 +71,28 @@ Step 4 — run the verification CLIs:
     # partition present' flips DEFERRED -> PASS once SIP data is on disk.
 
 Step 5 — start notebook 10 against the SIP config.
+
+## Fill-realism data — trade tape + fine NBBO (PA.2 / PA.3)
+
+The honest fill model (sell-side exits + the tape-replay oracle, see
+`docs/fill_realism.md`) consumes two **opt-in** datasets, fetched with the same
+incremental backfill. Both are SIP-only, sit on **sibling paths** (`trades/`,
+`quotes_fine/`) that never drift the canonical `quote_partitions_hash`, and skip
+the shared `_ingestion/manifest.json` write in `*-only` mode — so many month-range
+workers can run in parallel and a running study is undisturbed.
+
+    # raw trade tape (PB.4 oracle ground truth) — VERY sparse on a $1-$20 universe
+    # (~2.7 MB/symbol-month; ~60-70 GB over ~11 months). Scope --start/--end.
+    python scripts/backfill_market_data.py --feed sip --start 2025-08-01 --end auto \
+        --trades-only --rpm 9000 --lake-root /opt/market_data_cache
+
+    # fine NBBO (sub-minute + bid/ask exchange + tape). --quotes-fine-samples-per-minute
+    # omitted = raw ticks; 4 = 4 prevailing snapshots/min (bounded, ~10 GB).
+    python scripts/backfill_market_data.py --feed sip --start 2025-08-01 --end auto \
+        --quotes-fine-only --quotes-fine-samples-per-minute 4 --rpm 9000 \
+        --lake-root /opt/market_data_cache
+
+Both are resume-skip incremental (per symbol/session) and heavy on the first run
+(the full tape / NBBO tick stream is fetched). After a `*-only` run, do one normal
+(non `*-only`) backfill to refresh the manifest. Enable the model per
+`docs/fill_realism.md` (`exits.fill_model: tape_replay` and/or `execution.fill_model`).

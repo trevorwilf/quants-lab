@@ -494,9 +494,16 @@ QuotesFetcher = Callable[[list, datetime, datetime], dict]
 
 
 def _coerce_quote_row(symbol: str, q: Any) -> dict[str, Any]:
-    """Normalise one Alpaca NBBO quote (SDK object OR raw dict) to the canonical
-    lake quote schema: ``symbol, timestamp(UTC), bid, ask, bid_size, ask_size,
-    conditions`` — exactly what ``MarketDataStore.quotes_at_or_before`` reads."""
+    """Normalise one Alpaca NBBO quote (SDK object OR raw dict).
+
+    Canonical schema (``symbol, timestamp(UTC), bid, ask, bid_size, ask_size,
+    conditions``) is exactly what ``MarketDataStore.quotes_at_or_before`` reads.
+    PA.3 additively also returns ``bid_exchange, ask_exchange, tape`` — these reach
+    ONLY the ``quotes_fine/`` path: the canonical 1/min sampler
+    (:func:`_sample_session_nbbo`) projects to the 7 canonical columns and drops
+    them, so the canonical ``quotes/`` tree (and ``quote_partitions_hash``) is
+    byte-identical.
+    """
     ts = getattr(q, "timestamp", None)
     if ts is None and isinstance(q, dict):
         ts = q.get("timestamp", q.get("t"))
@@ -513,6 +520,9 @@ def _coerce_quote_row(symbol: str, q: Any) -> dict[str, Any]:
     cond = _a("conditions", "c", None)
     if isinstance(cond, (list, tuple)):
         cond = ",".join(str(x) for x in cond)
+    bx = _a("bid_exchange", "bx", None)
+    ax = _a("ask_exchange", "ax", None)
+    tape = _a("tape", "z", None)
     return {
         "symbol": symbol,
         "timestamp": ts,
@@ -521,6 +531,10 @@ def _coerce_quote_row(symbol: str, q: Any) -> dict[str, Any]:
         "bid_size": float(_a("bid_size", "bs", 0.0) or 0.0),
         "ask_size": float(_a("ask_size", "as", 0.0) or 0.0),
         "conditions": "" if cond is None else str(cond),
+        # PA.3 additive — fine-path only (canonical sampler drops these).
+        "bid_exchange": "" if bx is None else str(bx),
+        "ask_exchange": "" if ax is None else str(ax),
+        "tape": "" if tape is None else str(tape),
     }
 
 
@@ -780,6 +794,439 @@ def fetch_quotes(
 
     _flush_accumulated_months(accumulated, list(accumulated.keys()), _quote_target, stats)
 
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Trades (raw tape) — fetcher + per-month RAW storage (PA.2)
+# ---------------------------------------------------------------------------
+# (batch_symbols, start_dt, end_dt) -> {symbol: [coerced trade-row dict, ...]}
+TradesFetcher = Callable[[list, datetime, datetime], dict]
+
+
+def _coerce_trade_row(symbol: str, t: Any) -> dict[str, Any]:
+    """Normalise one Alpaca trade print (SDK object OR raw dict) to the canonical
+    lake trade schema: ``symbol, timestamp(UTC), price, size, exchange,
+    conditions, tape, trade_id``.
+
+    Unlike quotes the tape is stored RAW (no per-minute sampling) so the
+    tape-replay fill oracle (PB.4) can reconstruct the achievable VWAP / fill
+    fraction for any size at any time.
+    """
+    ts = getattr(t, "timestamp", None)
+    if ts is None and isinstance(t, dict):
+        ts = t.get("timestamp", t.get("t"))
+    ts = pd.Timestamp(ts)
+    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+
+    def _a(name: str, alt: str, default: Any = None) -> Any:
+        if hasattr(t, name):
+            return getattr(t, name)
+        if isinstance(t, dict):
+            return t.get(name, t.get(alt, default))
+        return default
+
+    cond = _a("conditions", "c", None)
+    if isinstance(cond, (list, tuple)):
+        cond = ",".join(str(x) for x in cond)
+    exch = _a("exchange", "x", None)
+    tape = _a("tape", "z", None)
+    tid = _a("id", "i", None)
+    return {
+        "symbol": symbol,
+        "timestamp": ts,
+        "price": float(_a("price", "p", 0.0) or 0.0),
+        "size": float(_a("size", "s", 0.0) or 0.0),
+        "exchange": "" if exch is None else str(exch),
+        "conditions": "" if cond is None else str(cond),
+        "tape": "" if tape is None else str(tape),
+        "trade_id": None if tid is None else int(tid),
+    }
+
+
+def make_alpaca_trades_fetcher(
+    cfg: BackfillConfig, limiter: RateLimiter, log: logging.Logger
+) -> TradesFetcher:
+    """Return a :data:`TradesFetcher` backed by the Alpaca historical trades API.
+
+    Mirrors :func:`make_alpaca_quotes_fetcher` but uses ``StockTradesRequest`` /
+    ``get_stock_trades`` and the configured ``feed`` (SIP for intended_realism).
+    Returns the full raw trade tape per symbol for the window; the caller
+    (:func:`fetch_trades`) stores it raw (no sampling).
+    """
+
+    def _fetch(batch: list, start_dt: datetime, end_dt: datetime) -> dict:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockTradesRequest
+
+        client = StockHistoricalDataClient(api_key=cfg.api_key, secret_key=cfg.api_secret)
+        rows: dict[str, list[dict]] = {sym: [] for sym in batch}
+        page_token = None
+        while True:
+            limiter.acquire()
+            req = StockTradesRequest(
+                symbol_or_symbols=batch,
+                start=start_dt,
+                end=end_dt,
+                feed=cfg.feed_enum,
+                page_token=page_token,
+            )
+            resp = with_retries(client.get_stock_trades, req, log=log)
+            data = resp.data if hasattr(resp, "data") and isinstance(resp.data, dict) else {}
+            for sym, tlist in data.items():
+                for tr in tlist or []:
+                    rows.setdefault(sym, []).append(_coerce_trade_row(sym, tr))
+            page_token = getattr(resp, "next_page_token", None)
+            if not page_token:
+                break
+        return rows
+
+    return _fetch
+
+
+def _flush_accumulated_trade_months(
+    accumulated: dict[tuple, list[pd.DataFrame]],
+    keys: Iterable[tuple],
+    target_for: Callable[[str, int, int], Path],
+    stats: dict,
+) -> None:
+    """Trade-tape analog of :func:`_flush_accumulated_months`.
+
+    Unlike quotes/bars, MANY prints share a ``timestamp``, so we must NOT dedup on
+    ``timestamp`` (that would discard genuine trades). Instead drop only EXACT
+    duplicate rows (safe across a partial-month re-run) and use a STABLE sort so
+    the tape's intra-second sequence is preserved. Raw — no sampling.
+    """
+    for key in list(keys):
+        frames = accumulated.pop(key, None)
+        if not frames:
+            continue
+        sym, year, month = key
+        new_df = pd.concat(frames, ignore_index=True)
+        target = target_for(sym, year, month)
+        if target.exists():
+            try:
+                existing = pd.read_parquet(target)
+                if not existing.empty:
+                    new_df = pd.concat([existing, new_df], ignore_index=True)
+            except Exception:  # noqa: BLE001
+                pass
+        new_df["timestamp"] = pd.to_datetime(new_df["timestamp"], utc=True)
+        new_df = (
+            new_df.drop_duplicates()
+            .sort_values("timestamp", kind="stable")
+            .reset_index(drop=True)
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(pa.Table.from_pandas(new_df, preserve_index=False), target)
+        stats["months_written"] += 1
+
+
+def fetch_trades(
+    cfg: BackfillConfig,
+    targets: pd.DataFrame,
+    log: logging.Logger,
+    limiter: RateLimiter,
+    *,
+    trades_fetcher: TradesFetcher | None = None,
+    batch_size: int | None = None,
+) -> dict:
+    """Fetch the RAW trade tape for every ``(session_date, symbol)`` in ``targets``
+    and write per-symbol/month Parquet at ``layout.trades_path(feed=cfg.feed)``.
+    Resume-aware: a pair whose session is already present in the symbol's month
+    file is skipped.
+
+    Stored raw — no per-minute sampling — because the tape-replay fill oracle
+    (PB.4) needs every print. The (symbol, session) target set is the SAME as the
+    minute-bar / quote stages (the traded universe). Parallelised exactly like
+    :func:`fetch_quotes` (GIL-bound network fetch); tune with ``TRADE_FETCH_WORKERS``.
+    """
+    stats = {
+        "pairs_requested": int(0 if targets is None else len(targets)),
+        "pairs_written": 0, "pairs_skipped_resume": 0, "pairs_empty": 0,
+        "batches_failed": 0, "months_written": 0,
+    }
+    if targets is None or len(targets) == 0:
+        return stats
+    fetcher = trades_fetcher or make_alpaca_trades_fetcher(cfg, limiter, log)
+    bsize = int(batch_size or cfg.batch_size_symbols)
+
+    tdf = targets.copy()
+    tdf["session_date"] = pd.to_datetime(tdf["session_date"]).dt.date
+    tdf["symbol"] = tdf["symbol"].astype(str)
+
+    covered: dict[str, set] = {}
+    if cfg.resume:
+        for sym in tdf["symbol"].unique():
+            sym_dir = _layout.trades_symbol_dir(cfg.lake_root, sym, feed=cfg.feed)
+            dates: set = set()
+            if sym_dir.is_dir():
+                for f in sym_dir.rglob("part.parquet"):
+                    try:
+                        ts = pd.to_datetime(
+                            pd.read_parquet(f, columns=["timestamp"])["timestamp"], utc=True)
+                        dates |= set(ts.dt.date.unique())
+                    except Exception:  # noqa: BLE001
+                        continue
+            covered[sym] = dates
+
+    pairs_by_session: dict[date, list[str]] = {}
+    for sess, group in tdf.groupby("session_date"):
+        syms = sorted(set(group["symbol"]))
+        pending = [s for s in syms if not (cfg.resume and sess in covered.get(s, set()))]
+        stats["pairs_skipped_resume"] += len(syms) - len(pending)
+        if pending:
+            pairs_by_session[sess] = pending
+
+    def _trade_target(sym: str, year: int, month: int) -> Path:
+        return _layout.trades_path(cfg.lake_root, sym, year, month, feed=cfg.feed)
+
+    _workers = max(1, int(os.environ.get("TRADE_FETCH_WORKERS", "16")))
+    # Periodic flush to BOUND peak RAM. Raw trades are large — a whole month can be
+    # ~50-60 GB in memory before the month-boundary flush. ``0`` = flush only on
+    # month boundaries (default; the per-month partition is written once). ``N>0``
+    # = ALSO flush every N sessions. The flush is idempotent (concat ->
+    # drop_duplicates -> stable sort), so the final partition is byte-identical
+    # regardless of N — this just trades a little extra parquet re-write for
+    # bounded RAM, which lets several scoped range-processes run in parallel (one
+    # GIL-bound core each) without OOM.
+    _flush_every = max(0, int(os.environ.get("TRADE_FLUSH_EVERY_SESSIONS", "0")))
+    accumulated: dict[tuple, list[pd.DataFrame]] = {}
+    prev_month: tuple | None = None
+    _ordered = sorted(pairs_by_session.items())
+    _total_sessions = len(_ordered)
+    _t0 = time.monotonic()
+    log.info(
+        "Stage trades: %d sessions, %d (symbol,session) pairs, %d workers, batch=%d",
+        _total_sessions, sum(len(v) for v in pairs_by_session.values()), _workers, bsize,
+    )
+    for _sidx, (session, symbols) in enumerate(_ordered, start=1):
+        sess_month = (session.year, session.month)
+        if prev_month is not None and sess_month != prev_month:
+            done = [k for k in accumulated if (k[1], k[2]) < sess_month]
+            _flush_accumulated_trade_months(accumulated, done, _trade_target, stats)
+            if done:
+                log.info(
+                    "trades: flushed %d sym-months on entering %04d-%02d (months_written=%d)",
+                    len(done), sess_month[0], sess_month[1], stats["months_written"],
+                )
+        prev_month = sess_month
+        start_dt = datetime.combine(session, datetime.min.time()).replace(tzinfo=timezone.utc)
+        end_dt = start_dt + timedelta(days=1)
+
+        # Fetch this session's symbol-batches CONCURRENTLY; ex.map yields in batch
+        # order so accumulation is deterministic / byte-identical to a serial path.
+        def _fetch_raw(_b, _s=start_dt, _e=end_dt, _sess=session):
+            try:
+                tape_acc = fetcher(_b, _s, _e)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("trade batch failed (session %s, %d symbols): %s",
+                              _sess, len(_b), exc)
+                return None
+            out: list = []
+            for _sym in _b:
+                _raw = tape_acc.get(_sym) or []
+                if not _raw:
+                    out.append((_sym, None))
+                    continue
+                _t = pd.DataFrame(_raw)
+                _t["timestamp"] = pd.to_datetime(_t["timestamp"], utc=True)
+                out.append((_sym, _t))
+            return out
+        _batches = list(_chunks(symbols, bsize))
+        with ThreadPoolExecutor(max_workers=_workers) as _ex:
+            for _raw_batch in _ex.map(_fetch_raw, _batches):
+                if _raw_batch is None:
+                    stats["batches_failed"] += 1
+                    continue
+                for sym, tape in _raw_batch:
+                    if tape is None or tape.empty:
+                        stats["pairs_empty"] += 1
+                        continue
+                    for (year, month), grp in tape.groupby(
+                        [tape["timestamp"].dt.year, tape["timestamp"].dt.month]):
+                        accumulated.setdefault((sym, int(year), int(month)), []).append(grp)
+                    stats["pairs_written"] += 1
+        _elapsed = time.monotonic() - _t0
+        _rate = _sidx / _elapsed if _elapsed > 0 else 0.0
+        _eta_s = (_total_sessions - _sidx) / _rate if _rate > 0 else 0.0
+        log.info(
+            "trades: session %s (%d/%d) %d symbols | written=%d empty=%d skip=%d failed=%d | "
+            "elapsed=%.0fmin eta=%.0fmin",
+            session, _sidx, _total_sessions, len(symbols),
+            stats["pairs_written"], stats["pairs_empty"], stats["pairs_skipped_resume"],
+            stats["batches_failed"], _elapsed / 60.0, _eta_s / 60.0,
+        )
+        if _flush_every and _sidx % _flush_every == 0 and accumulated:
+            _flush_accumulated_trade_months(
+                accumulated, list(accumulated.keys()), _trade_target, stats)
+            log.info("trades: periodic RAM-bounding flush at session %d (every %d)",
+                     _sidx, _flush_every)
+
+    _flush_accumulated_trade_months(accumulated, list(accumulated.keys()), _trade_target, stats)
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Fine NBBO (sub-minute + exchange/tape) — producer (PA.3)
+# ---------------------------------------------------------------------------
+def _sample_session_nbbo_fine(
+    ticks: pd.DataFrame, session_date: date, samples_per_minute: int | None = None,
+) -> pd.DataFrame:
+    """Fine NBBO sampling for the ``quotes_fine/`` path — KEEPS every column (incl.
+    ``bid_exchange``/``ask_exchange``/``tape``), unlike the canonical 1/min sampler.
+
+    ``samples_per_minute=None`` (or <=0) stores the RAW tick stream (most
+    faithful). An int N keeps the prevailing NBBO at N evenly-spaced sub-minute
+    boundaries, so sub-minute resolution improves while size stays bounded.
+    """
+    if ticks is None or ticks.empty:
+        return ticks if ticks is not None else pd.DataFrame()
+    ticks = ticks.sort_values("timestamp", kind="stable").reset_index(drop=True)
+    n = int(samples_per_minute or 0)
+    if n <= 0:
+        return ticks  # raw
+    minute_boundaries = _session_minute_boundaries_utc(session_date)
+    step = pd.Timedelta(minutes=1) / n
+    boundaries = pd.DatetimeIndex(
+        sorted({b + i * step for b in minute_boundaries for i in range(n)})
+    )
+    merged = pd.merge_asof(
+        pd.DataFrame({"_boundary": boundaries}), ticks,
+        left_on="_boundary", right_on="timestamp", direction="backward",
+    )
+    out = merged.dropna(subset=["timestamp"]).drop(columns=["_boundary"])
+    return out.drop_duplicates(subset=["timestamp"]).reset_index(drop=True)
+
+
+def fetch_quotes_fine(
+    cfg: BackfillConfig,
+    targets: pd.DataFrame,
+    log: logging.Logger,
+    limiter: RateLimiter,
+    *,
+    quotes_fetcher: QuotesFetcher | None = None,
+    batch_size: int | None = None,
+    samples_per_minute: int | None = None,
+) -> dict:
+    """Fetch FINE NBBO (sub-minute resolution + bid/ask exchange + tape) for every
+    ``(session_date, symbol)`` in ``targets`` and write per-symbol/month Parquet at
+    ``layout.quotes_fine_path(feed=cfg.feed)`` — a SIBLING of the canonical
+    ``quotes/`` tree, so this does NOT drift ``quote_partitions_hash`` (Guardrail 2).
+
+    ``samples_per_minute=None`` stores the raw NBBO tick stream; an int N keeps N
+    prevailing-NBBO snapshots per minute. Resume-aware and parallelised exactly
+    like :func:`fetch_quotes`; tune with ``QUOTE_FINE_FETCH_WORKERS``.
+    """
+    stats = {
+        "pairs_requested": int(0 if targets is None else len(targets)),
+        "pairs_written": 0, "pairs_skipped_resume": 0, "pairs_empty": 0,
+        "batches_failed": 0, "months_written": 0,
+    }
+    if targets is None or len(targets) == 0:
+        return stats
+    fetcher = quotes_fetcher or make_alpaca_quotes_fetcher(cfg, limiter, log)
+    bsize = int(batch_size or cfg.batch_size_symbols)
+
+    tdf = targets.copy()
+    tdf["session_date"] = pd.to_datetime(tdf["session_date"]).dt.date
+    tdf["symbol"] = tdf["symbol"].astype(str)
+
+    covered: dict[str, set] = {}
+    if cfg.resume:
+        for sym in tdf["symbol"].unique():
+            sym_dir = _layout.quotes_fine_symbol_dir(cfg.lake_root, sym, feed=cfg.feed)
+            dates: set = set()
+            if sym_dir.is_dir():
+                for f in sym_dir.rglob("part.parquet"):
+                    try:
+                        ts = pd.to_datetime(
+                            pd.read_parquet(f, columns=["timestamp"])["timestamp"], utc=True)
+                        dates |= set(ts.dt.date.unique())
+                    except Exception:  # noqa: BLE001
+                        continue
+            covered[sym] = dates
+
+    pairs_by_session: dict[date, list[str]] = {}
+    for sess, group in tdf.groupby("session_date"):
+        syms = sorted(set(group["symbol"]))
+        pending = [s for s in syms if not (cfg.resume and sess in covered.get(s, set()))]
+        stats["pairs_skipped_resume"] += len(syms) - len(pending)
+        if pending:
+            pairs_by_session[sess] = pending
+
+    def _fine_target(sym: str, year: int, month: int) -> Path:
+        return _layout.quotes_fine_path(cfg.lake_root, sym, year, month, feed=cfg.feed)
+
+    _workers = max(1, int(os.environ.get("QUOTE_FINE_FETCH_WORKERS", "16")))
+    accumulated: dict[tuple, list[pd.DataFrame]] = {}
+    prev_month: tuple | None = None
+    _ordered = sorted(pairs_by_session.items())
+    _total_sessions = len(_ordered)
+    _t0 = time.monotonic()
+    log.info(
+        "Stage quotes_fine: %d sessions, %d (symbol,session) pairs, %d workers, "
+        "batch=%d, samples_per_minute=%s",
+        _total_sessions, sum(len(v) for v in pairs_by_session.values()), _workers,
+        bsize, samples_per_minute,
+    )
+    for _sidx, (session, symbols) in enumerate(_ordered, start=1):
+        sess_month = (session.year, session.month)
+        if prev_month is not None and sess_month != prev_month:
+            done = [k for k in accumulated if (k[1], k[2]) < sess_month]
+            _flush_accumulated_trade_months(accumulated, done, _fine_target, stats)
+            if done:
+                log.info(
+                    "quotes_fine: flushed %d sym-months on entering %04d-%02d (months_written=%d)",
+                    len(done), sess_month[0], sess_month[1], stats["months_written"],
+                )
+        prev_month = sess_month
+        start_dt = datetime.combine(session, datetime.min.time()).replace(tzinfo=timezone.utc)
+        end_dt = start_dt + timedelta(days=1)
+
+        def _fetch_and_sample(_b, _s=start_dt, _e=end_dt, _sess=session):
+            try:
+                ticks_acc = fetcher(_b, _s, _e)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("fine-quote batch failed (session %s, %d symbols): %s",
+                              _sess, len(_b), exc)
+                return None
+            out: list = []
+            for _sym in _b:
+                _raw = ticks_acc.get(_sym) or []
+                if not _raw:
+                    out.append((_sym, None))
+                    continue
+                _t = pd.DataFrame(_raw)
+                _t["timestamp"] = pd.to_datetime(_t["timestamp"], utc=True)
+                out.append((_sym, _sample_session_nbbo_fine(_t, _sess, samples_per_minute)))
+            return out
+        _batches = list(_chunks(symbols, bsize))
+        with ThreadPoolExecutor(max_workers=_workers) as _ex:
+            for _sampled_batch in _ex.map(_fetch_and_sample, _batches):
+                if _sampled_batch is None:
+                    stats["batches_failed"] += 1
+                    continue
+                for sym, sampled in _sampled_batch:
+                    if sampled is None or sampled.empty:
+                        stats["pairs_empty"] += 1
+                        continue
+                    for (year, month), grp in sampled.groupby(
+                        [sampled["timestamp"].dt.year, sampled["timestamp"].dt.month]):
+                        accumulated.setdefault((sym, int(year), int(month)), []).append(grp)
+                    stats["pairs_written"] += 1
+        _elapsed = time.monotonic() - _t0
+        _rate = _sidx / _elapsed if _elapsed > 0 else 0.0
+        _eta_s = (_total_sessions - _sidx) / _rate if _rate > 0 else 0.0
+        log.info(
+            "quotes_fine: session %s (%d/%d) %d symbols | written=%d empty=%d skip=%d failed=%d | "
+            "elapsed=%.0fmin eta=%.0fmin",
+            session, _sidx, _total_sessions, len(symbols),
+            stats["pairs_written"], stats["pairs_empty"], stats["pairs_skipped_resume"],
+            stats["batches_failed"], _elapsed / 60.0, _eta_s / 60.0,
+        )
+
+    _flush_accumulated_trade_months(accumulated, list(accumulated.keys()), _fine_target, stats)
     return stats
 
 

@@ -102,6 +102,84 @@ def test_quotes_only_skips_bars_and_shared_writes(tmp_path):
     assert layout.quotes_path(lake, "AAA", 2024, 9, feed="iex").is_file()
 
 
+def _fake_trades(batch, start_dt, end_dt):
+    """Injected trade-tape fetcher — several prints per minute, no network."""
+    out = {}
+    for s in batch:
+        t0 = pd.Timestamp(start_dt) + pd.Timedelta(hours=14)
+        rows = []
+        for i in range(30):
+            ts = t0 + pd.Timedelta(minutes=i)
+            if ts >= pd.Timestamp(end_dt):
+                break
+            # two prints sharing a timestamp -> BOTH must survive (no ts-dedup)
+            rows.append({"symbol": s, "timestamp": ts, "price": 10.0, "size": 100.0,
+                         "exchange": "V", "conditions": "@", "tape": "C", "trade_id": i * 2})
+            rows.append({"symbol": s, "timestamp": ts, "price": 10.01, "size": 50.0,
+                         "exchange": "V", "conditions": "@", "tape": "C", "trade_id": i * 2 + 1})
+        out[s] = rows
+    return out
+
+
+def test_trades_only_skips_bars_and_shared_writes(tmp_path):
+    """--trades-only must skip the daily/minute FETCH + the shared writes (like
+    --quotes-only), while writing the RAW tape for the existing minute universe."""
+    lake = tmp_path / "lake"
+    run_configured_backfill(_config(), lake_root=lake, bars_fetcher=_fake_bars)
+    manifest = layout.ingestion_manifest_path(lake)
+    assert manifest.is_file()
+    mtime0 = manifest.stat().st_mtime_ns
+
+    result = run_configured_backfill(
+        _config(trades_only=True, trades={"enabled": True, "batch_size_symbols": 10}),
+        lake_root=lake, bars_fetcher=_raising_bars, trades_fetcher=_fake_trades)
+    assert result["counts"]["trades"]["pairs_written"] >= 1
+    assert manifest.stat().st_mtime_ns == mtime0  # shared bookkeeping untouched
+    tpath = layout.trades_path(lake, "AAA", 2024, 9, feed="iex")
+    assert tpath.is_file()
+    # RAW tape: BOTH prints per timestamp survive (no per-minute / per-ts dedup).
+    df = pd.read_parquet(tpath)
+    assert len(df) >= 2
+    assert bool(df["timestamp"].duplicated().any())
+
+
+def _fake_quotes_fine(batch, start_dt, end_dt):
+    """Injected fine-NBBO fetcher — ticks WITH bid/ask exchange + tape, no network."""
+    out = {}
+    for s in batch:
+        t0 = pd.Timestamp(start_dt) + pd.Timedelta(hours=14)
+        rows = []
+        for i in range(10):
+            ts = t0 + pd.Timedelta(seconds=30 * i)
+            if ts >= pd.Timestamp(end_dt):
+                break
+            rows.append({"symbol": s, "timestamp": ts, "bid": 9.99, "ask": 10.01,
+                         "bid_size": 100.0, "ask_size": 200.0, "conditions": "R",
+                         "bid_exchange": "V", "ask_exchange": "Q", "tape": "C"})
+        out[s] = rows
+    return out
+
+
+def test_quotes_fine_only_writes_sibling_path_and_skips_shared_writes(tmp_path):
+    """--quotes-fine-only writes the SIBLING quotes_fine/ tree (with exchange/tape)
+    while leaving the canonical quotes/ tree + shared bookkeeping untouched."""
+    lake = tmp_path / "lake"
+    run_configured_backfill(_config(), lake_root=lake, bars_fetcher=_fake_bars)
+    manifest = layout.ingestion_manifest_path(lake)
+    mtime0 = manifest.stat().st_mtime_ns
+
+    result = run_configured_backfill(
+        _config(quotes_fine_only=True, quotes_fine={"enabled": True, "batch_size_symbols": 10}),
+        lake_root=lake, bars_fetcher=_raising_bars, quotes_fine_fetcher=_fake_quotes_fine)
+    assert result["counts"]["quotes_fine"]["pairs_written"] >= 1
+    assert manifest.stat().st_mtime_ns == mtime0  # shared bookkeeping untouched
+    assert layout.quotes_fine_path(lake, "AAA", 2024, 9, feed="iex").is_file()
+    # canonical quotes/ tree is NOT touched by the fine-only run
+    assert not layout.quotes_path(lake, "AAA", 2024, 9, feed="iex").is_file()
+    df = pd.read_parquet(layout.quotes_fine_path(lake, "AAA", 2024, 9, feed="iex"))
+    assert "bid_exchange" in df.columns and "tape" in df.columns
+
+
 def test_run_configured_backfill_writes_the_lake(tmp_path):
     lake = tmp_path / "lake"
     result = run_configured_backfill(_config(), lake_root=lake, bars_fetcher=_fake_bars)

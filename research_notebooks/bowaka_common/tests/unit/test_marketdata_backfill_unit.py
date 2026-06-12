@@ -139,3 +139,87 @@ def test_run_backfill_orchestrates(tmp_path):
     assert result["assets_count"] == 1
     assert layout.ingestion_manifest_path(tmp_path).is_file()
     assert layout.ingestion_run_path(tmp_path, result["ingestion_run_id"]).is_file()
+
+
+# --- PA.3: exchange/tape coercion + canonical-sampler byte-identity --------
+
+def _quote_ticks(symbol, session):
+    """Coerce raw NBBO quote dicts that carry the new exchange/tape fields."""
+    base = pd.Timestamp(session, tz="UTC") + pd.Timedelta(hours=14)
+    raw = [
+        {"symbol": symbol, "t": base, "bp": 9.99, "ap": 10.01, "bs": 100, "as": 200,
+         "c": ["R"], "bx": "V", "ax": "Q", "z": "C"},
+        {"symbol": symbol, "t": base + pd.Timedelta(seconds=30), "bp": 9.98, "ap": 10.02,
+         "bs": 150, "as": 250, "c": ["R"], "bx": "P", "ax": "Z", "z": "C"},
+    ]
+    return [backfill._coerce_quote_row(symbol, q) for q in raw]
+
+
+def test_coerce_quote_row_carries_exchange_tape():
+    rows = _quote_ticks("AAA", dt.date(2026, 5, 1))
+    assert rows[0]["bid_exchange"] == "V"
+    assert rows[0]["ask_exchange"] == "Q"
+    assert rows[0]["tape"] == "C"
+
+
+def test_canonical_sampler_drops_exchange_tape_columns():
+    # The canonical 1/min sampler MUST project to the 7 canonical columns so the
+    # PA.3 exchange/tape additions never reach the canonical quotes/ tree (keeping
+    # quote_partitions_hash byte-identical).
+    session = dt.date(2026, 5, 1)
+    ticks = pd.DataFrame(_quote_ticks("AAA", session))
+    ticks["timestamp"] = pd.to_datetime(ticks["timestamp"], utc=True)
+    out = backfill._sample_session_nbbo(ticks, session)
+    assert list(out.columns) == [
+        "symbol", "timestamp", "bid", "ask", "bid_size", "ask_size", "conditions"]
+    for dropped in ("bid_exchange", "ask_exchange", "tape"):
+        assert dropped not in out.columns
+
+
+def test_fetch_trades_writes_raw_preserving_prints(tmp_path):
+    cfg = _cfg(tmp_path)
+    targets = pd.DataFrame([{"session_date": dt.date(2026, 5, 1), "symbol": "AAA"}])
+
+    def fake(batch, start_dt, end_dt):
+        base = pd.Timestamp(start_dt) + pd.Timedelta(hours=14)
+        return {s: [
+            {"symbol": s, "timestamp": base, "price": 10.0, "size": 100.0,
+             "exchange": "V", "conditions": "@", "tape": "C", "trade_id": 1},
+            {"symbol": s, "timestamp": base, "price": 10.01, "size": 50.0,
+             "exchange": "V", "conditions": "@", "tape": "C", "trade_id": 2},
+        ] for s in batch}
+
+    stats = backfill.fetch_trades(cfg, targets, _LOG, backfill.RateLimiter(100000),
+                                  trades_fetcher=fake)
+    assert stats["pairs_written"] == 1
+    tfile = layout.trades_path(tmp_path, "AAA", 2026, 5, feed="iex")
+    assert tfile.is_file()
+    df = pd.read_parquet(tfile)
+    assert len(df) == 2  # both prints sharing the timestamp survive (no ts-dedup)
+    assert set(df["trade_id"]) == {1, 2}
+
+
+def test_fetch_quotes_fine_keeps_exchange_codes_on_sibling_path(tmp_path):
+    cfg = _cfg(tmp_path)
+    targets = pd.DataFrame([{"session_date": dt.date(2026, 5, 1), "symbol": "AAA"}])
+
+    def fake(batch, start_dt, end_dt):
+        base = pd.Timestamp(start_dt) + pd.Timedelta(hours=14)
+        return {s: [
+            {"symbol": s, "timestamp": base + pd.Timedelta(seconds=10 * i),
+             "bid": 9.99, "ask": 10.01, "bid_size": 100.0, "ask_size": 200.0,
+             "conditions": "R", "bid_exchange": "V", "ask_exchange": "Q", "tape": "C"}
+            for i in range(5)
+        ] for s in batch}
+
+    stats = backfill.fetch_quotes_fine(cfg, targets, _LOG, backfill.RateLimiter(100000),
+                                       quotes_fetcher=fake)  # samples_per_minute=None -> raw
+    assert stats["pairs_written"] == 1
+    fpath = layout.quotes_fine_path(tmp_path, "AAA", 2026, 5, feed="iex")
+    assert fpath.is_file()
+    df = pd.read_parquet(fpath)
+    assert len(df) == 5  # raw ticks (no sampling)
+    for col in ("bid_exchange", "ask_exchange", "tape"):
+        assert col in df.columns
+    # the fine stage writes ONLY the sibling path, never the canonical quotes/
+    assert not layout.quotes_path(tmp_path, "AAA", 2026, 5, feed="iex").is_file()

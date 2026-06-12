@@ -1,17 +1,25 @@
 #!/usr/bin/env pwsh
 # weekly_data_refresh.ps1
 #
-# Scheduled WEEKLY refresh of the shared market-data lake (SIP bars + NBBO quotes)
-# on the fast native container FS (/opt/market_data_cache). Designed to run every
+# Scheduled WEEKLY refresh of the shared market-data lake (SIP bars + NBBO quotes
+# + the fill-realism datasets: raw trade tape + fine NBBO) on the fast native
+# container FS (/opt/market_data_cache). Designed to run every
 # Friday after the US market close so the lake -- and, the next morning, the scan
 # matrices -- include the just-completed week.
 #
 # What it does, INSIDE the ql-jupyter container:
 #   - exports MARKET_DATA_ROOT=/opt/market_data_cache (the fast native lake the
 #     notebook-10 study + scan matrices read; the slow in-repo 9p lake is NOT used)
-#   - runs the incremental SIP backfill with --quotes: daily bars, minute bars,
-#     and SIP NBBO quotes in ONE pass. Resume-aware -- only NEW (symbol, session)
-#     pairs are fetched, so re-runs are cheap.
+#   - runs the incremental SIP backfill in ONE pass with daily bars, minute bars,
+#     SIP NBBO quotes (--quotes), the RAW trade tape (--trades, PA.2) and fine
+#     sub-minute NBBO (--quotes-fine, PA.3). Resume-aware -- only NEW (symbol,
+#     session) pairs are fetched, so re-runs are cheap.
+#   - the trade buffer is RAM-bounded (TRADE_FLUSH_EVERY_SESSIONS) because raw
+#     trades are large; trades/ and quotes_fine/ are SIBLING paths, so they never
+#     drift the canonical quote_partitions_hash.
+#   - NOTE: --quotes-fine re-fetches the NBBO tick stream to sample it at a finer
+#     cadence, so it roughly DOUBLES the quote-fetch time. Pass -SkipQuotesFine to
+#     drop it (e.g. if nothing consumes sub-minute NBBO yet); -SkipTrades likewise.
 #   - rpm defaults to 8000 (headroom under the 10000 SIP limit, in case the data
 #     key is shared with live trading). Quote fetch uses 16 worker threads.
 #
@@ -49,6 +57,9 @@ param(
     [int]    $Rpm          = 8000,
     [int]    $QuoteWorkers = 16,
     [string] $Feed         = "sip",
+    [int]    $FineQuoteSamplesPerMinute = 4,
+    [switch] $SkipTrades,
+    [switch] $SkipQuotesFine,
     [switch] $RebuildMatrices
 )
 $ErrorActionPreference = "Stop"
@@ -66,19 +77,28 @@ $start   = (Get-Date).AddDays(-$LookbackDays).ToString("yyyy-MM-dd")
 $ts      = Get-Date -Format "yyyyMMdd_HHmmss"
 $hostLog = Join-Path $PSScriptRoot "weekly_data_refresh_$ts.log"
 
-Write-Host "[weekly] feed=$Feed start=$start rpm=$Rpm quotes=on workers=$QuoteWorkers lake=$LakeRoot"
+# Fill-realism stages (PA.2/PA.3): kept current alongside the canonical bars/quotes.
+$fillFlags = ""
+if (-not $SkipTrades)     { $fillFlags += " --trades" }
+if (-not $SkipQuotesFine) { $fillFlags += " --quotes-fine --quotes-fine-samples-per-minute $FineQuoteSamplesPerMinute" }
+
+Write-Host "[weekly] feed=$Feed start=$start rpm=$Rpm quotes=on trades=$(-not $SkipTrades) quotes_fine=$(-not $SkipQuotesFine) workers=$QuoteWorkers lake=$LakeRoot"
 Write-Host "[weekly] log: $hostLog"
 
-# MARKET_DATA_ROOT + QUOTE_FETCH_WORKERS are exported INSIDE the container, NOT via
-# `docker exec -e` (Git Bash / MSYS on Windows rewrites a bare /opt/... argument into
-# a Windows path). --end defaults to the config's `auto`, which advances to the
-# latest complete session on its own.
+# MARKET_DATA_ROOT + the *_FETCH_WORKERS / flush knobs are exported INSIDE the
+# container, NOT via `docker exec -e` (Git Bash / MSYS on Windows rewrites a bare
+# /opt/... argument into a Windows path). TRADE_FLUSH_EVERY_SESSIONS bounds the raw-
+# trade buffer RAM (idempotent flush -> byte-identical output). --end defaults to
+# the config's `auto`, which advances to the latest complete session on its own.
 $inner = @"
 set -euo pipefail
 export MARKET_DATA_ROOT=$LakeRoot
 export QUOTE_FETCH_WORKERS=$QuoteWorkers
+export TRADE_FETCH_WORKERS=$QuoteWorkers
+export QUOTE_FINE_FETCH_WORKERS=$QuoteWorkers
+export TRADE_FLUSH_EVERY_SESSIONS=3
 cd /quants-lab
-$Python scripts/backfill_market_data.py --feed $Feed --quotes --start $start --rpm $Rpm
+$Python scripts/backfill_market_data.py --feed $Feed --quotes$fillFlags --start $start --rpm $Rpm
 "@
 
 # `bash -lc` mis-parses CR in a multi-line script: CRLF leaves a trailing \r on

@@ -77,6 +77,33 @@ def main(argv: list[str] | None = None) -> int:
              "conservative — raise it for the heavy quote backfill. If this key is "
              "shared with live trading, leave headroom or run off-hours.",
     )
+    ap.add_argument(
+        "--trades", action="store_true",
+        help="enable the RAW SIP trade-tape stage (PA.2; overrides config "
+             "trades.enabled). The per-print tape the tape-replay fill oracle "
+             "consumes. SIP-only + very heavy; scope --start/--end. Incremental.",
+    )
+    ap.add_argument(
+        "--trades-only", action="store_true",
+        help="fetch ONLY the raw trade tape (implies --trades): skip the daily + "
+             "minute fetch and the shared manifest writes, like --quotes-only.",
+    )
+    ap.add_argument(
+        "--quotes-fine", action="store_true",
+        help="enable the FINE NBBO stage (PA.3; overrides config quotes_fine.enabled): "
+             "sub-minute NBBO + bid/ask exchange + tape on a SIBLING path "
+             "(quotes_fine/) that never drifts the canonical quote_partitions_hash.",
+    )
+    ap.add_argument(
+        "--quotes-fine-only", action="store_true",
+        help="fetch ONLY fine NBBO (implies --quotes-fine): skip the daily + minute "
+             "fetch and the shared manifest writes, like --quotes-only.",
+    )
+    ap.add_argument(
+        "--quotes-fine-samples-per-minute", type=int,
+        help="fine-NBBO granularity: N prevailing-NBBO snapshots per minute "
+             "(omit / 0 = raw tick stream, most faithful but largest).",
+    )
     args = ap.parse_args(argv)
 
     config = load_backfill_config(args.config)
@@ -90,6 +117,17 @@ def main(argv: list[str] | None = None) -> int:
         config.setdefault("quotes", {})["enabled"] = True
     if args.quotes_only:
         config["quotes_only"] = True
+    if args.trades or args.trades_only:
+        config.setdefault("trades", {})["enabled"] = True
+    if args.trades_only:
+        config["trades_only"] = True
+    if args.quotes_fine or args.quotes_fine_only:
+        config.setdefault("quotes_fine", {})["enabled"] = True
+    if args.quotes_fine_only:
+        config["quotes_fine_only"] = True
+    if args.quotes_fine_samples_per_minute is not None:
+        config.setdefault("quotes_fine", {})["samples_per_minute"] = \
+            args.quotes_fine_samples_per_minute
     if args.rpm:
         config["rate_limit_rpm"] = args.rpm
 

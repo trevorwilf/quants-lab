@@ -27,6 +27,8 @@ Every dataset lives under `<root>/`:
 bars/vendor=<v>/feed=<f>/timeframe=1d/adjustment=<a>/symbol=<SYM>/part.parquet
 bars/vendor=<v>/feed=<f>/timeframe=1m/adjustment=<a>/symbol=<SYM>/year=<YYYY>/month=<MM>/part.parquet
 quotes/vendor=<v>/feed=<f>/symbol=<SYM>/year=<YYYY>/month=<MM>/part.parquet
+quotes_fine/vendor=<v>/feed=<f>/symbol=<SYM>/year=<YYYY>/month=<MM>/part.parquet
+trades/vendor=<v>/feed=<f>/symbol=<SYM>/year=<YYYY>/month=<MM>/part.parquet
 statuses/vendor=<v>/symbol=<SYM>/date=<YYYY-MM-DD>/part.parquet
 corporate_actions/vendor=<v>/symbol=<SYM>/part.parquet
 assets/vendor=<v>/snapshot_id=<id>/assets.parquet
@@ -75,6 +77,36 @@ corporate_actions/vendor=alpaca/symbol=<SYM>/part.parquet
 SIP daily bars are split-adjusted by convention. SIP minute bars and SIP
 quotes are raw (same shape as IEX) but sourced from the consolidated tape.
 
+## Fill-realism datasets — `trades/` (PA.2) and `quotes_fine/` (PA.3)
+
+Two **opt-in** datasets feed the honest fill model (sell-side exits + the
+tape-replay oracle). Both are **siblings of `quotes/`** by design: the canonical
+1/min `quote_partitions_hash` walks only the `quotes/` tree, so a trades / fine
+backfill is invisible to a running study's `dataset_hash` (lineage Guardrail 2).
+A `trades/`-only or `quotes_fine/`-only backfill also skips the shared
+`_ingestion/manifest.json` write, so many month-range workers can run in parallel.
+
+```
+trades/vendor=alpaca/feed=sip/symbol=<SYM>/year=<YYYY>/month=<MM>/part.parquet
+quotes_fine/vendor=alpaca/feed=sip/symbol=<SYM>/year=<YYYY>/month=<MM>/part.parquet
+```
+
+| Dataset | Granularity | Schema | Producer |
+|---|---|---|---|
+| `trades/` | RAW per-print tape (no sampling — many prints share a timestamp) | `symbol, timestamp(UTC), price, size, exchange, conditions, tape, trade_id` | `backfill.fetch_trades` → `--trades` / `--trades-only` |
+| `quotes_fine/` | Sub-minute NBBO (raw ticks, or N prevailing snapshots/min) | the canonical 7 + `bid_exchange, ask_exchange, tape` | `backfill.fetch_quotes_fine` → `--quotes-fine` / `--quotes-fine-only` |
+
+The canonical `quotes/` tree stays **byte-identical**: the 1/min sampler
+(`backfill._sample_session_nbbo`) projects to the 7 canonical columns, so the
+PA.3 exchange/tape additions reach only `quotes_fine/`. Storage is sparse on a
+$1–$20 / $250k-ADV universe (a representative ~2.7 MB/symbol-month for trades;
+~60–70 GB total over ~11 months) — see `PHASE_NOTES/`.
+
+The trade tape enters the `dataset_hash` **only** when a run actually consumes it
+(`execution.fill_model` or `exits.fill_model` == `tape_replay`), via the gated
+`trades_partitions_hash` component in `data/lineage.build_dataset_lineage`; legacy
+runs are byte-identical (the component is absent). See `docs/fill_realism.md`.
+
 ## Layout helpers
 
 `bowaka_common.marketdata.layout` exports both generic builders
@@ -86,13 +118,19 @@ convenience wrappers:
 | `sip_daily_bars_path(root, sym)` | `<root>/bars/vendor=alpaca/feed=sip/timeframe=1d/adjustment=split_adjusted/symbol=<SYM>/part.parquet` |
 | `sip_minute_bars_path(root, sym, y, m)` | `<root>/bars/vendor=alpaca/feed=sip/timeframe=1m/adjustment=raw/symbol=<SYM>/year=<Y>/month=<M>/part.parquet` |
 | `sip_quotes_path(root, sym, y, m)` | `<root>/quotes/vendor=alpaca/feed=sip/symbol=<SYM>/year=<Y>/month=<M>/part.parquet` |
+| `trades_path(root, sym, y, m, feed=)` | `<root>/trades/vendor=alpaca/feed=<f>/symbol=<SYM>/year=<Y>/month=<M>/part.parquet` (PA.2) |
+| `quotes_fine_path(root, sym, y, m, feed=)` | `<root>/quotes_fine/vendor=alpaca/feed=<f>/symbol=<SYM>/year=<Y>/month=<M>/part.parquet` (PA.3) |
 | `sip_bars_root(root, "1d")` | The SIP daily-bars timeframe-adjustment root |
 | `sip_quotes_root(root)` | The SIP quotes root |
 | `statuses_path(root, sym, date)` | `<root>/statuses/vendor=alpaca/symbol=<SYM>/date=<YYYY-MM-DD>/part.parquet` |
 | `sip_partitions_available(root)` | `True` iff the lake has *any* SIP bars or quotes parquet |
 
 `MarketDataStore` exposes `sip_daily_bars` / `sip_minute_bars` / `sip_quotes`
-/ `sip_quotes_at_or_before` / `has_sip_partitions` for SIP-aware reads.
+/ `sip_quotes_at_or_before` / `has_sip_partitions` for SIP-aware reads, plus
+`trades_between` / `sip_trades_between` (PA.2) and `quotes_fine_between` /
+`sip_quotes_fine_between` (PA.3) for the fill-realism datasets. Bar reads also
+accept `with_microstructure=True` (PA.1) to surface the `vwap` / `trade_count`
+columns the lake already stores.
 
 ## SIP preflight (Phase 10)
 

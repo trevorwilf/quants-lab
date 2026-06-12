@@ -54,6 +54,26 @@ quotes:
   enabled: false           # set true once on a SIP plan + feed: sip
   batch_size_symbols: 25   # smaller than bars — quote tick volume is high
 
+# Raw SIP trade tape (PA.2) — the per-print tape the tape-replay fill oracle
+# (PB.4) replays to compute achievable VWAP / fill fraction for a given size at a
+# given time. Stored RAW (no per-minute sampling): orders of magnitude larger than
+# quotes, so it is opt-in and SIP-only — scope start_date/end_date tightly and
+# expect a large lake. Shares the minute_bars (symbol, session) universe (keep
+# minute_bars enabled). Lands on a SIBLING path of quotes/, so a trades backfill
+# does NOT drift the canonical quote_partitions_hash (dataset-lineage Guardrail 2).
+trades:
+  enabled: false           # set true once on a SIP plan + feed: sip
+  batch_size_symbols: 25
+
+# Fine NBBO (PA.3) — sub-minute resolution + per-quote bid/ask exchange + tape,
+# on a SIBLING path (quotes_fine/) so it never drifts the canonical 1/min
+# quote_partitions_hash. Opt-in + SIP-only. samples_per_minute: null = raw tick
+# stream (most faithful, large); an int N keeps N prevailing-NBBO snapshots/min.
+quotes_fine:
+  enabled: false           # set true once on a SIP plan + feed: sip
+  batch_size_symbols: 25
+  samples_per_minute: null # null = raw ticks; e.g. 4 = 4 snapshots/minute
+
 # Alpaca API rate limiting.
 rate_limit_rpm: 180
 batch_size_symbols: 200
