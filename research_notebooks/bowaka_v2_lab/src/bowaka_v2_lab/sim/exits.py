@@ -505,7 +505,17 @@ def _tape_replay_bracket(
     )
     if result.filled_qty <= 0:
         return None
-    fill = float(result.avg_fill_price)
+    if kind == "target":
+        # A take-profit is a RESTING limit sell: it fills AT the limit (target),
+        # not at the VWAP of the prints that traded through it — a passive limit
+        # never gets price improvement above its price. The ≥target tape volume
+        # only governs whether/how much it fills (``result.fill_fraction``); the
+        # realized price is the limit. (PC.3 clamp — previously the ≥target VWAP
+        # made targets optimistic.) A triggered STOP and a marketable BUY are
+        # aggressors that DO pay the swept VWAP, so they are not clamped.
+        fill = float(bracket_price)
+    else:
+        fill = float(result.avg_fill_price)
     slip = ((fill - float(bracket_price)) / float(bracket_price) * 10_000.0
             if bracket_price else 0.0)
     return float(fill), float(slip)

@@ -80,13 +80,26 @@ def test_exit_stop_fills_at_tape_vwap_of_prints_at_or_below_stop():
     assert slip == pytest.approx(-100.0)      # gave up 100 bps vs the 100 bracket
 
 
-def test_exit_target_fills_at_tape_vwap_of_prints_at_or_above_target():
-    # target=100; prints at 99 (below → excluded) and 101 (eligible).
+def test_exit_target_fills_at_the_limit_not_the_through_vwap():
+    # target=100; prints at 99 (below → excluded) and 101 (≥target → it fills).
+    # A take-profit is a RESTING limit sell: it fills AT the limit (100), NOT at
+    # the 101 VWAP of prints that traded through it (PC.3 clamp). slip is 0.0
+    # (a float, not None) — confirming the tape branch ran (legacy returns None).
     df = _trades([(1, 99.0, 50), (2, 101.0, 50)])
     bar = {"timestamp": _BASE, "volume": 10_000}
     px, slip = _bracket_fill(100.0, bar, _xf(fill_model="tape_replay", trades_supplier=_supplier(df)), kind="target")
-    assert px == pytest.approx(101.0)
-    assert slip == pytest.approx(100.0)
+    assert px == pytest.approx(100.0)   # the limit, not the 101 through-VWAP
+    assert slip == pytest.approx(0.0)   # 0.0 float (tape ran) vs None (legacy)
+
+
+def test_exit_target_no_print_at_or_above_falls_through_to_legacy():
+    # target=100 but every print is BELOW it → nothing lifts the limit → no tape
+    # fill → fall through to the legacy bracket price (exact, slip None).
+    df = _trades([(1, 98.0, 50), (2, 99.0, 50)])
+    bar = {"timestamp": _BASE, "volume": 10_000}
+    px, slip = _bracket_fill(100.0, bar, _xf(fill_model="tape_replay", trades_supplier=_supplier(df)), kind="target")
+    assert px == pytest.approx(100.0)
+    assert slip is None
 
 
 def test_exit_stop_vwap_blends_multiple_eligible_prints():

@@ -119,22 +119,24 @@ exactly the optimism PB.1–4 remove.
 
 **PC.3 end-to-end exit PnL** (`scripts/_pc3_exit_pnl.py`, artifact
 `artifacts/pc3_exit_pnl.txt`) drives the real `walk_lot_exit` over real bars+tape,
-legacy vs `tape_replay`, entry held fixed: tape realized PnL is **13.4 % worse at
-$8 k / 17.8 % worse at $30 k** than the legacy bracket fills (all of the delta is
-on the lots that hit a stop/target). The legacy backtest overstates PnL by that
-much from exit-fill optimism alone.
+legacy vs `tape_replay`, entry held fixed: tape realized PnL is **27.6 % worse at
+$8 k / 38.1 % worse at $30 k** than the legacy bracket fills (all of the delta is
+on the lots that hit a stop/target; every tape lot is ≤ legacy — 0 fill better).
+The legacy backtest overstates PnL by that much from exit-fill optimism alone.
 
 > The full-pipeline backtest A/B was attempted but the scanner emits 0 candidates
 > on a scoped window (the PIT universe screens to empty — a universe issue
 > orthogonal to the fill model), so PC.3 drives the exit engine directly instead.
 
-**Known limitation (target-side optimism).** A target SELL fills at the
-size-weighted VWAP of prints **≥ target** (`min_price=target`). When the tape
-trades through the target this is slightly *generous* (a resting limit sell would
-fill at the limit, not the higher VWAP) — ~25 % of bracket lots fill *better* than
-legacy under tape. Stops dominate, so the **net** is correctly worse, but a future
-refinement could clamp the target fill at the bracket price. Tracked as a follow-up;
-the model is opt-in and capped at `research_only` until promoted.
+**Target-side fill (resting limit, not through-VWAP).** A take-profit is a
+*resting* limit sell, so `_tape_replay_bracket` fills a `kind="target"` exit **at
+the limit** (the bracket/target price) — the ≥target tape volume governs only
+whether it fills, not the price (a passive limit never gets price improvement
+above its price). A triggered STOP and a marketable BUY are *aggressors* that
+sweep liquidity, so they correctly pay the realized VWAP and are NOT clamped.
+(Before this clamp the target used the ≥target VWAP, which made ~25 % of bracket
+lots fill *better* than legacy; PC.3 above confirms the clamped model is uniformly
+≤ legacy.)
 
 ## See also
 

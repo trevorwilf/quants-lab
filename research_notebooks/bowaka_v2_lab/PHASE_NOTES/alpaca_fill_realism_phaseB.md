@@ -61,16 +61,19 @@ pass. = **0 regressions.**
 - **PB.5**: a $4 k order fills 82 % (sell) / 79 % (buy) on the real tape with a
   few-bps median give-up; a $25 k order fills only **33 %** (fill-frac 0.49) —
   legacy over-fills ~2×. Size-sensitive and directionally correct.
-- **PC.3**: through the real `walk_lot_exit`, tape realized PnL is **13.4 % worse
-  at $8 k / 17.8 % worse at $30 k** than legacy bracket fills; all of the delta is
-  on bracket (stop/target) lots.
+- **PC.3**: through the real `walk_lot_exit`, tape realized PnL is **27.6 % worse
+  at $8 k / 38.1 % worse at $30 k** than legacy bracket fills; all of the delta is
+  on bracket (stop/target) lots and every tape lot is ≤ legacy (0 fill better).
 
 **PC.3 caveat**: the full scanner/PIT-universe backtest A/B yields an empty PIT
 universe on a scoped window (universe-screening issue, orthogonal to the fill
 model — the CCP run completes, just emits 0 candidates), so PC.3 drives the exit
 engine directly.
 
-**Known limitation**: target-side fills (`min_price=target`) are slightly
-optimistic (≈25 % of bracket lots fill better than legacy under tape); stops
-dominate so the net is correctly worse. Future refinement: clamp the target fill
-at the bracket price. The model is opt-in / capped at `research_only`.
+**Target-side clamp (done)**: a take-profit is a RESTING limit sell, so
+`_tape_replay_bracket` fills a `kind="target"` exit AT the limit (the bracket
+price), not at the ≥target through-VWAP (a passive limit gets no price improvement
+above its price). Triggered stops + marketable buys are aggressors → still pay the
+swept VWAP. Before the clamp ~25 % of bracket lots filled better than legacy; after
+it the model is uniformly ≤ legacy (PC.3: 48 worse / 0 better / 96 equal). The
+model is opt-in / capped at `research_only`.
