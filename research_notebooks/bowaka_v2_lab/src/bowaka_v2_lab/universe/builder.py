@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional
@@ -519,6 +520,23 @@ def build_pit_universe(
     baselines = _build_prior_baselines_map(
         symbols, session, lake_store, feed=feed, daily_adjustment=daily_adjustment,
     )
+    # Loud guard: a fully-empty baseline map means the daily reader found NO prior
+    # bar for ANY symbol — almost always a lake-partition / adjustment mismatch,
+    # NOT a genuinely empty universe. The most common cause: the lake stores SIP
+    # daily bars only under adjustment=split_adjusted, but the config resolved
+    # daily_adjustment="raw" (e.g. require_split_adjustment=false), so the reader
+    # finds nothing and EVERY symbol screens to no_prior_bar -> empty universe ->
+    # 0 candidates -> 0 trades, silently. Warn so this isn't a debugging dead-end.
+    # See scripts/_pit_universe_diag.py.
+    if symbols and not any(pc is not None for pc, _ in baselines.values()):
+        logging.getLogger(__name__).warning(
+            "build_pit_universe: NO prior daily bar for any of %d symbols on session "
+            "%s (feed=%s, daily_adjustment=%s) -> the universe will be EMPTY. Verify "
+            "the lake has a daily partition for adjustment=%r (this lake stores SIP "
+            "daily bars only as split_adjusted; a config resolving to 'raw' finds "
+            "nothing -- set require_split_adjustment=true to match).",
+            len(symbols), session, feed, daily_adjustment, daily_adjustment,
+        )
 
     records: dict[str, UniverseRecord] = {}
     for _, row in asset_master.iterrows():
