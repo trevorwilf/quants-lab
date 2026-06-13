@@ -41,6 +41,37 @@ class TapeFillResult:
 
 _EMPTY_COLS = ("timestamp", "price", "size")
 
+#: L18 — sale-condition codes that mark a print as NOT continuous executable
+#: liquidity: ``I`` odd-lot, ``B``/``W`` average-price, ``4`` derivatively-priced,
+#: ``Z`` out-of-sequence, ``L`` sold-last/late, and the auction opening/close/
+#: reopening prints — CTS ``O``/``M``/``Q`` plus the UTP equivalents ``5``/``6``.
+#: A tape-replay fill must skip these; counting them manufactured liquidity (the
+#: Round-2 100-share no-fill that became a full 600/600 fill was odd-lot prints).
+#: Per docs/realism_audit_2026-06/round1_maps/alpaca_micro.md topic 2(b). The
+#: prompt's drop-list is the CTS set {I,B,W,4,Z,L,O,M,Q}; 5/6 are added as the
+#: documented UTP auction equivalents (same "not continuous" treatment).
+_TAPE_INELIGIBLE_CONDITIONS = frozenset(
+    {"I", "B", "W", "4", "Z", "L", "O", "M", "Q", "5", "6"}
+)
+
+
+def _print_is_eligible(conditions: Any) -> bool:
+    """True when a print is continuous executable liquidity.
+
+    A trade's ``c`` field is an array; the lake stores it comma-joined (e.g.
+    ``" ,I"`` = regular sale + odd-lot). The "strictest rule wins" — a print is
+    ELIGIBLE only if NONE of its codes is in :data:`_TAPE_INELIGIBLE_CONDITIONS`.
+    Missing / empty / unparseable conditions -> eligible (safe fallback so a tape
+    without the column still fills — the legacy behavior — just unfiltered).
+    """
+    if conditions is None:
+        return True
+    s = str(conditions).strip()
+    if not s or s.lower() == "nan":
+        return True
+    codes = [c.strip() for c in s.replace(";", ",").split(",")]
+    return not any(c in _TAPE_INELIGIBLE_CONDITIONS for c in codes if c)
+
 
 def _no_fill(req: int) -> TapeFillResult:
     return TapeFillResult(
@@ -84,6 +115,12 @@ def replay_tape_fill(
     t1 = t0 + pd.Timedelta(seconds=float(window_seconds))
     ts = pd.to_datetime(trades["timestamp"], utc=True)
     mask = (ts >= t0) & (ts <= t1)
+    # L18: keep only continuous executable prints — drop odd-lot / average-price /
+    # out-of-sequence / auction conditions. Counting them manufactured liquidity
+    # (odd-lot prints alone are the majority of a thin name's tape). Safe fallback:
+    # a tape without the ``conditions`` column passes everything (legacy behavior).
+    if "conditions" in trades.columns:
+        mask = mask & trades["conditions"].map(_print_is_eligible)
     if min_price is not None:
         mask = mask & (trades["price"] >= float(min_price))
     if max_price is not None:
