@@ -122,6 +122,20 @@ COST_STRESS_FILL_RATE_CAP: dict[str, float] = {
 #: the forward trade tape (P5), not by this scalar.
 DEFAULT_FILL_LATENCY_SECONDS: float = 5.0
 
+#: §5.5 — minimum displayed NBBO size counted as protected, accessible round-lot
+#: depth. SIP ``bs``/``as`` include sub-100 odd-lot / BOLO sizes that are NOT
+#: protected round-lot quotes, so a marketable/protected fill must not treat them
+#: as accessible top-of-book depth (compounds with the L2 displayed-touch cap).
+_MIN_ROUND_LOT_SHARES: int = 100
+
+
+def _round_lot_depth(displayed_size: Any) -> float:
+    """§5.5 — accessible protected depth from a displayed NBBO size: ``0.0`` when
+    the size is sub-round-lot (odd-lot / BOLO, < 100 sh), else the displayed size.
+    Preserves the ``fast_realism`` ``touch == 0`` branch (a 0/None size stays 0)."""
+    s = float(displayed_size or 0.0)
+    return s if s >= _MIN_ROUND_LOT_SHARES else 0.0
+
 
 #: Audit 2026-05-29 §8.5 — ADDITIVE slippage offsets (bps applied at fill
 #: regardless of the base ``slippage_bps`` from cost_model). Part of the
@@ -508,9 +522,9 @@ def simulate_market_fill(
         # displayed top-of-book size (the only depth the lab can actually see);
         # with no displayed size either there is no liquidity signal at all, so the
         # order does not fill (``filled <= 0`` -> no_fill below).
-        touch_size = float(
-            (quote.ask_size if side_l == "buy" else quote.bid_size) or 0.0
-        )
+        touch_size = _round_lot_depth(
+            quote.ask_size if side_l == "buy" else quote.bid_size
+        )  # §5.5 odd-lot filter
         usable = max(0, int(touch_size * cap))
         filled = min(int(requested_qty), usable)
         is_partial = filled < requested_qty
@@ -635,10 +649,10 @@ def _t3_depth_impact_fill(
     tier = ExecutionTier.T3_NBBO_DEPTH
     if side_l == "buy":
         touch = float(quote.ask)
-        touch_size = float(quote.ask_size or 0.0)
+        touch_size = _round_lot_depth(quote.ask_size)  # §5.5 odd-lot filter
     else:
         touch = float(quote.bid)
-        touch_size = float(quote.bid_size or 0.0)
+        touch_size = _round_lot_depth(quote.bid_size)  # §5.5 odd-lot filter
     if touch <= 0:
         return _no_fill("no_liquidity", order_style=order_style, execution_tier=tier)
 
@@ -832,10 +846,10 @@ def _t1_fill(
     side_l = side.lower()
     if side_l == "buy":
         touch = float(quote.ask)
-        size_at_touch = float(quote.ask_size or 0.0)
+        size_at_touch = _round_lot_depth(quote.ask_size)  # §5.5 odd-lot filter
     else:
         touch = float(quote.bid)
-        size_at_touch = float(quote.bid_size or 0.0)
+        size_at_touch = _round_lot_depth(quote.bid_size)  # §5.5 odd-lot filter
     if touch <= 0:
         return _no_fill("no_liquidity", order_style="marketable_limit", execution_tier=tier)
     cap = _resolve_fill_rate_cap(cost_stress, adv_dollar)

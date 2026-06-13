@@ -322,3 +322,36 @@ def test_s23_no_fill_has_zero_latency() -> None:
     )
     assert fill.filled is False
     assert fill.fill_time_seconds == 0.0
+
+
+# --------------------------------------------------------------------------
+# §5.5 (P5) — round-lot vs odd-lot displayed NBBO depth
+# --------------------------------------------------------------------------
+def test_s55_round_lot_depth_filters_sub_100() -> None:
+    """Sub-100 displayed sizes (odd-lot / BOLO) are not protected accessible depth."""
+    from bowaka_v2_lab.sim.fills import _round_lot_depth
+
+    assert _round_lot_depth(0) == 0.0
+    assert _round_lot_depth(None) == 0.0
+    assert _round_lot_depth(50) == 0.0       # odd-lot
+    assert _round_lot_depth(99) == 0.0
+    assert _round_lot_depth(100) == 100.0    # one round lot counts
+    assert _round_lot_depth(250) == 250.0
+
+
+def test_s55_odd_lot_touch_is_not_protected_depth() -> None:
+    """A 50-share displayed touch (odd-lot) is not accessible protected depth, so a
+    T1 marketable order does not fill; a 100-share round lot does."""
+    odd = simulate_marketable_limit_fill(
+        side="buy", requested_qty=300, quote=_hist_quote(ask=10.0, ask_size=50),
+        marketable_limit_slippage_pct=0.005, minute_bars=None, scan_ts=_TS,
+        cost_stress="base", min_order_notional=100.0,
+    )
+    assert odd.filled is False
+    rnd = simulate_marketable_limit_fill(
+        side="buy", requested_qty=300, quote=_hist_quote(ask=10.0, ask_size=100),
+        marketable_limit_slippage_pct=0.005, minute_bars=None, scan_ts=_TS,
+        cost_stress="base", min_order_notional=100.0,
+    )
+    assert rnd.filled is True
+    assert rnd.filled_qty == 100             # the round-lot displayed depth

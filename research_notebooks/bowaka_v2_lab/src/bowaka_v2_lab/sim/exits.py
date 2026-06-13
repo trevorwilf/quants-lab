@@ -465,7 +465,7 @@ class _XFill:
     fill_model: str = "legacy"
     trades_supplier: Optional[Callable[..., Any]] = None
     tape_window_seconds: float = 300.0
-    tape_participation: float = 1.0
+    tape_participation: float = 0.20  # §5.5 realistic POV cap (was 1.0)
 
 
 def _tape_replay_bracket(
@@ -750,7 +750,7 @@ def _walk_lot_exit_pandas(
     # PB.4 — replay the real trade tape for bracket fills (default "legacy" off).
     fill_model = str(cfg.get("fill_model", "legacy"))
     tape_window_seconds = float(cfg.get("tape_window_seconds", 300.0))
-    tape_participation = float(cfg.get("tape_participation", 1.0))
+    tape_participation = float(cfg.get("tape_participation", 0.20))  # §5.5 realistic POV cap
     xf = _XFill(
         symbol=pos.symbol, quote_supplier=quote_supplier, cross_spread=cross_spread,
         half_spread_bps=hs_bps, qty=pos.qty, participation_cap=participation_cap,
@@ -1112,7 +1112,7 @@ def _walk_lot_exit_numpy(
     # PB.4 — replay the real trade tape for bracket fills (default "legacy" off).
     fill_model = str(cfg.get("fill_model", "legacy"))
     tape_window_seconds = float(cfg.get("tape_window_seconds", 300.0))
-    tape_participation = float(cfg.get("tape_participation", 1.0))
+    tape_participation = float(cfg.get("tape_participation", 0.20))  # §5.5 realistic POV cap
     xf = _XFill(
         symbol=pos.symbol, quote_supplier=quote_supplier, cross_spread=cross_spread,
         half_spread_bps=hs_bps, qty=pos.qty, participation_cap=participation_cap,

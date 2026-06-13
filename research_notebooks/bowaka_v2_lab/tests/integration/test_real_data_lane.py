@@ -83,6 +83,45 @@ def test_tape_replay_fill_is_honest_on_real_tape() -> None:
     )
 
 
+def test_tape_eligibility_filter_drops_ineligible_prints_on_real_tape() -> None:
+    """P5/L18: on the REAL SIP tape the eligibility filter drops odd-lot / auction
+    / out-of-sequence prints, so the tape-replay fill draws on STRICTLY LESS volume
+    than the unfiltered tape — the manufactured-liquidity correction (Round-2:
+    counting odd-lots turned a no-fill into a full fill)."""
+    lake_root = require_real_tape(_PROBE, feed=_FEED)
+    from bowaka_v2_lab.data.suppliers import make_trades_supplier
+    from bowaka_v2_lab.sim.tape_fill import _print_is_eligible, replay_tape_fill
+
+    trades_supplier = make_trades_supplier(lake_root, feed=_FEED)
+    t = pd.Timestamp(_dt.datetime(2025, 8, 20, 13, 45), tz="UTC")
+    tr = None
+    for _ in range(40):  # walk forward to a window with a real, condition-tagged tape
+        cand = trades_supplier(_PROBE, t, t + pd.Timedelta(seconds=600))
+        if cand is not None and len(cand) > 20 and "conditions" in cand.columns:
+            tr = cand
+            break
+        t = t + pd.Timedelta(minutes=20)
+    assert tr is not None and len(tr) > 20, "no real tape window with conditions found"
+
+    elig = tr["conditions"].map(_print_is_eligible)
+    n_dropped = int((~elig).sum())
+    # The supplier MUST pass conditions through (else the filter is a silent no-op)
+    # and the real microcap tape carries odd-lot / auction prints to drop.
+    assert n_dropped >= 1, "no ineligible prints found — conditions not flowing or tape degenerate"
+
+    qty = 5000
+    filt = replay_tape_fill(tr, qty=qty, start_ts=t, window_seconds=600, participation=1.0)
+    unfilt = replay_tape_fill(tr.drop(columns=["conditions"]), qty=qty, start_ts=t,
+                              window_seconds=600, participation=1.0)
+    # The filter only ever REMOVES liquidity (ineligible prints' volume); it can
+    # never manufacture more than the unfiltered tape.
+    assert filt.window_qty <= unfilt.window_qty
+    assert filt.window_qty < unfilt.window_qty, (
+        "filter dropped prints but eligible volume == unfiltered — odd-lot/auction "
+        "prints carried zero size? verify the real tape"
+    )
+
+
 def test_committed_iex_subset_is_real_not_synthetic(tmp_path) -> None:
     """The committed IEX subset must be REAL data, not the silent synthetic
     fallback — else CI 'real-data' coverage is a no-op (§6). Host-runnable: reads

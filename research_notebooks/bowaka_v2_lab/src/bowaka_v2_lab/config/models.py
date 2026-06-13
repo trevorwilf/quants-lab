@@ -318,7 +318,10 @@ class ExecutionConfig(_StrictBase):
     # legacy when no trades are wired/available.
     fill_model: Literal["legacy", "tape_replay"] = "legacy"
     tape_window_seconds: float = Field(default=300.0, gt=0.0)
-    tape_participation: float = Field(default=1.0, gt=0.0, le=1.0)
+    # §5.5/L18 — realistic percent-of-volume cap (was 1.0 = one order absorbing
+    # 100% of every print). 0.20 = capture ~20% of the eligible tape flow; tune
+    # per liquidity. Only engages when fill_model="tape_replay".
+    tape_participation: float = Field(default=0.20, gt=0.0, le=1.0)
 
 
 class CompoundingConfig(_StrictBase):
@@ -437,7 +440,10 @@ class ExitsConfig(_StrictBase):
     # for the realized sell VWAP; falls back to the bracket fill when no trades.
     fill_model: Literal["legacy", "tape_replay"] = "legacy"
     tape_window_seconds: float = Field(default=300.0, gt=0.0)
-    tape_participation: float = Field(default=1.0, gt=0.0, le=1.0)
+    # §5.5/L18 — realistic percent-of-volume cap (was 1.0 = one order absorbing
+    # 100% of every print). 0.20 = capture ~20% of the eligible tape flow; tune
+    # per liquidity. Only engages when fill_model="tape_replay".
+    tape_participation: float = Field(default=0.20, gt=0.0, le=1.0)
     # Live exit substructures (Phase 7 promotes these to typed sub-models).
     time_stop: Optional[dict[str, Any]] = None
     signal_fade: Optional[dict[str, Any]] = None
