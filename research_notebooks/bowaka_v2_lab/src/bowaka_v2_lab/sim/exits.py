@@ -704,6 +704,15 @@ def _walk_lot_exit_pandas(
 
     time_stop_cfg = cfg.get("time_stop") or {}
     time_stop_enabled = bool(time_stop_cfg.get("enabled", True)) if time_stop_cfg else False
+    # L14: live (run_time_stop_pass_v2) has NO intraday time-stop — it exits only on
+    # ``_trading_days_since >= max_hold_days``. The shipped configs set
+    # ``time_stop.enabled: true``, which made the sim force-close at the exit_time
+    # (15:30/15:45) on EVERY trial while live holds to bracket/max_hold — a first-order
+    # sim<->live divergence. Disable the intraday time-stop for the live-matching
+    # contracts; smoke_fixture (and direct unit-test callers, which pass no mode) keep
+    # it so the explicit time-stop fixtures still exercise the branch.
+    if str(simulation_mode) in ("current_code_parity", "intended_realism", "fast_realism"):
+        time_stop_enabled = False
     time_stop_clock = _parse_hhmm(time_stop_cfg.get("exit_time"), _DEFAULT_EXIT_TIME)
 
     fade_cfg = cfg.get("signal_fade") or {}
@@ -1077,6 +1086,15 @@ def _walk_lot_exit_numpy(
 
     time_stop_cfg = cfg.get("time_stop") or {}
     time_stop_enabled = bool(time_stop_cfg.get("enabled", True)) if time_stop_cfg else False
+    # L14: live (run_time_stop_pass_v2) has NO intraday time-stop — it exits only on
+    # ``_trading_days_since >= max_hold_days``. The shipped configs set
+    # ``time_stop.enabled: true``, which made the sim force-close at the exit_time
+    # (15:30/15:45) on EVERY trial while live holds to bracket/max_hold — a first-order
+    # sim<->live divergence. Disable the intraday time-stop for the live-matching
+    # contracts; smoke_fixture (and direct unit-test callers, which pass no mode) keep
+    # it so the explicit time-stop fixtures still exercise the branch.
+    if str(simulation_mode) in ("current_code_parity", "intended_realism", "fast_realism"):
+        time_stop_enabled = False
     time_stop_clock = _parse_hhmm(time_stop_cfg.get("exit_time"), _DEFAULT_EXIT_TIME)
 
     fade_cfg = cfg.get("signal_fade") or {}

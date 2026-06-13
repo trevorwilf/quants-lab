@@ -418,16 +418,17 @@ def test_two_stopouts_before_noon_blocks_third_entry_same_day(tmp_path: Path) ->
     )
 
 
-def test_time_stop_at_1545_closes_before_eod_snapshot(tmp_path: Path) -> None:
-    """A time-stop at 15:45 closes the lot BEFORE the 16:00 EOD snapshot.
+def test_time_stop_suppressed_for_parity_contract_l14(tmp_path: Path) -> None:
+    """L14: live (run_time_stop_pass_v2) has NO intraday time-stop, so under
+    current_code_parity the sim does NOT fire the 15:45 time-stop even with
+    ``time_stop.enabled: true`` in config — the lot holds to bracket/max_hold,
+    matching live. The engine's time-stop mechanism is still covered by the
+    direct-walk unit test ``test_exit_time_stop`` (which passes no contract, so the
+    mode gate leaves the time-stop enabled).
 
-    The daily-equity row records the bankroll *after* the time-stop closes, so
-    ``daily_realized_pnl`` reflects the closed lot. Under the old end-of-
-    session loop the 15:45 time-stop fired only at the very end, but the EOD
-    snapshot was built off the SAME ``portfolio.state``, so this assertion
-    would have happened to pass; here the strict check is that
-    ``stopouts_today + entries_today`` are CONSISTENT with the closed trade
-    count at the daily-equity row.
+    L14 changelog: was ``test_time_stop_at_1545_closes_before_eod_snapshot`` which
+    asserted the 15:45 time-stop FIRED; that 15:30/15:45 force-close was the
+    first-order sim<->live divergence this phase removes for the parity contracts.
     """
     sd = _dt.date(2024, 9, 4)
     symbols = ["AAA"]
@@ -446,16 +447,20 @@ def test_time_stop_at_1545_closes_before_eod_snapshot(tmp_path: Path) -> None:
         minute_by_symbol=minute_by_symbol, scan_times=scan_times,
     )
     trades = pd.read_parquet(result.run_dir / "trades.parquet")
-    assert (trades["exit_reason"] == "time_stop").any(), (
-        f"expected a time_stop exit; got: {trades['exit_reason'].tolist()}"
+    # L14: the intraday time-stop is suppressed for current_code_parity → the lot
+    # holds (single session, brackets not hit, no time-stop) → no close this session.
+    if len(trades) and "exit_reason" in trades.columns:
+        assert not (trades["exit_reason"] == "time_stop").any(), (
+            f"L14: time_stop must NOT fire under current_code_parity; got "
+            f"{trades['exit_reason'].tolist()}"
+        )
+    assert len(trades) == 0, (
+        f"L14: lot should hold with no intraday time-stop; got {len(trades)} closed trades"
     )
+    # The entry still occurred and a daily-equity row was written.
     daily = pd.read_parquet(result.run_dir / "daily_equity.parquet")
     row = daily.iloc[0].to_dict()
-    # entries_today recorded one accepted entry; the closed trade count
-    # matches that one entry — so the snapshot captured the closure.
     assert int(row["entries_today"]) >= 1
-    # The time-stop closed at 15:45 (a non-loss exit), so realized PnL exists
-    # in the daily-equity row.
     assert "daily_realized_pnl" in row, row
 
 
