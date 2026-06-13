@@ -599,12 +599,18 @@ def build_session_partition(
 
         if n_scans == 0:
             continue
-        # One bar fetch per symbol covering the full session window: from
-        # 04:00 ET (premarket) through 16:00 ET (regular close).
-        session_start_et = pd.Timestamp(
-            _dt.datetime.combine(session_date, _dt.time(4, 0)),
-            tz="America/New_York",
-        ).tz_convert("UTC")
+        # L3 fix: fetch each symbol's bars over the POLICY window, not a hardcoded
+        # 04:00 ET premarket start. The matrix must cumulate the forming session
+        # bar from the SAME lower bound the live/legacy scan_loop supplier uses
+        # (intraday_window_start for the resolved policy — 09:45 ET by default),
+        # else the cumulative session open/high/low/volume include premarket and
+        # diverge from the supplier path. intraday_window_start adapts per policy
+        # (04:00 only for extended_hours_to_scan).
+        from ..data.suppliers import (
+            intraday_window_start as _iws,
+            resolve_intraday_window_policy as _riwp,
+        )
+        session_start_et = _iws(scan_times[0], _riwp(cfg))
         session_end_et = pd.Timestamp(
             _dt.datetime.combine(session_date, _dt.time(16, 0)),
             tz="America/New_York",
