@@ -185,7 +185,12 @@ class CachedSessionMarketData:
 
         cutoff_ts = _to_utc_ts(cutoff)
         session_start = intraday_window_start(cutoff_ts, self.intraday_window_policy)
-        return self._range(symbol, session_start, cutoff_ts)
+        # L1 (PIT look-ahead) fix: exclude the still-forming minute (START-stamped
+        # bars span [cutoff, cutoff+60s)); end one bar interval (60s) earlier so
+        # only fully-closed bars are returned. Mirrors suppliers.minute_bars_supplier.
+        return self._range(
+            symbol, session_start, cutoff_ts - pd.Timedelta(seconds=60)
+        )
 
     def forward_minutes(
         self,

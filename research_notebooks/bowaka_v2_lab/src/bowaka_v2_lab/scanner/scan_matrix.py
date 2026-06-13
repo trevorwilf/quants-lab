@@ -682,7 +682,12 @@ def build_session_partition(
                 scan_ts_obj = scan_ts_obj.tz_localize("UTC")
             else:
                 scan_ts_obj = scan_ts_obj.tz_convert("UTC")
-            bars_through = full_bars[full_bars[ts_col] <= scan_ts_obj]
+            # L1 (PIT look-ahead) fix: exclude the still-forming minute. Bars are
+            # START-stamped, so the bar at scan_ts spans [scan_ts, scan_ts+60s);
+            # end one bar interval (60s) before scan_ts to see only closed bars.
+            bars_through = full_bars[
+                full_bars[ts_col] <= scan_ts_obj - pd.Timedelta(seconds=60)
+            ]
             sess = aggregate_forming_session_bar(bars_through)
             if sess.get("last_price") is not None:
                 dyn_u8["has_bar"][t_idx, s_idx] = 1
@@ -706,7 +711,11 @@ def build_session_partition(
                     dyn_f64["bar_age_seconds"][t_idx, s_idx] = float(age)
                 except Exception:  # noqa: BLE001
                     pass
-            if baselines:
+            # has_baseline tracks a usable forming bar + baselines; gate it on a
+            # bar being present so the no-bar case (e.g. the first scan, now empty
+            # under the L1 cutoff) matches the numba kernel, which skips the whole
+            # body when no bar has closed yet (numba<->pandas matrix byte-parity).
+            if baselines and sess.get("last_price") is not None:
                 dyn_u8["has_baseline"][t_idx, s_idx] = 1
                 vcf_value = compute_volume_curve_fraction(
                     None, scan_ts_obj,

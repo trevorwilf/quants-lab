@@ -225,6 +225,10 @@ def build_session_checks(
     severe_gap_sessions: list[dict[str, Any]] = []
     stale_sessions: list[dict[str, Any]] = []
     n_probed = 0
+    # L1 (PIT look-ahead) stamp-convention signals — see the convention check below.
+    saw_open_bar = False        # any regular-session bar stamped 09:30 ET (START)
+    end_open_only_sessions = 0  # sessions whose first regular bar is 09:31 (+ no 09:30)
+    saw_close_bar_sessions = 0  # sessions with a 16:00 ET bar (informational)
 
     for (sym, session), df in minute_frames_by_session.items():
         if df is None or len(df) == 0 or "timestamp" not in getattr(df, "columns", []):
@@ -233,6 +237,19 @@ def build_session_checks(
         ts = pd.to_datetime(df["timestamp"], utc=True, errors="coerce").dropna().sort_values()
         if ts.empty:
             continue
+        # L1 stamp-convention signal: START-stamped regular bars run 09:30..15:59
+        # ET. Record whether the opening minute (09:30) is present and whether the
+        # first regular bar is 09:31 (an END-stamp tell).
+        et_clock = ts.dt.tz_convert("America/New_York")
+        et_mod = et_clock.dt.hour * 60 + et_clock.dt.minute
+        reg_mod = et_mod[(et_mod >= 570) & (et_mod <= 960)]  # 09:30..16:00 ET
+        if not reg_mod.empty:
+            if (reg_mod == 570).any():        # 09:30 present -> START
+                saw_open_bar = True
+            elif int(reg_mod.min()) == 571:   # first regular bar is 09:31, no 09:30
+                end_open_only_sessions += 1
+            if (reg_mod == 960).any():         # 16:00 bar (informational)
+                saw_close_bar_sessions += 1
         expected = EARLY_CLOSE_MINUTES if session in early else REGULAR_SESSION_MINUTES
         observed = int(len(ts))
         # Materially short = below 65 % of the expected count. IEX partial-tape
@@ -337,7 +354,41 @@ def build_session_checks(
         source_file,
         {"sessions_probed": n_probed, "stale_sessions": stale_sessions[:50]},
     )
-    return [smc, gap, stale]
+
+    # minute_bar_stamp_convention (L1 / PIT look-ahead) — pin that regular-session
+    # 1-min bars are START-of-interval stamped (09:30..15:59 ET). The forming-bar
+    # cutoff (scan_ts - 60s) excludes the bar at scan_ts because, under START
+    # stamping, that bar spans [scan_ts, scan_ts+60s) and is still forming. Fail
+    # closed on a clear END-stamp signature (every probed session's first regular
+    # bar is 09:31 with no 09:30 bar anywhere) so a future convention flip cannot
+    # silently invalidate the cut. Sparse data -> warn, never a false fail.
+    if n_probed == 0:
+        conv_status = "warn"
+    elif saw_open_bar:
+        conv_status = "pass"
+    elif end_open_only_sessions == n_probed and n_probed >= 3:
+        conv_status = "fail"
+    else:
+        conv_status = "warn"
+    conv = _check(
+        "minute_bar_stamp_convention",
+        conv_status,
+        end_open_only_sessions,
+        {"expected_open_et": "09:30", "expected_last_et": "15:59"},
+        source_file,
+        {
+            "sessions_probed": n_probed,
+            "saw_0930_open_bar": saw_open_bar,
+            "sessions_first_bar_0931_only": end_open_only_sessions,
+            "sessions_with_1600_bar": saw_close_bar_sessions,
+            **({"detail": (
+                "every probed session's first regular bar is 09:31 with no 09:30 "
+                "bar -> lake appears END-of-interval stamped; the PIT forming-bar "
+                "cutoff (scan_ts - 60s) assumes START-stamping and would be invalid"
+            )} if conv_status == "fail" else {}),
+        },
+    )
+    return [smc, gap, stale, conv]
 
 
 # --------------------------------------------------------------------------

@@ -107,7 +107,9 @@ def _pure_build_columns(mdf: pd.DataFrame, scan_times, baselines: dict, fallback
     has_bl = bool(baselines)
     for t, s in enumerate(scan_times):
         sc = pd.Timestamp(s).tz_convert("UTC")
-        bt = mdf[mdf["timestamp"] <= sc]
+        # L1 (PIT look-ahead) fix: mirror the kernel/matrix cutoff — only
+        # fully-closed bars (exclude the still-forming minute at sc).
+        bt = mdf[mdf["timestamp"] <= sc - pd.Timedelta(seconds=60)]
         sess = aggregate_forming_session_bar(bt)
         if sess.get("last_price") is not None:
             cols["has_bar"][t] = 1
@@ -123,7 +125,7 @@ def _pure_build_columns(mdf: pd.DataFrame, scan_times, baselines: dict, fallback
             cols["last_bar_ts_ns"][t] = to.value
             cols["has_valid_ts"][t] = 1
             cols["bar_age"][t] = float((sc - to.tz_convert("UTC")).total_seconds())
-        if has_bl:
+        if has_bl and sess.get("last_price") is not None:
             cols["has_baseline"][t] = 1
             vcf = compute_volume_curve_fraction(
                 None, sc, "x", fallback_opening_15m_share=fallback_share)
