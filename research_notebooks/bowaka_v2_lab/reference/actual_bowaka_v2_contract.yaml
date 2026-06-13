@@ -188,8 +188,8 @@ source_manifest:
     bytes: 4027
     sha256: d8ba2f2b7056d4a3625bc7b35f51e4a0e90667eb9757b812f3730cd54e96f017
   bowaka_v2_backtest.py:
-    bytes: 18296
-    sha256: fadcab9fdd4df194d457bfde5d23ad703bac9e3df12723afaf296d54a85999fd
+    bytes: 22771
+    sha256: 0073a68a32334812d239ae6afe57b9d98e03b5676ca72379c40333660df32840
   bowaka_v2_config.yaml:
     bytes: 12878
     sha256: 3be75f9040eec40dbdd355df0711e1559bd07a2d2e286bb175f48d8dad710fac
@@ -208,7 +208,7 @@ source_manifest:
   bowaka_v2_strategy.py:
     bytes: 79337
     sha256: 5679b544166fdcb1cf3ca482b3ce6a10b6d260c3da1ea16da186b40e49e6292c
-source_manifest_hash: a39c7cebff96c2965d4f281b501fb2c711e9c12866c50ad89255de148e9e5f81
+source_manifest_hash: 7e31c4a6ff24c64de48c8ebe7c1a1a0d6543156712449e815fbd45255e93d929
 source_sha256: 3be75f9040eec40dbdd355df0711e1559bd07a2d2e286bb175f48d8dad710fac
 universe:
   allowed_exchanges:
