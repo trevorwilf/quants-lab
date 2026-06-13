@@ -113,6 +113,15 @@ COST_STRESS_FILL_RATE_CAP: dict[str, float] = {
     "severe": 0.60,
 }
 
+#: §2.3 fix — decision->fill execution latency. The live bot is a ~5s REST poller
+#: (the `bowaka_v2_strategy` order loop), so a real fill lands ~5s after the scan
+#: that decided it, NOT instantaneously. Recorded on every FILLED result as
+#: ``fill_time_seconds`` (was hardcoded 0.0 everywhere). It is sub-minute, so the
+#: fill still lands within the scan minute (entry_timestamp = the scan minute
+#: remains the real fill minute); the *price* impact of that latency is modeled by
+#: the forward trade tape (P5), not by this scalar.
+DEFAULT_FILL_LATENCY_SECONDS: float = 5.0
+
 
 #: Audit 2026-05-29 §8.5 — ADDITIVE slippage offsets (bps applied at fill
 #: regardless of the base ``slippage_bps`` from cost_model). Part of the
@@ -364,6 +373,11 @@ def _finalize_stressed_fill(
         )
     if spread_multiplier != 1.0:
         fill = replace(fill, spread_multiplier=spread_multiplier)
+    # §2.3 fix: stamp the realistic decision->fill latency on a real fill (was a
+    # hardcoded 0.0 at every tier). The live bot polls ~every 5s, so the fill is
+    # not instantaneous. Sub-minute, so the fill still lands in the scan minute.
+    if fill.filled and not fill.fill_time_seconds:
+        fill = replace(fill, fill_time_seconds=DEFAULT_FILL_LATENCY_SECONDS)
     return fill
 
 
@@ -489,8 +503,17 @@ def simulate_market_fill(
         filled = min(int(requested_qty), usable)
         is_partial = filled < requested_qty
     else:
-        filled = int(requested_qty)
-        is_partial = False
+        # §2.2 fix: a MISSING ADV/liquidity proxy is NOT a licence to fill the
+        # whole order — that fabricated unbounded liquidity. Bound the fill by the
+        # displayed top-of-book size (the only depth the lab can actually see);
+        # with no displayed size either there is no liquidity signal at all, so the
+        # order does not fill (``filled <= 0`` -> no_fill below).
+        touch_size = float(
+            (quote.ask_size if side_l == "buy" else quote.bid_size) or 0.0
+        )
+        usable = max(0, int(touch_size * cap))
+        filled = min(int(requested_qty), usable)
+        is_partial = filled < requested_qty
 
     if filled <= 0:
         return _no_fill("no_liquidity", order_style="market")
@@ -526,10 +549,14 @@ def simulate_market_fill(
         order_style="market", liquidity_participation_frac=round(participation, 6),
         spread_multiplier=spread_multiplier,
     )
-    return _apply_slippage_offset(
+    out = _apply_slippage_offset(
         fill, side=side_l, quote=quote, offset_bps=slippage_bps_offset,
         commission_per_share=commission_per_share, regulatory_fee_bps=regulatory_fee_bps,
     )
+    # §2.3 fix: stamp the realistic decision->fill latency (was hardcoded 0.0).
+    if out.filled and not out.fill_time_seconds:
+        out = replace(out, fill_time_seconds=DEFAULT_FILL_LATENCY_SECONDS)
+    return out
 
 
 def _ask_path_from_bars(minute_bars: Optional[pd.DataFrame], scan_ts: Any) -> list[float]:
@@ -619,7 +646,19 @@ def _t3_depth_impact_fill(
         minute_bars, scan_ts, fallback_price=touch
     )
     cap_shares = float(participation_cap) * minute_vol_shares
-    fillable = min(int(requested_qty), int(max(touch_size, cap_shares)))
+    # L12 (intended design — NOT a bug; pinned by test_fills_t3_depth_impact /
+    # test_fast_realism_fill): the displayed NBBO touch is the FILL FLOOR (the real
+    # top-of-book is always fillable) and the participation cap
+    # (participation_cap * minute_volume) bounds consumption BEYOND the touch.
+    # ``max(touch, cap)`` never fabricates depth past the larger of those two REAL
+    # signals. fast_realism deliberately runs with ``touch_size == 0`` so the fill
+    # is bounded by the participation cap alone (honest participation, no
+    # displayed-depth floor) — that branch must be preserved.
+    depth_bound = int(max(touch_size, cap_shares))
+    assert depth_bound >= int(touch_size), (
+        "L12 invariant: displayed NBBO touch must remain the fill floor"
+    )
+    fillable = min(int(requested_qty), depth_bound)
     if fillable <= 0:
         return _no_fill("no_liquidity", order_style=order_style, execution_tier=tier)
 
@@ -802,40 +841,22 @@ def _t1_fill(
     cap = _resolve_fill_rate_cap(cost_stress, adv_dollar)
     usable_at_touch = max(0, int(size_at_touch * cap))
     if usable_at_touch <= 0:
-        # Quote with zero displayed size — fall back to limit-price fill.
-        filled = int(requested_qty)
-        fill_price = limit_price
-        is_partial = False
-    elif usable_at_touch >= int(requested_qty):
-        filled = int(requested_qty)
-        fill_price = touch
-        is_partial = False
-    else:
-        levels: list[tuple[int, float]] = [(usable_at_touch, touch)]
-        remainder = int(requested_qty) - usable_at_touch
-        cent = 0.01 if side_l == "buy" else -0.01
-        price = touch + cent
-        for _ in range(100):
-            if remainder <= 0:
-                break
-            if side_l == "buy" and price > limit_price + 1e-9:
-                break
-            if side_l == "sell" and price < limit_price - 1e-9:
-                break
-            take = min(remainder, int(size_at_touch * cap))
-            if take <= 0:
-                break
-            levels.append((take, price))
-            remainder -= take
-            price = price + cent
-        filled = int(sum(q for q, _ in levels))
-        if filled <= 0:
-            return _no_fill(
-                "no_liquidity", order_style="marketable_limit", execution_tier=tier
-            )
-        fill_notional = sum(q * p for q, p in levels)
-        fill_price = round(fill_notional / filled, 4)
-        is_partial = filled < int(requested_qty)
+        # L2 fix: a quote with ZERO displayed size is not unlimited liquidity at
+        # the limit price — there is no visible depth to hit, so the order does
+        # not fill (was: fill the WHOLE requested_qty at limit_price).
+        return _no_fill(
+            "no_liquidity", order_style="marketable_limit", execution_tier=tier
+        )
+    # L2 fix: cap the fill at the DISPLAYED top-of-book size. The lab sees only the
+    # NBBO touch (no L2 depth); the prior cent-walk re-consumed `size_at_touch` at
+    # EVERY penny level up to the limit (~up to 100x), manufacturing liquidity far
+    # beyond what was visible. A marketable order can only hit the visible size at
+    # the touch here; the remainder is an honest partial. (A real deeper-book fill
+    # would need L2 depth the lab does not have — the realism modes use T3 / the
+    # tape_replay path for honest depth instead.)
+    filled = min(int(requested_qty), usable_at_touch)
+    fill_price = touch
+    is_partial = filled < int(requested_qty)
     notional = round(filled * fill_price, 4)
     if is_partial and notional < float(min_order_notional):
         return _no_fill(

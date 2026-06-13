@@ -60,9 +60,12 @@ def test_fast_realism_participation_cap_partial_fill_on_synthetic_quote():
     # 10% of an 800-share minute = 80 shares; a 577-share order partials to 80.
     fr = _fill(has_nbbo_depth=True, quote=q, volume=800.0)
     assert fr.filled_qty == pytest.approx(80.0)
-    # CCP legacy manufactures liquidity: fills the full 577 at trivial slippage.
+    # §2.2 fix: CCP no longer manufactures liquidity. With no ADV/liquidity proxy
+    # AND a synthetic quote (ask_size=0 -> no displayed depth), the legacy market
+    # fill is now bounded to zero -> no fill (was a full 577-share fabrication).
     ccp = _fill(has_nbbo_depth=False, quote=q, volume=800.0)
-    assert ccp.filled_qty == pytest.approx(577.0)
+    assert ccp.filled is False
+    assert ccp.filled_qty == pytest.approx(0.0)
 
 
 def test_fast_realism_no_fill_when_no_minute_volume():

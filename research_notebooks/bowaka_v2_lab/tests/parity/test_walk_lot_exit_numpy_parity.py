@@ -339,7 +339,15 @@ def test_cross_spread_no_quote_falls_back_to_bracket():
     assert ev.exit_slippage_bps == 0.0
 
 
-def test_cross_spread_target_gives_up_to_bid():
+def test_cross_spread_target_clamps_to_bracket():
+    """L11: a TARGET is a resting limit SELL — it clamps to the bracket even with
+    cross_spread on; only a marketable STOP gives up the half-spread.
+
+    L11 changelog: was ``test_cross_spread_target_gives_up_to_bid`` which asserted
+    the target filled at ``bid*(1-half_spread)`` (113.94, a spread give-up). A
+    resting limit fills AT its limit (no give-up, no improvement); the spread
+    give-up is a liquidity-TAKING (stop) cost only.
+    """
     bars = _path([
         {"o": 100, "h": 100.5, "l": 99.8, "c": 100},
         {"o": 100, "h": 116.0, "l": 99.0, "c": 110},  # high 116 >= target 115
@@ -349,9 +357,8 @@ def test_cross_spread_target_gives_up_to_bid():
     ev = _walk_lot_exit_pandas(pos, bars, exit_cfg=_cfg_xspread(True),
                                quote_supplier=quote, cost_stress="conservative")
     assert ev.exit_reason == "target"
-    assert ev.exit_price == pytest.approx(min(115.0, 114.0 * (1 - 5.0 / 1e4)))
-    assert ev.exit_price < 115.0
-    assert ev.exit_slippage_bps < 0.0
+    assert ev.exit_price == pytest.approx(115.0)  # clamps to the bracket, no give-up
+    assert ev.exit_slippage_bps == 0.0
     _run_both(pos, bars, ctx="xspread_target", exit_cfg=_cfg_xspread(True),
               quote_supplier=quote, cost_stress="conservative")
 

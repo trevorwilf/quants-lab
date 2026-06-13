@@ -275,6 +275,13 @@ class Portfolio:
     # the run summary by the backtester for the report and (Phase 8) the optuna
     # objective penalty.
     protection_metrics: ProtectionMetrics = field(default_factory=ProtectionMetrics)
+    # L11 — sell-side (exit) fee schedule. The exit closure was charging NO fee
+    # (pnl was a pure ``(exit-entry)*qty``; fees were entry-side only), so a
+    # round-trip under-counted costs. These mirror the entry execution fee config
+    # so the sell pays symmetric commission + regulatory fees. Default 0.0 keeps
+    # fee-free configs byte-identical.
+    exit_commission_per_share: float = 0.0
+    exit_regulatory_fee_bps: float = 0.0
 
     @property
     def current_bankroll(self) -> float:
@@ -435,6 +442,17 @@ class Portfolio:
         exit slippage and the halt flag — that the exit-analysis report reads.
         """
         pnl = (exit_price - pos.entry_price) * pos.qty
+        # L11 — explicit sell-side fees (the exit closure previously charged
+        # nothing). Mirrors the entry fee schedule: per-share commission +
+        # bps-of-notional regulatory fee (SEC/TAF-style, charged on the sell).
+        # Recorded on the trade and rolled into the run's fees_paid_total; ``pnl``
+        # stays GROSS, symmetric with the entry side (whose fees are likewise
+        # tracked separately rather than netted into ``pnl`` here).
+        exit_notional = abs(float(exit_price) * float(pos.qty))
+        exit_commission = round(self.exit_commission_per_share * abs(float(pos.qty)), 6)
+        exit_regulatory_fees = round(
+            exit_notional * self.exit_regulatory_fee_bps / 10_000.0, 6
+        )
         trade = {
             "symbol": pos.symbol,
             "position_id": pos.position_id,
@@ -449,6 +467,9 @@ class Portfolio:
             "exit_price": exit_price,
             "qty": pos.qty,
             "pnl": pnl,
+            # L11 — sell-side fees (0.0 unless an exit fee schedule is configured).
+            "exit_commission": exit_commission,
+            "exit_regulatory_fees": exit_regulatory_fees,
             "exit_reason": exit_reason,
             "candidate_event_id": pos.candidate_event_id,
             # Phase 7 minute-path forensics (defaults when closed off a daily

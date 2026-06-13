@@ -115,6 +115,8 @@ def drive_session_exits_minute(
             signal_score_fn=signal_score_fn,
             seed=seed,
             fade_telemetry_out=fade_telemetry,
+            # L11: the contract drives the default exit cross_spread (stops pay).
+            simulation_mode=str((cfg.get("simulation") or {}).get("mode") or "smoke_fixture"),
         )
         if ev is None:
             continue

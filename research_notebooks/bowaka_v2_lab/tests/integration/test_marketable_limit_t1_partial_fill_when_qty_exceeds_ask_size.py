@@ -1,12 +1,15 @@
-"""Audit P0-006 — T1 marketable-limit walks the book past ask when qty > ask_size.
+"""Audit P0-006 / realism L2 — T1 marketable-limit caps at the displayed touch.
 
-Audit acceptance criteria:
+Audit acceptance criteria (P0-006):
 "Buy marketable limit with ask size below qty produces partial fill or staged
 fill, not automatic full fill."
 
-T1 behavior: fill ``ask_size`` at the ask, then walk one cent at a time up to
-``limit_price``. With ``ask_size = 200`` and a sufficient limit-offset, the
-remainder of a 1000-share order fills over multiple price levels.
+L2 fix (realism remediation 2026-06): the original T1 path filled ``ask_size`` at
+the ask then walked one cent at a time up to ``limit_price`` — *re-consuming the
+full displayed size at every penny level*, manufacturing depth (up to ~100x the
+NBBO touch) the lab cannot actually see (it has no L2 book). T1 now fills at most
+the DISPLAYED top-of-book size at the touch; the remainder is an honest partial.
+The realism modes (T3 / tape_replay) supply real deeper-book depth instead.
 """
 from __future__ import annotations
 
@@ -27,24 +30,29 @@ def _quote(ask: float, ask_size: float) -> QuoteSnapshot:
 
 
 def test_t1_partial_fill_when_qty_exceeds_ask_size() -> None:
-    """Qty=1000, ask=10.00, ask_size=200, limit=10.05 → partial-fill walks the book."""
+    """Qty=1000, ask=10.00, ask_size=200 → fills the displayed 200 at the touch.
+
+    L2 changelog: was ``filled_qty == 1000`` (the cent-walk re-consumed the 200
+    displayed size at each of ~6 penny levels, fabricating ~1000 shares of depth).
+    The honest model caps the fill at the displayed touch (200 @ 10.00) and leaves
+    the remaining 800 unfilled — no book-walking without real L2 depth.
+    """
     q = _quote(ask=10.00, ask_size=200)
     fill = simulate_marketable_limit_fill(
         side="buy", requested_qty=1000, quote=q,
-        marketable_limit_slippage_pct=0.005,  # limit = 10.05 → walks 5 cents
+        marketable_limit_slippage_pct=0.005,  # limit = 10.05 (no longer walked)
         marketable_limit_timeout_seconds=30,
         minute_bars=None, scan_ts=pd.Timestamp("2024-09-04 14:00:00", tz="UTC"),
         cost_stress="base",
         min_order_notional=500.0,
     )
     assert fill.filled is True
-    # 200 at 10.00, then 200 each at 10.01, 10.02, 10.03, 10.04, 10.05 — at
-    # most ~1200 over 6 levels. Capped at requested 1000.
-    assert fill.filled_qty == 1000
-    # Avg price is strictly above the ask (we walked levels).
-    assert fill.avg_fill_price > 10.00
-    # Slippage vs ask is positive (paid above the ask).
-    assert fill.slippage_vs_ask_bps > 0
+    # Capped at the displayed top-of-book size — no fabricated deeper-book depth.
+    assert fill.filled_qty == 200
+    assert fill.is_partial is True
+    # Fills at the touch (no penny-walking above the ask).
+    assert fill.avg_fill_price == 10.00
+    assert fill.slippage_vs_ask_bps == 0.0
 
 
 def test_t1_partial_when_book_too_thin_to_fill_full_qty() -> None:

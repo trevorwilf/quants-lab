@@ -121,7 +121,12 @@ def synthesize_calibrated_quote(
         quote_timestamp=at_ts.isoformat(),
         quote_age_seconds=age,
         source=SOURCE_SYNTHETIC_CALIBRATED,
-        bid_size=10_000.0, ask_size=10_000.0,
+        # §2.2 fix: a synthetic quote has no real book — do NOT fabricate
+        # accessible depth (was 10_000). Size 0 keeps fabricated depth out of the
+        # displayed-size fill paths; a synthetic quote routes to T0 by source
+        # (detect_execution_tier), and the T0 fill sizes off the liquidity proxy,
+        # not this field, so smoke fills are unaffected.
+        bid_size=0.0, ask_size=0.0,
         calibration_dataset_hash=calibration_dataset_hash,
         stress_level=stress_level,
     )
@@ -173,7 +178,8 @@ def synthesize_quote(
         quote_timestamp=at_ts.isoformat(),
         quote_age_seconds=0.0,
         source=SOURCE_SYNTHETIC_V1,
-        bid_size=10_000.0, ask_size=10_000.0,
+        # §2.2 fix: synthetic quote carries no real accessible depth (was 10_000).
+        bid_size=0.0, ask_size=0.0,
         calibration_dataset_hash=calibration_dataset_hash,
         stress_level=stress_level,
     )
