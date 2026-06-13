@@ -126,14 +126,21 @@ def evaluate_risk_gates(
     if state.entries_today >= max_entries:
         return RiskGateResult(False, "daily_entry_cap", target_notional, 0.0)
 
-    max_stopouts = int(risk_cfg.get("max_stopouts_per_day", 4))
-    if state.stopouts_today >= max_stopouts:
-        return RiskGateResult(False, "kill_switch", target_notional, 0.0)
+    # L15: live `_risk_gates` enforces NEITHER stopout cap — they only ever fired in
+    # the sim because of the hard-coded 4/3 defaults (a config that OMITS the key
+    # still got capped, diverging from live). Gate both behind KEY PRESENCE (like
+    # strategy_slice_loss_pct below) so an absent key = no gate, matching live; a
+    # config that genuinely wants a cap still sets it explicitly.
+    if "max_stopouts_per_day" in risk_cfg:
+        max_stopouts = int(risk_cfg["max_stopouts_per_day"])
+        if state.stopouts_today >= max_stopouts:
+            return RiskGateResult(False, "kill_switch", target_notional, 0.0)
 
-    consec_stopout_limit = int(risk_cfg.get("stop_trading_after_consecutive_stopouts", 3))
-    if state.consecutive_stopouts >= consec_stopout_limit:
-        state.kill_switch_state = "consecutive_stopouts"
-        return RiskGateResult(False, "kill_switch", target_notional, 0.0)
+    if "stop_trading_after_consecutive_stopouts" in risk_cfg:
+        consec_stopout_limit = int(risk_cfg["stop_trading_after_consecutive_stopouts"])
+        if state.consecutive_stopouts >= consec_stopout_limit:
+            state.kill_switch_state = "consecutive_stopouts"
+            return RiskGateResult(False, "kill_switch", target_notional, 0.0)
 
     max_gross = float(risk_cfg.get("max_gross_exposure_pct", 0.50))
     new_gross_dollars = state.gross_exposure_dollars + target_notional
@@ -141,10 +148,16 @@ def evaluate_risk_gates(
     if new_gross_pct > max_gross:
         return RiskGateResult(False, "gross_exposure_cap", target_notional, 0.0)
 
-    # daily_loss_pct kill switch.
+    # daily_loss_pct kill switch — §sim_core.md:57 reconcile. Live `_risk_gates`
+    # refuses new entries on the daily REALIZED loss only (no mid-day flatten, no
+    # unrealized term). The sim previously summed daily_unrealized_pnl, which is
+    # refreshed only at EOD / update_mtm -> stale (often 0) on an intraday SCAN, so
+    # the kill diverged from live. Use realized-only to match live; the sim still
+    # only refuses new entries here (no mid-day flatten), as live does.
+    # strategy_slice_loss_pct below keeps its own realized+unrealized basis.
     daily_loss_pct = float(risk_cfg.get("daily_loss_pct", 0.02))
     total_daily_pnl = state.daily_realized_pnl + state.daily_unrealized_pnl
-    if state.bankroll > 0 and (-total_daily_pnl / state.bankroll) >= daily_loss_pct:
+    if state.bankroll > 0 and (-state.daily_realized_pnl / state.bankroll) >= daily_loss_pct:
         state.kill_switch_state = "daily_loss"
         return RiskGateResult(False, "kill_switch", target_notional, 0.0)
 
