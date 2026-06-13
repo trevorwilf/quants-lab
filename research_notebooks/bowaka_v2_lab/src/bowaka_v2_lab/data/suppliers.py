@@ -154,7 +154,12 @@ def make_lake_suppliers(
         ts = pd.Timestamp(cutoff)
         ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
         session_start = intraday_window_start(ts, intraday_window_policy)
-        return store.minute_bars(symbol, session_start, ts, feed=feed)
+        # L1 (PIT look-ahead) fix: exclude the still-forming minute. Bars are
+        # START-stamped, so the bar at the scan cutoff spans [cutoff, cutoff+60s);
+        # read only fully-closed bars by ending one bar interval (60s) earlier.
+        return store.minute_bars(
+            symbol, session_start, ts - pd.Timedelta(seconds=60), feed=feed
+        )
 
     def daily_bars_supplier(symbol: str, session_date: Any) -> pd.DataFrame:
         end = _as_date(session_date)

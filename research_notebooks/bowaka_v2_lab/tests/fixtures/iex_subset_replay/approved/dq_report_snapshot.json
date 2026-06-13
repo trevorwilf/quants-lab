@@ -86,21 +86,39 @@
       "threshold": 0
     },
     {
-      "count": 3,
+      "count": 21,
       "evidence": {
         "eligible_expected": 21,
-        "eligible_fraction": 0.142857,
-        "eligible_missing": 3,
+        "eligible_fraction": 1.0,
+        "eligible_missing": 21,
         "expected_pairs": 21,
         "gated": false,
         "missing_daily": [],
-        "missing_fraction": 0.142857,
+        "missing_fraction": 1.0,
         "missing_minute": [
+          "AAL@2026-04-02",
+          "NOK@2026-04-02",
+          "UAMY@2026-04-02",
           "HTZ@2026-04-02",
+          "CABA@2026-04-02",
           "VERI@2026-04-02",
-          "CABA@2026-04-06"
+          "POET@2026-04-02",
+          "AAL@2026-04-06",
+          "NOK@2026-04-06",
+          "UAMY@2026-04-06",
+          "HTZ@2026-04-06",
+          "CABA@2026-04-06",
+          "VERI@2026-04-06",
+          "POET@2026-04-06",
+          "AAL@2026-04-07",
+          "NOK@2026-04-07",
+          "UAMY@2026-04-07",
+          "HTZ@2026-04-07",
+          "CABA@2026-04-07",
+          "VERI@2026-04-07",
+          "POET@2026-04-07"
         ],
-        "missing_pairs": 3
+        "missing_pairs": 21
       },
       "name": "coverage_missing",
       "source_file": "(per-run coverage probe)",
@@ -131,18 +149,19 @@
       }
     },
     {
-      "count": 2,
+      "count": 3,
       "evidence": {
-        "eligible_fraction": 0.011905,
-        "eligible_missing": 2,
+        "eligible_fraction": 0.017857,
+        "eligible_missing": 3,
         "eligible_probes": 168,
         "gated": false,
-        "missing": 2,
+        "missing": 3,
         "missing_examples": [
+          "CABA@2026-04-06T13:46",
           "HTZ@2026-04-02T13:46",
           "VERI@2026-04-02T13:46"
         ],
-        "missing_fraction": 0.011905,
+        "missing_fraction": 0.017857,
         "probes": 168
       },
       "name": "coverage_missing_late_session",
@@ -374,6 +393,22 @@
       }
     },
     {
+      "count": 3,
+      "evidence": {
+        "saw_0930_open_bar": true,
+        "sessions_first_bar_0931_only": 3,
+        "sessions_probed": 21,
+        "sessions_with_1600_bar": 0
+      },
+      "name": "minute_bar_stamp_convention",
+      "source_file": "(session-level probe)",
+      "status": "pass",
+      "threshold": {
+        "expected_last_et": "15:59",
+        "expected_open_et": "09:30"
+      }
+    },
+    {
       "count": 0,
       "evidence": {
         "detail": "no per-candidate quote rows to summarise",
@@ -522,7 +557,7 @@
   "failed": 1,
   "feed": "iex",
   "notes": "",
-  "passed": 22,
+  "passed": 23,
   "per_symbol_failures": {},
   "regime": "lake",
   "required_failures": [

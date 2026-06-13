@@ -281,7 +281,9 @@ def build_session_columns_nb(
 
     for t in range(n_scans):
         sc = scan_ts_ns[t]
-        while j < n_bars and bar_ts_ns[j] <= sc:
+        # L1 (PIT look-ahead) fix: only fully-CLOSED bars. START-stamped bars at
+        # scan_ts span [scan_ts, scan_ts+60s); end 60s (=60e9 ns) before sc.
+        while j < n_bars and bar_ts_ns[j] <= sc - 60_000_000_000:
             if not opened:
                 first_open = b_open[j]
                 opened = True

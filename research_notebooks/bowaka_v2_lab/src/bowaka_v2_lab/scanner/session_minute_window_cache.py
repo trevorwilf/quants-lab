@@ -191,9 +191,14 @@ class SessionMinuteWindowCache:
         _count(session_window_cache_hits=1)
         ts_utc = _ts_to_utc(scan_ts)
         ts_ns = ts_utc.value
-        # Inclusive upper bound: side="right" → index AFTER all ts <= ts_ns.
+        # L1 (PIT look-ahead) fix: admit only fully-CLOSED minute bars. Lake
+        # minute bars are START-stamped (regular session 09:30..15:59, pinned by
+        # the dq_levels minute-convention check), so the bar stamped AT scan_ts
+        # covers [scan_ts, scan_ts+60s) and is still forming — exclude it by
+        # ending one bar interval (60s) before scan_ts.
+        hi_ns = ts_ns - 60_000_000_000  # 60s in ns
         timestamps = self._timestamps[str(symbol)]
-        hi_idx = int(np.searchsorted(timestamps, ts_ns, side="right"))
+        hi_idx = int(np.searchsorted(timestamps, hi_ns, side="right"))
         # Lower bound: legacy policy ∪ optional max_bar_age.
         policy_lo_ns = intraday_window_start(ts_utc, self.intraday_policy).value
         lo_ns = policy_lo_ns

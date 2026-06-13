@@ -53,9 +53,11 @@ def test_replay_rows_keyed_unique_by_candidate(parity_lake_config, tmp_path) -> 
 def test_replay_both_bucket_overlap(parity_lake_config, tmp_path) -> None:
     """The synthetic fixture's AAA/BBB candidates overlap the lab's -> 'both'.
 
-    The fixture stamps AAA/BBB candidates at the lab's first scan timestamp,
-    so those two candidates land in the 'both' bucket and CCC (lab never
-    scans it) lands in 'paper_only'.
+    The fixture stamps AAA/BBB candidates at the lab's first EMITTING scan
+    (10:00 ET / 14:00Z). Under the P1 (L1) PIT cut the first scan of the
+    policy window (09:45) has no fully-closed in-window bar, so the lab's
+    first emission is the next scan. Those two candidates land in the 'both'
+    bucket and CCC (lab never scans it) lands in 'paper_only'.
     """
     result = replay_paper_session(
         SYNTHETIC_SESSION, PAPER_LOGS_SYNTHETIC, parity_lake_config,
@@ -63,8 +65,8 @@ def test_replay_both_bucket_overlap(parity_lake_config, tmp_path) -> None:
     )
     both = {r.candidate_event_id for r in result.rows if r.presence == "both"}
     paper_only = {r.candidate_event_id for r in result.rows if r.presence == "paper_only"}
-    assert "bowaka_v2:2024-09-04:AAA:2024-09-04T13:45:00Z" in both
-    assert "bowaka_v2:2024-09-04:BBB:2024-09-04T13:45:00Z" in both
+    assert "bowaka_v2:2024-09-04:AAA:2024-09-04T14:00:00Z" in both
+    assert "bowaka_v2:2024-09-04:BBB:2024-09-04T14:00:00Z" in both
     # CCC is in the paper logs but the lab never produces it.
     assert "bowaka_v2:2024-09-04:CCC:2024-09-04T14:30:00Z" in paper_only
 
@@ -76,8 +78,8 @@ def test_replay_decision_and_fill_comparators_populated(parity_lake_config, tmp_
         run_dir=tmp_path / "lab_run",
     )
     by_id = {r.candidate_event_id: r for r in result.rows}
-    aaa = by_id["bowaka_v2:2024-09-04:AAA:2024-09-04T13:45:00Z"]
-    bbb = by_id["bowaka_v2:2024-09-04:BBB:2024-09-04T13:45:00Z"]
+    aaa = by_id["bowaka_v2:2024-09-04:AAA:2024-09-04T14:00:00Z"]
+    bbb = by_id["bowaka_v2:2024-09-04:BBB:2024-09-04T14:00:00Z"]
     # AAA: paper accepted, lab accepted -> decision-reason match True.
     assert aaa.decision_reason_match is True
     # BBB: paper rejected/spread_too_wide, lab accepted -> mismatch.
