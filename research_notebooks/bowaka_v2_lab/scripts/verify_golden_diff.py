@@ -25,7 +25,7 @@ from bowaka_v2_lab.parity.golden_sample import (
 )
 
 _LAB = Path(__file__).resolve().parents[1]
-LAB_CONFIG = _LAB / "configs" / "bowaka_v2_actual_iex_current_code.yml"
+LAB_CONFIG = _LAB / "configs" / "bowaka_v2_actual_sip_current_code.yml"
 PROD_CONFIG = _LAB / "reference" / "source_strategy" / "scripts" / "bowaka_v2_config.yaml"
 GOLDEN_ROOT = _LAB / "artifacts" / "parity" / "golden"
 VERIFY_ROOT = _LAB / "artifacts" / "parity" / "golden_verify"
