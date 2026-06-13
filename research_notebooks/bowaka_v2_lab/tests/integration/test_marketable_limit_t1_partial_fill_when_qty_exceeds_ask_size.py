@@ -55,8 +55,15 @@ def test_t1_partial_fill_when_qty_exceeds_ask_size() -> None:
     assert fill.slippage_vs_ask_bps == 0.0
 
 
-def test_t1_partial_when_book_too_thin_to_fill_full_qty() -> None:
-    """Qty=1000, ask_size=50, limit=10.001 → small partial."""
+def test_t1_odd_lot_book_does_not_fill() -> None:
+    """§5.5: a sub-100 (odd-lot) displayed size is NOT protected accessible depth,
+    so a marketable order does not fill against it — it falls through to the
+    realism depth/tape model instead.
+
+    §5.5 changelog: was ``test_t1_partial_when_book_too_thin_to_fill_full_qty``
+    asserting a 50-share partial; sub-round-lot displays are no longer counted as
+    protected top-of-book depth.
+    """
     q = _quote(ask=10.00, ask_size=50)
     fill = simulate_marketable_limit_fill(
         side="buy", requested_qty=1000, quote=q,
@@ -66,6 +73,5 @@ def test_t1_partial_when_book_too_thin_to_fill_full_qty() -> None:
         cost_stress="base",
         min_order_notional=100.0,
     )
-    assert fill.filled is True
-    assert fill.filled_qty < 1000
-    assert fill.is_partial is True
+    assert fill.filled is False
+    assert fill.filled_qty == 0

@@ -37,17 +37,20 @@ def test_market_partial_below_min_is_no_fill():
 
 
 def test_marketable_limit_partial_below_min_is_no_fill():
-    # Realism remediation 2 Phase 5 (audit P0-006): T1 walks the book one cent
-    # at a time. A 5-share ``ask_size`` at $10 leaves the order partial-filled
-    # at well below ``min_order_notional`` → no-fill.
+    # L2 + §5.5: T1 caps at the DISPLAYED round-lot touch. A 100-share round-lot
+    # displayed at $4 fills only 100 shares = $400 notional, below the $500
+    # min_order_notional → no-fill (partial_below_min). (Changelog: was a 5-share
+    # ask_size walking the book; a sub-100 odd-lot quote is now no_liquidity under
+    # §5.5 — see test_t1_odd_lot_book_does_not_fill — so this case uses a round lot
+    # at a low price to still exercise the partial_below_min downgrade.)
     q = QuoteSnapshot(
-        bid=9.98, ask=10.0, mid=9.99, spread_pct=0.002,
+        bid=3.98, ask=4.0, mid=3.99, spread_pct=0.005,
         quote_timestamp="2024-09-04T14:00:00Z", quote_age_seconds=0.5,
-        source="historical", bid_size=5, ask_size=5,
+        source="historical", bid_size=100, ask_size=100,
     )
     fill = simulate_marketable_limit_fill(
         side="buy", requested_qty=1_000, quote=q,
-        marketable_limit_slippage_pct=0.0001,  # limit = 10.001, leaves no room
+        marketable_limit_slippage_pct=0.0001,  # limit ~ 4.0004, leaves no room
         marketable_limit_timeout_seconds=30,
         minute_bars=None, scan_ts=pd.Timestamp("2024-09-04 14:00:00", tz="UTC"),
         liquidity_proxy_shares=10, cost_stress="base",

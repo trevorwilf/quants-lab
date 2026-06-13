@@ -655,7 +655,7 @@ class StrategyConsumer:
         _tape_fill: Optional[FillResult] = None
         if _fill_model == "tape_replay" and trades_supplier is not None:
             _tape_window = float(execution_cfg.get("tape_window_seconds", 300.0))
-            _tape_part = float(execution_cfg.get("tape_participation", 1.0))
+            _tape_part = float(execution_cfg.get("tape_participation", 0.20))  # §5.5 realistic POV cap
             _limit_ceiling = None
             if plan.order_style != "market":
                 _ml_slip = float(execution_cfg.get(
