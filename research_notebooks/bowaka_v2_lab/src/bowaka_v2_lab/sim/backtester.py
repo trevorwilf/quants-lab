@@ -482,6 +482,8 @@ def _check_lot_exits_until(
             seed=seed,
             fade_telemetry_out=fade_telemetry_out,
             until_ts=until_ts,
+            # L11: the contract drives the default exit cross_spread (stops pay).
+            simulation_mode=str((cfg.get("simulation") or {}).get("mode") or "smoke_fixture"),
         )
         if ev is None:
             continue
@@ -880,7 +882,14 @@ def run_backtest(
             run_dir, note="frozen contract unavailable; parity diff not computed"
         )
 
-    portfolio = Portfolio(initial_bankroll=initial_bankroll)
+    _exec_cfg = cfg_dict.get("execution") or {}
+    portfolio = Portfolio(
+        initial_bankroll=initial_bankroll,
+        # L11 — sell-side fee schedule mirrors the entry execution fees so a
+        # round-trip pays symmetric commission + regulatory fees.
+        exit_commission_per_share=float(_exec_cfg.get("commission_per_share", 0.0)),
+        exit_regulatory_fee_bps=float(_exec_cfg.get("regulatory_fee_bps", 0.0)),
+    )
     broker = SimulatedBroker()
     from .strategy_consumer import StrategyConsumer
     consumer = StrategyConsumer(portfolio=portfolio, broker=broker, cfg=cfg_dict)
@@ -1335,6 +1344,8 @@ def run_backtest(
                         seed=run_seed,
                         fade_telemetry_out=sess_acc.fade_telemetry,
                         until_ts=walk_until,
+                        # L11: the contract drives the default exit cross_spread.
+                        simulation_mode=sim_cfg.mode,
                     )
                     if ev is None:
                         # No exit in this window — advance the cursor so the
@@ -1779,7 +1790,12 @@ def run_backtest(
     summary["historical_quote_coverage_pct"] = round(quote_cov_pct, 4)
     summary["fees_paid_total"] = round(
         sum(float(f.get("commission", 0.0) or 0.0)
-            + float(f.get("regulatory_fees", 0.0) or 0.0) for f in _filled_fills),
+            + float(f.get("regulatory_fees", 0.0) or 0.0) for f in _filled_fills)
+        # L11 — include the sell-side (exit) fees so a round-trip's fee total is
+        # symmetric (entry fills above + exit closures here).
+        + sum(float(t.get("exit_commission", 0.0) or 0.0)
+              + float(t.get("exit_regulatory_fees", 0.0) or 0.0)
+              for t in portfolio.closed_trades),
         6,
     )
 

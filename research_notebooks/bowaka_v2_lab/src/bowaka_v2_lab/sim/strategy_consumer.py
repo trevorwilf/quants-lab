@@ -815,10 +815,14 @@ class StrategyConsumer:
             parent_order_id=parent.parent_order_id,
             link_id=parent.parent_order_id,
             entry_session=entry_date,
-            # Realism Phase 7 — the fill minute the per-lot minute-path exit
-            # walk starts AFTER. Taken from the candidate's scan timestamp (the
-            # marketable-limit fill lands within the order-lifetime window, so
-            # the scan minute is the conservative fill-minute anchor).
+            # Realism Phase 7 / §2.3 — the real fill minute the per-lot minute-
+            # path exit walk starts AFTER. The fill lands within the order-
+            # lifetime window at scan_ts + the decision->fill latency
+            # (fills.DEFAULT_FILL_LATENCY_SECONDS, ~5s), which is sub-minute, so
+            # the scan minute IS the real fill minute. The exit walk therefore
+            # never exits on the fill minute (no look-ahead), and a late fill
+            # cannot skip its early adverse path because the fill model anchors
+            # every fill at scan_ts (no cross-minute fill drift in this model).
             entry_timestamp=str(ts_pts) if ts_pts else None,
             fill_source=quote.source,
             fill_slippage_bps=fill.slippage_bps_total,

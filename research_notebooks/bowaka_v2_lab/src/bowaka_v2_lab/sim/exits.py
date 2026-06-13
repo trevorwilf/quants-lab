@@ -550,6 +550,15 @@ def _bracket_fill(
         if tape is not None:
             return tape
         # No tape / no qualifying print → fall through to PB.1-3 / legacy base.
+    # L11: a TARGET is a resting limit SELL — it fills AT the bracket (the limit),
+    # giving up nothing and improving nothing. The realism exit cost concentrates
+    # on marketable STOP exits (a stop is a liquidity-TAKING marketable sell), so a
+    # target always clamps to the bracket; only a stop pays the spread give-up /
+    # participation impact below. Legacy parity is preserved: with cross_spread and
+    # participation_cap both off (the smoke default) a stop also returns the bare
+    # bracket, byte-identical to the pre-remediation engine.
+    if kind == "target":
+        return float(bracket_price), None
     if not xf.cross_spread and not xf.participation_cap:
         return float(bracket_price), None
     base = float(bracket_price)
@@ -587,6 +596,17 @@ class _LotPathState:
     halt_seen: bool = False
 
 
+def _default_exit_cross_spread(simulation_mode: Optional[str]) -> bool:
+    """L11: non-smoke realism contracts price the exit by default — a marketable
+    STOP gives up the half-spread (``cross_spread`` on) unless the config sets it
+    explicitly. ``smoke_fixture`` keeps the cost-free exact-bracket fill so the
+    deterministic plumbing fixtures stay byte-identical, and an unset mode (a
+    direct ``walk_lot_exit`` caller that does not thread the contract — e.g. a
+    unit test) is treated as smoke so legacy callers are unaffected.
+    """
+    return str(simulation_mode or "smoke_fixture") != "smoke_fixture"
+
+
 def _walk_lot_exit_pandas(
     pos: Position,
     minute_bars: Optional[pd.DataFrame],
@@ -603,6 +623,10 @@ def _walk_lot_exit_pandas(
     feed: Optional[str] = None,
     activation_artifact_dir: Optional[Path] = None,
     status_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    # L11: the simulation contract — drives the default exit cross_spread (a
+    # marketable STOP gives up the half-spread for non-smoke modes). Unset =
+    # smoke (legacy cost-free bracket fill).
+    simulation_mode: Optional[str] = None,
 ) -> Optional[ExitEvent]:
     """Reference (pandas/``iterrows``) per-lot minute-path walk — frozen oracle.
 
@@ -714,7 +738,7 @@ def _walk_lot_exit_pandas(
 
     is_severe = str(cost_stress) == "severe"
     # PB.1 — sell-side spread-crossing exits (default off → byte-identical).
-    cross_spread = bool(cfg.get("cross_spread", False))
+    cross_spread = bool(cfg.get("cross_spread", _default_exit_cross_spread(simulation_mode)))
     hs_bps = get_params(str(cost_stress)).half_spread_bps if cross_spread else 0.0
     # PB.2 — sell-side size cap + sqrt-impact (default off; None = no cap).
     participation_cap = cfg.get("participation_cap")
@@ -1010,6 +1034,10 @@ def _walk_lot_exit_numpy(
     feed: Optional[str] = None,
     activation_artifact_dir: Optional[Path] = None,
     status_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    # L11: the simulation contract — drives the default exit cross_spread (a
+    # marketable STOP gives up the half-spread for non-smoke modes). Unset =
+    # smoke (legacy cost-free bracket fill).
+    simulation_mode: Optional[str] = None,
 ) -> Optional[ExitEvent]:
     """Numpy fast path for :func:`_walk_lot_exit_pandas` — byte-identical output.
 
@@ -1072,7 +1100,7 @@ def _walk_lot_exit_numpy(
 
     is_severe = str(cost_stress) == "severe"
     # PB.1 — sell-side spread-crossing exits (default off → byte-identical).
-    cross_spread = bool(cfg.get("cross_spread", False))
+    cross_spread = bool(cfg.get("cross_spread", _default_exit_cross_spread(simulation_mode)))
     hs_bps = get_params(str(cost_stress)).half_spread_bps if cross_spread else 0.0
     # PB.2 — sell-side size cap + sqrt-impact (default off; None = no cap).
     participation_cap = cfg.get("participation_cap")
@@ -1330,6 +1358,10 @@ def walk_lot_exit(
     feed: Optional[str] = None,
     activation_artifact_dir: Optional[Path] = None,
     status_supplier: Optional[Callable[..., Optional[dict]]] = None,
+    # L11: the simulation contract — drives the default exit cross_spread (a
+    # marketable STOP gives up the half-spread for non-smoke modes). Unset =
+    # smoke (legacy cost-free bracket fill).
+    simulation_mode: Optional[str] = None,
 ) -> Optional[ExitEvent]:
     """Walk one lot's minute path and return the earliest exit, or ``None``.
 
@@ -1354,7 +1386,7 @@ def walk_lot_exit(
             signal_score_fn=signal_score_fn,
             seed=seed, fade_telemetry_out=fade_telemetry_out, until_ts=until_ts,
             feed=feed, activation_artifact_dir=activation_artifact_dir,
-            status_supplier=status_supplier,
+            status_supplier=status_supplier, simulation_mode=simulation_mode,
         )
     return _walk_lot_exit_pandas(
         pos, minute_bars, exit_cfg=exit_cfg,
@@ -1363,7 +1395,7 @@ def walk_lot_exit(
         signal_score_fn=signal_score_fn,
         seed=seed, fade_telemetry_out=fade_telemetry_out, until_ts=until_ts,
         feed=feed, activation_artifact_dir=activation_artifact_dir,
-        status_supplier=status_supplier,
+        status_supplier=status_supplier, simulation_mode=simulation_mode,
     )
 
 
