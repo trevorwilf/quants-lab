@@ -48,12 +48,24 @@ def test_full_agreement_yields_unit_metrics() -> None:
     assert report.lab_only_trades == []
 
 
-def test_empty_streams_yield_unit_metrics() -> None:
+def test_empty_streams_are_vacuous_not_pass_l17() -> None:
+    """L17: a parity run with NO trades on EITHER side is VACUOUS — the rates are
+    "not measured" (None) and the run FAILS the audit (zero evidence cannot certify
+    parity).
+
+    L17 changelog: was ``test_empty_streams_yield_unit_metrics`` which asserted
+    ``trade_intersection_rate == 1.0`` and ``passes_audit_thresholds is True`` —
+    the vacuous PASS that masked e.g. the prod-backtester producing 0 trades.
+    """
     report = compute_parity_metrics(
         window_start=_dt.date(2026, 5, 19), window_end=_dt.date(2026, 5, 19),
         universe_size=0, prod_trades=[], prod_candidates=[],
         lab_trades=[], lab_candidates=[],
     )
-    assert report.trade_intersection_rate == 1.0
-    assert report.fill_price_mae_bps == 0.0
-    assert report.passes_audit_thresholds is True
+    # Rates are NOT MEASURED on empty streams (were a misleading 1.0).
+    assert report.trade_intersection_rate is None
+    assert report.exit_reason_match_rate is None
+    assert report.daily_pnl_sign_match_rate is None
+    # The vacuous run FAILS the audit (was a silent PASS).
+    assert report.passes_audit_thresholds is False
+    assert "no_trades_vacuous" in report.failing_metrics

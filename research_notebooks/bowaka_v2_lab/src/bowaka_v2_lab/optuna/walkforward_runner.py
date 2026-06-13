@@ -2300,6 +2300,7 @@ def run_walkforward_study(
         n_trials=trials,
         n_jobs=jobs,
         n_startup_trials=startup,
+        sampler_seed=seed,  # L16: thread run.seed into the TPE sampler (was hard-coded 1337)
     )
     study.create()
 
