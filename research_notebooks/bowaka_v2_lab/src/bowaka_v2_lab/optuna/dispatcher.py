@@ -65,6 +65,10 @@ class OptunaStudy:
     n_jobs: int = 1
     #: Random-sampling trials before TPE-guided search begins (Optuna default 10).
     n_startup_trials: int = 10
+    #: L16 — TPE sampler seed. Was hard-coded 1337 (reproducible but not
+    #: configurable); now a field so the caller can thread ``run.seed`` for
+    #: reproducibility while still defaulting to 1337 when unset.
+    sampler_seed: int = 1337
     study: Optional[optuna.Study] = None
     promotion_eligible: bool = field(default=False)
 
@@ -76,7 +80,7 @@ class OptunaStudy:
             storage=self.storage_uri,
             load_if_exists=True,
             sampler=optuna.samplers.TPESampler(
-                multivariate=True, seed=1337, n_startup_trials=self.n_startup_trials,
+                multivariate=True, seed=self.sampler_seed, n_startup_trials=self.n_startup_trials,
             ),
         )
         # Attach run-side metadata.

@@ -84,10 +84,14 @@ class ParityReport:
     # verdict — a missing data source must never report PASS.
     candidate_recall: Optional[float]
     gate_match_rate: Optional[float]
-    trade_intersection_rate: float    # |prod ∩ lab| / |prod ∪ lab|
+    # L17: ``None`` == "not measured" (no trades to compare on either side). A
+    # both-sides-empty parity run is VACUOUS — these rates are None and
+    # build_parity_report's vacuous guard (n_trade_sessions == 0) fails the run, so
+    # an empty run can never stamp PASS with zero evidence.
+    trade_intersection_rate: Optional[float]    # |prod ∩ lab| / |prod ∪ lab|
     fill_price_mae_bps: float
-    exit_reason_match_rate: float
-    daily_pnl_sign_match_rate: float
+    exit_reason_match_rate: Optional[float]
+    daily_pnl_sign_match_rate: Optional[float]
     # Worst divergences for drill-down
     prod_only_trades: list[NormalizedTrade] = field(default_factory=list)
     lab_only_trades: list[NormalizedTrade] = field(default_factory=list)
