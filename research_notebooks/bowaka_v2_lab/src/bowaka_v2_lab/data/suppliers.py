@@ -369,7 +369,11 @@ def _daily_cache_row_from_prior(
         "prior_atr_pct": (prior_atr / prior_close) if prior_close else 0.0,
         "ema_10_prior": ema_prior,
         "ema_10_lag_3": ema_lag3,
-        "ema_slope_prior": (ema_prior - ema_lag3) / 3.0,
+        # L5 fix: the dimensionless RATIO slope (matches features/forming_bar.py
+        # and the live bowaka_v2_features contract). The prior abs/(slope_lookback)
+        # form `(ema_prior - ema_lag3) / 3.0` diverged from live (different units,
+        # scales with price level) and fed a wrong ema_slope_gate / `es` score term.
+        "ema_slope_prior": (ema_prior / ema_lag3 - 1.0) if ema_lag3 != 0.0 else None,
     }
 
 
