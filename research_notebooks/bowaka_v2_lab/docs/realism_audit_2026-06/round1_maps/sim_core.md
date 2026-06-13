@@ -1,0 +1,83 @@
+I now have a complete and precise picture of the sim_core subsystem. I have read all listed files end to end, the central unlisted files (exits, fills, strategy_consumer, quote_model, broker, ambiguity, metrics), the run-mode contract, and surveyed test coverage. Let me compose the report.
+
+## Purpose & data flow (how this subsystem fits the backtest pipeline)
+
+`sim_core` is the event-driven backtest engine consumed by the Optuna walk-forward objective and the standalone backtest CLI. `run_backtest()` (`sim/backtester.py:636`) is the single orchestrator. Inputs: a resolved `cfg`, a list of `sessions`, supplier callables (`minute_bars_supplier`, `daily_bars_supplier`, `quote_supplier`, `session_minute_supplier`, `trades_supplier`, `status_supplier`, `forward_minute_supplier`), per-session universe + daily-feature caches, and an optional `scan_matrix_store`. Flow per session: `Portfolio.begin_session` → build per-session scan context → either the smoke batch path (`backtester.py:1101-1190`) or the event-driven dispatch loop (`:1191-1697`). The dispatch loop preloads SCAN/PROTECTION_CHECK/QUOTE(fill_poll)/TIME_STOP_CHECK/EOD_MARK events (`event_loop.preload_session_events`) into a min-heap, pops them in `(timestamp, priority, sequence)` order, walks open-lot minute paths up to each event ts (`_close_lots_until`), and dispatches SCAN→`run_one_scan`→`StrategyConsumer.consume` (gates→fill→`Portfolio.add_position`). Exits run through `exits.walk_lot_exit`. Output is `BacktestResult` (in-memory; consumed by the objective) plus, in `full` mode, the 16-file artifact contract (`backtester.py:107-133`), report renderer, promotion checklist, and suitability tier.
+
+## Behavioral spec
+
+- **Run-mode router**: `smoke_fixture` → batch scan-then-`drive_session_exits_daily` daily-bar exits (`backtester.py:1101-1190`); all other modes → event-driven loop (`:1191`). Mode-coupled policy defaults resolved in `models.py:141-148` from `_SIMULATION_MODE_DEFAULTS` (`:29-62`).
+- **Mode deltas** (`models.py:29-62`): `current_code_parity` = scanner_start_to_scan window, pre_submit, fail_open, zero_spread quotes. `intended_realism` = regular_open_to_scan, post_submit, fail_closed, require_real quotes (DQ-gated, halt-gated, quote-coverage-gated). `fast_realism` = IR semantics + post_submit + honest depth fills BUT zero_spread fallback + fail_open + IR gates do NOT fire (`strategy_consumer.py:639-643` sets `has_nbbo_depth = mode=="fast_realism"`). `smoke_fixture` = synthetic_calibrated quotes, pre_submit, daily-bar exits.
+- **Event priority/intrabar order** (`event_loop.py:52-78`): PROTECTION_CHECK(10) < OCO_ATTACH_ATTEMPT(15) < CHILD_FILL(20) < PARENT_FILL(25) < PARENT_FILL_TIMEOUT(27) < PARENT_ACK(30) < MINUTE_BAR(35) < QUOTE(40) < TIME_STOP_CHECK(45) < SIGNAL_FADE_CHECK(50) < SCAN(60) < EOD_MARK(100). Lots are walked up to event ts BEFORE the event handler (`backtester.py:1558`) so a same-day stop updates `Portfolio.state` before the next SCAN's risk gates evaluate (audit P0-002).
+- **Per-bar exit ordering inside `walk_lot_exit`** (`exits.py:785-925` pandas / `:1160-1294` numpy): per minute bar — (1) halt-resume force-exit, (2) venue-status halt defers (skip bar), (3) gap-through stop/target at OPEN, (4) stop/target/same-minute, (5) signal-fade at eval_time, (6) time-stop at exit_time, (7) max-hold at ≥15:59. Stop checked before target; same-minute tie resolved by `same_minute_resolution` (conservative→stop wins). Never exits on/before fill minute (`:766`).
+- **Gap-through**: a minute whose OPEN is already past a bracket fills at the open with reason `gap_stop`/`gap_target` (`exits.py:816-832`).
+- **Max-hold**: `max_hold_exit_session` uses XNYS calendar sessions, `N = entry_session + (max_hold_days-1)` trading days (`exits.py:146-172`); fallback max-hold on last in-window bar if path runs out (`:927-950`), suppressed when `until_ts` bounds the walk.
+- **Session boundaries**: `schedule.scan_times_for_session` is calendar-aware — weekends/holidays → `[]` (`schedule.py:130-131`); early closes truncate the scan window to `cal.session_close` (`:148-150`); DST handled by tz-aware local→UTC conversion. EOD_MARK anchored at 16:00 ET (`event_loop.py:278`).
+- **PnL/equity evolution**: `Portfolio._record_close` (`portfolio.py:422-512`) computes `pnl=(exit-entry)*qty`, mutates `bankroll`, `daily_realized_pnl`, `compounding_gross_realized`, stopout/consecutive-stopout counters, recomputes gross exposure. `update_mtm` (`:372-389`) marks all lots of a symbol to the same price. `begin_session` (`:308-364`) recomputes gross exposure + `entered_symbols_today` + entries_blocked carryover from surviving lots; bankroll & consecutive_stopouts & compounding carry forward.
+- **Multi-day holds**: lots keyed by `position_id` (multi-lot per symbol); re-walked each session from entry session onward; `entry_session < session_date` skipped at `exit_driver.py:103` / `backtester.py:1290`.
+- **Risk kills** (`risk_gates.py:78-175`): order = kill_switch → entries_blocked_by_protection → max_concurrent (from `sizing`) → daily_entry_cap → max_stopouts → consecutive_stopouts (sets kill) → gross_exposure_cap → daily_loss (sets kill) → strategy_slice_loss (sets kill) → adv_cap (aggregate symbol notional). Kill switch persists for the session once set.
+- **Protection lifecycle** (`protection.py`): PARENT_FILL→OCO_ATTACH_PENDING→(attach succeeds)→PROTECTED, else retry up to `oco_attach_attempts`, else OCO_ATTACH_FAILED→violation flow (fallback-stop marker + FLATTEN_SUBMITTED + entries_blocked). `on_protection_check` escalates lots PENDING > `max_unprotected_seconds` to UNPROTECTED_VIOLATION.
+- **Fill model** (`fills.py`): market → ask+slippage capped by liquidity proxy. marketable_limit → tiered T0/T1/T2/T3/T4 auto-detected (`detect_execution_tier:73`). T0 synthetic rejected under intended_realism (`:893-897`). T3 = real touch always fillable + `participation_cap*minute_vol` (`_t3_depth_impact_fill:583`).
+- **Manifest records** (`backtester.py:1861-1902`): simulation_mode/contract, fill_model declaration, lineage (4 hashes), per-session universe hashes, scan_counts funnel, data_quality summary, ambiguous_bar_count, suitability_tier.
+
+## Knobs
+
+- `simulation.mode` (default `smoke_fixture`): routes exit driver + gate activation + fill honesty. Threaded everywhere via `sim_cfg.mode`.
+- `simulation.quote_fallback_policy` (mode-derived): `require_real`→missing_quote reject; `zero_spread`→synthetic; `synthetic_calibrated`. `quote_model.resolve_quote:216`.
+- `simulation.same_minute_resolution` (default `conservative`): stop vs target on a both-touch bar. `exits._resolve_same_minute:322`. Overridable per-exit by `exits.same_minute_tie`.
+- `simulation.min_quote_coverage_pct` (default 95.0): finalize gate, IR only (`backtester.py:1952-1982`).
+- `simulation.protection_stress` (default none): injects OCO attach failures.
+- `protected_position.*` (`protection.py:113-125`): `max_unprotected_seconds`=10, `oco_attach_attempts`=2, `fallback_stop_enabled`, `flatten_if_unprotected`, `block_entries_on_violation`, `oco_attach_latency_seconds`=0.5.
+- Cadences (`event_loop.py:144-211`): scan=60, fill/protection=5 (from `loop_interval_seconds`), time_stop=60. `cadence_strategy` preload/lazy — **lazy refused at runtime** (`backtester.py:927-933`).
+- `optuna.acceleration.scan_matrix.enabled` (default False): matrix runtime; `vectorized`/`compatibility`/`disabled` (`backtester.py:939-981`).
+- `exits.*`: `stop_pct`/`target_pct`/`max_hold_days`, `time_stop.exit_time`(15:45), `signal_fade` (enabled/mode/eval_time/thresholds), `cross_spread`/`participation_cap`/`require_fresh_quote`/`fill_model`(tape_replay) (`exits.py:716-729`).
+- `backtest.cost_stress` (base/conservative/severe): slippage mult + fill caps + `severe` enables 60s halt model (`exits.py:80`).
+- `risk.*` / `sizing.*`: `max_concurrent_positions` (from sizing), `max_lots_per_symbol`, `same_symbol_entries_per_day`, `adv_tier_caps`, `daily_loss_pct`, compounding overlay.
+- `artifact_mode` full/objective_minimal: suppresses all disk writes + gate-dump + event-log (`backtester.py:672`).
+
+## Invariants & guards
+
+- **Fail-loud**: synthetic universe in non-smoke mode → RuntimeError (`backtester.py:211-217`). `StartupDataQualityError` re-raised structurally (`:836`). IR unannotated config-diff mismatch → RuntimeError abort (`:868-874`). IR finalize quote-coverage fail → RuntimeError (`:1978-1982`). `cadence_strategy=lazy` → RuntimeError (`:928`). `scan_interval_seconds<1` → ValueError (`schedule.py:121`). Lake-root coerced via helper, buggy `None`/`Path('None')` raises (`:586-590`).
+- **Matrix-miss**: `_matrix_compat_active` + missing partition → silent fallback to per-scan recompute, surfaced via one-time WARNING + `matrix_session_miss` counter (`backtester.py:1069-1092`). Flagged loud-ish but still a silent degradation.
+- **Silent fallbacks (flagged)**:
+  - `_build_dq_report_with_optional_cache`: cache-key mismatch silently bypasses to full rebuild — only a `_log.warning` (`backtester.py:606-612`).
+  - `_git_head` swallows all exceptions → `"unknown"` (`:157`).
+  - `_bars_for_lot` / `fade_score_fn` / `_session_minute_bars` / `_next_bid` / `_exit_bid` / `_tape_replay_bracket`: bare `except Exception` → treat as no-data, lot silently stays open or falls back to bracket fill (`backtester.py:300-312, 1252-1262`; `exit_driver.py:44-55`; `exits.py:357-366, 394-396, 493`).
+  - `status_supplier` exception → `status=None` → no halt deferral (`exits.py:804-805`; `strategy_consumer.py:220`).
+  - `current_code_parity` halt gate fail-open when status is `None` (`strategy_consumer.py:223-225`) — intentional live-wart reproduction but a realism gap.
+  - finalize DQ-json reread wrapped in bare except → `{"checks": []}` (`backtester.py:1958-1961`).
+- **Assertions**: `paths.assert_strategy_isolation()` (`:713`). `require_aware_timestamp` in quote synthesis. `_finalize_stressed_fill` no-ops at defaults (parity invariant). Numpy/pandas exit walks differential-parity pinned.
+
+## Leads
+
+- `backtester.py:1648-1653` — **EOD_MARK marks to the last DAILY bar close, not the minute path**. A lot still open at 16:00 marks at the daily close even though minute exits ran intraday; daily/minute close may diverge → MTM realism gap.
+- `backtester.py:1653` — `closes_today` is **never cleared between sessions** in the event-driven path (declared at `:1100` per session, but a symbol that closed earlier and re-enters could carry a stale `closes_today` mark within the EOD loop only if same symbol). Low risk but worth checking the dict lifetime.
+- `exits.py:919` / `:1287` — **max-hold requires a bar with `clock >= 15:59`**. If the minute supplier's last bar is e.g. 15:58 on the exit session and the path isn't bounded by `until_ts`, the in-loop max-hold never fires; only the end-of-walk fallback (`:927-950`) catches it — but that fallback is **skipped when `until_ts` is set** (`:933`), so in the event-driven loop a lot on its exit session whose final dispatched window ends before 15:59 may **not close on the max-hold day** until a later session's walk. Possible multi-day-hold leak.
+- `backtester.py:1357` — CHILD_FILL log uses `ev.exit_timestamp` but the **trade `exit_date` comes from `ev.exit_date`** while the event-loop window is keyed on `walk_until`; a lot closed in a catch-up window could log a session_date != exit session. Forensics-only.
+- `risk_gates.py:147` — **daily_loss kill uses `daily_realized + daily_unrealized`**, but `daily_unrealized_pnl` is only refreshed by `update_mtm` (EOD or smoke). In the event loop, intraday SCANs see stale (often 0) unrealized PnL → daily_loss kill under-fires intraday. Realism gap vs live.
+- `protection.py:508` / `backtester.py:1604-1616` — flatten closes at `current_price or entry_price`; if no MTM has run, **flatten realizes at entry price (0 PnL)** regardless of the true market — optimistic.
+- `strategy_consumer.py:822,836` — `entry_timestamp`/`parent_fill_ts` set to the **scan timestamp**, not an actual fill minute; comment calls it "conservative" but for a marketable-limit filled seconds later this anchors the exit walk one scan-minute early.
+- `fills.py:805-808` — T1 with **zero displayed `ask_size` falls back to filling the FULL requested qty at limit_price** (no liquidity constraint) — manufactures liquidity; contradicts the "no fabricated depth" claim and matches the MEMORY "fill model manufactures liquidity" finding.
+- `fills.py:753` — `_ask_runs_above_limit` buy path uses `fwd[col].min() > limit` (ALL bars above) — comment at `:739` says "FIRST bar above" but code is still ALL-bars; timeout under-fires. Stale comment / behavior mismatch.
+- `exits.py:1056` (numpy) vs `:692` (pandas) — `fade_active`/`fade_mode` computed but `feed`/`activation_artifact_dir` are **not threaded from `run_backtest` into `walk_lot_exit`** (callers at `backtester.py:1327` and `exit_driver.py:108` omit them) → signal-fade activation artifact path effectively never consulted in real runs; fade stays telemetry. Dead/unreachable activation path.
+- `backtester.py:1760` vs `:1210` — `cost_stress` summary default is `"conservative"` but the consumer/exit default elsewhere is `"base"` (`backtester.py:1210`); inconsistent default could mislabel the summary.
+- `event_loop.py:331-383` `preload_session_events_lazy` + `next_tick_at_or_after` — **dead code** (lazy is runtime-refused).
+- `protection.py:565-580` `compute_protection_penalty` — Phase-6 hook, comment says "wired Phase 8"; verify it's actually wired into the objective or it's dead.
+- `portfolio.py:558-575` `close_position` (symbol-keyed) — DEPRECATED legacy closer still present.
+- `backtester.py:1183` smoke path records `signal_emits_per_symbol_today` but smoke path **never populates** `state["signal_emits_per_symbol_today"]` (no `run_one_scan` dedup writes shown) — likely always empty for smoke.
+- `risk_gates.py:170` — `adv_tier_cap` rebuilds `{"risk": dict(risk_cfg)}` each call (re-parses tiers per candidate); perf, not correctness.
+- `exits.py:139-140` — `trading_days_since` xcals-absent fallback uses `pd.bdate_range` (ignores holidays) — the exact bug §15.2 P1 was meant to fix; only reachable if `exchange_calendars` import fails, but it's a latent miscounting fallback.
+
+## Test coverage hooks
+
+- **Schedule**: `test_schedule_{dst,early_close,holiday,normal_day}.py`, `test_scan_count_per_session.py`, `test_xnys_sessions_half_open.py` — well covered.
+- **Exits**: `test_exit_{gap_above_target,gap_below_stop,max_hold_skips_holiday,max_hold_trading_days,same_minute_stop_wins,signal_fade_active,signal_fade_telemetry,stop_first,target_first,time_stop}.py`, `test_sim_exits_max_hold_exchange_calendar.py`, `test_walk_lot_exit_numpy_parity.py` (differential), `test_gap_through_stop_*`, `test_max_hold_exit_at_session_open.py`, `test_halt_then_exit_deferred.py` — strong.
+- **Portfolio**: `test_portfolio_{close_individual_lot,max_lots_per_symbol,multi_lot_open,same_symbol_entries_per_day}.py`, `test_sim_portfolio_{gross_exposure_pct,session_rollover}.py`, `test_sim_risk_stopout_caps.py`.
+- **Event loop / backtester**: `test_event_loop.py`, `test_event_driven_simulator.py`, `test_backtester_{determinism,multi_day_hold,risk_kills,single_session_iex,with_quotes,with_synthetic_quotes}.py`, `test_cadence_strategy.py`.
+- **Protection**: `test_protection_lifecycle.py`, `test_exit_lifecycle_metrics_in_report.py`.
+- **Risk**: `test_risk_gates_adv_tier_aggregate.py`, `test_risk_max_concurrent_from_sizing.py`.
+- **Fills**: `test_fast_realism_fill.py`, `test_adv_bucket_cap_*`, `test_stress_*`, `test_tape_*`, `test_forward_window_parity.py`.
+- **Halt gate**: `test_halt_gate_rejects_halted_symbol.py`, `test_intended_realism_fails_when_halt_data_absent.py`, `test_dq_halt_gate_unavailable_warning.py`.
+- **NO direct test found for**: EOD_MARK daily-vs-minute mark divergence; the `until_ts`-bounded max-hold-not-firing edge (Lead above); `daily_unrealized_pnl` staleness affecting intraday daily_loss kill; flatten-at-entry-price PnL; the T1 zero-`ask_size` full-fill-at-limit path; `_ask_runs_above_limit` stale "first bar" semantics; signal-fade `feed`/`activation_artifact_dir` threading into the real run loop. `broker.py` (fail_predicate path) and `ambiguity.py` (invalid-policy ValueError) have no dedicated test visible.
+
+Files: `E:\tradingsoftware\quants-lab\research_notebooks\bowaka_v2_lab\src\bowaka_v2_lab\sim\{backtester,event_loop,schedule,exit_driver,risk_gates,protection,portfolio,exits,fills,strategy_consumer,quote_model,broker,ambiguity,metrics}.py`; mode contract at `...\config\models.py:29-148`.
