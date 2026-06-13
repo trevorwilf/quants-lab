@@ -21,7 +21,13 @@ _REALISM_CONFIG = _LAB_ROOT / "configs" / "bowaka_v2_intended_realism.yml"
 @pytest.fixture
 def contract() -> dict:
     if not reference.contract_available():
-        pytest.xfail("frozen contract not generated -- run mirror_bowaka_v2_source.ps1")
+        # P2/§6: a missing COMMITTED contract is a real drift-detection gap, not an
+        # expected xfail. The contract is a committed artifact; if it's absent the
+        # config-vs-contract parity simply isn't being checked -> fail loudly.
+        pytest.fail(
+            "frozen contract not generated (run mirror_bowaka_v2_source.ps1); the "
+            "committed contract must be present so signal-threshold parity is checked."
+        )
     return reference.load_actual_contract()
 
 
