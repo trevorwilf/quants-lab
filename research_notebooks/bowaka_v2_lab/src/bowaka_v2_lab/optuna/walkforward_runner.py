@@ -51,6 +51,7 @@ from ..data.adjustment import daily_adjustment_for_config
 from ..data.lineage import resolve_lake_root
 from ..data.suppliers import (
     build_daily_cache_from_lake,
+    make_auctions_supplier,
     make_forward_minute_supplier,
     make_lake_suppliers,
     make_quote_supplier,
@@ -530,6 +531,8 @@ def _run_fold_backtest(
         forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
         # PB.4 — only wired when the config selects tape_replay (else None).
         trades_supplier = make_trades_supplier_for_config(cfg, lake_root, feed=feed)
+        # §5.1 — official-auction EOD mark (O(1) None when the lake has no auctions/ partition).
+        auctions_supplier = make_auctions_supplier(lake_root, feed=feed)
         universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
         daily_cache = {}
         for s in sessions:
@@ -549,6 +552,7 @@ def _run_fold_backtest(
         quote_supplier = ctx.suppliers.quote
         forward_minute_supplier = ctx.suppliers.forward_minute
         trades_supplier = ctx.suppliers.trades
+        auctions_supplier = make_auctions_supplier(ctx.lake_root, feed=ctx.feed)
         _scan_times = dict(ctx.scan_times_by_session)
         scan_times_callable = lambda d: list(_scan_times.get(d, ()))  # noqa: E731
 
@@ -573,6 +577,7 @@ def _run_fold_backtest(
             quote_supplier=quote_supplier,
             trades_supplier=trades_supplier,
             forward_minute_supplier=forward_minute_supplier,
+            auctions_supplier=auctions_supplier,  # §5.1 official-auction EOD mark
             initial_bankroll=100_000.0,
             paths=paths,
             run_dir=run_dir,
@@ -652,6 +657,8 @@ def _run_fold_backtest_objective(
         forward_minute_supplier = make_forward_minute_supplier(lake_root, feed=feed)
         # PB.4 — only wired when the config selects tape_replay (else None).
         trades_supplier = make_trades_supplier_for_config(cfg, lake_root, feed=feed)
+        # §5.1 — official-auction EOD mark (O(1) None when the lake has no auctions/ partition).
+        auctions_supplier = make_auctions_supplier(lake_root, feed=feed)
         universe = build_pit_universe_for_sessions(sessions, cfg, MarketDataStore(lake_root))
         daily_cache: dict[_dt.date, Any] = {}
         for s in sessions:
@@ -671,6 +678,7 @@ def _run_fold_backtest_objective(
         quote_supplier = ctx.suppliers.quote
         forward_minute_supplier = ctx.suppliers.forward_minute
         trades_supplier = ctx.suppliers.trades
+        auctions_supplier = make_auctions_supplier(ctx.lake_root, feed=ctx.feed)
         _scan_times = dict(ctx.scan_times_by_session)
         scan_times_callable = lambda d: list(_scan_times.get(d, ()))  # noqa: E731
 
@@ -693,6 +701,7 @@ def _run_fold_backtest_objective(
             quote_supplier=quote_supplier,
             trades_supplier=trades_supplier,
             forward_minute_supplier=forward_minute_supplier,
+            auctions_supplier=auctions_supplier,  # §5.1 official-auction EOD mark
             initial_bankroll=100_000.0,
             paths=paths,
             run_dir=run_dir,
