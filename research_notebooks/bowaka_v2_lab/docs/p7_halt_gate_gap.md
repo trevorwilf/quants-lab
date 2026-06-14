@@ -18,39 +18,49 @@
   Graceful: a lake with **no** `corporate_actions/` partition leaves the asset-master
   status gate in charge (every fixture + any pre-backfill lake).
 
-**§5.2 — Nasdaq halt ingester (code + tests; OPERATOR-run, see gate below):**
-- `data/halt_ingest.py` — `parse_nasdaq_halt_rss` (documented Nasdaq RSS shape →
-  `statuses/` rows) + `write_halt_statuses` (→ the partition `halt_feed.read_halt_events`
-  + the DQ halt gate consume).
-- `scripts/backfill_halts.py` — `--url` (live) / `--file` / `--dir` (historical archive).
+**§5.2 — Nasdaq halt ingester (code + tests; validated against real Nasdaq pulls):**
+- `data/halt_ingest.py`:
+  - `parse_nasdaq_halt_rss` — the live RSS shape (a current-open-halt snapshot).
+  - `parse_nasdaq_halt_table` — the TradingHaltSearch JSON-RPC result table (GenTable
+    HTML → `statuses/` rows; ET→UTC, LULD classification, ms-time + still-halted paths),
+    pinned by real-data unit tests (GME LULD / SWAV deficiency / AMOD open halt).
+  - `NasdaqHaltRpcClient` — the Jayrock JSON-RPC client (`RPCHandler.axd`, Referer-
+    guarded): `GetHaltsByDate('YYYYMMDD')` (one historical day, reaches back years) +
+    `SearchTradeHaltsNEW` (trailing ~1yr, ~13k halts, one call).
+  - `write_halt_statuses` (→ the partition `halt_feed.read_halt_events` + the DQ halt
+    gate consume).
+- `scripts/backfill_halts.py` — `--start/--end` (per-day historical via JSON-RPC),
+  `--recent` (trailing ~1yr), `--url` (live RSS), `--file`/`--dir` (local archive).
 
-## The Nasdaq halt-data GATE (§5.2) — why IR is not fully unblocked here
+## §5.2 halt data — external-data gate RESOLVED (Nasdaq reachable; historical source wired)
 
-- The IR DQ gate `halt_data_unavailable_when_required` (data_quality.py) **already
-  correctly requires** the lake's `statuses/` partition for `intended_realism`. Its
-  logic is unchanged — **IR unblocks the moment a `statuses/` partition exists.** The
-  only missing piece is the producer (the data).
-- **Alpaca serves NO historical halt / LULD data** (confirmed — only current snapshots).
-- **The build sandbox cannot resolve `nasdaqtrader.com`** (DNS `getaddrinfo` fails;
-  only the Alpaca data host is reachable). So the Nasdaq ingester is **operator code**:
-  run `scripts/backfill_halts.py` from a host/container where Nasdaq resolves.
-- The live Nasdaq RSS (`rss.aspx?feed=tradehalts`) is **current halts only**.
-  Historical halts for past folds need the operator's saved Nasdaq archive
-  (`--dir` of saved RSS files) or a paid historical halt feed.
-- `parse_nasdaq_halt_rss` is built to the **documented** Nasdaq RSS field shape —
-  **validate it against one real pull** before production use.
+- The IR DQ gate `halt_data_unavailable_when_required` (data_quality.py) requires the
+  lake's `statuses/` partition for `intended_realism`. Its logic is unchanged — **IR
+  unblocks the moment a `statuses/` partition exists.**
+- **`nasdaqtrader.com` is reachable again** (the earlier sandbox DNS `getaddrinfo`
+  block is gone). The full historical source is now reverse-engineered, wired, and
+  verified against real pulls:
+  - **Source:** the TradingHaltSearch JSON-RPC — Jayrock 1.1 at `RPCHandler.axd`
+    (Referer-guarded; `var Server=new RPCClient("RPCHandler.axd",PROTOCOL_JSON)`).
+    `BL_TradeHalt.GetHaltsByDate('YYYYMMDD')` returns one historical day with the full
+    record (Halt Date/Time, Issue Symbol/Name, Market, Reason Code, Pause Threshold,
+    Resumption Date/Quote/Trade Time) and **reaches back years** — verified on
+    **2024-06-03** (92 halts incl. the GME market-wide LULD pause).
+    `SearchTradeHaltsNEW` returns the trailing ~1yr (~13k halts: ~9.7k LUDP LULD pauses,
+    plus M/T1/T3/T2/T12/D…) in a single call.
+  - **Verified end-to-end:** a 2-day live backfill (2024-06-03/04 → 161 halts → 83
+    `statuses/` files) reads back through `read_halt_events` (GME `M` 13:31:17 →
+    13:36:21 UTC). The table parser is pinned by real-data unit tests.
+- **Alpaca still serves NO halt / LULD data** — Nasdaq is the source.
+- The live RSS (`rss.aspx?feed=tradehalts`) remains a **current-open-halt snapshot
+  only**; use `--start/--end` (GetHaltsByDate) for historical folds.
 
-### Best-effort fallback (per the chosen design: probe → fall back)
-- **Halt RESUME from reopening auctions (P6):** a halt resumes with a reopening
-  auction, so resume *could* be inferred from the auctions feed without Nasdaq.
-  Caveat: the P6 auctions producer extracts the official **open/close** prints only;
-  inferring resume needs the **intraday** halt-resume auction prints (other condition
-  codes) — a bounded extension to the P6 auctions extraction. **Onset + LULD bands
-  still require the Nasdaq feed.**
-- Until the operator lands real Nasdaq halt data, `intended_realism` stays gated at the
-  DQ halt check — **by design** (fail-closed). This is the documented IR halt-gate gap;
-  the survivorship half of P7 (§3.4/§5.3) is fully shipped + tested and does not depend
-  on it.
+### Remaining operator step (a data-volume step, NOT a reachability gate)
+- Run `scripts/backfill_halts.py --start … --end …` **on the container** (where the
+  real lake `/opt/market_data_cache` lives) to populate `statuses/` over the study
+  window, then run the IR walk-forward and confirm coverage on interior folds.
+- **Halt RESUME from reopening auctions (P6)** remains a documented best-effort fallback
+  for any day the RPC is unavailable; the RPC already carries resume times directly.
 
 ## CA announcement-time PIT hazard (§5.3 — flagged loudly)
 
@@ -68,10 +78,11 @@ MARKET_DATA_ROOT=/opt/market_data_cache PYTHONPATH=src:../bowaka_common/src \
   /opt/conda/envs/quants-lab/bin/python scripts/backfill_corporate_actions.py \
     --start 2020-01-01 --end 2026-06-30 --workers 6
 
-# §5.2 halts -> statuses/ partition (run where nasdaqtrader.com resolves)
+# §5.2 halts -> statuses/ partition (Nasdaq reachable; JSON-RPC GetHaltsByDate)
 MARKET_DATA_ROOT=/opt/market_data_cache PYTHONPATH=src:../bowaka_common/src \
-  python scripts/backfill_halts.py --dir /path/to/nasdaq_halt_rss_archive   # historical
-  #                                  --url                                   # current
+  python scripts/backfill_halts.py --start 2024-01-01 --end 2026-06-30   # historical
+  #                                  --recent                             # trailing ~1yr
+  #                                  --url                                # current snapshot
 
 # then: run the intended_realism walk-forward and CONFIRM coverage on INTERIOR folds
 # (not just the first sessions — ties to P2 #7). The PIT master drives the universe;
@@ -82,6 +93,7 @@ MARKET_DATA_ROOT=/opt/market_data_cache PYTHONPATH=src:../bowaka_common/src \
 
 - §3.4 / §5.3 survivorship: **shipped + tested** (corp-actions producer, PIT master,
   builder wiring, min-history, `_status_active("")` fix, CA-PIT hazard documented).
-- §5.2 halts: **producer + tests shipped**; the live data ingest + the end-to-end IR
-  walk-forward on interior folds are **operator/container steps** (Nasdaq DNS-gated in
-  the build sandbox), documented here.
+- §5.2 halts: **producer + historical JSON-RPC source + tests shipped, verified against
+  real Nasdaq pulls** (incl. 2024 — the GME LULD pause). The Nasdaq DNS gate is
+  **cleared**; the bulk backfill onto the container lake + the end-to-end IR walk-forward
+  on interior folds remain operator/container steps (a data-volume step, not a gate).
