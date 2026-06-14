@@ -12,7 +12,11 @@ import datetime as dt
 
 import pandas as pd
 
-from bowaka_v2_lab.data.halt_ingest import parse_nasdaq_halt_rss, write_halt_statuses
+from bowaka_v2_lab.data.halt_ingest import (
+    parse_nasdaq_halt_rss,
+    parse_nasdaq_halt_table,
+    write_halt_statuses,
+)
 
 # Documented Nasdaq trade-halt RSS shape (ndaq: item fields; unqualified <item>).
 _RSS = """<?xml version="1.0" encoding="UTF-8"?>
@@ -85,3 +89,77 @@ def test_writer_roundtrips_through_halt_feed(tmp_path) -> None:
     news = read_halt_events(lake, "NEWS", dt.date(2024, 6, 13), dt.date(2024, 6, 14),
                             vendor="alpaca")
     assert len(news) == 1 and news[0].ts_end is None
+
+
+# --- TradingHaltSearch JSON-RPC result-table parser ----------------------------------
+# REAL Nasdaq records pulled via BL_TradeHalt.GetHaltsByDate (2024-06-03) +
+# SearchTradeHaltsNEW, in the real GenTable shape: <th class="gtcolN"> headers, plain
+# whitespace-padded <td> data cells. GME's M (market-wide LULD) pause on 2024-06-03 is
+# the Roaring-Kitty-era halt; SWAV (deficiency) + AMOD (T1, still halted, ms time) cover
+# the non-LULD / open-halt / fractional-seconds paths.
+_TABLE = """<div class="genTable"><table>
+<colgroup><col class="gtcol1"></col></colgroup>
+<tr>
+  <th class="gtcol1">Halt Date</th><th class="gtcol2">Halt Time</th>
+  <th class="gtcol3">Issue Symbol</th><th class="gtcol4">Issue Name</th>
+  <th class="gtcol5">Market</th><th class="gtcol6">Reason Code</th>
+  <th class="gtcol7">Pause Threshold Price</th><th class="gtcol8">Resumption Date</th>
+  <th class="gtcol9">Resumption Quote Time</th><th class="gtcol10">Resumption Trade Time</th>
+</tr>
+<tr>
+  <td>06/03/2024                    </td><td>09:31:17</td><td>GME</td>
+  <td>GameStop Corporation Common Stock</td><td>NYSE</td><td>M</td><td></td>
+  <td>06/03/2024                    </td><td>09:36:21                      </td><td>09:36:21                      </td>
+</tr>
+<tr>
+  <td>05/30/2024</td><td>19:50:00</td><td>SWAV</td><td>Shockwave Medical Cmn</td>
+  <td>NASDAQ</td><td>D</td><td></td><td>06/03/2024</td><td>00:00:01</td><td>00:00:01</td>
+</tr>
+<tr>
+  <td>06/12/2026</td><td>19:50:00.000</td><td>AMOD</td><td>Alpha Modus Hldgs A</td>
+  <td>NASDAQ</td><td>T1</td><td></td><td></td><td></td><td></td>
+</tr>
+</table></div>"""
+
+
+def test_parse_table_gme_luld_and_swav_deficiency() -> None:
+    rows = {r["symbol"]: r for r in parse_nasdaq_halt_table(_TABLE)}
+    assert set(rows) == {"GME", "SWAV", "AMOD"}
+    g = rows["GME"]
+    assert g["reason"] == "M" and g["is_luld"] is True and g["market"] == "NYSE"
+    # 09:31:17 ET (EDT = UTC-4 in June) -> 13:31:17 UTC; resume 09:36:21 -> 13:36:21 UTC.
+    # (whitespace-padded date/time cells must be trimmed.)
+    assert g["ts_start"] == pd.Timestamp("2024-06-03 13:31:17", tz="UTC")
+    assert g["ts_end"] == pd.Timestamp("2024-06-03 13:36:21", tz="UTC")
+    s = rows["SWAV"]
+    assert s["reason"] == "D" and s["is_luld"] is False
+    assert s["ts_start"] == pd.Timestamp("2024-05-30 23:50:00", tz="UTC")  # 19:50 EDT
+
+
+def test_parse_table_millisecond_time_and_still_halted() -> None:
+    a = {r["symbol"]: r for r in parse_nasdaq_halt_table(_TABLE)}["AMOD"]
+    assert a["reason"] == "T1" and a["is_luld"] is False
+    # 19:50:00.000 parses despite the millisecond suffix; 19:50 EDT -> 23:50 UTC.
+    assert a["ts_start"] == pd.Timestamp("2026-06-12 23:50:00", tz="UTC")
+    assert a["ts_end"] is None  # empty resumption cells -> still halted
+
+
+def test_parse_table_no_data_and_non_table() -> None:
+    assert parse_nasdaq_halt_table("No Data Found") == []
+    assert parse_nasdaq_halt_table("") == []
+    assert parse_nasdaq_halt_table("<html><body>nope</body></html>") == []
+
+
+def test_table_writer_roundtrips_through_halt_feed(tmp_path) -> None:
+    """The JSON-RPC table parser feeds the same statuses/ <-> read_halt_events contract
+    as the RSS parser (one (symbol, halt-date) file each)."""
+    from bowaka_v2_lab.data.halt_feed import read_halt_events
+
+    lake = tmp_path / "lake"
+    n_files = write_halt_statuses(lake, parse_nasdaq_halt_table(_TABLE), vendor="alpaca")
+    assert n_files == 3  # GME 06/03, SWAV 05/30, AMOD 06/12
+
+    ev = read_halt_events(lake, "GME", dt.date(2024, 6, 3), dt.date(2024, 6, 4), vendor="alpaca")
+    assert len(ev) == 1 and ev[0].reason == "M"
+    assert ev[0].ts_start == pd.Timestamp("2024-06-03 13:31:17", tz="UTC")
+    assert ev[0].ts_end == pd.Timestamp("2024-06-03 13:36:21", tz="UTC")
