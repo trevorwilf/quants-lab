@@ -266,6 +266,47 @@ def make_trades_supplier(
     return trades_supplier
 
 
+def make_auctions_supplier(
+    shared_root: str | Path | None = None,
+    *,
+    feed: str = "iex",
+    vendor: str = "alpaca",
+) -> Callable[..., Any]:
+    """Return an ``auctions_supplier(symbol, session_date) -> official_close | None``
+    reading the official CLOSING-auction price from the shared lake (§5.1).
+
+    On a lake without ``auctions/`` partitions every call returns ``None`` so the
+    EOD-mark consumer cleanly falls back to the daily-bar close.
+    """
+    store = _as_store(shared_root, vendor=vendor)
+    # §5.1 perf: the auctions stage is opt-in; most lakes (every test fixture, any
+    # lake predating the auctions backfill) carry NO auctions/ partition. Probe the
+    # feed-level auctions root ONCE — when it is absent, every call is a cheap
+    # ``None`` instead of a per-(symbol, session) parquet probe across the thousands
+    # of EOD marks in a walk-forward study (which otherwise adds up over the folds).
+    from bowaka_common.marketdata import layout as _layout
+    _feed_root = Path(store.root) / _layout.DS_AUCTIONS / f"vendor={vendor}" / f"feed={feed}"
+    if not _feed_root.exists():
+        def _no_auctions(symbol: str, session_date: Any):
+            return None
+        return _no_auctions
+
+    def auctions_supplier(symbol: str, session_date: Any):
+        d = pd.Timestamp(session_date)
+        d = d.tz_localize("UTC") if d.tzinfo is None else d.tz_convert("UTC")
+        start = d.normalize()
+        df = store.auctions_between(symbol, start, start + pd.Timedelta(days=1), feed=feed)
+        if df is None or df.empty or "official_close" not in df.columns:
+            return None
+        val = df.iloc[-1].get("official_close")
+        try:
+            return float(val) if val is not None and pd.notna(val) else None
+        except (TypeError, ValueError):
+            return None
+
+    return auctions_supplier
+
+
 def _config_uses_tape_replay(cfg: Any) -> bool:
     """True when the resolved config selects ``fill_model="tape_replay"`` on the
     entry (``execution``) or exit (``exits``) block. Mirrors

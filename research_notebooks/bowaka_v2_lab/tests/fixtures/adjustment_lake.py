@@ -84,20 +84,25 @@ def build_lake(
     daily_end: _dt.date,
     minute_months: Iterable[tuple[int, int]],
     feed: str = "iex",
-    adjustment: str = "raw",
+    adjustment: "str | Sequence[str]" = "raw",
     close: float = 10.0,
     manifest_adjustment: str | None = None,
 ) -> None:
     """Build an IEX-shaped lake.
 
-    ``adjustment`` is the daily/minute partition adjustment written.
+    ``adjustment`` is the daily partition adjustment(s) written — a single string
+    or a sequence like ``("raw", "split_adjusted", "all")`` so a config resolving to
+    any of them via ``daily_adjustment_for_config`` finds its partition (the
+    synthetic daily bars are adjustment-invariant). Minute bars are always raw.
     ``minute_months`` is the set of ``(year, month)`` to write minute bars for —
     a month NOT listed has daily bars but no minute coverage. ``manifest_adjustment``
     (when set) writes ``_ingestion/manifest.json`` declaring that adjustment.
     """
+    daily_adjustments = (adjustment,) if isinstance(adjustment, str) else tuple(adjustment)
     for symbol in symbols:
-        write_daily(root, symbol, daily_start, daily_end,
-                    feed=feed, adjustment=adjustment, close=close)
+        for _adj in daily_adjustments:
+            write_daily(root, symbol, daily_start, daily_end,
+                        feed=feed, adjustment=_adj, close=close)
         for (year, month) in minute_months:
             # Minute bars are raw by lake convention (even SIP minute bars are
             # raw) and the lab's minute supplier always reads the raw partition,

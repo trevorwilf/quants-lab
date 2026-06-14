@@ -92,3 +92,43 @@ def test_pit_universe_reads_raw_by_default(tmp_path: Path) -> None:
     universe = build_pit_universe(session, cfg, MarketDataStore(lake))
     assert universe[symbol].prior_close == 100.0
     _pit_daily_history_cache_clear()
+
+
+def test_pit_universe_reads_all_when_adjusted_required(tmp_path: Path) -> None:
+    """§3.5 (P6): dividend adjustment is ACTUALLY APPLIED under ``adjustment=all``.
+
+    A lake with raw (close=100), split_adjusted (close=10) AND all=split+dividend
+    (close=5) daily partitions for the same symbol. With
+    ``market_data.require_adjusted_daily_bars: true`` the cfg-aware daily reader MUST
+    read the ``all`` partition (prior_close=5 — the dividend-adjusted close), NOT
+    split_adjusted (10, dividend silently dropped) or the raw default (100). This
+    pins the §3.5 cutover: the reader pulls the fully-adjusted partition, so dividend
+    adjustment is applied rather than silently dropped to split-only.
+    """
+    _pit_daily_history_cache_clear()
+    symbol, session = "CCCC", dt.date(2024, 9, 4)
+    lake = tmp_path / "lake"
+    _write(
+        layout.daily_bars_path(lake, symbol, feed="iex", adjustment="raw"),
+        _daily_frame(symbol, session, 100.0),
+    )
+    _write(
+        layout.daily_bars_path(lake, symbol, feed="iex", adjustment="split_adjusted"),
+        _daily_frame(symbol, session, 10.0),
+    )
+    _write(
+        layout.daily_bars_path(lake, symbol, feed="iex", adjustment="all"),
+        _daily_frame(symbol, session, 5.0),
+    )
+    write_lake_asset_master(lake, [symbol])
+    cfg = {
+        "market_data": {"feed": "iex", "shared_root": str(lake),
+                        "require_adjusted_daily_bars": True},
+        "simulation": {"mode": "current_code_parity"},
+        "universe": {"min_price": 1.0, "max_price": 1_000.0, "min_adv_dollars": 0},
+    }
+    universe = build_pit_universe(session, cfg, MarketDataStore(lake))
+    assert symbol in universe
+    # Reads the all (split+dividend) close (5.0), not split_adjusted (10) or raw (100).
+    assert universe[symbol].prior_close == 5.0
+    _pit_daily_history_cache_clear()

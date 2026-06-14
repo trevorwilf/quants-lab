@@ -74,6 +74,12 @@ def build_summary(
         frac_ge_min, frac_ge_stretch = 1.0, 0.0
         avg_trade_return_pct = median_trade_return_pct = 0.0
 
+    # §3.6 UNITS CONTRACT: ``net_return`` is a DECIMAL fraction (0.15 == +15%), NOT
+    # a ×100 percentage — despite the ``net_return_pct`` key name below. The
+    # objective's MetricUnits guard (optuna.objective) REQUIRES decimal returns and
+    # rejects |v| > _RETURN_DECIMAL_MAX as percent, so a future "×100 fix" of this
+    # field would either 100×-inflate every report/objective term or trip
+    # MetricUnitsError downstream. Do NOT rescale; the "_pct" suffix is historical.
     net_return = (final_bankroll - initial_bankroll) / initial_bankroll if initial_bankroll > 0 else 0.0
     return {
         "schema_version": 1,
@@ -84,7 +90,7 @@ def build_summary(
         "cost_stress": cost_stress,
         "initial_bankroll": initial_bankroll,
         "final_bankroll": final_bankroll,
-        "net_return_pct": net_return,
+        "net_return_pct": net_return,  # §3.6: DECIMAL fraction, NOT ×100 (see units note above)
         "total_pnl": total_pnl,
         "max_drawdown_pct": max_drawdown,
         "n_trades": n_trades,

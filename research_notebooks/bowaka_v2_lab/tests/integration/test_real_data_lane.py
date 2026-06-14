@@ -122,6 +122,24 @@ def test_tape_eligibility_filter_drops_ineligible_prints_on_real_tape() -> None:
     )
 
 
+def test_official_auction_close_present_on_real_lake() -> None:
+    """P6/§5.1: the auctions partition carries REAL official closing-auction prices
+    for the probe (so the EOD mark uses the official print, not the silent daily-O/C
+    fallback). Values are sane (microcap range, no garbage day-over-day jumps)."""
+    lake_root = require_real_tape(_PROBE, feed=_FEED)
+    from bowaka_v2_lab.data.suppliers import make_auctions_supplier
+
+    sup = make_auctions_supplier(lake_root, feed=_FEED)
+    closes = [
+        c for d in pd.date_range("2025-08-20", "2025-08-29")
+        if (c := sup(_PROBE, d.date())) is not None and c > 0
+    ]
+    assert len(closes) >= 3, f"too few official auction closes for {_PROBE} ({len(closes)})"
+    assert all(0.1 < c < 10_000 for c in closes), f"implausible auction closes: {closes}"
+    for a, b in zip(closes, closes[1:]):
+        assert abs(b - a) / a < 0.5, f"implausible auction-close jump {a} -> {b} for {_PROBE}"
+
+
 def test_committed_iex_subset_is_real_not_synthetic(tmp_path) -> None:
     """The committed IEX subset must be REAL data, not the silent synthetic
     fallback — else CI 'real-data' coverage is a no-op (§6). Host-runnable: reads

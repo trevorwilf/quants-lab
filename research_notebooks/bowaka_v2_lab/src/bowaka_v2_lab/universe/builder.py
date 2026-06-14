@@ -499,6 +499,11 @@ def build_pit_universe(
     # Audit 2026-05-29 §5.3 / Phase 1 — the price-band / ADV universe filters
     # must use the same daily adjustment the config requires (raw close on a
     # split stock can be 10x off and reject/admit the wrong symbols).
+    # §3.5: a config requiring adjusted daily bars resolves to "all" (split+dividend).
+    # STRICT — the lake MUST carry the partition; the study-level preflight
+    # (daily_adjustment_partition) fails loudly if it is absent rather than silently
+    # degrading to a lesser adjustment (which would re-introduce the silent
+    # dividend-drop that §3.5 fixes).
     daily_adjustment = daily_adjustment_for_config(cfg)
 
     # Phase-0 unknown-instrument-class policy from the simulation contract.

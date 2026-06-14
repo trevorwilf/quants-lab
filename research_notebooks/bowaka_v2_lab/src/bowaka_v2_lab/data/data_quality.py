@@ -871,14 +871,17 @@ def build_split_adjustment_check(
     required, adjustment-gating check) when the lake has NOT applied split
     adjustments. The lake's split-adjustment state is read from the manifest's
     ``split_adjustment_applied`` flag; when that flag is absent it is inferred
-    from the adjustment policy (``split_adjusted`` / ``adjusted`` -> applied,
-    ``raw`` -> not applied). If the config does not require split adjustment the
-    check is informational (``pass``).
+    from the adjustment policy (``split_adjusted`` / ``adjusted`` / ``all`` ->
+    applied, ``raw`` -> not applied). §3.5: ``all`` (split+dividend) is a SUPERSET
+    of split adjustment, so an ``all`` lake satisfies ``require_split_adjustment``.
+    If the config does not require split adjustment the check is informational
+    (``pass``).
     """
     require = bool(require_split_adjustment)
     if split_adjustment_applied is None:
         # Infer from the adjustment policy when the manifest omits the flag.
-        applied = str(lake_adjustment) in ("split_adjusted", "adjusted")
+        # ``all`` = split+dividend ⊃ split, so it counts as split-applied (§3.5).
+        applied = str(lake_adjustment) in ("split_adjusted", "adjusted", "all")
         applied_source = f"inferred from adjustment={lake_adjustment!r}"
     else:
         applied = bool(split_adjustment_applied)

@@ -19,6 +19,7 @@ from .data.adjustment import daily_adjustment_for_config
 from .data.lineage import _coerce_lake_root, resolve_lake_root
 from .data.suppliers import (
     build_daily_cache_from_lake,
+    make_auctions_supplier,
     make_forward_minute_supplier,
     make_lake_suppliers,
     make_quote_supplier,
@@ -233,6 +234,7 @@ def run_backtest_command(
     quote_supplier = None
     forward_minute_supplier = None
     trades_supplier = None
+    auctions_supplier = None
     if _uses_lake(cfg):
         feed = md.get("feed", "iex")
         root = _coerce_lake_root(resolve_lake_root(cfg))
@@ -255,6 +257,7 @@ def run_backtest_command(
         # PB.4: wire the raw trade tape only when the config selects tape_replay
         # (else None → byte-identical legacy bracket fills).
         trades_supplier = make_trades_supplier_for_config(cfg, root, feed=feed)
+        auctions_supplier = make_auctions_supplier(root, feed=feed)  # §5.1 official EOD mark
         data_source = "lake"
     else:
         minute_supplier, daily_supplier = _synthetic_suppliers()
@@ -281,6 +284,8 @@ def run_backtest_command(
         daily_bars_supplier=daily_supplier,
         quote_supplier=quote_supplier,
         trades_supplier=trades_supplier,
+        # §5.1 — official closing-auction price for the EOD mark (None -> daily close).
+        auctions_supplier=auctions_supplier,
         forward_minute_supplier=forward_minute_supplier,
         initial_bankroll=100_000.0,
         paths=paths,

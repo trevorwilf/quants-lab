@@ -60,6 +60,7 @@ DS_TRADES = "trades"
 DS_ASSETS = "assets"
 DS_CORPORATE_ACTIONS = "corporate_actions"
 DS_STATUSES = "statuses"
+DS_AUCTIONS = "auctions"
 INGESTION_DIRNAME = "_ingestion"
 
 _PART_FILENAME = "part.parquet"
@@ -284,6 +285,47 @@ def trades_path(
         }
     )
     return ParquetStore(root).path_for(DS_TRADES, parts, _PART_FILENAME)
+
+
+# --------------------------------------------------------------------------
+# Auctions (§5.1) — official open/close auction prints, one symbol/month file.
+# A SIBLING of trades/ + quotes/ (never under them), so an auctions backfill never
+# perturbs the canonical quote/trade partition hashes (dataset-lineage Guardrail 2).
+# --------------------------------------------------------------------------
+def auctions_symbol_dir(
+    root: Path | str,
+    symbol: str,
+    *,
+    vendor: str = DEFAULT_VENDOR,
+    feed: str = DEFAULT_FEED,
+) -> Path:
+    return Path(root) / DS_AUCTIONS / f"vendor={vendor}" / f"feed={feed}" / f"symbol={symbol}"
+
+
+def auctions_path(
+    root: Path | str,
+    symbol: str,
+    year: int | str,
+    month: int | str,
+    *,
+    vendor: str = DEFAULT_VENDOR,
+    feed: str = DEFAULT_FEED,
+) -> Path:
+    """Canonical path to one symbol/month official-auction file (§5.1).
+
+    Rows are the official opening / closing auction prints from Alpaca
+    ``GET /v2/stocks/auctions`` — one file per symbol/month.
+    """
+    parts = PathParts(
+        {
+            "vendor": vendor,
+            "feed": feed,
+            "symbol": str(symbol),
+            "year": _yyyy(year),
+            "month": _mm(month),
+        }
+    )
+    return ParquetStore(root).path_for(DS_AUCTIONS, parts, _PART_FILENAME)
 
 
 # --------------------------------------------------------------------------

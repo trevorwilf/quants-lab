@@ -322,6 +322,30 @@ class MarketDataStore:
         df = df[(df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)]
         return df.sort_values("timestamp", kind="stable").reset_index(drop=True)
 
+    def auctions_between(
+        self, symbol: str, start: Any, end: Any, *, feed: str = "iex"
+    ) -> pd.DataFrame:
+        """Official open/close auction prints for ``symbol`` in ``[start, end]`` (§5.1).
+
+        One row per session carrying the official opening + closing auction price
+        (Alpaca ``GET /v2/stocks/auctions``). May be empty — the auctions stage is
+        opt-in (the layout reserves the slot); the EOD-mark consumer falls back to
+        the daily-bar close when a session is absent. Stable-sorted by timestamp.
+        """
+        start_ts, end_ts = _to_utc_ts(start), _to_utc_ts(end)
+        frames: list[pd.DataFrame] = []
+        for year, month in _months_between(start_ts, end_ts):
+            path = _layout.auctions_path(self.root, symbol, year, month, vendor=self.vendor, feed=feed)
+            if path.is_file():
+                frames.append(pd.read_parquet(path))
+        if not frames:
+            return pd.DataFrame()
+        df = _normalise_bars(pd.concat(frames, ignore_index=True))
+        if "timestamp" not in df.columns:
+            return df
+        df = df[(df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)]
+        return df.sort_values("timestamp", kind="stable").reset_index(drop=True)
+
     def quotes_fine_between(
         self, symbol: str, start: Any, end: Any, *, feed: str = "iex"
     ) -> pd.DataFrame:

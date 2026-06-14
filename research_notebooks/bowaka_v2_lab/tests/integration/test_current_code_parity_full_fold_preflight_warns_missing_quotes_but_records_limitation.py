@@ -44,8 +44,8 @@ def test_parity_passes_and_records_missing_quotes_limitation(tmp_path: Path) -> 
     build_lake(
         lake, ["AAAA"],
         daily_start=dt.date(2024, 5, 1), daily_end=dt.date(2024, 9, 30),
-        minute_months=[(2024, 8)], adjustment="split_adjusted",
-        manifest_adjustment="split_adjusted",
+        minute_months=[(2024, 8)], adjustment=("raw", "split_adjusted", "all"),
+        manifest_adjustment="all",
     )  # no quotes partition written
     cfg = _cfg(lake)
     result = run_full_fold_preflight(
@@ -66,8 +66,8 @@ def test_intended_realism_hard_fails_on_missing_quotes(tmp_path: Path) -> None:
     build_lake(
         lake, ["AAAA"],
         daily_start=dt.date(2024, 5, 1), daily_end=dt.date(2024, 9, 30),
-        minute_months=[(2024, 8)], adjustment="split_adjusted",
-        manifest_adjustment="split_adjusted",
+        minute_months=[(2024, 8)], adjustment=("raw", "split_adjusted", "all"),
+        manifest_adjustment="all",
     )
     cfg = _cfg(lake)
     cfg["simulation"] = {"mode": "intended_realism"}
