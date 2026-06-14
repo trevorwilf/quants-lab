@@ -242,6 +242,7 @@ def _run(
     symbols: list[str],
     minute_by_symbol: dict[str, pd.DataFrame],
     scan_times: list[pd.Timestamp],
+    auctions_supplier: Optional[Callable[..., Any]] = None,
 ) -> Any:
     """Wire a deterministic ``run_backtest`` call from the per-test fixtures."""
     def minute_supplier(sym, ts):
@@ -263,6 +264,7 @@ def _run(
         minute_bars_supplier=minute_supplier,
         daily_bars_supplier=daily_supplier,
         session_minute_supplier=session_minute_supplier,
+        auctions_supplier=auctions_supplier,
         initial_bankroll=100_000.0, paths=_paths(tmp_path),
         run_dir=tmp_path / "run",
     )
@@ -462,6 +464,47 @@ def test_time_stop_suppressed_for_parity_contract_l14(tmp_path: Path) -> None:
     row = daily.iloc[0].to_dict()
     assert int(row["entries_today"]) >= 1
     assert "daily_realized_pnl" in row, row
+
+
+def test_eod_mark_uses_official_auction_when_present(tmp_path: Path) -> None:
+    """§5.1 (P6): the EOD mark-to-market for a still-open lot uses the OFFICIAL
+    closing-auction price (``auctions_supplier``) when present, NOT the daily-bar
+    close (sim_core.md:53 — the daily close is the last CONTINUOUS trade, which
+    differs from the auction print).
+
+    The SAME hold-to-EOD scenario is run twice: with a stub auction at 130 vs no
+    auction (fallback = the daily-bar close, 100). The lot enters ~100 and holds open
+    through the 16:00 EOD mark, so its EOD unrealized PnL is driven entirely by the
+    mark source. The auction run marks at 130 (≈ +30% unrealized); the control marks
+    at 100 (≈ 0). Pins that ``run_backtest`` prefers the official print for the mark.
+    """
+    sd = _dt.date(2024, 9, 4)
+    symbols = ["AAA"]
+    # No stop/target/time-stop hit -> the lot holds open through the 16:00 EOD mark.
+    cfg = _cfg(stop_pct=0.20, target_pct=0.30, time_stop_enabled=False)
+    minute_by_symbol = {"AAA": _build_minute_path("AAA", sd, stop_pct=0.20, target_pct=0.30)}
+    scan_times = [pd.Timestamp(f"{sd}T13:45:00", tz="UTC")]  # 09:45 ET -> AAA fills
+
+    def _auction_at_130(sym, session_date):
+        return 130.0  # well above the daily-bar close (100) and the ~100 entry
+
+    res_auc = _run(tmp_path=tmp_path / "auc", cfg=cfg, session_date=sd, symbols=symbols,
+                   minute_by_symbol=minute_by_symbol, scan_times=scan_times,
+                   auctions_supplier=_auction_at_130)
+    res_ctl = _run(tmp_path=tmp_path / "ctl", cfg=cfg, session_date=sd, symbols=symbols,
+                   minute_by_symbol=minute_by_symbol, scan_times=scan_times,
+                   auctions_supplier=None)
+    # Both runs: the lot holds open (no closed trade this single session).
+    assert len(pd.read_parquet(res_auc.run_dir / "trades.parquet")) == 0
+    assert len(pd.read_parquet(res_ctl.run_dir / "trades.parquet")) == 0
+    auc = pd.read_parquet(res_auc.run_dir / "daily_equity.parquet").iloc[0].to_dict()
+    ctl = pd.read_parquet(res_ctl.run_dir / "daily_equity.parquet").iloc[0].to_dict()
+    # Auction mark (130) >> daily-close mark (100) on the open lot -> strictly higher
+    # EOD unrealized PnL. Same scenario; ONLY the mark source differs.
+    assert auc["daily_unrealized_pnl"] > ctl["daily_unrealized_pnl"] + 1.0, (
+        f"EOD mark must use the official auction (130), not the daily close (100): "
+        f"auction unrealized={auc['daily_unrealized_pnl']} control={ctl['daily_unrealized_pnl']}"
+    )
 
 
 def test_consecutive_stopouts_kill_switch(tmp_path: Path) -> None:

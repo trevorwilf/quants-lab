@@ -38,9 +38,7 @@ def build_tiny_lake(
     """
     for sym in symbols:
         days = [d.date() for d in pd.bdate_range(start, end)]
-        dpath = layout.daily_bars_path(lake, sym, feed=feed)
-        dpath.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(
+        daily_df = pd.DataFrame(
             {
                 "symbol": [sym] * len(days),
                 "timestamp": [
@@ -50,7 +48,17 @@ def build_tiny_lake(
                 "low": [99.0] * len(days), "close": [100.0] * len(days),
                 "volume": [1_000_000] * len(days), "session_date": days,
             }
-        ).to_parquet(dpath, index=False)
+        )
+        # §3.5: the synthetic daily bars are adjustment-invariant (no splits /
+        # dividends in tiny test data), so write them under EVERY adjustment a test
+        # config might resolve to. After the §3.5 cutover ``require_adjusted_daily_
+        # bars`` resolves to ``all`` (not ``split_adjusted``), so the tiny lake must
+        # carry that partition too or every walk-forward tiny-lake test reads an
+        # empty universe.
+        for _adj in ("raw", "split_adjusted", "all"):
+            dpath = layout.daily_bars_path(lake, sym, feed=feed, adjustment=_adj)
+            dpath.parent.mkdir(parents=True, exist_ok=True)
+            daily_df.to_parquet(dpath, index=False)
         by_month: dict[tuple[int, int], list] = {}
         for d in days:
             for i in range(30):

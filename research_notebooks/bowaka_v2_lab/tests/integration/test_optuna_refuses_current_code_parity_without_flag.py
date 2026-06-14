@@ -152,10 +152,16 @@ def test_run_walkforward_study_refuses_current_code_parity_without_flag(
         run_walkforward_study(cfg_path, n_trials=1)
 
 
+@pytest.mark.timeout(180)
 def test_run_walkforward_study_admits_current_code_parity_with_flag(
     tmp_path: Path, lab_root: Path,
 ) -> None:
-    """End-to-end: run_walkforward_study admits current_code_parity with both flags."""
+    """End-to-end: run_walkforward_study admits current_code_parity with both flags.
+
+    Explicit 180s timeout (pyproject convention for genuinely long tests): this runs
+    a REAL multi-fold walk-forward study — current_code_parity uses the slow
+    sliding-window controller_compat path (~60s on a quiet box, more under load), so
+    the 60s default is too tight and flaked the comprehensive sweep."""
     cfg_path = _write_parity_cfg(tmp_path, lab_root)
     result = run_walkforward_study(
         cfg_path, n_trials=1,

@@ -233,9 +233,22 @@ sizing:
 strategy_id: bowaka_v2
 strategy_version: 0.1.0
 universe:
+  allowed_exchanges:
+  - NASDAQ
+  - NYSE
+  - AMEX
+  - ARCA
+  - BATS
   asset_classes:
   - operating_equity
+  exclude_etf: true
+  exclude_etn: true
+  exclude_otc: true
   exclude_pattern_class: true
   max_price: 20.0
   min_adv_dollars: 250000
   min_price: 1.0
+  ticker_blocklist:
+  - TSLL
+  - CONL
+  - SMCX

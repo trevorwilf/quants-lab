@@ -649,6 +649,11 @@ def run_backtest(
     # for the ``fill_model="tape_replay"`` bracket-fill oracle. Default ``None``
     # → the exit walk's tape branch is inert (legacy bracket fills).
     trades_supplier: Optional[Callable[..., Any]] = None,
+    # §5.1 — official closing-auction price supplier
+    # ``auctions_supplier(symbol, session_date) -> float | None`` for the EOD mark.
+    # Default ``None`` → the EOD mark uses the daily-bar close (legacy). When wired
+    # (and the session has an official print) the mark uses the OFFICIAL close.
+    auctions_supplier: Optional[Callable[[str, _dt.date], Optional[float]]] = None,
     forward_minute_supplier: Optional[Callable[[str, Any], pd.DataFrame | None]] = None,
     # Realism Phase 7: returns the FULL regular-session minute bars for a
     # ``(symbol, session_date)`` — the path the per-lot minute exit walk
@@ -1657,6 +1662,15 @@ def run_backtest(
                     # End-of-session mark-to-market for still-open lots uses
                     # the symbol's last daily-bar close.
                     for sym in sorted({p.symbol for p in portfolio.open_positions.values()}):
+                        # §5.1: prefer the OFFICIAL closing-auction price for the EOD
+                        # mark (sim_core.md:53 — the daily-bar close is the last
+                        # CONTINUOUS trade, which differs from the auction print).
+                        # Fall back to the daily-bar close when no auction is wired or
+                        # the session lacks an official print.
+                        official = auctions_supplier(sym, session_date) if auctions_supplier else None
+                        if official is not None and official > 0.0:
+                            closes_today[sym] = float(official)
+                            continue
                         day_bars = daily_bars_supplier(sym, session_date)
                         if day_bars is None or len(day_bars) == 0:
                             continue

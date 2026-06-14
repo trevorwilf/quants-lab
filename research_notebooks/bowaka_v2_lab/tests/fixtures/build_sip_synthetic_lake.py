@@ -65,21 +65,24 @@ def write_daily(root: Path, symbol: str, *, feed: str = "sip", vol_scale: float 
     # Volume ramps up over the window -> elevated RVOL near the validation tail.
     # SIP carries more volume than IEX (vol_scale<1 for IEX) -> RVOL divergence.
     vol = (vol_scale * 1_500_000 * (1.0 + 0.9 * np.linspace(0.0, 1.0, len(days)))).astype(float)
-    _write(
-        layout.daily_bars_path(root, symbol, feed=feed, adjustment="split_adjusted"),
-        pd.DataFrame({
-            "symbol": symbol,
-            "timestamp": [pd.Timestamp(d, tz="UTC") + pd.Timedelta(hours=20) for d in days],
-            "open": np.round(opens, 4),
-            "high": np.round(np.maximum(opens, closes) * 1.02, 4),
-            "low": np.round(np.minimum(opens, closes) * 0.98, 4),
-            "close": np.round(closes, 4),
-            "volume": vol,
-            "vwap": np.round((opens + closes) / 2.0, 4),
-            "trades": (vol / 100).astype(int),
-            "session_date": days,
-        }),
-    )
+    _daily_df = pd.DataFrame({
+        "symbol": symbol,
+        "timestamp": [pd.Timestamp(d, tz="UTC") + pd.Timedelta(hours=20) for d in days],
+        "open": np.round(opens, 4),
+        "high": np.round(np.maximum(opens, closes) * 1.02, 4),
+        "low": np.round(np.minimum(opens, closes) * 0.98, 4),
+        "close": np.round(closes, 4),
+        "volume": vol,
+        "vwap": np.round((opens + closes) / 2.0, 4),
+        "trades": (vol / 100).astype(int),
+        "session_date": days,
+    })
+    # §3.5: the synthetic daily bars are adjustment-invariant (no splits/dividends),
+    # so write them under every adjustment a config might resolve to. After the §3.5
+    # cutover an intended_realism config resolves require_adjusted_daily_bars ->
+    # "all", so the synthetic SIP lake must carry that partition too.
+    for _adj in ("split_adjusted", "all", "raw"):
+        _write(layout.daily_bars_path(root, symbol, feed=feed, adjustment=_adj), _daily_df)
 
 
 def write_minute_month(root: Path, symbol: str, year: int, month: int,

@@ -117,6 +117,17 @@ def resolve_suppliers(cfg: dict):
     return _synthetic_suppliers()
 
 
+def _resolve_auctions_supplier(cfg: dict):
+    """§5.1 — official closing-auction supplier for the EOD mark (lake-backed;
+    ``None`` for synthetic/test lakes, so the mark falls back to the daily close)."""
+    md = cfg.get("market_data", {}) or {}
+    if uses_lake(cfg):
+        from .data.suppliers import make_auctions_supplier
+        return make_auctions_supplier(
+            _coerce_lake_root(resolve_lake_root(cfg)), feed=md.get("feed", "iex"))
+    return None
+
+
 def resolve_daily_cache(cfg: dict, symbols: list[str], session: _dt.date) -> pd.DataFrame:
     """Daily-feature cache for ``session`` — lake-backed or synthetic per config."""
     md = cfg.get("market_data", {}) or {}
@@ -187,6 +198,7 @@ def run_config_backtest(
         daily_cache_by_session=daily_cache,
         minute_bars_supplier=minute_supplier,
         daily_bars_supplier=daily_supplier,
+        auctions_supplier=_resolve_auctions_supplier(cfg),  # §5.1 official EOD mark
         initial_bankroll=initial_bankroll,
         paths=paths,
         run_dir=Path(run_dir) if run_dir else None,
