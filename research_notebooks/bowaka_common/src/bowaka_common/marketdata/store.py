@@ -454,6 +454,27 @@ class MarketDataStore:
         start_d, end_d = _to_date(start), _to_date(end)
         return df[(ex >= start_d) & (ex <= end_d)].reset_index(drop=True)
 
+    def all_corporate_actions(self) -> pd.DataFrame:
+        """The WHOLE normalised CA stream across every symbol (P7 §3.4/§5.3).
+
+        The PIT / survivorship master reads this to derive each symbol's
+        listing / delisting / rename timeline — INCLUDING symbols that are no
+        longer in the current universe because they were renamed, merged away or
+        removed. Filtering is the caller's job and must key on ``effective_date``
+        (renames / mergers / worthless removals carry NO ``ex_date``), not the
+        ``ex_date`` the per-symbol :meth:`corporate_actions` filters on.
+        """
+        base = Path(self.root) / _layout.DS_CORPORATE_ACTIONS / f"vendor={self.vendor}"
+        if not base.is_dir():
+            return pd.DataFrame()
+        frames: list[pd.DataFrame] = []
+        for p in sorted(base.glob("symbol=*/part.parquet")):
+            try:
+                frames.append(pd.read_parquet(p))
+            except Exception:  # noqa: BLE001 — a corrupt per-symbol partition is no-data
+                continue
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
     # -- assets ------------------------------------------------------------
     def assets(self, snapshot_id: str | None = None) -> pd.DataFrame:
         """Asset snapshot. ``None`` returns the most recent snapshot, or empty."""

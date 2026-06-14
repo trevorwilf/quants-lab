@@ -359,9 +359,15 @@ def _full_daily_history(
     return payload
 
 
+#: §3.4/§5.3 — PIT/survivorship master cache, keyed by lake-root string (built once
+#: per lake from the corporate_actions/ partition; empty when no CA data is present).
+_PIT_MASTER_CACHE: dict[str, Any] = {}
+
+
 def _pit_daily_history_cache_clear() -> None:
-    """Test hook: clear the per-symbol full-history cache."""
+    """Test hook: clear the per-symbol full-history + PIT-master caches."""
     _PIT_DAILY_FULL_HISTORY_CACHE.clear()
+    _PIT_MASTER_CACHE.clear()
 
 
 def _build_prior_baselines_map(
@@ -371,8 +377,11 @@ def _build_prior_baselines_map(
     *,
     feed: str,
     daily_adjustment: str = "raw",
-) -> dict[str, tuple[Optional[float], Optional[float]]]:
-    """Map ``symbol -> (prior_close, prior_adv_20d)`` for one session.
+) -> dict[str, tuple[Optional[float], Optional[float], int]]:
+    """Map ``symbol -> (prior_close, prior_adv_20d, prior_bar_count)`` for one session.
+
+    ``prior_bar_count`` is the number of daily bars STRICTLY before ``session_date``
+    (the §3.4 min-history gate; 0 when there is no prior bar).
 
     Reads the lake's daily bars over a trailing window ending the day before
     ``session_date``. A symbol with no lake bars maps to ``(None, None)``.
@@ -384,9 +393,9 @@ def _build_prior_baselines_map(
     """
     import numpy as _np
 
-    out: dict[str, tuple[Optional[float], Optional[float]]] = {}
+    out: dict[str, tuple[Optional[float], Optional[float], int]] = {}
     if lake_store is None:
-        return {s: (None, None) for s in symbols}
+        return {s: (None, None, 0) for s in symbols}
     # The legacy path used start = session_date - 400d, end = session_date - 1d.
     # The compute below uses ``< session_date`` so we don't need an inclusive
     # upper bound — slice everything strictly earlier.
@@ -395,20 +404,20 @@ def _build_prior_baselines_map(
             lake_store, symbol, feed=feed, daily_adjustment=daily_adjustment
         )
         if h.session_dates is None:
-            out[symbol] = (None, None)
+            out[symbol] = (None, None, 0)
             continue
         # Sessions are pre-sorted; use searchsorted to find the cutoff.
         cutoff_idx = int(_np.searchsorted(h.session_dates, session_date, side="left"))
         if cutoff_idx == 0:
-            out[symbol] = (None, None)
+            out[symbol] = (None, None, 0)
             continue
         prior_close = float(h.close[cutoff_idx - 1])
         adv_slice = h.close_x_volume[max(0, cutoff_idx - _ADV_WINDOW):cutoff_idx]
         if len(adv_slice) == 0:
-            out[symbol] = (None, None)
+            out[symbol] = (None, None, 0)
             continue
         prior_adv = float(_np.mean(adv_slice))
-        out[symbol] = (prior_close, prior_adv)
+        out[symbol] = (prior_close, prior_adv, cutoff_idx)
     return out
 
 
@@ -444,8 +453,40 @@ def _load_asset_master(
 
 
 def _status_active(status: Any) -> bool:
+    # §3.4 (P7): blank/missing status is NOT active — treating "" as active was a
+    # silent no-op survivorship gate. Unknown status now fails CLOSED; real
+    # survivorship comes from the CA-derived PIT master (:func:`_get_pit_master`).
     s = str(status or "").strip().lower()
-    return s in {"active", "active_tradable", ""}
+    return s in {"active", "active_tradable"}
+
+
+def _get_pit_master(lake_store: Any):
+    """The cached §3.4/§5.3 PIT/survivorship master for ``lake_store``'s lake.
+
+    Built once per lake-root from the ``corporate_actions/`` partition (the WHOLE CA
+    stream — incl. delisted / renamed symbols no longer in the universe). Empty (a
+    no-op gate) when the lake carries no CA data (every test fixture + any lake
+    predating the CA backfill), so the universe build degrades gracefully.
+    """
+    from .pit_master import PitMaster, build_pit_master
+
+    if lake_store is None:
+        return PitMaster()
+    root = str(getattr(lake_store, "root", "") or "")
+    cached = _PIT_MASTER_CACHE.get(root)
+    if cached is not None:
+        return cached
+    rows: list = []
+    try:
+        if hasattr(lake_store, "all_corporate_actions"):
+            df = lake_store.all_corporate_actions()
+            if df is not None and not df.empty:
+                rows = df.to_dict("records")
+    except Exception:  # noqa: BLE001 — missing/variant CA partition -> empty (no-op)
+        rows = []
+    pm = build_pit_master(rows, warn_hazard=bool(rows))
+    _PIT_MASTER_CACHE[root] = pm
+    return pm
 
 
 # --------------------------------------------------------------------------
@@ -516,6 +557,8 @@ def build_pit_universe(
     blocklist = _ticker_blocklist(ucfg)
     p_min, p_max = _price_band(ucfg)
     adv_min = _adv_min(ucfg)
+    # §3.4 (P7): minimum prior trading-day history (contract default 45; 0 = off).
+    min_hist = int(ucfg.get("min_history_trading_days", 0) or 0)
 
     asset_master, snapshot_id = _load_asset_master(lake_store)
     if asset_master.empty:
@@ -533,7 +576,7 @@ def build_pit_universe(
     # finds nothing and EVERY symbol screens to no_prior_bar -> empty universe ->
     # 0 candidates -> 0 trades, silently. Warn so this isn't a debugging dead-end.
     # See scripts/_pit_universe_diag.py.
-    if symbols and not any(pc is not None for pc, _ in baselines.values()):
+    if symbols and not any(pc is not None for pc, _, _ in baselines.values()):
         logging.getLogger(__name__).warning(
             "build_pit_universe: NO prior daily bar for any of %d symbols on session "
             "%s (feed=%s, daily_adjustment=%s) -> the universe will be EMPTY. Verify "
@@ -543,6 +586,7 @@ def build_pit_universe(
             len(symbols), session, feed, daily_adjustment, daily_adjustment,
         )
 
+    pit_master = _get_pit_master(lake_store)  # §3.4/§5.3 CA-derived survivorship (cached)
     records: dict[str, UniverseRecord] = {}
     for _, row in asset_master.iterrows():
         symbol = str(row["symbol"]).strip()
@@ -550,7 +594,7 @@ def build_pit_universe(
             continue
         exchange = str(row.get("exchange") or "").strip()
         name = str(row.get("name") or "")
-        prior_close, prior_adv = baselines.get(symbol, (None, None))
+        prior_close, prior_adv, prior_bars = baselines.get(symbol, (None, None, 0))
         instrument_class, basis = classify_instrument(symbol, name)
         reasons: list[str] = []
 
@@ -592,9 +636,23 @@ def build_pit_universe(
             elif prior_adv < adv_min:
                 reasons.append("adv_below_min")
 
+        # 6b. minimum prior-history (§3.4): >= min_history_trading_days daily bars
+        # BEFORE the session (prior_bars = bars strictly earlier). Skipped when the
+        # symbol has no prior bar (already rejected no_prior_bar) or min_hist == 0.
+        if min_hist and prior_close is not None and prior_bars < min_hist:
+            reasons.append("insufficient_history")
+
         # 7. delisting / survivorship (asset master status as of the snapshot).
         if not _status_active(row.get("status")):
             reasons.append("delisted")
+
+        # 7b. §3.4/§5.3 PIT survivorship from corporate actions: a symbol delisted
+        # (worthless removal / merger / redemption) or renamed away AS OF this session
+        # is dropped. Only fires for CA-confirmed symbols; names with no CA record
+        # stay governed by the asset-master status above (graceful without CA data).
+        pit_status = pit_master.status_as_of(symbol, session)
+        if pit_status in ("delisted", "renamed_away") and pit_status not in reasons:
+            reasons.append(pit_status)
 
         records[symbol] = UniverseRecord(
             symbol=symbol,
