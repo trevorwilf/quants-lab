@@ -317,6 +317,7 @@ def _lab_orders_and_fills(result: Any) -> tuple[list[LabOrder], list[LabFill]]:
     run_dir = Path(getattr(result, "run_dir"))
     orders: list[LabOrder] = []
     order_to_candidate: dict[str, str] = {}
+    order_to_created_at: dict[str, str] = {}
     op = run_dir / "orders.parquet"
     if op.is_file():
         odf = pd.read_parquet(op)
@@ -328,6 +329,9 @@ def _lab_orders_and_fills(result: Any) -> tuple[list[LabOrder], list[LabFill]]:
             cid = None if (cid is None or (isinstance(cid, float) and pd.isna(cid))) else str(cid)
             if cid:
                 order_to_candidate[str(poid)] = cid
+            created = _opt_str(r.get("created_at"))
+            if created:
+                order_to_created_at[str(poid)] = created
             orders.append(
                 LabOrder(
                     parent_order_id=str(poid),
@@ -357,7 +361,11 @@ def _lab_orders_and_fills(result: Any) -> tuple[list[LabOrder], list[LabFill]]:
                     symbol=str(r.get("symbol")),
                     filled_qty=_opt_float(r.get("filled_qty")),
                     avg_fill_price=_opt_float(r.get("avg_fill_price")),
-                    fill_timestamp=None,
+                    # P10: the sim fills synchronously at order submit; the parent
+                    # order's created_at is the real fill time available in the
+                    # artifacts (fills.parquet carries no separate fill-time column).
+                    # Non-None so fill-latency reconciliation is no longer vacuous.
+                    fill_timestamp=order_to_created_at.get(str(poid)),
                 )
             )
     return orders, fills

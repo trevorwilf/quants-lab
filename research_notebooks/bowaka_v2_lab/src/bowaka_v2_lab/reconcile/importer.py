@@ -193,11 +193,14 @@ def resolve_paper_logs_root(paper_logs_root: Path | str | None) -> Path:
 def discover_sessions(paper_logs_root: Path | str) -> list[Path]:
     """Return the sorted list of session directories under ``paper_logs_root``.
 
-    A session directory is named ``YYYY-MM-DD`` and contains at minimum a
-    ``paper_candidates.jsonl`` file (audit 2026-05-29 §9 Phase 6). A missing
-    root, non-date directories, and date dirs without the candidates file are
-    skipped — so an empty / absent root returns ``[]`` (the REAL_LOGS_DEFERRED
-    signal).
+    A session directory is named ``YYYY-MM-DD`` and contains a candidate-events log
+    in EITHER convention: the Phase-7 ``candidate_events.jsonl`` (what
+    ``import_paper_logs`` / ``load_paper_session`` read) or the richer
+    ``paper_candidates.jsonl`` set (audit 2026-05-29 §9 Phase 6). Accepting both is
+    required so ``run_reconciliation`` does not silently skip sessions the reconciler
+    can actually read (P10). A missing root, non-date directories, and date dirs
+    without any candidates file are skipped — an empty / absent root returns ``[]``
+    (the REAL_LOGS_DEFERRED signal).
     """
     root = Path(paper_logs_root)
     if not root.is_dir():
@@ -210,7 +213,8 @@ def discover_sessions(paper_logs_root: Path | str) -> list[Path]:
             _dt.datetime.strptime(entry.name, "%Y-%m-%d")
         except ValueError:
             continue
-        if (entry / "paper_candidates.jsonl").is_file():
+        if ((entry / "paper_candidates.jsonl").is_file()
+                or (entry / "candidate_events.jsonl").is_file()):
             sessions.append(entry)
     return sessions
 

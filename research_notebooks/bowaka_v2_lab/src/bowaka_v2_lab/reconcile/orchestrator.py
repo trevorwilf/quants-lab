@@ -100,15 +100,109 @@ def aggregate_metrics(results: Sequence[SessionReconcileResult]) -> dict[str, fl
     return agg
 
 
+def _sign(x: float) -> int:
+    return 1 if x > 1e-9 else (-1 if x < -1e-9 else 0)
+
+
+def _decision(rec: Any) -> Optional[str]:
+    d = getattr(rec, "decision", None)
+    return str(d).strip().lower() if d else None
+
+
+def _session_result_from_rows(
+    session_date: str, rows: Sequence[Any], tol: Mapping[str, float],
+) -> SessionReconcileResult:
+    """Compute the §8.7 acceptance metrics for one session from its reconcile rows.
+
+    Match-rate metrics are the fraction of COMPARABLE rows (a record present on
+    both sides) that agree; a metric with no comparable rows is 1.0 (no observed
+    disagreement). Fill match uses the single P9 tolerances (fill_price_tolerance_bps
+    / fill_qty_tolerance_shares); daily_pnl_sign_match compares the SESSION's summed
+    realized-PnL sign across paper vs lab.
+    """
+    price_tol = float(tol.get("fill_price_tolerance_bps", 5.0))
+    qty_tol = float(tol.get("fill_qty_tolerance_shares", 0.0))
+
+    n_paper = sum(1 for r in rows if r.presence in ("both", "paper_only"))
+    n_sim = sum(1 for r in rows if r.presence in ("both", "lab_only"))
+    n_both = sum(1 for r in rows if r.presence == "both")
+
+    def _rate(items: list, pred) -> float:
+        return (sum(1 for x in items if pred(x)) / len(items)) if items else 1.0
+
+    candidate_recall = (n_both / n_paper) if n_paper else 1.0
+
+    dec_rows = [r for r in rows if r.paper_decision is not None and r.lab_decision is not None]
+    gate_match = _rate(dec_rows, lambda r: _decision(r.paper_decision) == _decision(r.lab_decision))
+    entry_decision_match = _rate(dec_rows, lambda r: bool(r.decision_reason_match))
+
+    fill_rows = [r for r in rows if r.paper_fill is not None and r.lab_fill is not None]
+    fill_match = _rate(
+        fill_rows,
+        lambda r: (r.fill_price_delta_bps is not None and abs(r.fill_price_delta_bps) <= price_tol)
+        and (r.fill_qty_delta is None or abs(r.fill_qty_delta) <= qty_tol),
+    )
+    deltas = [abs(r.fill_price_delta_bps) for r in fill_rows if r.fill_price_delta_bps is not None]
+    fill_price_mae_bps = (sum(deltas) / len(deltas)) if deltas else 0.0
+
+    exit_rows = [r for r in rows if r.paper_exit is not None and r.lab_exit is not None]
+    exit_reason_match = _rate(exit_rows, lambda r: bool(r.exit_reason_match))
+
+    # Bracket attach: among rows filled on BOTH sides, both must carry a parent
+    # (bracket) order — a fill without its protective bracket is a hard divergence
+    # (threshold 1.00).
+    bracket_attach_match = _rate(
+        fill_rows, lambda r: r.paper_order is not None and r.lab_order is not None
+    )
+
+    paper_pnl = sum((r.paper_exit.realized_pnl or 0.0) for r in rows if r.paper_exit is not None)
+    lab_pnl = sum((r.lab_exit.realized_pnl or 0.0) for r in rows if r.lab_exit is not None)
+    daily_pnl_sign_match = 1.0 if _sign(paper_pnl) == _sign(lab_pnl) else 0.0
+
+    by_sym: dict[str, list[float]] = {}
+    for r in fill_rows:
+        if r.fill_price_delta_bps is not None:
+            by_sym.setdefault(str(r.symbol or "?"), []).append(abs(r.fill_price_delta_bps))
+    per_symbol = {s: sum(v) / len(v) for s, v in by_sym.items() if v}
+
+    return SessionReconcileResult(
+        session_date=session_date,
+        n_paper_candidates=n_paper,
+        n_sim_candidates=n_sim,
+        candidate_recall=candidate_recall,
+        gate_match=gate_match,
+        entry_decision_match=entry_decision_match,
+        fill_match=fill_match,
+        fill_price_mae_bps=fill_price_mae_bps,
+        exit_reason_match=exit_reason_match,
+        bracket_attach_match=bracket_attach_match,
+        daily_pnl_sign_match=daily_pnl_sign_match,
+        per_symbol_fill_error_bps=per_symbol,
+    )
+
+
 def _default_reconcile_one(
     session_dir: Path, cfg: Mapping[str, Any], lake_root: Optional[Path],
 ) -> SessionReconcileResult:
-    raise NotImplementedError(
-        "production per-session reconciliation requires the lab-replay comparison "
-        "wired for your environment (lake + config); pass reconcile_one=... to "
-        "run_reconciliation. The orchestrator's aggregation / status / gate logic "
-        "is exercised with injected reconcilers in the test suite."
-    )
+    """Reconcile ONE real paper session against a current_code_parity lab replay.
+
+    ``session_dir`` is a ``YYYY-MM-DD`` directory (from :func:`discover_sessions`)
+    holding that session's paper-log JSONLs. Replays the lab over the same date /
+    lake / config, joins paper vs lab event-by-event (``replay_paper_session``), and
+    computes the §8.7 acceptance metrics with the single P9 tolerance set.
+    """
+    from .comparator import load_reconcile_tolerances
+    from .replay import replay_paper_session
+
+    session_date = Path(session_dir).name
+    lab_cfg: dict[str, Any] = dict(cfg or {})
+    if lake_root is not None:
+        md = dict(lab_cfg.get("market_data") or {})
+        md["shared_root"] = str(lake_root)
+        lab_cfg["market_data"] = md
+    replay = replay_paper_session(session_date, session_dir, lab_cfg)
+    tol = load_reconcile_tolerances((cfg or {}).get("reconcile", {}).get("tolerances"))
+    return _session_result_from_rows(session_date, replay.rows, tol)
 
 
 def run_reconciliation(
