@@ -12,6 +12,8 @@ _NB = Path(__file__).resolve().parents[2] / "notebooks" / "10_optuna_walkforward
 
 
 @pytest.mark.slow
+@pytest.mark.timeout(300)  # executes the notebook (the ~60-90s walk-forward study) — the
+# 60s default would interrupt it; the slow Top-N sweep is gated off (RUN_TOPN_SWEEP=False).
 def test_papermill_execute_notebook_10(tmp_path: Path, lab_root: Path) -> None:
     pm = pytest.importorskip("papermill")
     lake = tmp_path / "lake"
@@ -27,7 +29,12 @@ def test_papermill_execute_notebook_10(tmp_path: Path, lab_root: Path) -> None:
     pm.execute_notebook(
         str(_NB),
         str(out),
-        parameters={"CONFIG_PATH": str(cfg_path), "N_TRIALS": 2, "FEED": "synthetic"},
+        # MODE_OVERRIDE=None: the notebook default pins current_code_parity (IR is
+        # infeasible on the real lake), but that runs the contract-parity gate, which a
+        # synthetic smoke config can't satisfy. None lets FEED='synthetic' resolve to
+        # smoke_fixture (the parity gate is skipped for smoke).
+        parameters={"CONFIG_PATH": str(cfg_path), "N_TRIALS": 2, "FEED": "synthetic",
+                    "RUN_TOPN_SWEEP": False, "MODE_OVERRIDE": None},
         cwd=str(lab_root),
         kernel_name="python3",
         execution_timeout=600,
