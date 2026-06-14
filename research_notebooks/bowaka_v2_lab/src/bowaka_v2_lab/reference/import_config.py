@@ -181,6 +181,16 @@ def build_config_from_contract(
         "min_adv_dollars": c_universe.get("avg_dollar_volume_min"),
         "exclude_pattern_class": True,
     }
+    # §4 (P8 #5): map the live universe FILTERS so config_diff sees them (the PIT
+    # builder previously used hard-coded defaults and config_diff only diffs shared
+    # keys, so an omission was invisible to the parity gate). Mapped only when the
+    # contract carries the key, so the generated config reflects the live filter set.
+    for _ufilter in (
+        "allowed_exchanges", "exclude_otc", "ticker_blocklist",
+        "exclude_etf", "exclude_etn",
+    ):
+        if _ufilter in c_universe:
+            universe[_ufilter] = c_universe[_ufilter]
 
     # --- scanner: emit EVERY live scanner key (audit 2026-05-23 §P1-003) ---
     # Iterating the contract's scanner mapping (rather than enumerating keys

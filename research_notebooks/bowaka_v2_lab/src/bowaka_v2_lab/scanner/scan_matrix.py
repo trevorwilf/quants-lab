@@ -1027,6 +1027,9 @@ def build_scan_matrix(
         train_months=int(wf.get("train_months", 6)),
         val_months=int(wf.get("val_months", 1)),
         final_holdout_months=int(wf.get("final_holdout_months", 1)),
+        # L16: thread step_months (was a dead config key -> the plan always
+        # stepped by val_months); None preserves that default when the key is absent.
+        step_months=(int(wf["step_months"]) if wf.get("step_months") else None),
     )
     if scope == "validation":
         sessions: list[_dt.date] = []
