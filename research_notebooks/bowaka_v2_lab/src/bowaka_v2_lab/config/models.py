@@ -207,6 +207,19 @@ class UniverseConfig(_StrictBase):
     max_price: float = 20.0
     min_adv_dollars: float = 250_000.0
     exclude_pattern_class: bool = True
+    # §4 (P8 #5): live universe FILTERS, mapped from the contract so the generated
+    # config CARRIES them and config_diff can diff them against prod (the PIT builder
+    # previously fell back to hard-coded defaults, so an omission was invisible to
+    # the parity gate). Defaults match the builder's fallbacks, so a config that
+    # omits a key is byte-identical to pre-remediation. ``allowed_exchanges``,
+    # ``exclude_otc`` and ``ticker_blocklist`` are consumed by ``universe.builder``;
+    # ``exclude_etf`` / ``exclude_etn`` round-trip the contract for diff-visibility
+    # (ETF/ETN are also screened by ``asset_classes`` / ``exclude_pattern_class``).
+    allowed_exchanges: Optional[list[str]] = None
+    exclude_otc: bool = True
+    ticker_blocklist: list[str] = Field(default_factory=list)
+    exclude_etf: bool = True
+    exclude_etn: bool = True
     symbols: Optional[list[str]] = None
 
 

@@ -92,6 +92,9 @@ def score_final_holdout(
         train_months=int(wf.get("train_months", 6)),
         val_months=int(wf.get("val_months", 1)),
         final_holdout_months=int(wf.get("final_holdout_months", 1)),
+        # L16: thread step_months (was a dead config key -> the plan always
+        # stepped by val_months); None preserves that default when the key is absent.
+        step_months=(int(wf["step_months"]) if wf.get("step_months") else None),
     )
     feed = str(md.get("feed", "iex"))
     # Hotfix 2026-05-29: resolve via the standard chain (the raw cfg lookup

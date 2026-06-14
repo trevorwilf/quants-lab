@@ -109,7 +109,9 @@ def _trade_intersection_rate(
     lab_keys = {t.join_key for t in lab_trades}
     union = prod_keys | lab_keys
     if not union:
-        return 1.0, set(), set(), set()
+        # L17: NO trades on either side -> NOT MEASURED (was 1.0 = "perfect
+        # agreement", which stamped a vacuous PASS). The vacuous guard fails the run.
+        return None, set(), set(), set()
     matched = prod_keys & lab_keys
     return (
         float(len(matched) / len(union)),
@@ -129,7 +131,8 @@ def _per_session_pnl_signs(
     """
     sessions = sorted({t.session_date for t in prod_trades} | {t.session_date for t in lab_trades})
     if not sessions:
-        return 1.0, []
+        # L17: no sessions with trades -> NOT MEASURED (was 1.0 = vacuous PASS).
+        return None, []
     rows: list[Mapping[str, object]] = []
     agree = 0
     for s in sessions:
@@ -185,7 +188,7 @@ def compute_parity_metrics(
 
     exit_reason_match_rate = (
         float(1.0 - len(exit_mismatch_pairs) / len(matched_diffs))
-        if matched_diffs else 1.0
+        if matched_diffs else None  # L17: no matched trades -> NOT MEASURED (was 1.0)
     )
 
     candidate_recall, gate_match_rate = _candidate_metrics(
@@ -261,6 +264,14 @@ def compute_parity_metrics(
         daily_pnl_per_session=daily_pnl_rows,
     )
     passes, failing = evaluate_thresholds(report, thresholds=thresholds)
+    # L17: a parity run with NO trades on EITHER side is VACUOUS — every rate is
+    # "not measured" (None) and evaluate_thresholds skips None, so without this guard
+    # it would stamp passes_audit_thresholds=True with ZERO evidence (masking e.g.
+    # the prod-backtester producing 0 trades). No overlapping evidence can certify
+    # parity.
+    if int(report.n_trade_sessions or 0) == 0:
+        passes = False
+        failing = [*failing, "no_trades_vacuous"]
     # ParityReport is frozen; build a fresh one with the threshold-pass fields.
     from dataclasses import replace
     return replace(report, passes_audit_thresholds=passes, failing_metrics=failing)
