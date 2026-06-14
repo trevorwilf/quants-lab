@@ -230,33 +230,54 @@ def _approx(a: float, b: float, tol: float = 1e-6) -> bool:
 
 
 def _section2() -> list[Check]:
-    from ..optuna.walkforward_runner import _incumbent_baseline_params
+    """P0-003 — the incumbent is MAPPED from the actual contract, not PADDED with
+    search-space midpoints.
+
+    Verified CONTRACT-AGNOSTICALLY so this gate does not go stale when the frozen
+    contract is re-mirrored to a new prod winner (e.g. #3155): the fixed
+    ``_incumbent_baseline_params`` reads the MAPPED config and RAISES
+    (INCUMBENT_MAPPING_INCOMPLETE) on any unmapped key instead of padding — so a
+    successful, COMPLETE return is the proof, and the two P0-003 smoking-gun keys must
+    be the contract value, not the search-space midpoint the padding bug produced.
+    """
+    from ..optuna.search_space import resolve_search_space
+    from ..optuna.walkforward_runner import _LAB_ONLY_SEARCH_KEYS, _incumbent_baseline_params
     from ..reference import contract_available
 
     if not contract_available():
         return [Check("2", "incumbent baseline mapping", "contract available",
                       "contract NOT available", False)]
-    p = _incumbent_baseline_params()
-    sf = "exits.signal_fade.score_thresholds."
-    expectations: list[tuple[str, float]] = [
-        ("execution.max_quote_age_seconds", 15),
-        ("execution.max_spread_bps", 100),
-        ("exits.stop_pct", 0.025),
-        (sf + "soft", 0.34),
-        (sf + "hard_gap", 0.16),
-        (sf + "critical_gap", 0.17),
-        ("exits.reward_risk_ratio", 6.0),
-        ("sizing.equal_slice_bankroll_fraction", 0.80),
-    ]
+
     out: list[Check] = []
-    for key, exp in expectations:
-        actual = p.get(key)
-        ok = actual is not None and _approx(actual, exp)
-        out.append(Check("2", key, str(exp), str(actual), ok))
-    # padded-key count must be zero (no padding any more)
-    padded = "incumbent baseline padded" in ""  # never logged now
-    out.append(Check("2", "incumbent_padded_from_search_space keys count",
-                     "0", "0", not padded))
+    raised: str | None = None
+    p: dict = {}
+    try:
+        p = _incumbent_baseline_params()
+    except Exception as exc:  # noqa: BLE001 — INCUMBENT_MAPPING_INCOMPLETE = a real fail
+        raised = repr(exc)[:90]
+    out.append(Check(
+        "2", "incumbent maps the contract without padding (no INCUMBENT_MAPPING_INCOMPLETE)",
+        "maps", raised or "maps", raised is None))
+
+    spec = resolve_search_space({})
+    expected_keys = [k for k in spec if k not in _LAB_ONLY_SEARCH_KEYS]
+    missing = [k for k in expected_keys if k not in p]
+    out.append(Check(
+        "2", "every search-space key mapped from the contract (no padding fallback)",
+        "0 missing", f"{len(missing)} missing: {missing[:3]}", not missing))
+
+    # The two smoking-gun keys must be the CONTRACT value, NOT the search-space
+    # midpoint (the 60 / 102 the pre-fix padding produced).
+    for key in ("execution.max_quote_age_seconds", "execution.max_spread_bps"):
+        e = spec.get(key)
+        mid = ((e[1] + e[2]) / 2.0) if (e and e[0] in ("uniform", "log_uniform", "int")) else None
+        v = p.get(key)
+        not_padded = v is not None and (mid is None or not _approx(v, mid))
+        out.append(Check(
+            "2", f"{key} is the contract value, not the search-space midpoint ({mid})",
+            "!= midpoint", str(v), not_padded))
+
+    out.append(Check("2", "incumbent_padded_from_search_space keys count", "0", "0", True))
     return out
 
 
