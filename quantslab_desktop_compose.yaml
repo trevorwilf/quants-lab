@@ -158,7 +158,10 @@ services:
             --ServerApp.root_dir=/quants-lab
 
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8888/api/status || exit 1"]
+      # `curl` is NOT in the image and /api/status returns 403 without a token, so the old
+      # curl-based check always reported "unhealthy". Use the base python (always present)
+      # against /api, which returns 200 without auth; urlopen raises (non-zero) on any failure.
+      test: ["CMD", "/opt/conda/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/api', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 5
