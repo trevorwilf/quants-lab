@@ -120,7 +120,14 @@ services:
       HBOT_DB_URL: "postgresql+psycopg2://hbot:${POSTGRES_PASSWORD}@${TRUENAS_LAN_IP}:5432/hummingbot_api"
 
     volumes:
+      # Persistent named volumes for the market-data lake + scan-matrix cache. These
+      # MUST be named volumes (NOT the container overlay) so 80GB+ of bars/quotes/
+      # trades/auctions/halts/corporate_actions survive a container recreate. They live
+      # on the WSL2 ext4 (native-FS speed, NOT the slow 9p repo bind). Same paths the
+      # backfill scripts + notebook-10 study/matrices use (MARKET_DATA_ROOT=/opt/market_data_cache).
       - ./:/quants-lab
+      - ql_market_data:/opt/market_data_cache
+      - ql_scan_matrix:/opt/scan_matrix_cache
 
     ports:
       - "127.0.0.1:8888:8888"
@@ -174,3 +181,13 @@ services:
 
 volumes:
   ql_optuna_pgdata:
+  # EXTERNAL (pre-created via `docker volume create`) so they (a) keep their exact names
+  # without the compose "quantslab_desktop_" project prefix, and (b) are NOT deleted by
+  # `docker compose down -v` -- the ~80GB lake + matrices are precious + slow to rebuild.
+  # One-time create on a fresh host:  docker volume create ql_market_data ql_scan_matrix
+  ql_market_data:    # market-data lake: bars/quotes/quotes_fine/trades/auctions/statuses/corporate_actions (~80GB+)
+    external: true
+    name: ql_market_data
+  ql_scan_matrix:    # scan-matrix cache (rebuildable, but persisted to avoid ~98min rebuilds)
+    external: true
+    name: ql_scan_matrix

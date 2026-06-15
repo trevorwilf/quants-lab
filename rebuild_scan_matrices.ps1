@@ -11,7 +11,8 @@
 # study/sweep checks (a matrix built from a different config is silently rejected).
 #
 # Runs INSIDE the ql-jupyter container. The matrices are a rebuildable cache on the
-# container overlay; this regenerates them from the current lake.
+# persistent ql_scan_matrix Docker volume (mounted at /opt/scan_matrix_cache); this
+# regenerates them from the current lake.
 #
 #   .\rebuild_scan_matrices.ps1                 # default notebook config, 6 workers
 #   .\rebuild_scan_matrices.ps1 -Workers 10

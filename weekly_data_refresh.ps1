@@ -1,9 +1,10 @@
 #!/usr/bin/env pwsh
 # weekly_data_refresh.ps1
 #
-# Scheduled WEEKLY refresh of the shared market-data lake on the fast native container
-# FS (/opt/market_data_cache). ONE command updates EVERY dataset the bowaka_v2_lab
-# backtester / scan matrices / realism gates consume:
+# Scheduled WEEKLY refresh of the shared market-data lake, which lives on the PERSISTENT
+# ql_market_data Docker volume (mounted at /opt/market_data_cache; native-FS speed, and
+# external so it survives a container recreate + `docker compose down -v`). ONE command
+# updates EVERY dataset the bowaka_v2_lab backtester / scan matrices / realism gates consume:
 #
 #   CRITICAL (must succeed -- a failure aborts the run + flags the lake stale):
 #     * daily + minute SIP bars, SIP NBBO quotes  (scripts/backfill_market_data.py)
@@ -90,6 +91,15 @@ $running = docker ps --filter "name=$Container" --filter "status=running" --form
 if ($running -ne $Container) {
     Write-Error "Container '$Container' is not running. Start the stack first:`n  docker compose -f quantslab_desktop_compose.yaml up -d"
     exit 1
+}
+
+# Guard: the lake MUST be on a persistent named volume, not the container's writable
+# overlay (which is DESTROYED on container recreate). Writing 80GB+ to an ephemeral
+# overlay would be silently lost on the next recreate -- warn loudly if so. A named
+# volume shows as its own /proc/mounts entry; the overlay does not.
+$lakeBacking = (docker exec $Container sh -c "grep -q ' $LakeRoot ' /proc/mounts && echo VOLUME || echo OVERLAY" 2>&1 | Out-String).Trim()
+if ($lakeBacking -ne "VOLUME") {
+    Write-Warning "[weekly] $LakeRoot is NOT a mounted volume (backing=$lakeBacking) -- it is on the EPHEMERAL container overlay and will be LOST on the next container recreate. Mount the external ql_market_data volume (see quantslab_desktop_compose.yaml) before relying on this data."
 }
 
 $start   = (Get-Date).AddDays(-$LookbackDays).ToString("yyyy-MM-dd")
