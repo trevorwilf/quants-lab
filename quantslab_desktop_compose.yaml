@@ -148,6 +148,15 @@ services:
             "cupy-cuda12x[ctk]" "numba-cuda[cu12]" 2>/dev/null || \
             echo "Note: GPU packages not installed (no CUDA toolkit found). CPU-only mode."
 
+          # Lab runtime deps NOT baked into the image env (environment.yml). The container
+          # overlay is reset on every recreate, so reinstall them on startup -> the conda env
+          # self-heals (matching the persistent ql_market_data / ql_scan_matrix volumes).
+          # Without these, the scan-matrix build (exchange-calendars), Alpaca backfills
+          # (alpaca-py), reports (matplotlib) + logging (structlog) break after a recreate.
+          conda run --no-capture-output -n quants-lab pip install --quiet --no-cache-dir \
+            alpaca-py exchange-calendars matplotlib structlog || \
+            echo "WARN: lab runtime dep install failed -- build/backfills/reports may break."
+
           exec conda run --no-capture-output -n quants-lab \
             jupyter lab \
             --ip=0.0.0.0 \
