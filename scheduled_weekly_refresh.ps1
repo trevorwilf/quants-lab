@@ -30,7 +30,8 @@
             halt/CA full-history re-fetch window; every dataset is on by default).
     STEP 3  Re-check the guard (a study may have started during the refresh). Not
             idle -> SKIP the rebuild + write MATRICES_STALE.flag + warn.
-    STEP 4  rebuild_scan_matrices.ps1 (validation + holdout); clear the stale flag.
+    STEP 4  rebuild_scan_matrices.ps1 -- rebuilds BOTH the IR + fast_realism matrices
+            (each validation + holdout) from the refreshed lake; clear the stale flag.
 
 .NOTES
   REGISTRATION (mandatory shape -- Docker Desktop is per-user, so the task MUST
