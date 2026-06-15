@@ -24,7 +24,10 @@
     STEP 1  Study guard (scripts/check_study_active.py). Proceeds ONLY on a clean
             rc==1 + '-> IDLE'; ANY other result (ACTIVE, or a docker/script/OOM
             failure) DEFERS the whole run (fail-safe).
-    STEP 2  Lake refresh: weekly_data_refresh.ps1 -LookbackDays N -Rpm R.
+    STEP 2  Lake refresh: weekly_data_refresh.ps1 -LookbackDays N -Rpm R. ONE pass now
+            refreshes ALL lake datasets -- bars/quotes/trades/fine PLUS halts, official
+            auctions, and corporate actions (-HaltsStart / -CorpActionsStart set the
+            halt/CA full-history re-fetch window; every dataset is on by default).
     STEP 3  Re-check the guard (a study may have started during the refresh). Not
             idle -> SKIP the rebuild + write MATRICES_STALE.flag + warn.
     STEP 4  rebuild_scan_matrices.ps1 (validation + holdout); clear the stale flag.
@@ -49,6 +52,8 @@ param(
     [int]    $Rpm              = 9000,
     [int]    $AlpacaMaxRetries = 6,      # hourly retries for Alpaca downtime (6h)
     [int]    $RetryIntervalSec = 3600,
+    [string] $HaltsStart       = "2025-08-01",   # full-history halt re-fetch window start (-> weekly_data_refresh.ps1)
+    [string] $CorpActionsStart = "2025-08-01",   # full-history corp-actions re-fetch window start
     [string] $Container        = "ql-jupyter",
     [switch] $DryRun
 )
@@ -76,7 +81,7 @@ function Test-StudyIdle {
     return [PSCustomObject]@{ Idle = $idle; Rc = $rc; Out = $out }
 }
 
-Log "=== scheduled_weekly_refresh start (DryRun=$DryRun LookbackDays=$LookbackDays Rpm=$Rpm) ==="
+Log "=== scheduled_weekly_refresh start (DryRun=$DryRun LookbackDays=$LookbackDays Rpm=$Rpm HaltsStart=$HaltsStart CorpActionsStart=$CorpActionsStart) ==="
 
 # Escalate if a prior run left matrices stale (visible, not silent).
 if (Test-Path -LiteralPath $staleFlag) {
@@ -131,8 +136,8 @@ if (-not $g.Idle) {
 }
 
 # --- STEP 2: lake refresh --------------------------------------------------
-Log "IDLE + Alpaca UP -- running lake refresh (weekly_data_refresh.ps1 -LookbackDays $LookbackDays -Rpm $Rpm)..."
-& (Join-Path $repo "weekly_data_refresh.ps1") -LookbackDays $LookbackDays -Rpm $Rpm
+Log "IDLE + Alpaca UP -- running lake refresh (ALL datasets: bars/quotes/trades/fine + halts/auctions/corp-actions; weekly_data_refresh.ps1 -LookbackDays $LookbackDays -Rpm $Rpm -HaltsStart $HaltsStart -CorpActionsStart $CorpActionsStart)..."
+& (Join-Path $repo "weekly_data_refresh.ps1") -LookbackDays $LookbackDays -Rpm $Rpm -HaltsStart $HaltsStart -CorpActionsStart $CorpActionsStart
 if ($LASTEXITCODE -ne 0) {
     $rc = $LASTEXITCODE
     Set-Content -LiteralPath $staleFlag -Value "Lake refresh FAILED $ts (exit $rc); the lake may be partially written + dataset_hash drifted. Rerun the refresh + rebuild_scan_matrices.ps1 before starting a study."
