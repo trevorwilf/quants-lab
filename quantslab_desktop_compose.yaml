@@ -105,6 +105,14 @@ services:
       # ── Optuna Postgres (local to this stack) ──
       OPTUNA_STORAGE: "postgresql+psycopg2://optuna:optuna@optuna-postgres:5432/optuna"
 
+      # ── Market-data lake (persistent named volume at /opt/market_data_cache) ──
+      # Pin the lake root so resolve_lake_root() / the DQ-cache key / the scan-matrix
+      # config_input_hash all resolve the fast native-FS lake instead of silently
+      # falling back to the slow 9p in-repo mount. The 2026-06-15 volume-migration
+      # recreate dropped this from the container env, which routed studies to the wrong
+      # lake AND mismatched the built scan matrix's config hash (fail-loud matrix miss).
+      MARKET_DATA_ROOT: "/opt/market_data_cache"
+
       # Threading — pinned to 1 to prevent thread oversubscription with multi-worker Optuna
       OMP_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
