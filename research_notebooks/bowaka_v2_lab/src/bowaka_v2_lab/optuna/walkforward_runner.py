@@ -588,9 +588,18 @@ def _run_fold_backtest(
             # PIT-over-inclusion artifact). Derived from ``universe`` (the same
             # source both the ctx and no-ctx paths use) so with-ctx == without-ctx,
             # and matching fold_context's cache-side ``or symbols`` derivation.
-            eligible_per_session={
-                s: set(eligible_symbols(universe.get(s, {})) or symbols) for s in sessions
-            },
+            eligible_per_session=(
+                # p2 #3 (= phase-1 c21; worth it in the hot finalist sweep): reuse
+                # the ctx's precomputed per-fold eligible union instead of
+                # recomputing the sorted union every backtest. set(tuple) ==
+                # set(recompute) (byte-identical); the impossible missing-session
+                # key falls back to the legacy recompute, so it equals the no-ctx path.
+                {s: set(ctx.eligible_symbols_by_session.get(s)
+                        or (eligible_symbols(universe.get(s, {})) or symbols))
+                 for s in sessions}
+                if ctx is not None else
+                {s: set(eligible_symbols(universe.get(s, {})) or symbols) for s in sessions}
+            ),
             # §10i — exempt the optuna-tuned search-space (+ derived) paths from the
             # per-fold intended_realism config-parity gate: a tuned finalist diverges
             # from the frozen live contract on them BY DESIGN. The gate is IR-only,
@@ -713,9 +722,18 @@ def _run_fold_backtest_objective(
             # PIT-over-inclusion artifact). Derived from ``universe`` (the same
             # source both the ctx and no-ctx paths use) so with-ctx == without-ctx,
             # and matching fold_context's cache-side ``or symbols`` derivation.
-            eligible_per_session={
-                s: set(eligible_symbols(universe.get(s, {})) or symbols) for s in sessions
-            },
+            eligible_per_session=(
+                # p2 #3 (= phase-1 c21; worth it in the hot finalist sweep): reuse
+                # the ctx's precomputed per-fold eligible union instead of
+                # recomputing the sorted union every backtest. set(tuple) ==
+                # set(recompute) (byte-identical); the impossible missing-session
+                # key falls back to the legacy recompute, so it equals the no-ctx path.
+                {s: set(ctx.eligible_symbols_by_session.get(s)
+                        or (eligible_symbols(universe.get(s, {})) or symbols))
+                 for s in sessions}
+                if ctx is not None else
+                {s: set(eligible_symbols(universe.get(s, {})) or symbols) for s in sessions}
+            ),
             # §10i — exempt the optuna-tuned search-space (+ derived) paths from the
             # per-fold intended_realism config-parity gate: a tuned finalist diverges
             # from the frozen live contract on them BY DESIGN. The gate is IR-only,

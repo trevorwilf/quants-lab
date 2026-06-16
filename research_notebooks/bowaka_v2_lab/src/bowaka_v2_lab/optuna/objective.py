@@ -691,15 +691,21 @@ def compute_objective(
     if validate_units:
         for f in fold_list:
             validate_metric_units(f)
-    scores = [fold_score(f, weights=weights) for f in fold_list]
+    # p2 #6: compute fold_penalties ONCE per fold — it was called twice (inside
+    # fold_score AND the aggregation loop below). scores[i] is byte-identical to
+    # fold_score(f) (defined as float(net_return - sum(penalties.values()))), and
+    # the agg loop reuses the same dicts. Pure dedup; no behavior change.
+    fold_penalty_dicts = [fold_penalties(f, weights=weights) for f in fold_list]
+    scores = [float(f.net_return - sum(p.values()))
+              for f, p in zip(fold_list, fold_penalty_dicts)]
     med = float(statistics.median(scores))
     variance = float(statistics.stdev(scores)) if len(scores) > 1 else 0.0
     var_penalty = weights.fold_variance * variance
 
     # Aggregate the per-fold penalty breakdown (mean across folds) for reporting.
     agg: dict[str, float] = {}
-    for f in fold_list:
-        for k, v in fold_penalties(f, weights=weights).items():
+    for p in fold_penalty_dicts:
+        for k, v in p.items():
             agg[k] = agg.get(k, 0.0) + v
     agg = {k: v / len(fold_list) for k, v in agg.items()}
     agg["fold_variance"] = var_penalty

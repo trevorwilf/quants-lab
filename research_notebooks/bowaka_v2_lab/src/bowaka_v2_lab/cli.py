@@ -401,6 +401,7 @@ def _cmd_optuna(args: argparse.Namespace) -> int:
             args, "allow_current_code_parity_study", False),
         tier=getattr(args, "tier", None),
         incumbent_trial=getattr(args, "incumbent_trial", False),
+        skip_best_trial_report=getattr(args, "skip_best_trial_report", False),
     )
     print(json.dumps(result, indent=2, default=str))
     return 0
@@ -473,6 +474,17 @@ def build_parser() -> argparse.ArgumentParser:
                      help="pin trial 0 to the actual-contract parameter set (the "
                           "incumbent baseline) so the optimizer's best is judged "
                           "against the live config")
+    # Speedup investigation 2026-06-16: the post-search single-best NEIGHBOUR
+    # robustness sweep (build_best_trial_report) rebuilds fold contexts from
+    # scratch in process-parallel mode (parent fold_contexts=None), so it runs
+    # SLOW + is redundant whenever the Top-N robustness+holdout sweep follows.
+    # Notebook 10 always passes skip_best_trial_report=True for exactly this
+    # reason; this flag gives the CLI / relaunch the same escape hatch.
+    opt.add_argument("--skip-best-trial-report", action="store_true",
+                     help="skip the post-search single-best neighbour robustness "
+                          "sweep (use when a Top-N finalist/holdout sweep will "
+                          "follow, e.g. the two-stage relaunch — avoids a slow, "
+                          "redundant fold-context rebuild)")
     opt.add_argument("--random-search-trials", type=int, default=None,
                      help="alias for --n-startup-trials: pure-random trials before "
                           "TPE-guided search begins (Optuna's n_startup_trials)")

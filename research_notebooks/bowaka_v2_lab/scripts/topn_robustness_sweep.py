@@ -42,6 +42,20 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+# p2-pin-blas-threads-workers (phase-2 speedup 2026-06-16) — pin BLAS to 1 thread
+# BEFORE numpy/optuna import so the parent's threadpool initializes single-threaded
+# and the forked sweep workers inherit it. The spawn-based SEARCH workers already
+# pin this (optuna.parallel.pin_blas_threads_to_one, before their numpy import);
+# the fork-based sweep did not, so workers could oversubscribe BLAS threads against
+# cores the worker pool already saturates. Mirrors parallel._BLAS_THREAD_ENV_VARS.
+# NOTE: the prod container already sets OMP/OPENBLAS/MKL/NUMEXPR=1 via compose, so
+# this is a defensive/consistency fix there (no-op) that matters for non-container
+# runs. Must be module-top, pre-numpy-import (under fork the parent's pool is
+# already built by the time the executor block runs).
+for _blas_var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                  "NUMEXPR_NUM_THREADS", "BLIS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ[_blas_var] = "1"
+
 import optuna
 import yaml
 
@@ -691,6 +705,10 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s")
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--config", required=True)
+    p.add_argument("--rescore-config", default=None,
+                   help="two-stage: SELECT finalists from the --config study, but RE-SCORE "
+                        "them under THIS config's simulation.mode (e.g. a fast_realism config "
+                        "from derive_validation_config). Default: re-score under --config.")
     p.add_argument("--study-name", default=None, help="default: latest walk-forward study in storage")
     p.add_argument("--top-n", type=int, default=12)
     p.add_argument("--neighbours", type=int, default=7)
@@ -721,7 +739,7 @@ def main(argv=None) -> int:
                 study = optuna.load_study(
                     study_name=study_name or _pick_study_name(s["storage_uri"], None),
                     storage=s["storage_uri"])
-                by_num = {t.number: t for t in study.trials}
+                by_num = {t.number: t for t in study.get_trials(deepcopy=False)}
                 for r in results:
                     t = by_num.get(r.get("number"))
                     if t is not None and not r.get("dev_metrics"):
@@ -736,12 +754,23 @@ def main(argv=None) -> int:
                      args.neighbours, time.strftime("%Y-%m-%d %H:%M:%S"), out_path,
                      base_cfg=s["cfg"])
     s = _setup(cfg_path)
+    # Two-stage: finalists are SELECTED from the --config study (its mode, e.g. CCP),
+    # but RE-SCORED under --rescore-config (e.g. fast_realism). Study lookup + ranking
+    # use s; the fold contexts + backtests below use s_rescore.
+    s_rescore = _setup(args.rescore_config) if args.rescore_config else s
+    if args.rescore_config:
+        _rmode = (s_rescore["cfg"].get("simulation") or {}).get("mode")
+        print(f"two-stage: select finalists from {cfg_path} study, re-score under "
+              f"{args.rescore_config} (mode={_rmode})", flush=True)
     study_name = _pick_study_name(s["storage_uri"], args.study_name)
     study = optuna.load_study(study_name=study_name, storage=s["storage_uri"])
     n_splits = len(s["plan"].splits)
     w_var = float(wr.DEFAULT_PENALTY_WEIGHTS.fold_variance)
 
-    completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    # p2 #5: get_trials(deepcopy=False) — avoid deep-copying ~5000 FrozenTrials
+    # (with nested fold_metrics). Read-only below (.params/.value/.user_attrs).
+    completed = list(study.get_trials(
+        deepcopy=False, states=(optuna.trial.TrialState.COMPLETE,)))
     valid = [t for t in completed if _is_valid(t, n_splits)]
     ranked = sorted(valid, key=lambda t: _rank_score(t, w_var), reverse=True)
     top = ranked[: args.top_n]
@@ -773,20 +802,22 @@ def main(argv=None) -> int:
                      holdout_collapse=None)
         results = finalists
     else:
-        plan = s["plan"]
+        plan = s_rescore["plan"]  # re-score window (== search window in two-stage)
         print("building validation + holdout fold contexts (once; workers inherit)...", flush=True)
         t0 = time.perf_counter()
         guard = HoldoutGuard(plan.final_holdout_start, plan.final_holdout_end)
         val_contexts = build_fold_contexts(
-            s["cfg"], plan, lake_root=s["lake_root"], feed=s["feed"], symbols=s["symbols"],
-            paths=s["paths"], holdout_guard=guard, cached_suppliers=s["cached_suppliers"],
+            s_rescore["cfg"], plan, lake_root=s_rescore["lake_root"], feed=s_rescore["feed"],
+            symbols=s_rescore["symbols"], paths=s_rescore["paths"], holdout_guard=guard,
+            cached_suppliers=s_rescore["cached_suppliers"],
         )
         holdout_ctx = build_holdout_context(
-            s["cfg"], plan, lake_root=s["lake_root"], feed=s["feed"], symbols=s["symbols"],
-            paths=s["paths"], holdout_guard=guard, cached_suppliers=s["cached_suppliers"],
+            s_rescore["cfg"], plan, lake_root=s_rescore["lake_root"], feed=s_rescore["feed"],
+            symbols=s_rescore["symbols"], paths=s_rescore["paths"], holdout_guard=guard,
+            cached_suppliers=s_rescore["cached_suppliers"],
         )
         print(f"contexts built in {time.perf_counter() - t0:.0f}s", flush=True)
-        _G.update(s); _G["val_contexts"] = val_contexts
+        _G.update(s_rescore); _G["val_contexts"] = val_contexts
         _G["holdout_ctx"] = holdout_ctx; _G["n_neighbours"] = args.neighbours
 
         n_jobs = args.jobs or min(len(finalists), max(1, (os.cpu_count() or 4) - 2))
