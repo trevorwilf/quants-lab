@@ -161,7 +161,7 @@ trivial config fix; the dozen small wins compound to ~2 days; piloted methodolog
 
 ---
 
-## 7. Implementation status — 2026-06-16 (dev, UNCOMMITTED)
+## 7. Implementation status — 2026-06-16 (committed on dev: 6de20b6; phase-2 follow-up 97b2cbc)
 
 User directive: "fix the bug first, then continue with the recommended plan; do NOT do
 the methodology levers (Group 5)." A 16-agent Group-2/3/4 recon (verify each candidate

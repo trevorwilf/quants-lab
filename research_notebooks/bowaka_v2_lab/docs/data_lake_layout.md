@@ -1,11 +1,14 @@
-# Data lake layout — feeds, paths, and SIP scaffolding
+# Data lake layout — feeds, paths, and the `sip_data_absent` gate
 
-**Status:** scaffolding (realism remediation 2 Phase 10). The IEX-feed
-partitions ship in the lake today; the SIP-feed partitions are documented
-here and reserved by the layout helpers in `bowaka_common.marketdata.layout`,
-but the SIP ingestion stage has not run. A `feed: sip` config that runs
-against this lake will fail preflight with `sip_data_absent` and point back
-at this document.
+**Status (updated 2026-06-16):** the live lake is now **SIP-only** — SIP bars /
+quotes / quotes_fine / trades / auctions / statuses / corporate_actions have been
+ingested to `/opt/market_data_cache`, and the legacy IEX partitions were removed.
+The comprehensive, current layout reference is **`DATA_LAKE.md`** — read that first.
+This document is retained as the remediation pointer for the **`sip_data_absent`**
+preflight / DQ gate: a `feed: sip` config run against a lake that has **no** SIP
+data (e.g. a fresh host before backfill) still fails preflight with
+`sip_data_absent` and points back here. The partition-path sections below remain
+accurate as the on-disk layout.
 
 The canonical layout is owned by `bowaka_common.marketdata.layout`. Both
 labs (`bowaka_lab`, `bowaka_v2_lab`) read through `MarketDataStore` and write
@@ -49,9 +52,9 @@ The layout supports any `feed` value. Today two are in use:
 | Feed | Tape coverage | Lab use today | Notes |
 |------|---------------|---------------|-------|
 | `iex` | Partial tape (IEX exchange only) | Lake has IEX bars; quotes not ingested yet | Capped at `suitability_tier: research_only` (audit §P1-010); IEX RVOL / range_expansion / ADV are IEX-specific and NOT consolidated |
-| `sip` | Consolidated tape (NBBO) | Lake is empty for SIP | Required for any `simulation.mode: intended_realism` study that targets paper / live |
+| `sip` | Consolidated tape (NBBO) | **Live lake (IEX removed)** | Required for any `simulation.mode: intended_realism` study that targets paper / live |
 
-## IEX partition paths (in use today)
+## IEX partition paths (legacy — removed from the live lake)
 
 ```
 bars/vendor=alpaca/feed=iex/timeframe=1d/adjustment=raw/symbol=<SYM>/part.parquet
@@ -64,7 +67,7 @@ IEX daily bars are raw (no split adjustment). A run that needs split-adjusted
 daily bars on IEX must declare a parity sidecar; the DQ stack will fail closed
 otherwise (audit §P0-005).
 
-## SIP partition paths (reserved — scaffolding)
+## SIP partition paths (the live lake)
 
 ```
 bars/vendor=alpaca/feed=sip/timeframe=1d/adjustment=split_adjusted/symbol=<SYM>/part.parquet

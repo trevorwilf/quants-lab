@@ -7,10 +7,12 @@ Phase 6 scan-matrix-runtime work on the `bowaka_v2_lab` codebase.
 to run **5,000–10,000 trials in under 24 hours** on the workstation
 profile, **without fidelity degradation** vs the legacy scanner.
 
-**Current state of the project:** scaffolding-only. The shipped code
-declares the public API, refuses at the runtime opt-in boundary, and
-includes the unit + parity tests that lock the surface. The actual
-parity bridge and the vectorized gate evaluator are **not built**.
+**Current state of the project (updated 2026-06-16): SHIPPED.** The parity bridge
+and the vectorized gate evaluator are built and live (`scan_matrix_vectorized.py`,
+`runtime_mode: vectorized`), parity-locked by the three-way tests — see
+`speedup_phase_6_completion_summary.md`. This handoff is retained for the §7
+parity-test list + design rationale; the "not built / scaffolding" framing below is
+historical (pre-implementation).
 
 This document is a self-contained briefing. Every other Phase 6
 artifact is listed at the end under

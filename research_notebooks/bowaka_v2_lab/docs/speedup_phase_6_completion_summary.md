@@ -23,7 +23,8 @@ copy is the committed reference.
 ## Phase 2.5 worker-count winner
 
 Not determined here — the live benchmark is operator-driven. The workstation
-config remains at `optuna.n_jobs: 8` / `optuna.parallel.max_workers: 8`. The
+config was since set to `optuna.n_jobs: 10` / `optuna.parallel.max_workers: 10`
+(operator decision 2026-05-28; the fast_realism study config uses 16). The
 operator runbook + acceptance criteria are in
 `docs/phase-2-5-worker-benchmark-handoff.md`. The winner artifact, once the
 sweep runs, lands at `artifacts/benchmarks/worker_count_winner.txt`.

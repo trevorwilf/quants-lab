@@ -1,6 +1,8 @@
 # Alpaca fill/sell-order realism — implementation plan
 
-**Status:** PLAN ONLY — nothing here has been executed. Authored 2026-06-10.
+**Status (updated 2026-06-16):** EXECUTED — the checklist below is complete (P0 +
+PA/PB shipped; see the `[x]` items + `PHASE_NOTES/alpaca_fill_realism_phase*.md`).
+Authored 2026-06-10.
 **Goal:** download every fill-relevant data type Alpaca offers, then implement a
 **symmetric, honest fill model (buys _and_ sells)** that uses both the data we
 already store (Tier 1) and the newly downloaded data (Tier 2), moving the sim

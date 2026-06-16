@@ -1,9 +1,11 @@
 # Phase 2.5 — operator hand-off (worker-count benchmark)
 
-**Status.** Code and tests landed (parity check + selector + smoke + 13
-unit tests); the live benchmark sweep is **operator-driven** and has NOT
-been run in this branch. The workstation config stays at `n_jobs: 8`
-until the operator runs the benchmark and adopts the winner.
+**Status (updated 2026-06-16).** Code and tests landed (parity check + selector +
+smoke + 13 unit tests); the live benchmark sweep is **operator-driven**. Worker
+counts have since been adopted: the workstation config is `n_jobs: 10` (operator
+decision 2026-05-28) and the fast_realism study config runs `n_jobs: 16`, so this
+benchmark hand-off is now largely historical. The "stays at `n_jobs: 8`" baseline
+below predates those decisions.
 
 (A local copy of this note is also written to
 `artifacts/phase_2_5_test_status.md`, which is gitignored — this `docs/`

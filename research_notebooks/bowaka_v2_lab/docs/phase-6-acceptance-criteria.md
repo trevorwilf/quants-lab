@@ -8,9 +8,11 @@
 > `docs/audits/2026-05-24_bowaka_v2_full_scan_feature_matrix_precompute.md` (column
 > schemas, dtype policy, partition layout, manifest format, gate-ordering invariants).
 >
-> Phase 6 is **deferred / scaffolding-only** as of this writing — see
-> `phase-6-scan-matrix-runtime-handoff.md`. The parity bridge and the vectorized gate
-> evaluator are not built. This doc is the acceptance contract for whoever picks it up.
+> Phase 6 **shipped** (updated 2026-06-16): the vectorized scan-matrix runtime is
+> live — `runtime_mode: vectorized`, `scanner/scan_matrix_vectorized.py` implemented
+> and parity-locked (three-way legacy/compat/vectorized tests). See
+> `speedup_phase_6_completion_summary.md`. This doc is retained as the acceptance
+> contract that the shipped runtime satisfies.
 
 ---
 
