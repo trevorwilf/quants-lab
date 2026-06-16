@@ -62,23 +62,19 @@ market_data:
   quote_source: alpaca
   require_adjusted_daily_bars: true
   require_split_adjustment: true
-  # Group-0 de-risk (speedup investigation 2026-06-16): pin the lake root in the
-  # config so it no longer depends on the MARKET_DATA_ROOT env var (which the
-  # 2026-06-15 volume-migration recreate wiped from the container). Without this
-  # the runtime resolves the slow 9p in-repo mount -> the scan-matrix config hash
-  # mismatches the built matrix (-> fail-loud matrix miss). This value reproduces
-  # the built matrix's config_input_hash (verified: sha256:283fce5d...).
+  # Group-0 de-risk (speedup investigation 2026-06-16): pin the lake root so the
+  # runtime no longer depends on the MARKET_DATA_ROOT env var (wiped by the
+  # 2026-06-15 volume-migration recreate). Reproduces the built matrix's
+  # config_input_hash (verified: sha256:283fce5d...). Regenerated from
+  # _fastrealism_study.yml by scripts/_build_fr_matrices.py, which carries it too.
   shared_root: /opt/market_data_cache
 optuna:
   acceleration:
     # c1 (speedup investigation 2026-06-16) — the three per-fold DQ/IO caches.
-    # With these OFF, ~93% of every trial is the data-quality rebuild (~24k
-    # daily-parquet re-reads/fold). All three are parity-tested (tests/parity/
-    # test_dq_cache_*, test_batch_daily_cache_*, test_session_minute_window_*)
-    # and produce byte-identical objectives. fast_realism is in the
-    # reuse_cached_invariant_only gate (sim/backtester.run_backtest) so it gets
-    # the full ~5.7x/fold skip, not just the ~1.02x key agreement. NOT in the
-    # scan-matrix config_input_hash, so the built CA-current matrix stays valid.
+    # With these OFF, ~93% of every trial is the data-quality rebuild. All three
+    # are parity-tested (byte-identical objectives); fast_realism is in the
+    # reuse_cached_invariant_only gate so it gets the full ~5.7x/fold skip. NOT
+    # in the scan-matrix config_input_hash -> the built CA-current matrix stays valid.
     batch_daily_cache:
       enabled: true
     session_minute_window_cache:
@@ -102,17 +98,17 @@ optuna:
       store_root: /opt/scan_matrix_cache/fast_realism/validation
   cached_suppliers: true
   cost_stress: conservative
-  n_jobs: 8
-  n_startup_trials: 25
-  n_trials: 200
+  n_jobs: 16
+  n_startup_trials: 500
+  n_trials: 5000
   objective_artifact_mode: objective_minimal
   parallel:
     blas_thread_pin: true
-    max_workers: 8
+    max_workers: 16
     memory_reserve_gib: 32
     strict_parallel: false
   search_space_overrides: {}
-  storage: ${OPTUNA_STORAGE:-postgresql+psycopg2://optuna:optuna@optuna-postgres:5432/optuna}
+  storage: postgresql+psycopg2://optuna:optuna@optuna-postgres:5432/optuna
   study_name_prefix: bowaka_v2_actual_sip_fast_realism
   walkforward:
     train_months: 6

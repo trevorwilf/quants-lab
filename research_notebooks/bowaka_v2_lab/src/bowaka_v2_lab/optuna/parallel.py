@@ -20,8 +20,11 @@ memory reserve before launch.
 """
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import multiprocessing as _mp
 import os
+import queue as _queue
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, Optional
@@ -85,6 +88,80 @@ def _import_dotted(dotted: str) -> Any:
     return getattr(module, attr)
 
 
+def build_worker_sampler(*, sampler_seed: int, n_startup_trials: int, worker_id: int) -> Any:
+    """Reconstruct the *configured* TPE sampler for a parallel worker.
+
+    Bug fix (speedup investigation 2026-06-16, plan candidate c3). The parent
+    dispatcher creates the study via :meth:`OptunaStudy.create` with
+    ``TPESampler(multivariate=True, seed=sampler_seed, n_startup_trials=...)``,
+    but that sampler instance lives only in the parent's *in-memory* ``Study``
+    object — it is NOT persisted to the RDB. A worker that calls
+    :func:`optuna.load_study` WITHOUT a ``sampler=`` argument therefore silently
+    runs Optuna's DEFAULT sampler (``TPESampler()`` — univariate,
+    ``n_startup_trials=10``, unseeded), not the configured multivariate sampler.
+    The ``sampler_seed`` / ``n_startup_trials`` carried on :class:`WorkerSpec`
+    were threaded all the way through but never actually used.
+
+    This helper rebuilds the sampler exactly as :meth:`OptunaStudy.create` does
+    (``multivariate=True``, the configured ``n_startup_trials``), with a
+    **per-worker seed offset** (``sampler_seed + worker_id``) so each worker's
+    random-startup proposals diverge instead of every worker drawing the
+    identical sequence — the standard recipe for shared-storage parallel TPE.
+    Keeping construction in one tested helper guarantees the workers stay in
+    lock-step with the parent's sampler definition.
+    """
+    import optuna
+
+    return optuna.samplers.TPESampler(
+        multivariate=True,
+        seed=int(sampler_seed) + int(worker_id),
+        n_startup_trials=int(n_startup_trials),
+    )
+
+
+#: c10 — trim freed heap back to the OS every K completed trials per worker.
+_MALLOC_TRIM_EVERY_K = 25
+
+
+def _resolve_malloc_trim() -> Optional[Callable[[int], int]]:
+    """Return glibc ``malloc_trim`` if available on this platform, else ``None``.
+
+    On Linux/glibc this returns the ``malloc_trim`` symbol; on Windows / musl /
+    any libc-resolution failure it returns ``None`` so the caller no-ops.
+    """
+    try:
+        libc_name = ctypes.util.find_library("c") or "libc.so.6"
+        return ctypes.CDLL(libc_name).malloc_trim
+    except Exception:  # noqa: BLE001 — non-glibc / Windows / resolution failure
+        return None
+
+
+def make_malloc_trim_callback(every_k: int = _MALLOC_TRIM_EVERY_K) -> Callable[[Any, Any], None]:
+    """An Optuna ``study.optimize`` callback that returns freed heap to the OS.
+
+    c10 (speedup investigation 2026-06-16) — bounds the worker RSS climb (~17
+    GiB/hr observed) so a long study does not hit the container RAM wall and force
+    a restart (each restart re-pays cold imports + the fold-context build). This is
+    allocator-level ONLY: ``malloc_trim(0)`` returns already-freed pages to the OS
+    and never touches a live Python object, the trial value, or the sampler RNG.
+    Optuna invokes callbacks AFTER the trial's value is recorded, and the callback
+    returns ``None``, so it cannot change any trial result (parity-safe). No-op on
+    non-glibc / Windows, and any trim error is swallowed so it can never fail a trial.
+    """
+    trim = _resolve_malloc_trim()
+    seen = [0]
+
+    def _cb(study: Any, trial: Any) -> None:  # noqa: ARG001 — Optuna callback signature
+        seen[0] += 1
+        if trim is not None and every_k > 0 and seen[0] % every_k == 0:
+            try:
+                trim(0)
+            except Exception:  # noqa: BLE001 — never fail a trial on a trim error
+                pass
+
+    return _cb
+
+
 def _worker_entrypoint(spec: WorkerSpec, q: "_mp.Queue") -> None:
     """The subprocess body — pin BLAS, load study, run trials, report result."""
     pin_blas_threads_to_one()  # MUST run before numpy import
@@ -92,7 +169,17 @@ def _worker_entrypoint(spec: WorkerSpec, q: "_mp.Queue") -> None:
     try:
         import optuna
 
-        study = optuna.load_study(study_name=spec.study_name, storage=spec.storage_url)
+        # c3 fix: reconstruct the CONFIGURED sampler (multivariate, configured
+        # n_startup_trials, per-worker-offset seed). Without an explicit
+        # ``sampler=`` the worker would silently use Optuna's default TPESampler.
+        sampler = build_worker_sampler(
+            sampler_seed=spec.sampler_seed,
+            n_startup_trials=spec.n_startup_trials,
+            worker_id=spec.worker_id,
+        )
+        study = optuna.load_study(
+            study_name=spec.study_name, storage=spec.storage_url, sampler=sampler,
+        )
         factory = _import_dotted(spec.objective_factory_dotted)
         objective = factory(**spec.factory_kwargs)
         before_complete = sum(
@@ -108,7 +195,10 @@ def _worker_entrypoint(spec: WorkerSpec, q: "_mp.Queue") -> None:
             if t.state == optuna.trial.TrialState.FAIL
         )
         try:
-            study.optimize(objective, n_trials=spec.n_trials, n_jobs=1)
+            study.optimize(
+                objective, n_trials=spec.n_trials, n_jobs=1,
+                callbacks=[make_malloc_trim_callback()],  # c10 — bound RSS climb
+            )
         except Exception as opt_exc:  # noqa: BLE001 — reported back to dispatcher
             q.put(WorkerResult(
                 worker_id=spec.worker_id,
@@ -144,6 +234,47 @@ def _worker_entrypoint(spec: WorkerSpec, q: "_mp.Queue") -> None:
             error=f"{type(exc).__name__}: {exc}",
             elapsed_seconds=time.monotonic() - start_at,
         ))
+
+
+def _drain_worker_results(
+    procs: "list[_mp.Process]", q: Any, *, poll_timeout: float = 2.0
+) -> list[WorkerResult]:
+    """Drain one :class:`WorkerResult` per process WITHOUT deadlocking on a dead worker.
+
+    c9 liveness slice (speedup investigation 2026-06-16). The legacy drain was
+    ``for _ in procs: results.append(q.get())`` — a blocking ``q.get()`` per
+    process. If a worker dies WITHOUT putting a result (OOM-killed / crashed mid
+    study — a real hazard over a 2-3 day run; see c10's RSS note) that ``q.get()``
+    blocks FOREVER and hangs the whole study. Here ``q.get(timeout=...)`` returns a
+    result immediately when one is available (the timeout only bounds the idle
+    wait), so the happy path is unchanged; once every process has exited and the
+    queue is drained we stop and synthesize a failure result for each worker that
+    never reported, so the dispatcher's ``sum(n_completed)`` / ``all(r.error)``
+    logic stays correct instead of hanging.
+    """
+    results: list[WorkerResult] = []
+    n = len(procs)
+    while len(results) < n:
+        try:
+            results.append(q.get(timeout=poll_timeout))
+            continue
+        except _queue.Empty:
+            pass
+        if not any(p.is_alive() for p in procs):
+            # Every worker has exited — drain any results still buffered, then stop.
+            while True:
+                try:
+                    results.append(q.get_nowait())
+                except _queue.Empty:
+                    break
+            break
+    missing = n - len(results)
+    for _ in range(missing):
+        results.append(WorkerResult(
+            worker_id=-1, n_completed=0, n_pruned=0, n_failed=0,
+            error="worker exited without reporting (likely OOM/crash)",
+        ))
+    return results
 
 
 def _split_trials(n_total: int, n_workers: int) -> list[int]:
@@ -197,9 +328,8 @@ def run_parallel_bowaka_optimization(
         p = ctx.Process(target=_worker_entrypoint, args=(spec, q))
         p.start()
         procs.append(p)
-    results: list[WorkerResult] = []
-    for _ in procs:
-        results.append(q.get())  # blocks until each worker reports
+    # c9 (liveness): drain without deadlocking if a worker dies without reporting.
+    results = _drain_worker_results(procs, q)
     for p in procs:
         p.join()
     results.sort(key=lambda r: r.worker_id)
@@ -288,6 +418,8 @@ __all__ = [
     "WorkerResult",
     "WorkerSpec",
     "_BLAS_THREAD_ENV_VARS",
+    "build_worker_sampler",
+    "make_malloc_trim_callback",
     "pin_blas_threads_to_one",
     "preflight_parallel_dispatch",
     "run_parallel_bowaka_optimization",

@@ -52,6 +52,7 @@ not closed via CHILD_FILL.
 from __future__ import annotations
 
 import datetime as _dt
+import functools
 import json
 import math
 import random
@@ -143,10 +144,18 @@ def trading_days_since(start: _dt.date, end: _dt.date, *, calendar: str = "XNYS"
     return max(0, len(sessions) - 1)  # exclude the entry day itself
 
 
+@functools.lru_cache(maxsize=None)
 def max_hold_exit_session(
     entry_session: _dt.date, max_hold_days: int, *, calendar: str = "XNYS"
 ) -> _dt.date:
     """The XNYS session a lot held since ``entry_session`` must exit on.
+
+    c29 — memoized: a pure, deterministic map of (entry_session, max_hold_days,
+    calendar) -> immutable date, called once per open lot per dispatch tick. In
+    the event-driven driver a surviving lot is re-walked every tick over the same
+    (entry_session, max_hold_days), so the xcals get_calendar + sessions_in_range
+    work was recomputed redundantly. lru_cache makes it byte-identical (same
+    immutable date object) at a fraction of the cost. All args are hashable.
 
     Per Phase 7 Task 4: exit at the close of session ``N`` where
     ``N = entry_session + (max_hold_days - 1)`` *trading* days — holidays inside

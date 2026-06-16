@@ -1297,6 +1297,13 @@ def run_backtest(
                 """
                 # Snapshot lots ONCE so close-mutations don't break iteration.
                 exits_cfg = cfg_dict.get("exits") or {}
+                # c30 — walk_until is loop-invariant; convert it to int64-ns ONCE
+                # here rather than per open lot (~5k searchsorted-key conversions
+                # per session). The searchsorted below reads _walk_until_ns.
+                _wu = pd.Timestamp(walk_until)
+                _wu = (_wu.tz_localize("UTC") if _wu.tzinfo is None
+                       else _wu.tz_convert("UTC"))
+                _walk_until_ns = int(_wu.value)
                 for pos in list(portfolio.open_positions.values()):
                     bars = _bars_for_lot(pos)
                     if bars is None or len(bars) == 0:
@@ -1329,10 +1336,7 @@ def run_backtest(
                             ts_ns = (_idx.tz_localize(None)
                                      .to_numpy(dtype="datetime64[ns]").view("int64"))
                             ts_ns_by_lot[pos.position_id] = ts_ns
-                        _wu = pd.Timestamp(walk_until)
-                        _wu = (_wu.tz_localize("UTC") if _wu.tzinfo is None
-                               else _wu.tz_convert("UTC"))
-                        new_idx = int(np.searchsorted(ts_ns, _wu.value, side="right"))
+                        new_idx = int(np.searchsorted(ts_ns, _walk_until_ns, side="right"))
                         if new_idx <= cursor:
                             continue  # no new bars in (cursor, walk_until]
                         sub = bars.iloc[cursor:new_idx]
@@ -1369,27 +1373,33 @@ def run_backtest(
                         exit_event=ev,
                     )
                     sess_acc.trades.append(trade)
-                    # Emit a CHILD_FILL log row at the actual exit minute.
-                    exit_ts_utc = pd.Timestamp(ev.exit_timestamp) if ev.exit_timestamp else walk_until
-                    if exit_ts_utc.tzinfo is None:
-                        exit_ts_utc = exit_ts_utc.tz_localize("UTC")
-                    child_fill = Event(
-                        timestamp=exit_ts_utc,
-                        type=EventType.CHILD_FILL,
-                        payload={
-                            "session_date": session_date,
-                            "position_id": ev.position_id or pos.position_id,
-                            "symbol": pos.symbol,
-                            "exit_reason": ev.exit_reason,
-                        },
-                    )
-                    _log_event(
-                        sess_acc, event=child_fill, portfolio=portfolio,
-                        extras={
-                            "exit_price": float(ev.exit_price),
-                            "trade_pnl": float(trade.get("pnl", 0.0)),
-                        },
-                    )
+                    # c31 — the CHILD_FILL row feeds ONLY the event log (events.parquet,
+                    # gated to artifact_mode=='full'); it feeds no objective/summary path.
+                    # In objective_minimal (collect_event_log False) it was built then
+                    # discarded, so gate its construction. The side-effecting close +
+                    # trades.append above stay OUTSIDE the gate (they feed the objective).
+                    if collect_event_log:
+                        # Emit a CHILD_FILL log row at the actual exit minute.
+                        exit_ts_utc = pd.Timestamp(ev.exit_timestamp) if ev.exit_timestamp else walk_until
+                        if exit_ts_utc.tzinfo is None:
+                            exit_ts_utc = exit_ts_utc.tz_localize("UTC")
+                        child_fill = Event(
+                            timestamp=exit_ts_utc,
+                            type=EventType.CHILD_FILL,
+                            payload={
+                                "session_date": session_date,
+                                "position_id": ev.position_id or pos.position_id,
+                                "symbol": pos.symbol,
+                                "exit_reason": ev.exit_reason,
+                            },
+                        )
+                        _log_event(
+                            sess_acc, event=child_fill, portfolio=portfolio,
+                            extras={
+                                "exit_price": float(ev.exit_price),
+                                "trade_pnl": float(trade.get("pnl", 0.0)),
+                            },
+                        )
 
             def _handle_scan(event: Event) -> None:
                 """Run one SCAN tick — gated by the live risk state.
@@ -1630,26 +1640,30 @@ def run_backtest(
                             exit_date=session_date,
                         )
                         sess_acc.trades.append(trade)
-                        # Emit a CHILD_FILL log row for the manual flatten so
-                        # the dispatch log records the closure timestamp.
-                        flatten_event = Event(
-                            timestamp=event.timestamp,
-                            type=EventType.CHILD_FILL,
-                            payload={
-                                "session_date": session_date,
-                                "position_id": p.position_id,
-                                "symbol": p.symbol,
-                                "exit_reason": "manual_flatten",
-                            },
-                        )
-                        _log_event(
-                            sess_acc, event=flatten_event, portfolio=portfolio,
-                            extras={
-                                "exit_price": float(exit_price),
-                                "trade_pnl": float(trade.get("pnl", 0.0)),
-                                "manual_flatten": True,
-                            },
-                        )
+                        # c31 — the manual-flatten CHILD_FILL row feeds ONLY the event
+                        # log (gated to artifact_mode=='full'); the close + trades.append
+                        # above (which feed the objective) stay outside the gate.
+                        if collect_event_log:
+                            # Emit a CHILD_FILL log row for the manual flatten so
+                            # the dispatch log records the closure timestamp.
+                            flatten_event = Event(
+                                timestamp=event.timestamp,
+                                type=EventType.CHILD_FILL,
+                                payload={
+                                    "session_date": session_date,
+                                    "position_id": p.position_id,
+                                    "symbol": p.symbol,
+                                    "exit_reason": "manual_flatten",
+                                },
+                            )
+                            _log_event(
+                                sess_acc, event=flatten_event, portfolio=portfolio,
+                                extras={
+                                    "exit_price": float(exit_price),
+                                    "trade_pnl": float(trade.get("pnl", 0.0)),
+                                    "manual_flatten": True,
+                                },
+                            )
                 elif event.type == EventType.PARENT_FILL_TIMEOUT:
                     # Realism remediation 2 Phase 5 (audit P0-006): a no-fill
                     # marker emitted by ``simulate_marketable_limit_fill`` when
@@ -1852,84 +1866,92 @@ def run_backtest(
         "unprotected_violation_count": int(pm.unprotected_violation_count),
     }
 
-    # Code & dataset manifests.
-    code_paths = code_paths_for_manifest or [paths.lab_root / "src"]
-    code_man = build_code_manifest(repo_root=paths.lab_root.parent.parent, source_paths=code_paths)
-    code_hash = code_manifest_hash(code_man)
-    feed = (cfg_dict.get("market_data") or {}).get("feed", "iex")
-    all_symbols = sorted({s["symbol"] for u in universe_snapshot_by_session.values() for s in u.get("symbols", [])})
-    if not all_symbols:
-        all_symbols = ["SYNTH"]
-    ds_man = build_dataset_manifest(
-        # Realism Phase 2: real provider — lake runs report the lake provider
-        # ("alpaca"); synthetic runs legitimately report "fixture".
-        provider=dataset_provider, feed=feed, symbols=all_symbols,
-        start_date=sessions[0].isoformat() if sessions else "1970-01-01",
-        end_date=sessions[-1].isoformat() if sessions else "1970-01-01",
-        dataset_hash=dataset_hash,
-        bar_count=sum(len(daily_cache_by_session.get(s, pd.DataFrame())) for s in sessions),
-        adjustments=str(dataset_lineage.get("adjustment", "")) or None,
-        extras={"strategy_id": "bowaka_v2", "dataset_regime": dataset_lineage["regime"]},
-    )
-    # Run lineage: the simulation-mode contract + the four lineage hashes plus
-    # the Phase-2 content-derived dataset lineage (component hashes for forensics).
-    git_head = _git_head()
-    strategy_config_hash_actual = actual_contract_hash()  # "" if contract not generated
-    lineage = {
-        "simulation_mode": sim_cfg.mode,
-        "feed": feed,
-        "strategy_config_hash_actual": strategy_config_hash_actual,
-        "lab_config_hash": strategy_hash,
-        "dataset_hash": dataset_hash,
-        "code_hash": git_head,
-        "code_manifest_hash": code_hash,
-        "dataset_regime": dataset_lineage["regime"],
-        "dataset_provider": dataset_provider,
-        "dataset_adjustment": dataset_lineage.get("adjustment"),
-        "dataset_hash_components": dataset_lineage["components"],
-    }
-    run_man = build_run_manifest(
-        strategy_id="bowaka_v2",
-        strategy_version=str(cfg_dict.get("strategy_version", "0.1.0")),
-        run_id=run_id, config_hash=strategy_hash, dataset_hash=dataset_hash,
-        code_manifest_hash=code_hash, run_kind="backtest", feed=feed,
-        extras={
-            "run_hash": run_hash,
-            "ambiguous_bar_count": ambiguous_bar_count,
-            "simulation": sim_cfg.model_dump(),
-            # Realism remediation 2 Phase 0: the simulation contract (== the
-            # simulation mode) is surfaced as a top-level manifest field so every
-            # run artifact declares which strategy it reproduced. suitability_tier
-            # is added below, after the mechanical decision runs.
-            "simulation_contract": sim_cfg.mode,
-            # PB.6 — declare the entry/exit fill model so the suitability gate can
-            # cap a tape-replay run at research_only until PB.5 validates the
-            # honest-fill model against the real tape (then promote into IR).
-            "fill_model": {
-                "execution": str((cfg_dict.get("execution") or {}).get("fill_model", "legacy")),
-                "exits": str((cfg_dict.get("exits") or {}).get("fill_model", "legacy")),
-                "consumes_trade_tape": any(
-                    str((cfg_dict.get(_b) or {}).get("fill_model", "legacy")) == "tape_replay"
-                    for _b in ("execution", "exits")
-                ),
+    # Code & dataset manifests. c5 — the manifest COMPUTE (build_code_manifest's
+    # src-tree rglob+sha + two git subprocesses, plus _git_head's third git
+    # subprocess) ran UNCONDITIONALLY every fold, but code_man/ds_man/run_man are
+    # consumed ONLY by the full-mode artifact writes below (and feed no
+    # objective/summary/BacktestResult path). Gate the whole block so the
+    # objective_minimal per-trial path skips the dead work — byte-identical in
+    # full mode (same statements, now under the same condition as their writers).
+    code_man = ds_man = run_man = None
+    if artifact_mode == "full":
+        code_paths = code_paths_for_manifest or [paths.lab_root / "src"]
+        code_man = build_code_manifest(repo_root=paths.lab_root.parent.parent, source_paths=code_paths)
+        code_hash = code_manifest_hash(code_man)
+        feed = (cfg_dict.get("market_data") or {}).get("feed", "iex")
+        all_symbols = sorted({s["symbol"] for u in universe_snapshot_by_session.values() for s in u.get("symbols", [])})
+        if not all_symbols:
+            all_symbols = ["SYNTH"]
+        ds_man = build_dataset_manifest(
+            # Realism Phase 2: real provider — lake runs report the lake provider
+            # ("alpaca"); synthetic runs legitimately report "fixture".
+            provider=dataset_provider, feed=feed, symbols=all_symbols,
+            start_date=sessions[0].isoformat() if sessions else "1970-01-01",
+            end_date=sessions[-1].isoformat() if sessions else "1970-01-01",
+            dataset_hash=dataset_hash,
+            bar_count=sum(len(daily_cache_by_session.get(s, pd.DataFrame())) for s in sessions),
+            adjustments=str(dataset_lineage.get("adjustment", "")) or None,
+            extras={"strategy_id": "bowaka_v2", "dataset_regime": dataset_lineage["regime"]},
+        )
+        # Run lineage: the simulation-mode contract + the four lineage hashes plus
+        # the Phase-2 content-derived dataset lineage (component hashes for forensics).
+        git_head = _git_head()
+        strategy_config_hash_actual = actual_contract_hash()  # "" if contract not generated
+        lineage = {
+            "simulation_mode": sim_cfg.mode,
+            "feed": feed,
+            "strategy_config_hash_actual": strategy_config_hash_actual,
+            "lab_config_hash": strategy_hash,
+            "dataset_hash": dataset_hash,
+            "code_hash": git_head,
+            "code_manifest_hash": code_hash,
+            "dataset_regime": dataset_lineage["regime"],
+            "dataset_provider": dataset_provider,
+            "dataset_adjustment": dataset_lineage.get("adjustment"),
+            "dataset_hash_components": dataset_lineage["components"],
+        }
+        run_man = build_run_manifest(
+            strategy_id="bowaka_v2",
+            strategy_version=str(cfg_dict.get("strategy_version", "0.1.0")),
+            run_id=run_id, config_hash=strategy_hash, dataset_hash=dataset_hash,
+            code_manifest_hash=code_hash, run_kind="backtest", feed=feed,
+            extras={
+                "run_hash": run_hash,
+                "ambiguous_bar_count": ambiguous_bar_count,
+                "simulation": sim_cfg.model_dump(),
+                # Realism remediation 2 Phase 0: the simulation contract (== the
+                # simulation mode) is surfaced as a top-level manifest field so every
+                # run artifact declares which strategy it reproduced. suitability_tier
+                # is added below, after the mechanical decision runs.
+                "simulation_contract": sim_cfg.mode,
+                # PB.6 — declare the entry/exit fill model so the suitability gate can
+                # cap a tape-replay run at research_only until PB.5 validates the
+                # honest-fill model against the real tape (then promote into IR).
+                "fill_model": {
+                    "execution": str((cfg_dict.get("execution") or {}).get("fill_model", "legacy")),
+                    "exits": str((cfg_dict.get("exits") or {}).get("fill_model", "legacy")),
+                    "consumes_trade_tape": any(
+                        str((cfg_dict.get(_b) or {}).get("fill_model", "legacy")) == "tape_replay"
+                        for _b in ("execution", "exits")
+                    ),
+                },
+                "lineage": lineage,
+                # Realism Phase 3: per-session point-in-time universe hashes.
+                "universe_hashes_by_session": universe_hashes_by_session,
+                # Realism Phase 4: per-session intraday scan cadence + funnel —
+                # expected vs actual scan count, candidate / accepted counts and
+                # the gate-rejection breakdown.
+                "scan_counts": scan_counts,
+                "data_quality": {
+                    "regime": data_quality_report["regime"],
+                    "passed": data_quality_report["passed"],
+                    "failed": data_quality_report["failed"],
+                    "warned": data_quality_report["warned"],
+                    "required_failures": data_quality_report["required_failures"],
+                },
+                "startup_dq_failure": None,
             },
-            "lineage": lineage,
-            # Realism Phase 3: per-session point-in-time universe hashes.
-            "universe_hashes_by_session": universe_hashes_by_session,
-            # Realism Phase 4: per-session intraday scan cadence + funnel —
-            # expected vs actual scan count, candidate / accepted counts and
-            # the gate-rejection breakdown.
-            "scan_counts": scan_counts,
-            "data_quality": {
-                "regime": data_quality_report["regime"],
-                "passed": data_quality_report["passed"],
-                "failed": data_quality_report["failed"],
-                "warned": data_quality_report["warned"],
-                "required_failures": data_quality_report["required_failures"],
-            },
-            "startup_dq_failure": None,
-        },
-    )
+        )
 
     # Build the in-memory execution-quality rows + exit analysis — these are
     # needed by the BacktestResult fields the Optuna objective consumes, and

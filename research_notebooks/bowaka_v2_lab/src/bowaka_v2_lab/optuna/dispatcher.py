@@ -198,10 +198,24 @@ def run_bowaka_optimization_dispatch(
     budget = memory_budget or MemoryBudget.from_system()
     effective_n_jobs = min(int(n_jobs), int(budget.max_optuna_workers))
     if effective_n_jobs != n_jobs:
-        log.info(
-            "capping n_jobs from %d to %d (memory_budget.max_optuna_workers)",
-            n_jobs, effective_n_jobs,
+        # De-risk (speedup investigation 2026-06-16, plan Group 0): a silently
+        # capped worker count multiplies wall-clock and changes the trial
+        # distribution without anyone noticing — exactly the footgun that makes
+        # a "26-day" study quietly become a 52-day one. Surface it LOUDLY; under
+        # strict_parallel treat it as a hard config error (the operator asked
+        # for exactly n_jobs workers, so getting fewer means optuna.n_jobs and
+        # optuna.parallel.max_workers disagree, or the memory budget is
+        # undersized — all of which should fail fast, not degrade silently).
+        cap_msg = (
+            f"requested optuna.n_jobs={n_jobs} but the memory budget permits "
+            f"only max_optuna_workers={budget.max_optuna_workers}; effective "
+            f"workers capped to {effective_n_jobs}. Raise "
+            f"optuna.parallel.max_workers (and confirm the memory budget) or "
+            f"lower optuna.n_jobs so the two agree."
         )
+        if strict_parallel:
+            raise OptunaStudyInvalidError(cap_msg)
+        log.warning(cap_msg)
     try:
         budget.assert_launch_safe(
             feature_store_gib_estimate=float(feature_store_gib_estimate),

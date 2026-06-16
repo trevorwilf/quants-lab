@@ -54,6 +54,12 @@ class ScanSessionContext:
     #: session instead of every scan (~346x). Excluded from eq/hash (compare=False)
     #: so it never affects the frozen-dataclass identity semantics.
     _matrix_baseline_cache: dict = field(default_factory=dict, compare=False)
+    #: c18 — mutable per-session memo for the matrix evaluator's symbol-order
+    #: arrays (sym_to_idx, order_idxs), keyed by the matrix-session identity with a
+    #: length guard. These depend only on matrix_session.universe_meta + the
+    #: session-constant symbol list, but were rebuilt every scan (~346x). Same
+    #: compare=False semantics as the baseline memo above.
+    _matrix_order_cache: dict = field(default_factory=dict, compare=False)
 
 
 def _config_hash(cfg: Mapping[str, Any]) -> str:

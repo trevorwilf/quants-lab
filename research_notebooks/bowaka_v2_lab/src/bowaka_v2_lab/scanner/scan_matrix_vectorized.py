@@ -231,10 +231,25 @@ def evaluate_one_scan_vectorized(
 
     symbols = list(universe_meta_by_sym.keys())
     n = len(symbols)
-    sym_to_idx = {
-        str(s): i for i, s in enumerate(matrix_session.universe_meta["symbol"].tolist())
-    }
-    order_idxs = np.array([sym_to_idx.get(s, -1) for s in symbols], dtype=np.int64)
+    # c18 — sym_to_idx / order_idxs depend only on matrix_session.universe_meta +
+    # the session-constant symbol list, but were rebuilt EVERY scan (~346x/session).
+    # Memoize on the per-session scan_context keyed by the matrix-session identity
+    # (with a length guard), mirroring the Opt A baseline memo below. Byte-identical
+    # (same deterministic enumerate / gather); both are read-only downstream. The
+    # getattr fallback + shape guard keep a context without the field (or a stale
+    # length) correct by recompute.
+    _oc = getattr(scan_context, "_matrix_order_cache", None)
+    _ock = id(matrix_session)
+    _oce = _oc.get(_ock) if _oc is not None else None
+    if _oce is not None and _oce[1].shape[0] == n:
+        sym_to_idx, order_idxs = _oce
+    else:
+        sym_to_idx = {
+            str(s): i for i, s in enumerate(matrix_session.universe_meta["symbol"].tolist())
+        }
+        order_idxs = np.array([sym_to_idx.get(s, -1) for s in symbols], dtype=np.int64)
+        if _oc is not None:
+            _oc[_ock] = (sym_to_idx, order_idxs)
 
     # ---- vectorized feature + gate-input columns (legacy symbol order) ----
     last_price = _f64_column(matrix_session, "last_price", scan_idx, order_idxs)
@@ -308,11 +323,20 @@ def evaluate_one_scan_vectorized(
     for name in _GATE_ORDER:
         gate_pass_all &= gate_masks[name]
 
-    score_vec = compute_signal_strength_vectorized(
-        rvol_so_far=rvol, range_expansion_so_far=range_exp,
-        close_location_so_far=close_loc, ema_distance=ema_dist,
-        ema_slope_prior=ema_slope, gap_pct=gap_pct, score_cfg=score_cfg,
-    )
+    # c19 — the score is consumed (line ~439) ONLY when ``ok`` (gate_pass_all[i])
+    # is True; failing symbols get ``score=None`` regardless. So computing the
+    # score for rejected symbols is dead work. compute_signal_strength_vectorized
+    # is purely element-wise (no cross-element reduction), so the masked subset
+    # result is bit-identical at the filled positions; non-passing slots stay NaN
+    # and are never read. (Extends the same dead-work-elimination as the scan floor.)
+    score_vec = np.full(n, np.nan, dtype=np.float64)
+    if gate_pass_all.any():
+        score_vec[gate_pass_all] = compute_signal_strength_vectorized(
+            rvol_so_far=rvol[gate_pass_all], range_expansion_so_far=range_exp[gate_pass_all],
+            close_location_so_far=close_loc[gate_pass_all], ema_distance=ema_dist[gate_pass_all],
+            ema_slope_prior=ema_slope[gate_pass_all], gap_pct=gap_pct[gate_pass_all],
+            score_cfg=score_cfg,
+        )
 
     # ---- matrix validity flags (matrix column order) ----
     has_bar_row = matrix_session.dynamic_uint8["has_bar"][scan_idx, :]

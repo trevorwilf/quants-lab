@@ -9,7 +9,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from bowaka_v2_lab.optuna.dispatcher import run_bowaka_optimization_dispatch
+from bowaka_v2_lab.optuna.errors import OptunaStudyInvalidError
 from bowaka_v2_lab.utils.memory_guard import MemoryBudget
 
 
@@ -76,3 +79,31 @@ def test_n_jobs_under_cap_passes_through():
             memory_budget=MemoryBudget(total_ram_gib=192.0, max_optuna_workers=8),
         )
     assert captured["n_workers"] == 4
+
+
+def test_strict_parallel_raises_when_worker_count_would_be_capped():
+    """Group-0 de-risk: under strict_parallel a silent worker cap is a hard error.
+
+    Speedup investigation 2026-06-16. Requesting more workers than the memory
+    budget allows used to silently halve throughput; in strict_parallel mode the
+    operator asked for exactly ``n_jobs`` workers, so the mismatch must fail fast
+    instead of quietly degrading the run.
+    """
+    budget = MemoryBudget(total_ram_gib=192.0, max_optuna_workers=8)
+    fake_optuna = MagicMock()
+    fake_optuna.load_study = MagicMock(return_value=_stub_study())
+    with patch(
+        "bowaka_v2_lab.optuna.dispatcher.run_parallel_bowaka_optimization",
+        side_effect=AssertionError("workers must NOT be launched when capped under strict"),
+    ), patch("bowaka_v2_lab.optuna.dispatcher.optuna", fake_optuna):
+        with pytest.raises(OptunaStudyInvalidError, match="capped"):
+            run_bowaka_optimization_dispatch(
+                study=_stub_study(), study_name="x",
+                objective=lambda t: 0.0,
+                objective_factory_dotted="some:thing",
+                factory_kwargs={},
+                n_trials=160, n_jobs=18,
+                storage_url="postgresql+psycopg2://u:p@h:5432/d",
+                memory_budget=budget,
+                strict_parallel=True,
+            )
