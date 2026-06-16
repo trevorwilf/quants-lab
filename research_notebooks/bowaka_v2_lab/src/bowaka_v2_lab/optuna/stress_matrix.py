@@ -14,9 +14,8 @@ keys threaded into the fill model (``slippage_bps_offset`` / ``spread_multiplier
 the unstressed backtest byte-for-byte.
 
 The replay is decoupled from the walk-forward plumbing via an injected
-``score_with_overrides(params, overrides) -> (objective, folds)`` callable —
-the same pattern :mod:`bowaka_v2_lab.optuna.robustness` uses. The walk-forward
-runner exposes :func:`build_validation_scorer` to construct one from a config.
+``score_with_overrides(params, overrides) -> (objective, folds)`` callable. The
+walk-forward runner exposes :func:`build_validation_scorer` to construct one from a config.
 """
 from __future__ import annotations
 
