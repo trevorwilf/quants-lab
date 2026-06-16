@@ -6,7 +6,6 @@ each ending in comprehensive testing and an automatic merge back to `dev`. Do **
 approval between phases unless a phase's exit gate explicitly says PAUSE.
 
 ---
-
 ## 0. Context & authoritative spec
 
 - **Repo root:** `quants-lab/`. **Lab root:** `quants-lab/research_notebooks/bowaka_v2_lab/`.
