@@ -84,13 +84,24 @@ for i, base in enumerate(configs):
     sm = load_config(out_path)["optuna"]["acceleration"]["scan_matrix"]
     for scope in ("validation", "holdout"):
         root = str(resolve_scan_matrix_store_root(sm, scope))
-        print(f"[rebuild] build {base} {scope} -> {root}", flush=True)
-        subprocess.run([sys.executable, "-m", "bowaka_v2_lab.cli", "scan-matrix", "build",
-                        "--config", out_path, "--scope", scope, "--workers", str(workers),
-                        "--store-root", root], check=True)
-        print(f"[rebuild] verify {base} {scope}", flush=True)
-        subprocess.run([sys.executable, "-m", "bowaka_v2_lab.cli", "scan-matrix", "verify",
-                        "--config", out_path, "--store-root", root, "--vectorized-check"], check=True)
+        # Retry each scope: heavy multi-worker builds can hit a transient OSError
+        # ([Errno 61] No data available) on the lake/matrix volume; the build is
+        # idempotent (overwrites the store), so a retry clears a one-off hiccup
+        # instead of aborting the whole multi-matrix rebuild.
+        for attempt in (1, 2, 3):
+            try:
+                print(f"[rebuild] build {base} {scope} -> {root} (attempt {attempt})", flush=True)
+                subprocess.run([sys.executable, "-m", "bowaka_v2_lab.cli", "scan-matrix", "build",
+                                "--config", out_path, "--scope", scope, "--workers", str(workers),
+                                "--store-root", root], check=True)
+                print(f"[rebuild] verify {base} {scope}", flush=True)
+                subprocess.run([sys.executable, "-m", "bowaka_v2_lab.cli", "scan-matrix", "verify",
+                                "--config", out_path, "--store-root", root, "--vectorized-check"], check=True)
+                break
+            except subprocess.CalledProcessError as e:
+                print(f"[rebuild] {base} {scope} attempt {attempt} FAILED: {e}", flush=True)
+                if attempt == 3:
+                    raise
 print("[rebuild] DONE all configs", flush=True)
 PYEOF
 "@
