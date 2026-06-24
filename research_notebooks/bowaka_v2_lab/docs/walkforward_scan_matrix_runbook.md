@@ -15,8 +15,8 @@ export PYTHONPATH=src:../bowaka_common/src      # PowerShell: $env:PYTHONPATH="s
 # use an interpreter with the lab deps (NOT a bare 3.14): e.g. C:/Python312/python.exe
 ```
 
-`WS=configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml`
-`STORE=research_notebooks/bowaka_v2_lab/artifacts/cache/scan_matrix/validation`
+`WS=configs/_fastrealism_study.yml`   # fast_realism is now the ONLY matrix family (the IR/_local_container_matrix family is retired)
+`STORE=/opt/scan_matrix_cache/fast_realism/validation`   # local-SSD fallback: research_notebooks/bowaka_v2_lab/artifacts/cache/scan_matrix/validation
 
 ---
 
@@ -36,22 +36,24 @@ python -m bowaka_v2_lab.cli scan-matrix build \
 ```
 
 - This is the slow step — it is the "one slow scan pass," parallel across
-  workers, done ONCE and amortized over all 5000 trials. Measured cost on the
-  operator lake: **~98 min for 23 sessions × 3 symbols at 60s cadence**; the
-  full validation scope (full PIT universe × all validation sessions) is a
-  multi-hour data job. Run it deliberately, not inside CC/CI.
-- **Container / 9p lake cache (optional, ~10× I/O win).** Inside `ql-jupyter`
-  the lake is a WSL2 9p bind-mount; parallel builds stall in I/O-wait. Mirror
-  the lake once to a container-native path and build against it:
+  workers, done ONCE and amortized over all 5000 trials. The validation scope is
+  **auto-anchored to the freshest lake session** (3 non-overlapping folds: train 6
+  / val 1 / holdout 5 / step 7; tests land ~Oct2024 / May2025 / Dec2025 relative
+  to the latest session), so the build size scales with the (now ~2.75 yr /
+  ~6.5k-symbol) lake — a multi-hour data job. Run it deliberately, not inside
+  CC/CI. (The weekly cron runs it automatically; see "Rebuild triggers" below.)
+- **Container-native lake (~10× I/O win).** Inside `ql-jupyter` the lake is the
+  persistent native Docker volume `ql_market_data` mounted at
+  `/opt/market_data_cache` (survives recreate + `compose down -v`); the config's
+  `market_data.shared_root` points at it. The one-time rsync below is only needed
+  when first seeding a fresh host:
   ```bash
   # one-time, idempotent (guarded by a .lake_cache_complete marker)
   rsync -a --info=progress2 research_notebooks/market_data/ /opt/market_data_cache/ \
     && touch /opt/market_data_cache/.lake_cache_complete
-  MARKET_DATA_ROOT=... # do NOT use the env var to redirect — it breaks daily
-                       # split-adjustment resolution. Instead point the config's
-                       # market_data.shared_root at /opt/market_data_cache.
+  # point the config's market_data.shared_root at /opt/market_data_cache (do NOT
+  # use MARKET_DATA_ROOT to redirect — it breaks daily split-adjustment resolution).
   ```
-  On the Windows host / local SSD this is unnecessary (no 9p).
 
 ## 2. Verify + write the parity proof (minutes)
 
@@ -69,7 +71,7 @@ python -m bowaka_v2_lab.cli scan-matrix verify \
 
 ```bash
 python scripts/benchmark_walkforward_trial.py \
-    --config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.matrix.yml \
+    --config configs/_fastrealism_study.yml \
     --n-trials 8 --legacy
 ```
 
@@ -82,21 +84,21 @@ speedup ratio vs the disabled scanner.
 
 ## 4. Run the fast study
 
-Set notebook 10's `CONFIG_PATH` to the matrix overlay
-`configs/bowaka_v2_actual_iex_current_code_optuna.workstation.matrix.yml` and
-run. After the study, read `artifacts/optuna/<study>__phase_profile.json` for
-the per-phase + counter breakdown.
+Notebook 10 already points its `CONFIG_PATH` at the fast_realism config
+`configs/_fastrealism_study.yml` (resolved with `mode_override=fast_realism`) — it
+serves both search and finalist re-score. After the study, read
+`artifacts/optuna/<study>__phase_profile.json` for the per-phase + counter breakdown.
 
 ### 5000-trial budget
 
-Wall-clock ≈ `5000 × per_trial_seconds / n_jobs` (the workstation config sets
-`n_jobs: 10`). Pruning trims the doomed tail, so this is an upper bound.
+Wall-clock ≈ `5000 × per_trial_seconds / n_jobs` (the fast_realism config sets
+`n_jobs: 16`). Pruning trims the doomed tail, so this is an upper bound.
 
-| per-trial | 5000 trials @ n_jobs=10 |
+| per-trial | 5000 trials @ n_jobs=16 |
 |---|---|
-| 1 min | ~8.3 h |
-| 2 min | ~16.7 h |
-| 3 min | ~25 h |
+| 1 min | ~5.2 h |
+| 2 min | ~10.4 h |
+| 3 min | ~15.6 h |
 
 The hard goal is `<=3 min/trial` (so a 5000-trial study is ~1 day);
 `benchmark_walkforward_trial.py` prints the measured number + verdict.
@@ -106,10 +108,11 @@ The hard goal is `<=3 min/trial` (so a 5000-trial study is ~1 day);
 ## Safety contracts (do not violate)
 
 - **Holdout isolation.** The validation-scope matrix EXCLUDES the final-holdout
-  window. `separate_holdout_matrix: true`, and the fold-context builder returns
-  the legacy scanner (no matrix) for the holdout scope — never build or read a
-  holdout matrix during tuning. The store also fails closed on a holdout-session
-  read under `purpose != "final_holdout"`.
+  window. The fast_realism path sets `separate_holdout_matrix: false` (the FR sweep
+  requires this), so BOTH scopes get their own matrix (`…/validation` +
+  `…/validation/holdout`); the holdout matrix is read ONLY for the holdout scope
+  (`purpose == "final_holdout"`) — never during tuning. The store fails closed on a
+  holdout-session read under `purpose != "final_holdout"`.
 - **Search-space safety.** One build serves all 5000 trials because the search
   space tunes only signals / sizing / risk / execution / exits — all
   matrix-invariant. `fail_on_matrix_sensitive_search_space: true` +
@@ -127,8 +130,12 @@ The hard goal is `<=3 min/trial` (so a 5000-trial study is ~1 day);
 
 ## Rebuild triggers
 
-Rebuild the matrix (it is content-addressed by feature/universe/cadence keys,
-NOT by signals/sizing/exits) when ANY of these change:
+The fast_realism matrix is rebuilt **automatically each week** by
+`scheduled_weekly_refresh.ps1` STEP 4 → `rebuild_scan_matrices.ps1` (default =
+fast_realism ONLY) on the freshest lake; because the window **auto-anchors** to
+the latest session, this fires every week by design. Rebuild MANUALLY (it is
+content-addressed by feature/universe/cadence keys, NOT by signals/sizing/exits)
+when ANY of these change between weekly runs:
 
 - the lake data (a backfill, a vendor/feed correction, a re-adjustment),
 - the feed or simulation mode,

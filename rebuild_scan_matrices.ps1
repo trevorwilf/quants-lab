@@ -2,12 +2,14 @@
 # rebuild_scan_matrices.ps1
 #
 # Rebuild the bowaka_v2 scan matrices that notebook 10's walk-forward study + top-N holdout
-# sweep consume. By default it rebuilds BOTH active matrix families (they are DISTINCT
-# matrices -- different windows / walk-forward -- so both must be built):
-#   * IR  (intended_realism)  configs/_local_container_matrix.yml
-#                             -> /opt/scan_matrix_cache/validation[/holdout]
+# sweep consume. DEFAULT = fast_realism ONLY (the IR family is retired; notebook 10 runs
+# fast_realism for both search + finalist re-score):
 #   * fast_realism            configs/_fastrealism_study.yml
 #                             -> /opt/scan_matrix_cache/fast_realism/validation[/holdout]
+# The FR config anchors its window to the latest lake session (backtest.{start,end}_date:
+# auto), so a rebuild always targets the freshest data. Pass -Configs to rebuild the
+# retired IR family (configs/_local_container_matrix.yml -> /opt/scan_matrix_cache/...)
+# or any other config explicitly.
 #
 # For each config it resolves the SAME way the study/sweep does (resolve_walkforward_config,
 # feed auto-detected from the lake), PRESERVING the config's simulation mode: a config whose
@@ -34,7 +36,12 @@
 # active. Requires SIP (or IEX) bars in the lake (build fails loud).
 #
 param(
-    [string[]]$Configs = @("configs/_local_container_matrix.yml", "configs/_fastrealism_study.yml"),
+    # Default: fast_realism ONLY (the IR/_local_container_matrix family is retired
+    # — notebook 10 runs fast_realism for both search + finalist re-score). Pass
+    # -Configs to rebuild a different/extra family. The FR config anchors its
+    # window to the latest lake session (backtest.{start,end}_date: auto), so this
+    # rebuild — and the weekly cron that calls it — targets the freshest data.
+    [string[]]$Configs = @("configs/_fastrealism_study.yml"),
     [int]     $Workers = 6
 )
 $ErrorActionPreference = "Stop"

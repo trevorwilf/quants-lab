@@ -79,3 +79,31 @@ def build_walkforward_splits(
         splits.append(WalkForwardSplit(cur_train_start, train_end, val_start, val_end))
         cur_train_start = _add_months(cur_train_start, step_months)
     return WalkForwardPlan(tuple(splits), final_holdout_start, final_holdout_end)
+
+
+def anchor_window_start(
+    full_end: _dt.date,
+    *,
+    train_months: int,
+    val_months: int,
+    final_holdout_months: int,
+    step_months: int,
+    n_folds: int,
+) -> _dt.date:
+    """Start date that yields EXACTLY ``n_folds`` rolling folds + the holdout when
+    fed to :func:`build_walkforward_splits` with ``full_end``.
+
+    The holdout is reserved at ``[full_end - final_holdout, full_end)``; folds roll
+    forward from the returned start (stepping ``step_months``) and the last fold's
+    ``val_end`` lands exactly on ``final_holdout_start``. Hence
+    ``start = full_end - final_holdout - (n_folds-1)*step - train - val``. Used by
+    the ``start_date: auto`` anchoring (resolve_walkforward_config) so the window
+    tracks the latest lake session while keeping a fixed fold count. Exact month
+    arithmetic guarantees the fold count (do NOT month-snap — that breaks it).
+    """
+    if n_folds < 1:
+        raise ValueError("n_folds must be >= 1")
+    if train_months <= 0 or val_months <= 0 or step_months <= 0 or final_holdout_months <= 0:
+        raise ValueError("train/val/step/holdout months must all be > 0")
+    total = final_holdout_months + (n_folds - 1) * step_months + train_months + val_months
+    return _add_months(full_end, -total)

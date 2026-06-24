@@ -1,6 +1,6 @@
 # Data lake layout — feeds, paths, and the `sip_data_absent` gate
 
-**Status (updated 2026-06-16):** the live lake is now **SIP-only** — SIP bars /
+**Status (updated 2026-06-24):** the live lake is now **SIP-only** — SIP bars /
 quotes / quotes_fine / trades / auctions / statuses / corporate_actions have been
 ingested to `/opt/market_data_cache`, and the legacy IEX partitions were removed.
 The comprehensive, current layout reference is **`DATA_LAKE.md`** — read that first.
@@ -103,7 +103,7 @@ The canonical `quotes/` tree stays **byte-identical**: the 1/min sampler
 (`backfill._sample_session_nbbo`) projects to the 7 canonical columns, so the
 PA.3 exchange/tape additions reach only `quotes_fine/`. Storage is sparse on a
 $1–$20 / $250k-ADV universe (a representative ~2.7 MB/symbol-month for trades;
-~60–70 GB total over ~11 months) — see `PHASE_NOTES/`.
+~75–80 GB total over ~11 months — trades ~74 GB, quotes_fine ~4.7 GB) — see `PHASE_NOTES/`.
 
 The trade tape enters the `dataset_hash` **only** when a run actually consumes it
 (`execution.fill_model` or `exits.fill_model` == `tape_replay`), via the gated

@@ -4,8 +4,8 @@ Complete reference for the shared market-data lake and the scan-matrix cache tha
 bowaka_v2_lab's backtesting, walk-forward Bayesian optimization, and realism gates. Written
 for engineers who do **not** have access to the running container.
 
-- **Live-inventory figures captured 2026-06-15.** Sizes/counts/date-ranges drift as the lake
-  is refreshed; the *structure, schema, sources, and mechanics* are stable.
+- **Live-inventory figures captured 2026-06-24** (after the deep minute backfill). Sizes/counts/
+  date-ranges drift as the lake is refreshed; the *structure, schema, sources, and mechanics* are stable.
 - The lake itself is **gitignored** (a rebuildable cache). This document and the lake's own
   `README.md` are the only checked-in artifacts that describe it.
 - Authoritative code: `bowaka_common.marketdata` (layout/store/fetch) under
@@ -36,9 +36,10 @@ for engineers who do **not** have access to the running container.
 - It physically lives **inside the `ql-jupyter` Docker container** at `/opt/market_data_cache`,
   on a **persistent Docker named volume** (`ql_market_data`). Vendor = `alpaca`, feed = `sip`
   throughout.
-- ~**81 GB** across **8 datasets**: daily bars, minute bars, NBBO quotes (1/min), fine NBBO
-  (sub-minute), the **raw trade tape** (~70 GB, the bulk), official open/close auctions,
-  trade-halt statuses, corporate actions, plus an asset-master snapshot.
+- ~**110 GB** across **8 datasets**: daily bars, minute bars (~25 GB after the 2026-06-23 deep
+  backfill to 2023-09), NBBO quotes (1/min), fine NBBO (sub-minute), the **raw trade tape**
+  (~74 GB, the bulk), official open/close auctions, trade-halt statuses, corporate actions, plus
+  an asset-master snapshot.
 - The **scan matrices** (`/opt/scan_matrix_cache`, volume `ql_scan_matrix`) are a precomputed,
   memory-mapped, per-`(session, scan_time, symbol)` feature cache. They are the single biggest
   performance lever — a walk-forward Optuna trial reads features from the matrix instead of
@@ -104,7 +105,8 @@ halts, whose true upstream is Nasdaq (see the caveat at the end of this section)
   TradingHaltSearch JSON-RPC** (Jayrock 1.1 at `https://nasdaqtrader.com/RPCHandler.axd`,
   Referer-guarded via a session cookie from `Trader.aspx?id=TradingHaltSearch`).
   - `BL_TradeHalt.GetHaltsByDate('YYYYMMDD')` — per-day historical (reaches back years); the
-    backfill source for IR's halt gate.
+    backfill source for the deep halt history (full-history re-fetch floor `2023-09-01`; the lake now
+    holds halts back to 2022-02-28).
   - `BL_TradeHalt.SearchTradeHaltsNEW` — trailing ~1 year (~13k halts) in one call.
   - Live RSS (`rss.aspx?feed=tradehalts`) — a snapshot of **currently-open** halts only.
 - Requires outbound access to `nasdaqtrader.com`. No API auth.
@@ -257,32 +259,32 @@ backfill bookkeeping.
 
 ## 5. What the lake HAS today (live inventory)
 
-*Captured 2026-06-15 inside `ql-jupyter`. Feed = `sip`, vendor = `alpaca` everywhere.*
+*Captured 2026-06-24 inside `ql-jupyter` (post deep minute backfill). Feed = `sip`, vendor = `alpaca` everywhere.*
 
-### Sizes — `/opt/market_data_cache` (~81 GB)
+### Sizes — `/opt/market_data_cache` (~110 GB)
 | Partition | Size |
 |---|---|
-| trades | **70 GB** (~94% of the lake) |
-| quotes_fine | 4.5 GB |
-| bars | 3.9 GB (1m = 3.5 GB, 1d = 0.45 GB) |
-| quotes | 1.9 GB |
-| auctions | 869 MB |
-| corporate_actions | 182 MB |
-| statuses | 67 MB |
+| trades | **74 GB** (~67% of the lake) |
+| bars | ~25 GB (1m = 25 GB, 1d = 0.45 GB) |
+| quotes_fine | 4.7 GB |
+| quotes | 2.0 GB |
+| auctions | 870 MB |
+| corporate_actions | 254 MB |
+| statuses | 199 MB |
 | assets | 556 KB |
 
 ### Coverage — date range & symbol count
 | Dataset | Symbols | Date range |
 |---|---|---|
-| bars 1m (raw) | 3,696 | 2025-08 → 2026-06 |
-| bars 1d (split_adjusted) | 6,525 | **2023-11-27 → 2026-06-12** |
-| bars 1d (all = split+div) | 6,524 | 2024-06-03 → 2026-06-12 |
-| quotes | 3,696 | 2025-08 → 2026-06 |
-| quotes_fine | 3,674 | 2025-08 → 2026-06 |
-| trades | 3,678 | 2025-08 → 2026-06 |
-| auctions | 6,523 | 2025-08 → 2026-06 |
-| statuses (halts) | 2,137 | event dates 2025-03-17 → 2026-06-12 (241 dates; bulk from ~2025-07-30) |
-| corporate_actions | 11,558 | full per-symbol CA history (superset, includes delisted/inactive) |
+| bars 1m (raw) | 6,580 | **2023-09-01 → 2026-06-23** (deep backfill 2026-06-23) |
+| bars 1d (split_adjusted) | 6,581 | **2023-09-25 → 2026-06-23** |
+| bars 1d (all = split+div) | 6,524 | 2024-06-03 → 2026-06-12 (not deepened; deep backfill used adjustment=split_adjusted) |
+| quotes | 3,729 | 2025-08-01 → 2026-06-18 (IR-only; not deepened) |
+| quotes_fine | 3,725 | 2025-08-01 → 2026-06-18 (not deepened) |
+| trades | 3,735 | 2025-08-01 → 2026-06-18 (not deepened) |
+| auctions | 6,579 | 2025-08-01 → 2026-06-18 |
+| statuses (halts) | 4,859 symdirs | halt dates **2022-02-28 → 2026-06-23** (763 halt-days) |
+| corporate_actions | (event-driven) | full per-symbol CA history, ex_dates 2023-08-02 → 2026-06-23 (superset, includes delisted/inactive) |
 | assets (master) | 6,527 (latest snapshot) | snapshots 2026-05-17, 2026-05-26, 2026-06-05 |
 
 ### Asset-master universe (latest snapshot)
@@ -294,16 +296,19 @@ name, exchange, asset_class, tradable, marginable, shortable, fractionable, stat
 
 ## 6. What it does NOT have yet / known limitations
 
-- **Intraday is much shallower than daily.** Minute bars + all tick-resolution streams (quotes,
-  quotes_fine, trades, auctions) start **2025-08** only; daily goes back to 2023-11. So ~10 months of
-  intraday vs ~2.5 years of daily. Walk-forward training that needs intraday is bounded by 2025-08+.
+- **Tick streams are shallower than bars.** Tick-resolution streams (quotes, quotes_fine, trades)
+  start **2025-08** only (~10 months); minute *bars* now go back to **2023-09** (~2.75 yr, matching
+  daily, after the 2026-06-23 deep backfill across all ~6,529 daily symbols). So minute-bar
+  walk-forward tracks the full ~2.75 yr; anything needing quotes/trades is still bounded by 2025-08+.
 - **Minute bars are RAW only** — no split/dividend-adjusted minute partition. Any intraday
   adjustment must be applied at read time using `corporate_actions`.
-- **Symbol-count asymmetry.** Daily bars + auctions cover ~6,520 symbols, but quotes/quotes_fine/
-  trades/1m-bars cover only ~3,680. ~2,800 symbols have daily + auctions but **no tick-resolution
-  data** (the low-liquidity tail, deliberately not backfilled at tick resolution).
-- **Halts (`statuses/`) are sparse before ~2025-07-30** and are event-driven (only halted symbols on
-  halted days), not one row per symbol/day. Halts are maintained going forward by the weekly refresh.
+- **Symbol-count asymmetry.** Daily bars + 1m bars + auctions cover ~6,580 symbols, but
+  quotes/quotes_fine/trades cover only ~3,730. ~2,850 symbols have daily + minute + auctions but
+  **no tick-resolution (quote/trade) data** (the low-liquidity tail, deliberately not backfilled at
+  tick resolution).
+- **Halts (`statuses/`) now reach back to 2022-02-28** (full-history re-fetch floor pushed to
+  2023-09-01 on 2026-06-23) and are event-driven (only halted symbols on halted days), not one row
+  per symbol/day. Halts are maintained going forward by the weekly refresh.
 - **Asset master has only 3 recent snapshots** (mid-May → early-June 2026), not a long PIT history of
   universe membership. Point-in-time survivorship therefore leans on `corporate_actions`, not on
   historical asset snapshots.
@@ -386,8 +391,10 @@ code_hashes{}`.
 ### 8.4 How it's built
 `bowaka-v2-lab scan-matrix build --config <cfg> --scope {validation|holdout|full_history} --workers N
 [--store-root R]`:
-1. Resolve walk-forward plan from `backtest.start/end` + `optuna.walkforward` (train/val/holdout/step
-   months); resolve the session list for the scope.
+1. Resolve walk-forward plan from `backtest.{start,end}_date` (default **`auto`** — anchors `end_date`
+   to the latest lake session and back-derives `start_date` for `optuna.walkforward.n_folds`
+   non-overlapping folds; set explicit `YYYY-MM-DD` to freeze) + `optuna.walkforward`
+   (train/val/holdout/step months); resolve the session list for the scope.
 2. Memory-budget guard (refuses to launch if estimated footprint breaches a 32 GiB reserve; it probes
    the *actual* PIT-eligible symbol count over the first ≤5 sessions).
 3. Per session (parallel, fork-based `ProcessPoolExecutor`, byte-identical regardless of worker count):
@@ -416,31 +423,33 @@ the resolved session lists, and the SHA-256 of 5 build-affecting source files (`
   hash comparison** — the runtime correctness gate is an *exact ns-aligned scan-cadence match* (it
   raises on any cadence mismatch), plus fail-loud-if-the-store-can't-open.
 
-### 8.6 IR vs fast_realism matrices (distinct)
-They are **different matrices** because their walk-forward windows differ → different session sets →
-different `config_input_hash`:
+### 8.6 The fast_realism matrix (IR family retired)
+The IR (`_local_container_matrix`) family is **retired** — notebook 10 runs `fast_realism` for both
+search and finalist re-score, and `rebuild_scan_matrices.ps1` now defaults to FR only. Only the
+fast_realism matrix is maintained:
 
-| | IR (intended_realism) | fast_realism (and CCP) |
+| | fast_realism (and CCP — mode is not hashed) |
+|---|---|
+| walk-forward | train 6 / val 1 / **holdout 5** / **step 7** mo, **n_folds 3** (auto-anchored to the latest lake session) |
+| store root | `/opt/scan_matrix_cache/fast_realism/validation` (+ `…/holdout`) |
+| `separate_holdout_matrix` | `false` (build both scopes — the FR sweep requires this) |
+
+`current_code_parity` and `fast_realism` share the same matrix (identical window; mode is not hashed).
+Build it with `_build_fr_matrices.py` or `rebuild_scan_matrices.ps1` (now FR-only by default; pass
+`-Configs` to rebuild the retired IR family).
+
+### 8.7 Live matrix inventory (2026-06-24, FR auto-anchored)
+Only the fast_realism family is maintained (IR retired). The window **auto-anchors to the latest lake
+session**, so session ranges + hashes are **recomputed on every rebuild** (each weekly cron run):
+
+| Leaf | Window | Notes |
 |---|---|---|
-| walk-forward | train 21 / val 1 / holdout 5 mo | train 6 / val 1 / holdout 2 mo |
-| store root | `/opt/scan_matrix_cache/validation` | `/opt/scan_matrix_cache/fast_realism/validation` |
-| `separate_holdout_matrix` | `true` (holdout isolated during tuning) | `false` (build both scopes) |
+| `fast_realism/validation` | 3 non-overlapping folds, tests ~Oct2024 / May2025 / Dec2025 (relative to the latest session) | recomputed each rebuild |
+| `fast_realism/validation/holdout` | ~5 months ending at the latest lake session | recomputed each rebuild |
 
-`current_code_parity` and `fast_realism` share the same FR matrix (identical window; mode is not
-hashed). Build the FR matrix with `_build_fr_matrices.py` or `rebuild_scan_matrices.ps1` (which now
-rebuilds **both** the IR and FR families).
-
-### 8.7 Live matrix inventory (2026-06-15)
-| Leaf | Sessions | Session range | config_input_hash | dataset_hash |
-|---|---|---|---|---|
-| `validation` (IR) | 66 | 2025-08-27 → 2025-11-26 | `5d2bc2cf…` | `f5395063…` |
-| `validation/holdout` (IR) | 102 | 2025-12-22 → 2026-05-19 | `efa82f47…` | `1759210d…` |
-| `fast_realism/validation` | 41 | 2026-02-02 → 2026-03-31 | `283fce5d…` | `9c11429b…` |
-| `fast_realism/validation/holdout` | 43 | 2026-04-13 → 2026-06-11 | `93786595…` | `bc6a8b4c…` |
-
-All four: `feed=sip`, `matrix_version=1`, `reserved_system_gib=32`, `verifier_version=2` (parity-proven),
-and identical column schema + `code_hashes`. The `dataset_hash`es reflect the **post-corporate-actions**
-lake (survivorship baked in). Total ~22 GB.
+Both leaves: `feed=sip`, `matrix_version=1`, `reserved_system_gib=32`, `verifier_version=2`
+(parity-proven), identical column schema + `code_hashes`. The `dataset_hash`es reflect the
+**post-corporate-actions + deep-minute-backfill** lake (survivorship baked in).
 
 ---
 
@@ -455,7 +464,12 @@ lake (survivorship baked in). Total ~22 GB.
 | halts | `…/scripts/backfill_halts.py` | Nasdaq JSON-RPC; `--start/--end` per-day historical, `--recent`, `--url`/`--file`/`--dir`; per-`(symbol,day)` complete overwrite |
 | corporate_actions | `…/scripts/backfill_corporate_actions.py` | whole CA stream by year-chunked window; merge-dedupe on event `id` |
 
-### Weekly cadence
+> **Bars are fetched SERIALLY per process.** Only the quotes/trades/quotes_fine fetchers use a
+> `ThreadPoolExecutor` (`QUOTE_FETCH_WORKERS` etc.); the minute/daily **bars** stage in
+> `backfill_market_data.py` is serial per process (its per-month flush assumes serial date order). To
+> deepen bars fast, fan out **N processes over disjoint symbol subsets** — the 2026-06-23 deep
+> backfill (2025-08 → 2023-09, all symbols) used **8 processes**, ~6–8× faster than serial. Reusable
+> config: `config/_minute_backfill_full_history.yml` (minute `policy: all_daily`, `start: 2023-09-01`).
 The **only** scheduled thing that touches the lake is `scheduled_weekly_refresh.ps1` (a Friday
 18:30 MT Windows task). Flow: Alpaca SIP health check (hourly retry up to 6h; 401/403 aborts) →
 **study guard** (defers the *entire* run if a notebook-10 study/sweep is active, because a mid-study
@@ -466,12 +480,14 @@ lake change corrupts it) → `weekly_data_refresh.ps1` → re-check guard → `r
   lookback window (`-LookbackDays`, resume-aware/incremental).
 - **Supplementary (best-effort; a failure WARNs but never blocks bars/quotes or the rebuild):**
   - auctions — short lookback `--force` (merge-dedupe);
-  - halts — **full-history re-fetch** every run (idempotent per-`(symbol,day)` overwrite; self-bootstraps);
-  - corporate_actions — **full-history re-fetch** every run (idempotent dedupe by event `id`).
+  - halts — **full-history re-fetch** every run (`-HaltsStart` default `2023-09-01`; idempotent per-`(symbol,day)` overwrite; self-bootstraps);
+  - corporate_actions — **full-history re-fetch** every run (`-CorpActionsStart` default `2023-09-01`; idempotent dedupe by event `id`). Both floors were pushed 2025-08-01 → 2023-09-01 on 2026-06-23 to match the deeper minute/daily backfill.
 
-`rebuild_scan_matrices.ps1` then rebuilds **both** the IR and fast_realism matrix families
-(validation + holdout each) from the refreshed lake, so corporate-actions/survivorship + the latest
-bars are baked into the matrices.
+`rebuild_scan_matrices.ps1` then rebuilds the **fast_realism** matrix family (validation + holdout)
+from the refreshed lake — **auto-anchored to the latest session**, so each weekly rebuild re-targets
+the freshest data and corporate-actions/survivorship + the latest bars are baked in. (The IR family is
+retired; pass `-Configs` to rebuild it.) Because the window auto-anchors, every weekly lake refresh
+implies a new matrix by design.
 
 > Do **not** register standalone tasks for `weekly_data_refresh.ps1` / `rebuild_scan_matrices.ps1`;
 > only the guarded wrapper. An unguarded refresh/rebuild on its own clock can corrupt a live study.
@@ -487,8 +503,9 @@ bars are baked into the matrices.
 3. **Adjustment split-brain:** daily = `split_adjusted`, minute = `raw`. A config that resolves to
    raw-daily silently empties the PIT universe (every symbol gets `no_prior_bar`) — keep
    `require_split_adjustment: true`.
-4. **Intraday only goes back to 2025-08; daily to 2023-11.** Don't assume tick data exists for the
-   full daily span.
+4. **Tick data (quotes/quotes_fine/trades) only goes back to 2025-08; minute bars + daily reach
+   ~2023-09.** Minute bars were deep-backfilled to 2023-09 for all ~6,529 daily symbols (2026-06-23);
+   don't assume *tick* data exists for the full minute/daily span.
 5. **Survivorship comes from `corporate_actions`, not asset snapshots.** With CA absent, the universe
    builder has no PIT delisting/rename info → survivorship bias. (CA is now backfilled; the live
    matrices' `dataset_hash` reflects it.)
@@ -497,9 +514,9 @@ bars are baked into the matrices.
    runtime protections are (a) fail-loud if the store can't open and (b) an exact ns-cadence match.
    Stale-matrix detection (dataset-hash drift) requires manually running `scan-matrix verify`. Always
    rebuild the matrix after any lake change before relying on it.
-7. **The matrix is mode-independent** — IR/CCP/fast_realism share a matrix when window+universe+cadence
-   match. They differ only because their walk-forward windows differ. Don't expect "the IR matrix" and
-   "the fast_realism matrix" to differ by *mode*; they differ by *window*.
+7. **The matrix is mode-independent** — `current_code_parity`/`fast_realism` share a matrix when
+   window+universe+cadence match (mode is not hashed); matrices differ by *window*, not *mode*. (The
+   IR matrix family is retired; only fast_realism is maintained.)
 8. **The lake + matrices are gitignored** and live only in the Docker volumes — they are not in the
    repo. They are rebuildable from the backfill scripts (intraday is expensive: the trade tape is ~70 GB).
 9. **`quotes_fine`/`trades` are siblings of `quotes/`** by design, so they never perturb the canonical

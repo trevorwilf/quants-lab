@@ -3,9 +3,14 @@ artifacts:
   write_parquet: true
 backtest:
   cost_stress: conservative
-  end_date: '2026-06-23'
+  # DYNAMIC window (default): 'auto' anchors to the freshest lake session so the
+  # weekly cron matrix rebuild + notebook 10 resolve to the SAME window (latest
+  # data). end_date='auto' -> latest daily session; start_date='auto' -> derived
+  # backward to keep exactly optuna.walkforward.n_folds folds. To FREEZE, replace
+  # either with an explicit 'YYYY-MM-DD' (e.g. end_date: '2026-06-23').
+  end_date: auto
   entry_delay_minutes: 0
-  start_date: '2024-04-01'
+  start_date: auto
 execution:
   limit_offset_bps: 50
   max_quote_age_seconds: 104
@@ -118,7 +123,8 @@ optuna:
     train_months: 6
     val_months: 1
     final_holdout_months: 5
-    step_months: 7          # 2026-06-23: non-overlapping folds (step=train+val) on the deep lake; 3 folds, tests Oct2024/May2025/Dec2025
+    step_months: 7          # non-overlapping folds (step = train+val)
+    n_folds: 3              # fixed fold count for start_date:auto backward-anchoring (3 non-overlapping folds + 5mo holdout, tests ~Oct2024/May2025/Dec2025 relative to the latest session)
 paths:
   artifact_root: research_notebooks/bowaka_v2_lab/artifacts
   data_root: research_notebooks/bowaka_v2_lab/data

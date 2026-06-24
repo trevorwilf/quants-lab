@@ -116,7 +116,7 @@ The Phase 8 builder (`scan_matrix.build_scan_matrix`) is already
 fully shipped. CLI:
 
 ```bash
-bowaka-v2-lab scan-matrix build --config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml --scope validation
+bowaka-v2-lab scan-matrix build --config configs/_fastrealism_study.yml --scope validation
 bowaka-v2-lab scan-matrix verify --store-root <path> --config <same>
 ```
 
@@ -358,11 +358,14 @@ vectorized + 16 workers + the Postgres tune.
   prototype. If a meaningful fraction of `apply_v2_gates` doesn't
   lift cleanly into NumPy (Python branches, lookup-table gates),
   the actual speedup may be 3–5× rather than 10×.
-* **Matrix build cost is upfront.** Building the full validation
-  matrix on the IEX lake (~6,500 symbols × ~600 trading days ×
-  N scan times) is hours-scale on the workstation. It amortizes
-  over many trials but adds to the first-launch wall-clock. Plan
-  to build the matrix once nightly outside the study run.
+* **Matrix build cost is upfront.** Building the validation matrix
+  (~6,580 symbols × the **auto-anchored** validation window — 3
+  non-overlapping folds of train 6 / val 1, step 7 mo, ending at
+  the latest lake session, NOT a fixed ~600-day span × N scan
+  times) is hours-scale on the workstation. It amortizes over many
+  trials but adds to the first-launch wall-clock — so the weekly
+  cron (`scheduled_weekly_refresh.ps1`) builds it on the latest
+  lake every Friday, outside the study run.
 * **Memory budget on the matrix.** The matrix doc §9 sizes the
   matrix as a function of `n_sessions × n_scans × n_symbols`. The
   Phase 6 memory-estimator fix
@@ -422,14 +425,14 @@ builder against your lake):
 
 ```bash
 bowaka-v2-lab scan-matrix build \
-  --config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml \
+  --config configs/_fastrealism_study.yml \
   --scope validation \
   --workers 8 \
   --reserve-system-gib 62
 
 bowaka-v2-lab scan-matrix verify \
   --store-root artifacts/cache/scan_matrix/validation \
-  --config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml \
+  --config configs/_fastrealism_study.yml \
   --sample-count 10
 ```
 
@@ -518,13 +521,13 @@ python -m pytest tests/unit/scanner/test_scan_matrix_*.py -q --tb=short
 
 # Build the scan matrix against the live lake (Step A)
 python -m bowaka_v2_lab.cli scan-matrix build \
-  --config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml \
+  --config configs/_fastrealism_study.yml \
   --scope validation
 
 # Verify the build
 python -m bowaka_v2_lab.cli scan-matrix verify \
   --store-root artifacts/cache/scan_matrix/validation \
-  --config configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml
+  --config configs/_fastrealism_study.yml
 ```
 
 After Step A passes, start the compatibility-mode implementation

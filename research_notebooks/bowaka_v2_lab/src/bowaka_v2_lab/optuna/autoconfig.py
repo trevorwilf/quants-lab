@@ -16,6 +16,7 @@ quote-gated) for any real feed; ``smoke_fixture`` when there is no lake data.
 from __future__ import annotations
 
 import copy
+import datetime as _dt
 import os
 import tempfile
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ from typing import Any, Mapping, Optional
 import yaml
 
 from ..config.loader import load_config
+from .walkforward import anchor_window_start
 
 # autoconfig.py -> optuna -> bowaka_v2_lab -> src -> bowaka_v2_lab(lab) ->
 # research_notebooks -> quants-lab (repo root)
@@ -157,6 +159,33 @@ def lake_has_quotes(lake_root: Path, feed: str) -> bool:
         return False
 
 
+def latest_lake_session(lake_root: Path, feed: str, *, adjustment: str = "split_adjusted",
+                        sample: int = 150) -> Optional[_dt.date]:
+    """Latest daily-bar session date present in the lake for ``feed`` (the max over
+    a stride-sample of symbols), or ``None`` when the lake has no such bars.
+
+    Backs the ``backtest.end_date: 'auto'`` anchoring so the walk-forward window
+    tracks the freshest lake session. Stride-sampling (not the first N symbols)
+    means a contiguous block of delisted names can't hide the latest session, and
+    taking the MAX means a single still-trading symbol pins the true latest date.
+    """
+    from bowaka_common.marketdata import catalog
+    root = lake_root if isinstance(lake_root, Path) else resolve_lake_root(lake_root)
+    try:
+        syms = catalog.available_symbols(root, timeframe="1d", feed=feed, adjustment=adjustment)
+    except Exception:
+        syms = []
+    if not syms:
+        return None
+    stride = max(1, len(syms) // sample)
+    hi: Optional[_dt.date] = None
+    for s in syms[::stride][:sample]:
+        cov = catalog.date_coverage(s, root, timeframe="1d", feed=feed, adjustment=adjustment)
+        if cov and (hi is None or cov[1] > hi):
+            hi = cov[1]
+    return hi
+
+
 def detect_best_feed(lake_root: Path) -> tuple[str, str, str]:
     """Return ``(feed, simulation_mode, reason)`` for the best data the lake holds."""
     if lake_has_bars(lake_root, "sip"):
@@ -253,6 +282,45 @@ def resolve_walkforward_config(
     md["feed"] = feed
     cfg["market_data"] = md
     cfg["simulation"] = {**(cfg.get("simulation") or {}), "mode": mode}
+
+    # ---- dynamic walk-forward window: backtest.{start,end}_date == 'auto' ----
+    # Anchors the window to the freshest lake session so the weekly cron matrix
+    # rebuild AND notebook 10 resolve to the SAME concrete dates (same lake) ->
+    # the matrix config-hash matches and the cron-built matrix is reused (no
+    # launch-time rebuild). To FREEZE the window, set explicit YYYY-MM-DD dates
+    # in place of 'auto'. The concrete dates are written into the RESOLVED config
+    # (the base config keeps 'auto'), so the matrix hash is over real dates.
+    bt = dict(cfg.get("backtest") or {})
+    wf = ((cfg.get("optuna") or {}).get("walkforward") or {})
+    if str(bt.get("end_date", "")).lower() == "auto":
+        latest = latest_lake_session(root, feed)
+        if latest is None:
+            raise ValueError(
+                f"backtest.end_date: 'auto' but the lake has no {feed} daily bars "
+                f"at {root} — cannot anchor the walk-forward window."
+            )
+        bt["end_date"] = latest.isoformat()
+        reason = f"{reason}; end_date=auto->{bt['end_date']}"
+    if str(bt.get("start_date", "")).lower() == "auto":
+        n_folds = wf.get("n_folds")
+        if not n_folds:
+            raise ValueError(
+                "backtest.start_date: 'auto' requires optuna.walkforward.n_folds "
+                "(the fixed fold count to anchor backward from end_date)."
+            )
+        _end = bt.get("end_date")
+        end_date = _end if isinstance(_end, _dt.date) else _dt.date.fromisoformat(str(_end))
+        start = anchor_window_start(
+            end_date,
+            train_months=int(wf.get("train_months", 6)),
+            val_months=int(wf.get("val_months", 1)),
+            final_holdout_months=int(wf.get("final_holdout_months", 1)),
+            step_months=int(wf.get("step_months") or wf.get("val_months", 1)),
+            n_folds=int(n_folds),
+        )
+        bt["start_date"] = start.isoformat()
+        reason = f"{reason}; start_date=auto->{bt['start_date']} (n_folds={n_folds})"
+    cfg["backtest"] = bt
 
     if out_path is not None:
         dest = Path(out_path)

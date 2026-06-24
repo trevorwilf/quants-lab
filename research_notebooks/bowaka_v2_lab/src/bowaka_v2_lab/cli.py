@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Sequence
 
@@ -748,13 +749,34 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _resolve_matrix_config(config_path: str) -> str:
+    """Resolve a `backtest.{start,end}_date: auto` config to concrete dates so the
+    bare `scan-matrix build/verify` CLI operates on the SAME window the cron +
+    notebook resolve to (latest lake session + backward-anchored start). A config
+    with explicit dates is returned unchanged (back-compat; the cron already passes
+    a resolved config). Mode is excluded from the matrix hash, so preserving the
+    declared mode just keeps this consistent with resolve_walkforward_config."""
+    raw = load_config(config_path)
+    bt = raw.get("backtest") or {}
+    if (str(bt.get("start_date", "")).lower() != "auto"
+            and str(bt.get("end_date", "")).lower() != "auto"):
+        return config_path
+    from .optuna.autoconfig import _VALID_MODE_OVERRIDES, resolve_walkforward_config
+    declared = (raw.get("simulation") or {}).get("mode")
+    kwargs = {"feed_override": "auto"}
+    if declared in _VALID_MODE_OVERRIDES:
+        kwargs["mode_override"] = declared
+    out = Path(tempfile.mkdtemp(prefix="bowaka_sm_autocfg_")) / "resolved.yml"
+    return str(resolve_walkforward_config(config_path, out_path=str(out), **kwargs).path)
+
+
 def _cmd_scan_matrix_build(args: argparse.Namespace) -> int:
     """Build the scan matrix per matrix doc §12 phase 1."""
     from .scanner.scan_matrix import build_scan_matrix
 
     store_root = Path(args.store_root) if args.store_root else None
     out = build_scan_matrix(
-        args.config,
+        _resolve_matrix_config(args.config),
         scope=args.scope,
         workers=int(args.workers),
         reserve_gib=float(args.reserve_system_gib),
@@ -776,7 +798,7 @@ def _cmd_scan_matrix_verify(args: argparse.Namespace) -> int:
 
     vectorized_check = bool(getattr(args, "vectorized_check", False))
     report = verify_scan_matrix(
-        Path(args.store_root), args.config, sample_count=int(args.sample_count),
+        Path(args.store_root), _resolve_matrix_config(args.config), sample_count=int(args.sample_count),
         vectorized_check=vectorized_check,
     )
     ok = report.get("status") in ("ok", "warn")
