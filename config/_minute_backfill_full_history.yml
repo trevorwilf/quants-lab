@@ -1,0 +1,27 @@
+# FULL minute-history backfill — all daily symbols, SIP, back to the daily floor.
+# Goal: extend minute coverage from Aug-2025 back to 2023-11 so walk-forward
+# studies can place non-overlapping folds earlier (operator request 2026-06-23).
+# Daily is incremental (near no-op — already 2023-11..2026-06). Minute policy
+# all_daily => every symbol with daily bars. quotes/trades/fine OFF (bars only).
+vendor: alpaca
+feed: sip
+adjustment: split_adjusted
+paper: true
+
+start_date: 2023-11-01
+end_date: auto
+
+daily_universe:
+  source: alpaca_assets
+  symbols: []
+
+minute_bars:
+  enabled: true
+  policy: all_daily
+
+quotes: {enabled: false}
+trades: {enabled: false}
+quotes_fine: {enabled: false}
+
+rate_limit_rpm: 5000
+batch_size_symbols: 200

@@ -53,8 +53,8 @@ param(
     [int]    $Rpm              = 9000,
     [int]    $AlpacaMaxRetries = 6,      # hourly retries for Alpaca downtime (6h)
     [int]    $RetryIntervalSec = 3600,
-    [string] $HaltsStart       = "2025-08-01",   # full-history halt re-fetch window start (-> weekly_data_refresh.ps1)
-    [string] $CorpActionsStart = "2025-08-01",   # full-history corp-actions re-fetch window start
+    [string] $HaltsStart       = "2023-09-01",   # full-history halt re-fetch window start (-> weekly_data_refresh.ps1)
+    [string] $CorpActionsStart = "2023-09-01",   # full-history corp-actions re-fetch window start (2026-06-23: pushed 2025-08-01 -> 2023-09-01 to match the deeper minute/daily backfill floor; CA drives survivorship over the new fold windows)
     [string] $Container        = "ql-jupyter",
     [switch] $DryRun
 )

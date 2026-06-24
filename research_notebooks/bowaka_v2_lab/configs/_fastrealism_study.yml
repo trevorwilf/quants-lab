@@ -3,9 +3,9 @@ artifacts:
   write_parquet: true
 backtest:
   cost_stress: conservative
-  end_date: '2026-06-12'
+  end_date: '2026-06-23'
   entry_delay_minutes: 0
-  start_date: '2025-08-01'
+  start_date: '2024-04-01'
 execution:
   limit_offset_bps: 50
   max_quote_age_seconds: 104
@@ -102,13 +102,13 @@ optuna:
       store_root: /opt/scan_matrix_cache/fast_realism/validation
   cached_suppliers: true
   cost_stress: conservative
-  n_jobs: 8
+  n_jobs: 16
   n_startup_trials: 25
   n_trials: 200
   objective_artifact_mode: objective_minimal
   parallel:
     blas_thread_pin: true
-    max_workers: 8
+    max_workers: 16
     memory_reserve_gib: 32
     strict_parallel: false
   search_space_overrides: {}
@@ -117,7 +117,8 @@ optuna:
   walkforward:
     train_months: 6
     val_months: 1
-    final_holdout_months: 2
+    final_holdout_months: 5
+    step_months: 7          # 2026-06-23: non-overlapping folds (step=train+val) on the deep lake; 3 folds, tests Oct2024/May2025/Dec2025
 paths:
   artifact_root: research_notebooks/bowaka_v2_lab/artifacts
   data_root: research_notebooks/bowaka_v2_lab/data

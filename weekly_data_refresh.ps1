@@ -72,8 +72,8 @@ param(
     [int]    $QuoteWorkers = 16,
     [string] $Feed         = "sip",
     [int]    $FineQuoteSamplesPerMinute = 4,
-    [string] $HaltsStart       = "2025-08-01",
-    [string] $CorpActionsStart = "2025-08-01",
+    [string] $HaltsStart       = "2023-09-01",   # 2026-06-23: was 2025-08-01; matched to the deeper minute/daily backfill floor
+    [string] $CorpActionsStart = "2023-09-01",   # 2026-06-23: was 2025-08-01; CA drives survivorship over the deeper fold windows
     [switch] $SkipTrades,
     [switch] $SkipQuotesFine,
     [switch] $SkipHalts,
