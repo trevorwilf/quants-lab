@@ -191,8 +191,32 @@ def profile_counters_context(
         _CURRENT.reset(token)
 
 
+def bind_process_counters() -> ProfileCounters:
+    """Bind a process-lifetime :class:`ProfileCounters` and enable counting.
+
+    For long-lived worker processes (optuna parallel workers) where the
+    block-scoped :func:`profile_counters_context` doesn't fit: the returned
+    instance stays bound for the remainder of the process so hot-path
+    increment sites (matrix fired / matrix miss / scanner symbols) accumulate
+    across every trial the worker runs. Idempotent — an already-bound
+    instance is returned unchanged. Increment cost is a guarded int add
+    (~ns); this exists so a live study can SEE a silent matrix fallback
+    (the study-fbe6b208 incident ran 46h with all counters dark).
+    """
+    try:
+        existing = _CURRENT.get()
+    except LookupError:
+        existing = None
+    if existing is None:
+        existing = ProfileCounters()
+        _CURRENT.set(existing)
+    set_counters_enabled(True)
+    return existing
+
+
 __all__ = [
     "ProfileCounters",
+    "bind_process_counters",
     "counters_enabled",
     "current_profile_counters",
     "profile_counters_context",

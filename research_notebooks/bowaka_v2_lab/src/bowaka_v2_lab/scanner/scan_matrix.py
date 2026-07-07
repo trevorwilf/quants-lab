@@ -1248,6 +1248,156 @@ def _expected_manifest_dataset_hash(
     return str(lineage.get("dataset_hash") or "")
 
 
+# 2026-07-01 stale-matrix incident (study fbe6b208): the store carried a
+# manifest built against a 2026-06-23 lake/window while the study auto-anchored
+# to 2026-06-26 — nothing checked, every re-anchored fold-val session missed the
+# store, and the backtester silently fell back to the legacy per-symbol scanner
+# (~15x per trial; a 7.6h study became a ~5-day study). This gate makes the
+# freshness contract REAL at runtime: it is called wherever a store is opened
+# for objective work (fold-context build + study preflight).
+_FRESHNESS_VALIDATED: set[tuple[str, str, str]] = set()
+_ALLOW_STALE_ENV = "BOWAKA_V2_ALLOW_STALE_SCAN_MATRIX"
+
+
+def assert_no_stale_matrix_flag() -> None:
+    """Refuse to proceed while the repo-root ``MATRICES_STALE.flag`` exists.
+
+    The weekly refresh wrapper pre-sets this flag before mutating the lake and
+    clears it only after a successful matrix rebuild, so ANY interrupted
+    refresh (crash, reboot, logoff) leaves it behind. Called at study start —
+    not per fold-context — so ad-hoc research/tests on fixture stores are not
+    blocked by an in-flight refresh. Override: ``BOWAKA_V2_ALLOW_STALE_SCAN_MATRIX=1``.
+    """
+    repo_root = os.environ.get("BOWAKA_V2_REPO_ROOT_OVERRIDE") or (
+        Path(__file__).resolve().parents[5])
+    stale_flag = Path(repo_root) / "MATRICES_STALE.flag"
+    if not stale_flag.is_file():
+        return
+    try:
+        reason = stale_flag.read_text(encoding="utf-8").strip()
+    except Exception:  # noqa: BLE001
+        reason = "(unreadable)"
+    msg = (
+        f"MATRICES_STALE.flag present at {stale_flag}: {reason}\n"
+        "The lake changed without a matching scan-matrix rebuild. Run "
+        ".\\rebuild_scan_matrices.ps1 (host) and remove the flag, or set "
+        f"{_ALLOW_STALE_ENV}=1 to knowingly run degraded (research only)."
+    )
+    if os.environ.get(_ALLOW_STALE_ENV, "").strip() in ("1", "true", "yes"):
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "%s (%s=1 set — continuing anyway)", msg, _ALLOW_STALE_ENV)
+        return
+    from ..optuna.errors import OptunaStudyInvalidError
+
+    raise OptunaStudyInvalidError(msg)
+
+
+def assert_scan_matrix_fresh(
+    cfg: Mapping[str, Any],
+    store: "ScanMatrixStore",
+    store_root: Path,
+    *,
+    required_sessions: Optional[Sequence[_dt.date]] = None,
+) -> None:
+    """Fail loud when an opened store is stale for ``cfg`` / the current lake.
+
+    Checks, cheapest first (all skippable via ``BOWAKA_V2_ALLOW_STALE_SCAN_MATRIX=1``,
+    which downgrades every failure to a WARNING for ad-hoc research):
+
+    1. ``required_sessions`` ⊆ manifest sessions — a window that outruns the
+       built matrix (e.g. ``end_date: auto`` re-anchoring after a lake refresh)
+       shows up as missing sessions.
+    2. manifest ``code_hashes`` vs the current source files that define matrix
+       semantics (a matrix built by older scanner code must not be consumed).
+    3. manifest ``dataset_hash`` vs a re-derivation from the CURRENT lake state
+       (any lake mutation since the build → rebuild required). This is the
+       same drift check ``scan-matrix verify`` runs, now enforced at runtime.
+
+    The repo-root ``MATRICES_STALE.flag`` breadcrumb is checked separately at
+    study start via :func:`assert_no_stale_matrix_flag`.
+
+    Results are cached per (store_root, window) per process — workers pay the
+    lineage re-derivation once, not per fold.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    bt = cfg.get("backtest") or {}
+    cache_key = (str(store_root), str(bt.get("start_date")), str(bt.get("end_date")))
+    allow_stale = os.environ.get(_ALLOW_STALE_ENV, "").strip() in ("1", "true", "yes")
+
+    def _fail(msg: str) -> None:
+        full = (
+            f"scan-matrix store at {store_root} is STALE for this run: {msg}\n"
+            "Rebuild it on the current lake before starting a study:\n"
+            "    .\\rebuild_scan_matrices.ps1        (host, rebuilds validation+holdout)\n"
+            "or  python -m bowaka_v2_lab.cli scan-matrix build --config <resolved> "
+            "--scope <scope> --store-root <root>  (then `scan-matrix verify`).\n"
+            f"To knowingly run anyway (research only): set {_ALLOW_STALE_ENV}=1 — the "
+            "run will silently degrade to the legacy scanner for uncovered sessions "
+            "(~15x slower) and/or read stale features."
+        )
+        if allow_stale:
+            log.warning("%s (%s=1 set — continuing anyway)", full, _ALLOW_STALE_ENV)
+            return
+        from ..optuna.errors import OptunaStudyInvalidError
+
+        raise OptunaStudyInvalidError(full)
+
+    manifest = store.manifest
+
+    # (2) session coverage — cheap set math; checked even when hash checks are
+    # cached (each fold asks for its own sessions).
+    if required_sessions:
+        have = set(str(s) for s in manifest.get("sessions", []))
+        missing = sorted(
+            s.isoformat() for s in required_sessions if s.isoformat() not in have
+        )
+        if missing:
+            head = ", ".join(missing[:6]) + (" ..." if len(missing) > 6 else "")
+            _fail(
+                f"{len(missing)} required session(s) not in the built matrix "
+                f"(first: {head}). The study window (backtest "
+                f"{bt.get('start_date')}..{bt.get('end_date')}) has outrun the "
+                "matrix build — every uncovered session would silently fall back "
+                "to the legacy per-symbol scanner."
+            )
+            return
+
+    if cache_key in _FRESHNESS_VALIDATED:
+        return
+
+    # (3) matrix-semantics source drift.
+    current_hashes = _source_file_hashes(Path(__file__).resolve().parents[1])
+    built_hashes = manifest.get("code_hashes") or {}
+    if built_hashes:
+        drifted = sorted(
+            rel for rel, h in current_hashes.items() if built_hashes.get(rel) != h
+        )
+        if drifted:
+            _fail(
+                "matrix-defining source file(s) changed since the build: "
+                f"{drifted} — the stored features may not match current scanner "
+                "semantics."
+            )
+            return
+
+    # (4) dataset drift vs the CURRENT lake (the expensive one — cached).
+    manifest_dataset_hash = str(manifest.get("dataset_hash") or "")
+    expected = _expected_manifest_dataset_hash(manifest, cfg)
+    if expected and manifest_dataset_hash and expected != manifest_dataset_hash:
+        _fail(
+            f"dataset_hash drift: manifest={manifest_dataset_hash[:12]}… vs "
+            f"current lake={expected[:12]}… — the lake changed since the matrix "
+            "was built (weekly refresh without a matrix rebuild?)."
+        )
+        return
+
+    _FRESHNESS_VALIDATED.add(cache_key)
+
+
 def _vectorized_cell_spot_check(
     sess: ScanMatrixSession, cfg: Mapping[str, Any],
     scan_idxs: Sequence[int], sym_idxs: Sequence[int],

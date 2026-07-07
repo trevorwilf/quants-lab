@@ -330,7 +330,14 @@ def resolve_walkforward_config(
         # temp dir only when the config declares no artifact_root.
         _artifact_root = ((cfg.get("paths") or {}).get("artifact_root"))
         if _artifact_root:
-            dest = Path(_artifact_root) / "resolved_configs" / "walkforward_resolved.yml"
+            # Anchor a RELATIVE artifact_root at the repo root, not the CWD:
+            # shipping configs use repo-root-relative paths, and a caller with
+            # CWD inside the lab used to create a stray nested
+            # research_notebooks/bowaka_v2_lab/... tree under the lab dir.
+            _root = Path(_artifact_root)
+            if not _root.is_absolute():
+                _root = Path(__file__).resolve().parents[5] / _root
+            dest = _root / "resolved_configs" / "walkforward_resolved.yml"
         else:
             dest = (
                 Path(tempfile.mkdtemp(prefix="bowaka_wf_autocfg_"))

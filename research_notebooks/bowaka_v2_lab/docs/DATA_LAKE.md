@@ -417,11 +417,15 @@ the resolved session lists, and the SHA-256 of 5 build-affecting source files (`
 **It deliberately excludes `simulation.mode` and `n_jobs`/`n_trials`.** Consequences:
 - The matrix is **mode-independent** — `current_code_parity`, `intended_realism`, and `fast_realism`
   share one matrix **if** their window + walkforward + universe + cadence + feed match.
-- A matrix is matched to a config by **store-root path** (`resolve_scan_matrix_store_root`), **not** by
-  a runtime hash gate. The `config_input_hash` is written to the manifest and re-checked only by the
-  CLI `scan-matrix verify` (dataset-hash drift + sampled cell self-consistency). **There is no runtime
-  hash comparison** — the runtime correctness gate is an *exact ns-aligned scan-cadence match* (it
-  raises on any cadence mismatch), plus fail-loud-if-the-store-can't-open.
+- A matrix is matched to a config by **store-root path** (`resolve_scan_matrix_store_root`). Since
+  2026-07-01 (study-fbe6b208 stale-matrix incident) the runtime ALSO enforces freshness:
+  `assert_scan_matrix_fresh` (fold-context build + study-start preflight) checks the repo-root
+  `MATRICES_STALE.flag`, fold-session coverage, manifest `code_hashes` vs current source, and manifest
+  `dataset_hash` vs a re-derivation from the current lake — and fails loud with rebuild instructions.
+  Escape hatch for ad-hoc research: `BOWAKA_V2_ALLOW_STALE_SCAN_MATRIX=1` (downgrades to a warning).
+  A missing session partition during an objective run now raises instead of silently degrading to the
+  legacy scanner (`BOWAKA_V2_ALLOW_MATRIX_SESSION_MISS=1` restores the old warn-and-degrade). The CLI
+  `scan-matrix verify` remains the deep check (sampled cell self-consistency).
 
 ### 8.6 The fast_realism matrix (IR family retired)
 The IR (`_local_container_matrix`) family is **retired** — notebook 10 runs `fast_realism` for both
@@ -509,11 +513,13 @@ implies a new matrix by design.
 5. **Survivorship comes from `corporate_actions`, not asset snapshots.** With CA absent, the universe
    builder has no PIT delisting/rename info → survivorship bias. (CA is now backfilled; the live
    matrices' `dataset_hash` reflects it.)
-6. **No runtime matrix hash gate.** A docstring in `scan_matrix_runtime.py` claims the fold-context
-   builder verifies the manifest `config_input_hash`/`dataset_hash` — **the code does not**. The only
-   runtime protections are (a) fail-loud if the store can't open and (b) an exact ns-cadence match.
-   Stale-matrix detection (dataset-hash drift) requires manually running `scan-matrix verify`. Always
-   rebuild the matrix after any lake change before relying on it.
+6. **Runtime matrix freshness gate (since 2026-07-01).** `assert_scan_matrix_fresh` runs at
+   fold-context build + study start: stale flag, fold-session coverage, `code_hashes`, and
+   `dataset_hash`-vs-current-lake all fail loud (override: `BOWAKA_V2_ALLOW_STALE_SCAN_MATRIX=1`).
+   Historical note: before this, staleness was only detectable by manually running
+   `scan-matrix verify`, and the study-fbe6b208 run (2026-06-27) silently degraded to the legacy
+   scanner (~15x/trial) after a lake refresh. Still rebuild the matrix after any lake change —
+   the gate refuses to run, it doesn't rebuild for you.
 7. **The matrix is mode-independent** — `current_code_parity`/`fast_realism` share a matrix when
    window+universe+cadence match (mode is not hashed); matrices differ by *window*, not *mode*. (The
    IR matrix family is retired; only fast_realism is maintained.)

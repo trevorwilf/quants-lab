@@ -142,8 +142,23 @@ if (-not $g.Idle) {
 }
 
 # --- STEP 2: lake refresh --------------------------------------------------
+# 2026-07-01 incident fix: PRE-SET the stale flag before the lake is touched and
+# clear it only after a successful matrix rebuild (STEP 4). On 2026-06-26 the
+# wrapper was killed mid-refresh (native stderr + EAP='Stop' NativeCommandError)
+# so the failure branches below never ran: the lake mutated, no flag was written,
+# and the next study silently ran ~15x degraded against the stale matrix. With
+# the flag pre-set, ANY death mode (exception, reboot, logoff) leaves the
+# breadcrumb, and the study-side freshness gate refuses to start.
+Set-Content -LiteralPath $staleFlag -Value "Lake refresh STARTED $ts and has not completed a matrix rebuild yet (in progress, or the wrapper died mid-run). Run rebuild_scan_matrices.ps1 (or rerun scheduled_weekly_refresh.ps1) before starting a study."
+Log "Pre-set stale-marker $staleFlag (cleared only after a successful matrix rebuild)."
 Log "IDLE + Alpaca UP -- running lake refresh (ALL datasets: bars/quotes/trades/fine + halts/auctions/corp-actions; weekly_data_refresh.ps1 -LookbackDays $LookbackDays -Rpm $Rpm -HaltsStart $HaltsStart -CorpActionsStart $CorpActionsStart)..."
-& (Join-Path $repo "weekly_data_refresh.ps1") -LookbackDays $LookbackDays -Rpm $Rpm -HaltsStart $HaltsStart -CorpActionsStart $CorpActionsStart
+try {
+    & (Join-Path $repo "weekly_data_refresh.ps1") -LookbackDays $LookbackDays -Rpm $Rpm -HaltsStart $HaltsStart -CorpActionsStart $CorpActionsStart
+} catch {
+    Set-Content -LiteralPath $staleFlag -Value "Lake refresh CRASHED $ts ($($_.Exception.Message)); the lake may be partially written + dataset_hash drifted. Rerun the refresh + rebuild_scan_matrices.ps1 before starting a study."
+    Log "FATAL: lake refresh threw: $($_.Exception.Message) -- stale-marker kept. Skipping rebuild."
+    exit 1
+}
 if ($LASTEXITCODE -ne 0) {
     $rc = $LASTEXITCODE
     Set-Content -LiteralPath $staleFlag -Value "Lake refresh FAILED $ts (exit $rc); the lake may be partially written + dataset_hash drifted. Rerun the refresh + rebuild_scan_matrices.ps1 before starting a study."
@@ -165,8 +180,14 @@ if (-not $g2.Idle) {
 
 # --- STEP 4: rebuild scan matrices (validation + holdout) ------------------
 Log "Still idle -- rebuilding scan matrices (validation + holdout)..."
-& (Join-Path $repo "rebuild_scan_matrices.ps1")
-$rc = $LASTEXITCODE
+try {
+    & (Join-Path $repo "rebuild_scan_matrices.ps1")
+    $rc = $LASTEXITCODE
+} catch {
+    Set-Content -LiteralPath $staleFlag -Value "Lake refreshed $ts but matrix rebuild CRASHED ($($_.Exception.Message)). Rerun rebuild_scan_matrices.ps1 before starting a study."
+    Log "matrix rebuild threw: $($_.Exception.Message) -- stale-marker kept."
+    exit 1
+}
 if ($rc -ne 0) {
     Set-Content -LiteralPath $staleFlag -Value "Lake refreshed $ts but matrix rebuild FAILED (exit $rc). Rerun rebuild_scan_matrices.ps1 before starting a study."
     Log "matrix rebuild FAILED (exit $rc) -- wrote $staleFlag. Rerun rebuild_scan_matrices.ps1."

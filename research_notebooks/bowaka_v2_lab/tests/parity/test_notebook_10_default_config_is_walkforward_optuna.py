@@ -34,13 +34,11 @@ _NOTEBOOK = _LAB_ROOT / "notebooks" / "10_optuna_walkforward.ipynb"
 #: parallel knobs. The base ``_optuna.yml`` is still accepted (so a manual
 #: override stays valid). Both must contain ``optuna.walkforward`` — the
 #: defense-in-depth test below catches single-window backtest configs.
-_EXPECTED_DEFAULT_BASE = "bowaka_v2_actual_iex_current_code_optuna.yml"
-_EXPECTED_DEFAULT_WORKSTATION = (
-    "bowaka_v2_actual_iex_current_code_optuna.workstation.yml"
-)
+# 2026-07-01: notebook 10 searches under fast_realism (b2cf3e7 retired the CCP
+# two-stage); the walk-forward-purpose default is the fast_realism study config.
+_EXPECTED_DEFAULT_BASE = "_fastrealism_study.yml"
 _ACCEPTED_DEFAULT_SUFFIXES = (
     _EXPECTED_DEFAULT_BASE,
-    _EXPECTED_DEFAULT_WORKSTATION,
 )
 
 #: Matches ``CONFIG_PATH = 'literal'`` (or ``"literal"``) ANYWHERE in the text,
@@ -108,15 +106,22 @@ def test_notebook_default_config_path_is_an_optuna_yml() -> None:
         cfg_path = _config_path_from_text(src)
         if cfg_path is None:
             continue
-        # Accept either the base optuna config OR a workstation overlay that
-        # carries the same optuna.walkforward block.
-        ok = cfg_path.endswith("_optuna.yml") or cfg_path.endswith(
-            "_optuna.workstation.yml"
-        ) or bool(re.search(r"_optuna\.workstation_\d+w\.yml$", cfg_path))
-        assert ok, (
-            f"10_optuna_walkforward.ipynb: CONFIG_PATH={cfg_path!r} must point "
-            f"at a *_optuna.yml (or *_optuna.workstation*.yml) file "
-            f"(walk-forward-purpose, with an optuna.walkforward block); a "
+        # 2026-07-01: check CONTENT, not filename convention — the default must
+        # be a walk-forward-purpose config, i.e. carry an optuna.walkforward
+        # block (a single-window backtest config produces 0 splits at runtime).
+        import yaml
+
+        repo_root = Path(__file__).resolve().parents[4]
+        cfg_file = repo_root / cfg_path
+        assert cfg_file.is_file(), (
+            f"10_optuna_walkforward.ipynb: CONFIG_PATH={cfg_path!r} does not "
+            f"exist at {cfg_file}."
+        )
+        cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
+        wf_block = ((cfg.get("optuna") or {}).get("walkforward") or {})
+        assert wf_block, (
+            f"10_optuna_walkforward.ipynb: CONFIG_PATH={cfg_path!r} has no "
+            f"optuna.walkforward block (walk-forward-purpose required); a "
             f"single-window backtest config produces 0 walk-forward splits."
         )
         return

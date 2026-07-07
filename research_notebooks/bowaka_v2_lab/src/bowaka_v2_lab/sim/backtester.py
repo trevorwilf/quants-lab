@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, Mapping, Optional
@@ -1080,30 +1081,45 @@ def run_backtest(
                 matrix_session_partition = scan_matrix_store.open_session(
                     session_date, purpose="objective",
                 )
-            except FileNotFoundError:
+            except FileNotFoundError as _miss_exc:
                 matrix_session_partition = None
-                # §10g per-scan-speed audit: a missing matrix partition under an
-                # active matrix runtime silently degrades to the (far slower)
-                # per-scan recompute path. Surface it LOUDLY (once) + count every
-                # miss so an operator running on a window the matrix doesn't
-                # cover sees the perf cliff instead of an unexplained slowdown.
-                global _MATRIX_MISS_WARNED
-                if not _MATRIX_MISS_WARNED:
-                    _log.warning(
-                        "scan_matrix runtime active but NO matrix partition for "
-                        "session %s — falling back to per-scan recompute (SLOW). "
-                        "Build the matrix for this study window "
-                        "(rebuild_scan_matrices) or expect a much slower run. "
-                        "This warning fires once; the matrix_session_miss counter "
-                        "tallies every miss.",
-                        session_date,
-                    )
-                    _MATRIX_MISS_WARNED = True
                 if _profile_counters_enabled():
                     try:
                         _profile_counters_current().inc(matrix_session_miss=1)
                     except LookupError:
                         pass
+                # 2026-07-01 (study-fbe6b208 incident): a missing partition under
+                # an active matrix runtime used to silently degrade to the legacy
+                # per-scan recompute (~15x slower) — a 46h study ran degraded with
+                # no visible signal. Objective runs now FAIL LOUD instead; the
+                # fold-context freshness gate should have caught this earlier, so
+                # reaching here means the store or lake mutated mid-run. Set
+                # BOWAKA_V2_ALLOW_MATRIX_SESSION_MISS=1 to restore the old
+                # warn-and-degrade behavior for ad-hoc research runs.
+                _allow_miss = os.environ.get(
+                    "BOWAKA_V2_ALLOW_MATRIX_SESSION_MISS", ""
+                ).strip() in ("1", "true", "yes")
+                if not _allow_miss:
+                    raise RuntimeError(
+                        "scan_matrix runtime is active but no matrix partition "
+                        f"exists for session {session_date} — refusing to "
+                        "silently fall back to the legacy per-symbol scanner "
+                        "(~15x slower). Rebuild the matrix for this window "
+                        "(rebuild_scan_matrices.ps1) or set "
+                        "BOWAKA_V2_ALLOW_MATRIX_SESSION_MISS=1 to degrade "
+                        "knowingly."
+                    ) from _miss_exc
+                global _MATRIX_MISS_WARNED
+                if not _MATRIX_MISS_WARNED:
+                    _log.warning(
+                        "scan_matrix runtime active but NO matrix partition for "
+                        "session %s — falling back to per-scan recompute (SLOW; "
+                        "BOWAKA_V2_ALLOW_MATRIX_SESSION_MISS=1). This warning "
+                        "fires once; the matrix_session_miss counter tallies "
+                        "every miss.",
+                        session_date,
+                    )
+                    _MATRIX_MISS_WARNED = True
 
         # Realism remediation 2 Phase 4: ROUTING by simulation mode.
         # ``smoke_fixture`` retains the pre-Phase-4 batch-scan-then-exits flow

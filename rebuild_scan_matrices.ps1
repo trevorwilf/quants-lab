@@ -119,8 +119,14 @@ Write-Host "Rebuilding scan matrices for: $($Configs -join ', ')"
 Write-Host "Log: $hostLog"
 # bash -lc mis-parses CR: CRLF breaks the embedded heredoc (closing PYEOF\r never matches PYEOF).
 $inner = $inner -replace "`r", ""
+# 2026-07-01 incident fix: native stderr in a 2>&1 pipeline under EAP='Stop'
+# raises NativeCommandError and kills the script mid-build while the container
+# process keeps running. Judge the build by $LASTEXITCODE only.
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 docker exec $Container bash -lc $inner 2>&1 | Tee-Object -FilePath $hostLog
 $code = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
 if ($code -ne 0) {
     Write-Error "scan-matrix rebuild FAILED (exit $code) - see $hostLog"
 }

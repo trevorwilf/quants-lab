@@ -994,6 +994,15 @@ def make_walkforward_objective_for_worker(
     repo_root = Path(__file__).resolve().parents[5]
     paths = BowakaV2Paths.from_config(cfg, repo_root=repo_root)
 
+    # 2026-07-01 — bind process-lifetime profile counters in every worker.
+    # Before this, workers ran with counters disabled, so the matrix-health
+    # signals (matrix_scans_evaluated / matrix_session_miss) stayed at zero
+    # during a real study and a silent legacy-scan fallback was invisible
+    # (the study-fbe6b208 incident). Increment cost is a guarded int add.
+    from ..utils.profile_counters import bind_process_counters
+
+    bind_process_counters()
+
     sim_cfg = SimulationConfig.model_validate(cfg.get("simulation") or {})
     optuna_cfg = cfg.get("optuna", {}) or {}
     wf = optuna_cfg.get("walkforward", {}) or {}
@@ -1268,6 +1277,25 @@ def make_walkforward_objective(
                 ],
             )
             trial.set_user_attr("fold_statuses", [f.fold_status for f in folds])
+            # 2026-07-01 — matrix-health telemetry on every trial. Cumulative
+            # per-worker-process totals (cheap ints); the point is a live study
+            # shows matrix_scans_cum > 0 and matrix_miss_cum == 0. A rising
+            # miss counter = the store does not cover the study window (the
+            # silent ~15x legacy-scan fallback of the fbe6b208 incident).
+            from ..utils.profile_counters import (
+                counters_enabled as _pc_on,
+                current_profile_counters as _pc_cur,
+            )
+
+            if _pc_on():
+                try:
+                    _pc = _pc_cur()
+                    trial.set_user_attr("matrix_scans_cum", int(_pc.matrix_scans_evaluated))
+                    trial.set_user_attr("matrix_miss_cum", int(_pc.matrix_session_miss))
+                    trial.set_user_attr(
+                        "scanner_symbols_cum", int(_pc.scanner_symbols_seen))
+                except LookupError:
+                    pass
             # Realism remediation 2 Phase 8 (audit §P1-005) — per-trial lineage.
             if dataset_hash is not None:
                 trial.set_user_attr("dataset_hash", dataset_hash)
@@ -2533,6 +2561,55 @@ def run_walkforward_study(
     # entirely — workers rebuild contexts inside each subprocess via the
     # dotted factory.
     assert_search_space_does_not_affect_context(search_space_overrides)
+    # 2026-07-01 stale-matrix gate (study-fbe6b208 incident) — when the matrix
+    # runtime is active, verify BEFORE dispatch that (a) the search space cannot
+    # invalidate the matrix (wires the previously-dead
+    # ``fail_on_matrix_sensitive_search_space`` key) and (b) the built store is
+    # fresh for this resolved window + the current lake and covers every fold's
+    # val sessions. Workers re-check via the fold-context builder; this parent
+    # check exists so a stale store fails ONCE with a clear message instead of
+    # 16 worker tracebacks (or, before this fix, not at all).
+    _accel_cfg = ((cfg.get("optuna") or {}).get("acceleration") or {})
+    _sm_cfg = _accel_cfg.get("scan_matrix") or {}
+    if bool(_sm_cfg.get("enabled", False)):
+        from ..scanner.scan_matrix_runtime import resolve_runtime_mode as _rt_mode
+
+        if _rt_mode(cfg) in ("compatibility", "vectorized"):
+            from ..scanner.scan_matrix import assert_no_stale_matrix_flag
+
+            assert_no_stale_matrix_flag()
+            if bool(_sm_cfg.get("fail_on_matrix_sensitive_search_space", True)):
+                from ..scanner.scan_matrix import (
+                    assert_search_space_compatible_with_matrix,
+                )
+
+                assert_search_space_compatible_with_matrix(search_space_overrides)
+            from .fold_context import (
+                _open_fold_scan_matrix_store,
+                calendar_sessions_half_open,
+            )
+
+            _probe_store = _open_fold_scan_matrix_store(cfg, "validation")
+            if _probe_store is not None:
+                from ..scanner.scan_matrix import (
+                    assert_scan_matrix_fresh,
+                    resolve_scan_matrix_store_root,
+                )
+
+                _required: list = []
+                for _s in plan.splits:
+                    _required.extend(
+                        calendar_sessions_half_open(_s.val_start, _s.val_end))
+                assert_scan_matrix_fresh(
+                    cfg, _probe_store,
+                    resolve_scan_matrix_store_root(_sm_cfg, "validation"),
+                    required_sessions=_required,
+                )
+                log.info(
+                    "scan-matrix freshness gate passed: store covers all %d "
+                    "fold-val sessions and matches the current lake.",
+                    len(_required),
+                )
     cached_suppliers_flag = bool((cfg.get("optuna") or {}).get("cached_suppliers", False))
     parallel_cfg = (cfg.get("optuna") or {}).get("parallel") or {}
     strict_parallel_flag = bool(parallel_cfg.get("strict_parallel", False))

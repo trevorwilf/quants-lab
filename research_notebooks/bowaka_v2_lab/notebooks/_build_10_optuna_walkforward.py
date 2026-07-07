@@ -1,4 +1,11 @@
-"""Build notebook 10 — real walk-forward Optuna optimization (auto feed-select)."""
+"""Build notebook 10 — real walk-forward Optuna optimization (fast_realism search).
+
+2026-07-01: re-synced with the shipped notebook. The notebook had been hand-edited
+through the fast_realism retirement of the CCP two-stage (b2cf3e7) and the Top-N
+sweep additions while this builder still generated the retired CCP notebook —
+running it would have REGRESSED notebook 10. The builder is the source of truth
+again: edit the cell sources here, then run this script.
+"""
 from __future__ import annotations
 
 import sys
@@ -12,77 +19,204 @@ HERE = Path(__file__).resolve().parent
 
 def main() -> None:
     nb = make_notebook([
-        {"type": "code", "source": (
-            "# Papermill parameters.\n"
-            "# NOTE: the prior bowaka_v2_walkforward_optuna.yml is QUARANTINED (realism\n"
-            "# audit 2026-05-22 §P0-001). The default below points at the Phase-8\n"
-            "# walk-forward-purpose contract-parity config that matches today's lake\n"
-            "# (IEX-only, current_code_parity). FEED='auto' upgrades simulation.mode\n"
-            "# to intended_realism the moment SIP bars+quotes land in the lake.\n"
-            "# Walk-forward sizing is locked to the operator spec (2026-05-23):\n"
-            "# train=21, val=1, final_holdout=5 -> 3 folds over the ~29.8-month IEX lake.\n"
-            "#\n"
-            "# Speedup report v2 §4 P2 / Phase 2 — default points at the workstation\n"
-            "# overlay (192 GiB / 18-core box; reserve 62 GiB; strict_parallel=true;\n"
-            "# max_workers=8). The base optuna config carries the more conservative\n"
-            "# reserve_system_gib=32 / strict_parallel=false defaults; flip\n"
-            "# CONFIG_PATH below if you intentionally want those.\n"
-            "CONFIG_PATH = 'research_notebooks/bowaka_v2_lab/configs/bowaka_v2_actual_iex_current_code_optuna.workstation.yml'\n"
-            "N_TRIALS = None          # None -> optuna.n_trials from the config; or set an integer\n"
-            "N_STARTUP_TRIALS = None  # None -> optuna.n_startup_trials; random trials before TPE\n"
-            "N_JOBS = None            # None -> optuna.n_jobs (Phase 5 default: 8 workers on PostgreSQL)\n"
+        {"type": 'code', "source": (
+            '# Papermill parameters.\n'
+            '# NOTE: the prior bowaka_v2_walkforward_optuna.yml is QUARANTINED (realism\n'
+            '# audit 2026-05-22 §P0-001). The default below is the fast_realism walk-forward\n'
+            "# config (base = the #3155 live contract), matching today's SIP lake + the\n"
+            '# CA-current fast_realism scan matrix.\n'
+            '#\n'
+            '# MODE (updated 2026-06-16): the SEARCH runs under fast_realism — honest depth/\n'
+            '# participation fills, non-blocking — the go-forward search mode.\n'
+            '# current_code_parity is RETIRED here. intended_realism (IR) is the gold-standard\n'
+            '# validation but is INFEASIBLE on the $250k-ADV microcap universe (minute-bar\n'
+            '# density fails the coverage_missing_late_session DQ gate, ~9.5% > 1%), so the\n'
+            '# finalist re-score also stays fast_realism (RESCORE_MODE=None -> single-stage).\n'
+            "# Flip RESCORE_MODE to 'intended_realism' only once the universe/data support a\n"
+            '# faithful tape replay.\n'
+            "CONFIG_PATH = 'research_notebooks/bowaka_v2_lab/configs/_fastrealism_study.yml'\n"
+            'N_TRIALS = 5000          # None -> optuna.n_trials from the config; or set an integer\n'
+            'N_STARTUP_TRIALS = 500   # None -> optuna.n_startup_trials; random trials before TPE\n'
+            'N_JOBS = None            # None -> optuna.n_jobs (fast_realism config: 16 workers on PostgreSQL)\n'
             "FEED = 'auto'            # 'auto' (SIP > IEX > synthetic) | 'sip' | 'iex' | 'synthetic'\n"
-            "# Phase 10 default-on: trial 0 is pinned to the actual-contract\n"
-            "# parameter set (the live config) so the optimizer's best can be\n"
-            "# compared against the live incumbent. Set False to disable.\n"
-            "INCUMBENT_TRIAL = True\n"
+            "MODE_OVERRIDE = 'fast_realism'  # SEARCH mode; pins sim mode over the feed-derived\n"
+            '                         # one. fast_realism = honest depth/participation fills.\n'
+            '# Phase 10 default-on: trial 0 is pinned to the actual-contract parameter set\n'
+            "# (the live config) so the optimizer's best is compared against the live incumbent.\n"
+            'INCUMBENT_TRIAL = True\n'
+            '# Gate the slow Top-N robustness sweep (cell below): True = run it (default,\n'
+            '# interactive). The papermill smoke test injects False to keep execution fast.\n'
+            'RUN_TOPN_SWEEP = True\n'
+            '# Finalist validation: the Top-N sweep cell carries the top N_FINALISTS (ranked by\n'
+            '# median fold score − variance penalty) into the robustness + final-holdout\n'
+            '# evaluation. RESCORE_MODE re-scores them under a DIFFERENT mode; with a\n'
+            '# fast_realism search there is no cheaper search to upgrade FROM, so the default\n'
+            '# is single-stage (RESCORE_MODE=None -> re-score under the search mode =\n'
+            "# fast_realism). Set RESCORE_MODE='intended_realism' only if/when IR is feasible.\n"
+            'N_FINALISTS = 128         # finalists carried into the robustness + holdout stage\n'
+            'RESCORE_MODE = None       # re-score finalists under this mode; None -> search mode (fast_realism)\n'
         )},
-        {"type": "markdown", "source": (
-            "# 10 - Walk-Forward Optuna\n\n"
-            "Runs a **real** walk-forward parameter optimization against the shared\n"
-            "market-data lake. Each Optuna trial samples a parameter set, applies it\n"
-            "to the config, and runs a real backtest over every walk-forward\n"
-            "validation window; the trial objective is the median fold score. The\n"
-            "final-holdout window is never read during tuning.\n\n"
+        {"type": 'markdown', "source": (
+            '# 10 - Walk-Forward Optuna\n'
+            '\n'
+            'Runs a **real** walk-forward parameter optimization against the shared\n'
+            'market-data lake. Each Optuna trial samples a parameter set, applies it\n'
+            'to the config, and runs a real backtest over every walk-forward\n'
+            'validation window; the trial objective is the median fold score. The\n'
+            'final-holdout window is never read during tuning.\n'
+            '\n'
             "**Feed auto-selection (`FEED='auto'`):** the notebook probes the lake\n"
-            "and adapts the run to the best data available -\n\n"
-            "| Lake holds | feed | simulation.mode |\n"
-            "|---|---|---|\n"
-            "| SIP bars + SIP quotes | `sip` | `intended_realism` |\n"
-            "| SIP bars, no SIP quotes | `sip` | `current_code_parity` |\n"
-            "| IEX bars only | `iex` | `current_code_parity` |\n"
-            "| neither | - | `smoke_fixture` (synthetic) |\n\n"
-            "Set `FEED` to `sip` / `iex` / `synthetic` to override the probe.\n\n"
-            "**Parameters:** `N_TRIALS` is the total trial count (`None` -> the\n"
+            'and adapts the run to the best data available -\n'
+            '\n'
+            '| Lake holds | feed | simulation.mode |\n'
+            '|---|---|---|\n'
+            '| SIP bars + SIP quotes | `sip` | `intended_realism` |\n'
+            '| SIP bars, no SIP quotes | `sip` | `current_code_parity` |\n'
+            '| IEX bars only | `iex` | `current_code_parity` |\n'
+            '| neither | - | `smoke_fixture` (synthetic) |\n'
+            '\n'
+            'Set `FEED` to `sip` / `iex` / `synthetic` to override the probe.\n'
+            '\n'
+            '**Parameters:** `N_TRIALS` is the total trial count (`None` -> the\n'
             "config's `optuna.n_trials`). `N_STARTUP_TRIALS` is how many of those are\n"
-            "random-sampling trials before TPE-guided search begins.\n\n"
-            "**Compute:** a run is `N_TRIALS` x `n_folds` real backtests - the config\n"
-            "default is a multi-day job. Set a small `N_TRIALS` for a quick run."
+            'random-sampling trials before TPE-guided search begins.\n'
+            '\n'
+            '**Compute:** a run is `N_TRIALS` x `n_folds` real backtests - the config\n'
+            'default is a multi-day job. Set a small `N_TRIALS` for a quick run.\n'
         )},
-        {"type": "code", "source": (
+        {"type": 'code', "source": (
+            'import time\n'
+            'start_time = time.perf_counter()\n'
+            '\n'
             "# Probe the lake and adapt the config's feed + simulation.mode.\n"
-            "from bowaka_v2_lab.optuna.autoconfig import resolve_walkforward_config\n"
-            "resolved = resolve_walkforward_config(CONFIG_PATH, feed_override=FEED)\n"
+            '# MODE_OVERRIDE pins simulation.mode over the feed-derived one (see the params\n'
+            '# cell): auto/sip would pick intended_realism now that quotes exist, but IR is\n'
+            '# infeasible on this microcap lake (minute-bar density fails the coverage DQ\n'
+            '# gate), so we run fast_realism (honest depth/participation fills) for the search.\n'
+            'from bowaka_v2_lab.optuna.autoconfig import resolve_walkforward_config\n'
+            'resolved = resolve_walkforward_config(\n'
+            '    CONFIG_PATH, feed_override=FEED, mode_override=MODE_OVERRIDE)\n'
             "print(f'feed   : {resolved.feed}')\n"
             "print(f'mode   : {resolved.mode}')\n"
             "print(f'reason : {resolved.reason}')\n"
             "print(f'config : {resolved.path}')\n"
         )},
-        {"type": "code", "source": (
-            "import json\n"
-            "from bowaka_v2_lab.optuna.walkforward_runner import run_walkforward_study\n"
-            "# Realism remediation 2 Phase 8 (audit §P0-011): current_code_parity\n"
-            "# studies require an explicit opt-in. ResolvedWalkforwardConfig\n"
-            "# carries the auto-opt-in flags when the lake forces parity mode\n"
-            "# (IEX-only / SIP-bars-no-quotes); the mechanical cap is research_only.\n"
-            "result = run_walkforward_study(\n"
-            "  resolved.path, n_trials=N_TRIALS, n_jobs=N_JOBS,\n"
-            "  n_startup_trials=N_STARTUP_TRIALS, allow_smoke=resolved.allow_smoke,\n"
-            "  allow_current_code_parity_study=resolved.allow_current_code_parity_study,\n"
-            "  tier=resolved.tier,\n"
-            "  incumbent_trial=INCUMBENT_TRIAL,\n"
-            ")\n"
-            "print(json.dumps(result, indent=2, default=str))\n"
+        {"type": 'code', "source": (
+            'import json\n'
+            'from bowaka_v2_lab.optuna.walkforward_runner import run_walkforward_study\n'
+            '# The fast_realism contract caps the suitability tier at research_only;\n'
+            '# ResolvedWalkforwardConfig carries the tier + opt-in flags from the lake probe.\n'
+            '#\n'
+            "# skip_best_trial_report=True: skip the study's internal single-best neighbour\n"
+            '# sweep — in process-parallel mode it rebuilds fold contexts from scratch (slow)\n'
+            '# and only vets the single best trial. The Top-N robustness + holdout sweep cell\n'
+            '# below does the proper finalist evaluation (top N_FINALISTS + neighbours +\n'
+            '# holdout) and writes the report + deployable YAMLs.\n'
+            'result = run_walkforward_study(\n'
+            '  resolved.path, n_trials=N_TRIALS, n_jobs=N_JOBS,\n'
+            '  n_startup_trials=N_STARTUP_TRIALS, allow_smoke=resolved.allow_smoke,\n'
+            '  allow_current_code_parity_study=resolved.allow_current_code_parity_study,\n'
+            '  tier=resolved.tier,\n'
+            '  incumbent_trial=INCUMBENT_TRIAL,\n'
+            '  skip_best_trial_report=True,\n'
+            ')\n'
+            'print(json.dumps(result, indent=2, default=str))\n'
+        )},
+        {"type": 'markdown', "source": (
+            '# Top-N finalist robustness + holdout sweep (§10i)\n'
+            '\n'
+            'The study above optimises the **objective** (v2 = log-return **minus** edge / turnover / fill penalties, so it can be negative even when PnL is positive). The single best trial by objective is not necessarily the best config to ship — a high score can sit on a *fragile spike* that collapses under a small parameter change, and out-of-sample behaviour matters more than the dev score.\n'
+            '\n'
+            'This cell carries the **top `N_FINALISTS`** (parameters cell; default **128**) from the search study into a side-by-side finalist evaluation:\n'
+            '\n'
+            "- **Finalist re-score (`RESCORE_MODE`)** — the search already runs under **`fast_realism`**, so the default is single-stage: `RESCORE_MODE=None` re-scores the finalists under the search mode (fast_realism). Set `RESCORE_MODE='intended_realism'` to upgrade the finalist gate to IR **once it is feasible on the universe** (it is not today — see the parameters cell's MODE note). When a different re-score mode is set, the scan matrix is reused — `simulation.mode` is not in its hash.\n"
+            '- **Neighbour / robustness sweep** — for each finalist, re-score `NEIGHBOURS` parameter sets perturbed ±10% on the validation folds (flat plateau vs fragile spike).\n'
+            "- **Final-holdout** — score each finalist on the reserved holdout window (skipped gracefully if its scan-matrix isn't built).\n"
+            '- **PnL + full quant metrics** — net return, max drawdown, worst-day loss, win rate, avg/median trade return, # trades, fill rate, per-fold detail.\n'
+            "- Writes a **markdown comparison report** (rendered inline below) + a JSON sidecar + **two single-best YAMLs**: the robustness winner and the study's #1 by objective.\n"
+            '\n'
+            'It runs `scripts/topn_robustness_sweep.py` as a subprocess (fork-parallel is unsafe inside a Jupyter kernel). Tune `N_FINALISTS` (parameters cell) / `NEIGHBOURS` / `JOBS`. Budget scales with `N_FINALISTS` × `NEIGHBOURS` re-scores — building the fold contexts once dominates the wall-clock.\n'
+        )},
+        {"type": 'code', "source": (
+            'import os\n'
+            'import subprocess\n'
+            'import sys\n'
+            'from pathlib import Path\n'
+            '\n'
+            'from IPython.display import Markdown, display\n'
+            '\n'
+            '# --- knobs ------------------------------------------------------------------\n'
+            'TOP_N = N_FINALISTS  # finalists to evaluate (set in the parameters cell; default 64)\n'
+            'NEIGHBOURS = 7       # ±10% perturbation neighbours per finalist\n'
+            'JOBS = None          # parallel workers; None -> min(TOP_N, cpu-2)\n'
+            '# Which study: None -> auto-detect the most recent walk-forward study in storage\n'
+            '# (the one cell 4 just produced). Set a name to target a specific finished study.\n'
+            'STUDY_NAME = None\n'
+            '\n'
+            '_script = "research_notebooks/bowaka_v2_lab/scripts/topn_robustness_sweep.py"\n'
+            '_out = "research_notebooks/bowaka_v2_lab/artifacts/optuna/topn_robustness.md"\n'
+            '# Stage 1 (SELECTION): the RESOLVED config the study ran against (same plan / lake\n'
+            '# / lineage) — used to pick + rank the finalists from that study.\n'
+            '_cfg = resolved.path  # noqa: F821 (resolved is defined in the lake-probe cell above)\n'
+            '\n'
+            '# Stage 2 (RE-SCORE): when RESCORE_MODE is set, derive a config identical to the\n'
+            '# search config except simulation.mode=RESCORE_MODE (fast_realism), so the top\n'
+            '# N_FINALISTS are re-scored under realistic depth/participation fills (the §10i\n'
+            '# two-stage). The scan matrix is reused — simulation.mode is not in the matrix\n'
+            '# hash. RESCORE_MODE=None -> single-stage (re-score under the search mode).\n'
+            '_rescore_cfg = None\n'
+            'if RUN_TOPN_SWEEP and RESCORE_MODE:\n'
+            '    from bowaka_v2_lab.optuna.autoconfig import derive_validation_config\n'
+            '    _rescore_cfg = "research_notebooks/bowaka_v2_lab/artifacts/resolved_configs/walkforward_rescore.yml"\n'
+            '    derive_validation_config(_cfg, validation_mode=RESCORE_MODE, out_path=_rescore_cfg)\n'
+            '    print(f"two-stage: top-{TOP_N} finalists selected from the {resolved.mode} study, "\n'
+            '          f"re-scored under {RESCORE_MODE}\\n  rescore config: {_rescore_cfg}\\n", flush=True)\n'
+            '\n'
+            'if RUN_TOPN_SWEEP:\n'
+            '    _cmd = [sys.executable, _script, "--config", str(_cfg),\n'
+            '            "--top-n", str(TOP_N), "--neighbours", str(NEIGHBOURS), "--out", _out]\n'
+            '    if _rescore_cfg:\n'
+            '        _cmd += ["--rescore-config", _rescore_cfg]\n'
+            '    if JOBS:\n'
+            '        _cmd += ["--jobs", str(JOBS)]\n'
+            '    if STUDY_NAME:\n'
+            '        _cmd += ["--study-name", STUDY_NAME]\n'
+            '\n'
+            '    # The script imports the lab from the working tree; pass PYTHONPATH to the child.\n'
+            '    _env = dict(os.environ)\n'
+            '    _pp = os.pathsep.join(["research_notebooks/bowaka_v2_lab/src",\n'
+            '                           "research_notebooks/bowaka_common/src"])\n'
+            '    _env["PYTHONPATH"] = _pp + (os.pathsep + _env["PYTHONPATH"] if _env.get("PYTHONPATH") else "")\n'
+            '\n'
+            '    print("Top-N robustness + holdout sweep — builds fold contexts once, then sweeps finalists in parallel.")\n'
+            '    print("(progress streams below.)\\n", flush=True)\n'
+            '    _proc = subprocess.Popen(_cmd, cwd=os.getcwd(), env=_env,\n'
+            '                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,\n'
+            '                             text=True, bufsize=1)\n'
+            '    for _line in _proc.stdout:\n'
+            '        print(_line, end="")\n'
+            '    _proc.wait()\n'
+            '\n'
+            '    if _proc.returncode == 0 and Path(_out).exists():\n'
+            '        print("\\n" + "=" * 72 + "\\nReport (also at " + _out + "):\\n")\n'
+            '        display(Markdown(Path(_out).read_text(encoding="utf-8")))\n'
+            '        for _y in sorted(Path(_out).parent.glob(Path(_out).stem + "_*.yml")):\n'
+            '            print("exported config YAML:", _y)\n'
+            '    else:\n'
+            '        print(f"\\nsweep exited with code {_proc.returncode} — see the output above.")\n'
+            'else:\n'
+            "    print('Top-N robustness sweep skipped (RUN_TOPN_SWEEP=False; e.g. the papermill smoke test).')\n"
+        )},
+        {"type": 'code', "source": (
+            'end_time = time.perf_counter()\n'
+            'execution_time = end_time - start_time\n'
+            'print(f"Script finished in {execution_time:.4f} seconds.")\n'
+            '\n'
+            'execution_minutes = execution_time / 60\n'
+            'print(f"Script finished in {execution_minutes:.2f} minutes.")\n'
+            '\n'
+            'execution_hours = execution_time / 3600\n'
+            'print(f"Script finished in {execution_hours:.2f} hours.")\n'
         )},
     ])
     write_notebook(nb, HERE / "10_optuna_walkforward.ipynb")

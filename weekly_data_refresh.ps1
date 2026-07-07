@@ -163,8 +163,17 @@ exit 0
 # `bash -lc` mis-parses CR in a multi-line script: CRLF leaves a trailing \r on every line
 # (e.g. `export MARKET_DATA_ROOT=/opt/...\r` -> wrong path). Normalize to LF before exec.
 $inner = $inner -replace "`r", ""
+# 2026-07-01 incident fix: under $ErrorActionPreference='Stop', native stderr in a
+# 2>&1 pipeline raises NativeCommandError and KILLS this script (and the calling
+# scheduled wrapper) on the backfill's first stderr log line -- while the container
+# process keeps running. That is how the 2026-06-26 refresh silently skipped the
+# matrix rebuild (no exit code check, no stale flag). Judge the run by
+# $LASTEXITCODE, not stderr chatter.
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 docker exec $Container bash -lc $inner 2>&1 | Tee-Object -FilePath $hostLog
 $code = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP
 if ($code -ne 0) {
     Write-Error "[weekly] CRITICAL data refresh FAILED (exit $code) - see $hostLog"
     exit $code

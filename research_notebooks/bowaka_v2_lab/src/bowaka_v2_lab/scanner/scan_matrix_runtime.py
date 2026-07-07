@@ -652,9 +652,11 @@ def assert_backtester_matrix_opt_in_is_supported(
     if not enabled or runtime_mode == "disabled":
         return
     if runtime_mode == "compatibility":
-        # Phase 3 — accepted. The parity tests are the proof; the fold-context
-        # builder additionally verifies the manifest config_input_hash /
-        # dataset_hash so a stale matrix cannot be silently consumed.
+        # Phase 3 — accepted. The parity tests are the proof; staleness is
+        # enforced at runtime by ``assert_scan_matrix_fresh`` (session
+        # coverage + code_hashes + dataset_hash vs the current lake), called
+        # from the fold-context builder and the study-start preflight
+        # (added 2026-07-01 after the study-fbe6b208 stale-matrix incident).
         return
     if runtime_mode == "vectorized":
         if not parity_manifest_present:

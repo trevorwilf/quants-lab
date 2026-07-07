@@ -456,6 +456,24 @@ def _build_one_fold_context(
     # mismatch, and ``bowaka-v2-lab scan-matrix verify`` writes the
     # parity_proof marker the backtester opt-in guard reads.
     scan_matrix_store = _open_fold_scan_matrix_store(cfg, scope)
+    # 2026-07-01 stale-matrix gate — an OPENED store must also be FRESH for
+    # this config + the current lake, and must actually cover this fold's
+    # sessions. Without this, a lake refresh (or an auto-anchored window that
+    # outran the build) silently degrades every uncovered session to the
+    # legacy per-symbol scanner (~15x/trial; the study-fbe6b208 incident).
+    if scan_matrix_store is not None:
+        from ..scanner.scan_matrix import (
+            assert_scan_matrix_fresh,
+            resolve_scan_matrix_store_root,
+        )
+
+        _sm_cfg = ((cfg.get("optuna") or {}).get("acceleration") or {}).get(
+            "scan_matrix") or {}
+        assert_scan_matrix_fresh(
+            cfg, scan_matrix_store,
+            resolve_scan_matrix_store_root(_sm_cfg, scope),
+            required_sessions=sessions,
+        )
 
     return FoldRuntimeContext(
         fold_id=fold_id,
