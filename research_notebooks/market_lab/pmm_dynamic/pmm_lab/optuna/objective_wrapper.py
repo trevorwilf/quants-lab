@@ -42,6 +42,8 @@ def create_objective(
     initial_base_balance: float = 0.0,     # pre-existing base token balance
     taker_probability: float = 0.0,        # probability limit entries execute as taker
     regime_candles: Optional[np.ndarray] = None,  # EMA regime-hold only
+    gate_policy=None,                      # range_ladder only: GatePolicy (Phase A.1 §2)
+    objective_mode: str = "median_ann",    # range_ladder only: median_ann | consistency
 ):
     """Create an Optuna-compatible objective function (closure).
 
@@ -140,6 +142,8 @@ def create_objective(
             fixed_quote=fixed_quote,
             strategy_search_space=strategy_search_space,
             strategy_canonicalizer=strategy_canonicalizer,
+            gate_policy=gate_policy,
+            objective_mode=objective_mode,
         )
 
     # Strategy dispatch: MACD-BB uses a separate objective path

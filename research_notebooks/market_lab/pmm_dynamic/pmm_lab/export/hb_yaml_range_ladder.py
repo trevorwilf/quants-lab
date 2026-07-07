@@ -62,10 +62,19 @@ def export_range_ladder_yaml(
     total_amount_quote: Optional[float] = None,
     max_fund_value_quote: Optional[float] = None,
     claimed_base_value_quote: Optional[float] = None,
+    extra_comment_lines: Optional[list] = None,
 ) -> Path:
     """Write a `range_inventory_ladder` controller YAML. Returns the Path.
 
-    Fund fields default from `config.fund_quote`; override per deployment.
+    Rungs are ALWAYS rebuilt from the config at `anchor_price` (the deploy
+    anchor — median of the last 3 closes) via the same build/quantize path
+    as the study; fold rungs are never reused (Phase A.2 §1). Literal
+    configs (refine_incumbent winners) resolve their absolute rungs
+    unchanged. Fund fields default from `config.fund_quote`.
+
+    extra_comment_lines: additional provenance lines (gate policy, selection
+    constraints, anchor-divergence warning, refine overlay params) written
+    into the YAML comment header.
     """
     rungs = config.resolve_rungs(float(anchor_price), pair_rules.price_tick)
 
@@ -113,21 +122,24 @@ def export_range_ladder_yaml(
 
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    header = (
-        "# range_inventory_ladder config exported by pmm_lab (range_ladder Phase A)\n"
-        f"# anchor_price: {float(anchor_price)} (deploy-time median-3 close; rung\n"
-        "#   prices are absolute — re-export if price has drifted since tuning)\n"
-        "# Fund fields are PLACEHOLDERS sized from the study's FUND_USD:\n"
-        "#   total_amount_quote        — total quote capital the ladder may deploy\n"
-        "#   max_fund_value_quote      — hard cap on fund value claimed by the bot\n"
-        "#   claimed_base_value_quote  — base inventory (quote-valued) claimed at start\n"
-        "#   Review against the live account before deploying.\n"
-        "# Timing fields are FROZEN Phase A live values (refresh/cooldowns are\n"
-        "# not modeled by the bar-path sim — Phase B tunes them).\n"
-    )
-    with open(out, "w") as f:
-        f.write(header)
-        yaml.safe_dump(d, f, default_flow_style=False, sort_keys=False)
+    header_lines = [
+        "# range_inventory_ladder config exported by pmm_lab (range_ladder Phase A)",
+        f"# anchor_price: {float(anchor_price)} (deploy-time median-3 close; rung",
+        "#   prices are absolute — re-export if price has drifted since tuning)",
+        "# Fund fields are PLACEHOLDERS sized from the study's FUND_USD:",
+        "#   total_amount_quote        — total quote capital the ladder may deploy",
+        "#   max_fund_value_quote      — hard cap on fund value claimed by the bot",
+        "#   claimed_base_value_quote  — base inventory (quote-valued) claimed at start",
+        "#   Review against the live account before deploying.",
+        "# Timing fields are FROZEN Phase A live values (refresh/cooldowns are",
+        "# not modeled by the bar-path sim — Phase B tunes them).",
+    ]
+    for line in (extra_comment_lines or []):
+        line = str(line)
+        header_lines.append(line if line.startswith("#") else f"# {line}")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write("\n".join(header_lines) + "\n")
+        yaml.safe_dump(d, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
     return out
 
 
@@ -166,7 +178,9 @@ def load_range_ladder_incumbent(yaml_path: Path | str) -> Optional[dict]:
     p = Path(yaml_path)
     if not p.exists():
         return None
-    with open(p, "r") as f:
+    # Live files may be utf-8 or cp1252 (em-dashes live only in comments) —
+    # decode tolerantly so the ladder fields always parse.
+    with open(p, "r", encoding="utf-8", errors="replace") as f:
         data = yaml.safe_load(f)
     result = {
         "buy_prices": _parse_ladder_field(data["buy_prices"], "buy_prices"),

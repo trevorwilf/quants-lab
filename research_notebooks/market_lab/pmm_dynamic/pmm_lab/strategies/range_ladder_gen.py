@@ -364,6 +364,125 @@ def fit_generative_to_ladder(
     }
 
 
+def apply_ladder_overlay(
+    rungs: RungSet,
+    *,
+    buy_shift_pct: float = 0.0,
+    sell_shift_pct: float = 0.0,
+    buy_stretch: float = 1.0,
+    sell_stretch: float = 1.0,
+    buy_tilt_delta: float = 0.0,
+    sell_tilt_delta: float = 0.0,
+    price_tick: float,
+) -> RungSet:
+    """Stage-1 refinement overlay on a literal ladder (Phase A.1 §3).
+
+    Geometry-preserving transforms applied per side:
+    - shift: nearest rung moves by (1+shift); the whole side follows.
+    - stretch: each rung's log-distance from the (shifted) nearest rung is
+      scaled — p_i' = p_near' * (p_i/p_near)**stretch — preserving the
+      relative spacing pattern while widening/tightening it.
+    - tilt: weight_i *= exp(delta * i/(n-1)), then max-renormalized —
+      preserves the hand-built shape, re-tilts it.
+
+    The IDENTITY overlay (shift=0, stretch=1, delta=0) reproduces the input
+    bit-for-bit (unit-tested); moved prices are tick-quantized (buys down,
+    sells up), untouched sides are never re-quantized so off-grid live rungs
+    survive an identity pass unchanged.
+    """
+    def _prices(side: np.ndarray, shift: float, stretch: float, direction: str) -> np.ndarray:
+        if shift == 0.0 and stretch == 1.0:
+            return side.copy()
+        p_near = float(side[0])
+        p_near_shifted = p_near * (1.0 + shift)
+        out = p_near_shifted * (side / p_near) ** stretch
+        return np.array(
+            [quantize_price(float(p), price_tick, direction) for p in out],
+            dtype=np.float64,
+        )
+
+    def _weights(side: np.ndarray, delta: float) -> np.ndarray:
+        if delta == 0.0:
+            return side.copy()
+        n = len(side)
+        x = np.arange(n, dtype=np.float64) / (n - 1) if n > 1 else np.zeros(1)
+        w = side * np.exp(delta * x)
+        return w / w.max()
+
+    return RungSet(
+        buys=_prices(np.asarray(rungs.buys, dtype=np.float64), buy_shift_pct, buy_stretch, "buy"),
+        sells=_prices(np.asarray(rungs.sells, dtype=np.float64), sell_shift_pct, sell_stretch, "sell"),
+        buy_weights=_weights(np.asarray(rungs.buy_weights, dtype=np.float64), buy_tilt_delta),
+        sell_weights=_weights(np.asarray(rungs.sell_weights, dtype=np.float64), sell_tilt_delta),
+    )
+
+
+def apply_per_rung_nudge(
+    rungs: RungSet,
+    buy_price_mults,
+    sell_price_mults,
+    buy_weight_mults,
+    sell_weight_mults,
+    *,
+    price_tick: float,
+) -> RungSet:
+    """Stage-2 per-rung nudge around a stage-1 winner (Phase A.1 §3).
+
+    Each rung gets its own price multiplier (CMA-ES box [0.98, 1.02]) and
+    weight multiplier ([0.75, 1.25]). Identity multipliers reproduce the
+    input bit-for-bit; moved prices are tick-quantized.
+    """
+    def _prices(side: np.ndarray, mults, direction: str) -> np.ndarray:
+        mults = np.asarray(mults, dtype=np.float64)
+        if len(mults) != len(side):
+            raise ValueError(
+                f"{direction} price multipliers ({len(mults)}) must match "
+                f"rung count ({len(side)})"
+            )
+        out = side.copy()
+        for i, m in enumerate(mults):
+            if m != 1.0:
+                out[i] = quantize_price(float(side[i] * m), price_tick, direction)
+        return out
+
+    def _weights(side: np.ndarray, mults) -> np.ndarray:
+        mults = np.asarray(mults, dtype=np.float64)
+        if len(mults) != len(side):
+            raise ValueError(
+                f"weight multipliers ({len(mults)}) must match rung count ({len(side)})"
+            )
+        if np.all(mults == 1.0):
+            return side.copy()
+        w = side * mults
+        return w / w.max()
+
+    return RungSet(
+        buys=_prices(np.asarray(rungs.buys, dtype=np.float64), buy_price_mults, "buy"),
+        sells=_prices(np.asarray(rungs.sells, dtype=np.float64), sell_price_mults, "sell"),
+        buy_weights=_weights(np.asarray(rungs.buy_weights, dtype=np.float64), buy_weight_mults),
+        sell_weights=_weights(np.asarray(rungs.sell_weights, dtype=np.float64), sell_weight_mults),
+    )
+
+
+def count_rung_touches(
+    high: np.ndarray,
+    low: np.ndarray,
+    rung_prices: np.ndarray,
+) -> np.ndarray:
+    """Per-rung touch counts over a bar window (Phase A.2 §3a).
+
+    A bar touches a rung iff ``low <= rung <= high`` (boundary inclusive).
+    Vectorized: O(bars × rungs) boolean reduction.
+    """
+    high = np.asarray(high, dtype=np.float64)
+    low = np.asarray(low, dtype=np.float64)
+    rungs = np.asarray(rung_prices, dtype=np.float64)
+    if len(high) == 0 or len(rungs) == 0:
+        return np.zeros(len(rungs), dtype=np.int64)
+    touched = (low[:, None] <= rungs[None, :]) & (rungs[None, :] <= high[:, None])
+    return touched.sum(axis=0).astype(np.int64)
+
+
 def ladder_round_trip_error(
     buy_prices: Sequence[float],
     buy_weights: Sequence[float],

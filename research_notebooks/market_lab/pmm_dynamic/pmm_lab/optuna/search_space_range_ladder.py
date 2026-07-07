@@ -73,3 +73,63 @@ def suggest_range_ladder_params(
         "cooldown_time": PHASE_A_COOLDOWN_SECONDS,
         "executor_refresh_time": PHASE_A_EXECUTOR_REFRESH_SECONDS,
     }
+
+
+# ----------------------------------------------------------------------
+# refine_incumbent search spaces (Phase A.1 §3)
+# ----------------------------------------------------------------------
+
+# Identity overlay — reproduces the incumbent bit-for-bit; enqueued as
+# trial 0 so the refinement study can never lose to its baseline.
+IDENTITY_OVERLAY_PARAMS = {
+    "buy_shift_pct": 0.0,
+    "sell_shift_pct": 0.0,
+    "buy_stretch": 1.0,
+    "sell_stretch": 1.0,
+    "buy_tilt_delta": 0.0,
+    "sell_tilt_delta": 0.0,
+}
+
+
+def suggest_range_ladder_overlay_params(trial: optuna.Trial) -> Dict[str, float]:
+    """Stage-1 overlay space: 6 geometry-preserving transforms."""
+    return {
+        "buy_shift_pct": trial.suggest_float("buy_shift_pct", -0.05, 0.05),
+        "sell_shift_pct": trial.suggest_float("sell_shift_pct", -0.05, 0.05),
+        "buy_stretch": trial.suggest_float("buy_stretch", 0.7, 1.3),
+        "sell_stretch": trial.suggest_float("sell_stretch", 0.7, 1.3),
+        "buy_tilt_delta": trial.suggest_float("buy_tilt_delta", -1.5, 1.5),
+        "sell_tilt_delta": trial.suggest_float("sell_tilt_delta", -1.5, 1.5),
+    }
+
+
+def identity_nudge_params(n_buy: int, n_sell: int) -> Dict[str, float]:
+    """Flat parameter dict for enqueueing the identity nudge as trial 0."""
+    params: Dict[str, float] = {}
+    for i in range(n_buy):
+        params[f"buy_price_mult_{i}"] = 1.0
+        params[f"buy_weight_mult_{i}"] = 1.0
+    for i in range(n_sell):
+        params[f"sell_price_mult_{i}"] = 1.0
+        params[f"sell_weight_mult_{i}"] = 1.0
+    return params
+
+
+def suggest_range_ladder_nudge_params(
+    trial: optuna.Trial, n_buy: int, n_sell: int
+) -> Dict[str, Any]:
+    """Stage-2 per-rung nudge space (CMA-ES box, dimension 2*(n_buy+n_sell))."""
+    return {
+        "buy_price_mults": [
+            trial.suggest_float(f"buy_price_mult_{i}", 0.98, 1.02) for i in range(n_buy)
+        ],
+        "sell_price_mults": [
+            trial.suggest_float(f"sell_price_mult_{i}", 0.98, 1.02) for i in range(n_sell)
+        ],
+        "buy_weight_mults": [
+            trial.suggest_float(f"buy_weight_mult_{i}", 0.75, 1.25) for i in range(n_buy)
+        ],
+        "sell_weight_mults": [
+            trial.suggest_float(f"sell_weight_mult_{i}", 0.75, 1.25) for i in range(n_sell)
+        ],
+    }

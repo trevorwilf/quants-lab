@@ -54,7 +54,11 @@ def validate_yaml_file(yaml_path: str, **kwargs) -> ValidationResult:
         return _validate_mean_reversion_bb_rsi_mirror(config_dict)
     if controller_name == "range_inventory_ladder":
         return _validate_range_ladder_mirror(
-            config_dict, price_tick=kwargs.get("price_tick")
+            config_dict,
+            price_tick=kwargs.get("price_tick"),
+            deploy_anchor=kwargs.get("deploy_anchor"),
+            buy_near_pct=kwargs.get("buy_near_pct"),
+            sell_near_pct=kwargs.get("sell_near_pct"),
         )
 
     # PMM Dynamic path (default)
@@ -69,6 +73,9 @@ def validate_yaml_file(yaml_path: str, **kwargs) -> ValidationResult:
 def _validate_range_ladder_mirror(
     config_dict: Dict[str, Any],
     price_tick: Optional[float] = None,
+    deploy_anchor: Optional[float] = None,
+    buy_near_pct: Optional[float] = None,
+    sell_near_pct: Optional[float] = None,
 ) -> ValidationResult:
     """Mirror validator for `range_inventory_ladder` YAMLs (range_ladder Phase A).
 
@@ -77,6 +84,12 @@ def _validate_range_ladder_mirror(
     every rung notional at the configured fund >= min_order_quote, dead zone
     >= the fee floor (2 * 2 * fee_rate), and — when `price_tick` is provided —
     all prices tick-quantized.
+
+    Phase A.2 §2 market-bracket checks (when `deploy_anchor` is provided):
+    - HARD FAIL unless max(buy_prices) < deploy_anchor < min(sell_prices).
+    - WARN when the gap on a side exceeds 3× the config's nearest-rung
+      offset (`buy_near_pct` / `sell_near_pct`, when supplied) — a ladder
+      that brackets price but sits absurdly wide.
     """
     errors: List[str] = []
     warnings: List[str] = []
@@ -165,6 +178,36 @@ def _validate_range_ladder_mirror(
         errors.append(
             f"dead zone {dead_zone:.6f} below fee floor {floor:.6f} "
             f"(= 2 * 2 * fee_rate, fee_rate={fee_rate})"
+        )
+
+    # Market-bracket validation (Phase A.2 §2)
+    if deploy_anchor is not None:
+        anchor = float(deploy_anchor)
+        if not (max(buys) < anchor < min(sells)):
+            errors.append(
+                f"ladder does not bracket the deploy anchor: max(buy_prices)="
+                f"{max(buys)}, deploy_anchor={anchor}, min(sell_prices)={min(sells)}"
+            )
+        else:
+            if buy_near_pct is not None:
+                buy_gap = (anchor - max(buys)) / anchor
+                if buy_gap > 3.0 * float(buy_near_pct):
+                    warnings.append(
+                        f"buy side sits wide: nearest buy {buy_gap:.4f} below "
+                        f"anchor vs configured near offset {float(buy_near_pct):.4f} "
+                        f"(> 3x)"
+                    )
+            if sell_near_pct is not None:
+                sell_gap = (min(sells) - anchor) / anchor
+                if sell_gap > 3.0 * float(sell_near_pct):
+                    warnings.append(
+                        f"sell side sits wide: nearest sell {sell_gap:.4f} above "
+                        f"anchor vs configured near offset {float(sell_near_pct):.4f} "
+                        f"(> 3x)"
+                    )
+    else:
+        warnings.append(
+            "deploy_anchor not provided — market-bracket check skipped"
         )
 
     # Tick quantization (only checkable when the caller supplies the tick)
