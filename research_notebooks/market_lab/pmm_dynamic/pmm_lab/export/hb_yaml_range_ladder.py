@@ -131,24 +131,61 @@ def export_range_ladder_yaml(
     return out
 
 
+def _parse_ladder_field(value, field: str) -> list:
+    """Parse a rung/weight field from a live controller YAML.
+
+    The live range_inventory_ladder configs store these as comma-separated
+    scalars (``buy_prices: 328,324,321``), which YAML loads as a single
+    string; lab-generated exports use proper YAML lists. Accept both.
+    """
+    if isinstance(value, str):
+        parts = [p.strip() for p in value.split(",")]
+        values = [float(p) for p in parts if p]
+    elif isinstance(value, (list, tuple)):
+        values = [float(x) for x in value]
+    elif isinstance(value, (int, float)):
+        values = [float(value)]
+    else:
+        raise ValueError(
+            f"{field}: expected a comma-separated string or a list, "
+            f"got {type(value).__name__}"
+        )
+    if not values:
+        raise ValueError(f"{field}: no values parsed from {value!r}")
+    return values
+
+
 def load_range_ladder_incumbent(yaml_path: Path | str) -> Optional[dict]:
     """Load a live incumbent ladder YAML for benchmarking.
 
     Returns None when the file does not exist (the incumbent machinery must
-    degrade gracefully — e.g. Kraken has no live ladder configs yet).
+    degrade gracefully — e.g. pairs with no live ladder yet). Live files are
+    accepted VERBATIM: ladder fields may be comma-separated strings (the
+    live controller format) or YAML lists (lab exports).
     """
     p = Path(yaml_path)
     if not p.exists():
         return None
     with open(p, "r") as f:
         data = yaml.safe_load(f)
-    return {
-        "buy_prices": [float(x) for x in data["buy_prices"]],
-        "buy_weights": [float(x) for x in data["buy_amounts_pct"]],
-        "sell_prices": [float(x) for x in data["sell_prices"]],
-        "sell_weights": [float(x) for x in data["sell_amounts_pct"]],
+    result = {
+        "buy_prices": _parse_ladder_field(data["buy_prices"], "buy_prices"),
+        "buy_weights": _parse_ladder_field(data["buy_amounts_pct"], "buy_amounts_pct"),
+        "sell_prices": _parse_ladder_field(data["sell_prices"], "sell_prices"),
+        "sell_weights": _parse_ladder_field(data["sell_amounts_pct"], "sell_amounts_pct"),
         "raw": data,
     }
+    if len(result["buy_prices"]) != len(result["buy_weights"]):
+        raise ValueError(
+            f"{p.name}: buy_prices ({len(result['buy_prices'])}) and "
+            f"buy_amounts_pct ({len(result['buy_weights'])}) length mismatch"
+        )
+    if len(result["sell_prices"]) != len(result["sell_weights"]):
+        raise ValueError(
+            f"{p.name}: sell_prices ({len(result['sell_prices'])}) and "
+            f"sell_amounts_pct ({len(result['sell_weights'])}) length mismatch"
+        )
+    return result
 
 
 def incumbent_yaml_path(

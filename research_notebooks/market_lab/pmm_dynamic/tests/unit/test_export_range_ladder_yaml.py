@@ -199,7 +199,8 @@ def test_validator_rejects_missing_key(tmp_path):
 
 
 # ----------------------------------------------------------------------
-# Incumbent loader
+# Incumbent loader — the checked-in files are VERBATIM live controller
+# configs, whose ladder fields are comma-separated strings (not YAML lists).
 # ----------------------------------------------------------------------
 
 def test_incumbent_path_convention():
@@ -207,7 +208,7 @@ def test_incumbent_path_convention():
     assert p.name == "nonkyc__DASH-USDT.yml"
 
 
-def test_load_seeded_dash_incumbent():
+def test_load_live_dash_incumbent_csv_format():
     inc = load_range_ladder_incumbent(
         incumbent_yaml_path(INCUMBENTS_DIR, "nonkyc", "DASH-USDT")
     )
@@ -218,12 +219,66 @@ def test_load_seeded_dash_incumbent():
     assert inc["sell_weights"] == [39.9, 25.8, 16.6, 10.7, 6.9]
 
 
-def test_load_seeded_sun_incumbent():
+def test_load_live_sun_incumbent():
     inc = load_range_ladder_incumbent(
         incumbent_yaml_path(INCUMBENTS_DIR, "nonkyc", "SUN-USDT")
     )
     assert inc is not None
     assert len(inc["buy_prices"]) == 5 and len(inc["sell_prices"]) == 5
+
+
+def test_load_live_xmr_incumbent_spaced_csv():
+    """The live nonkyc XMR weights carry stray spaces (`0.5,1, 1, 4, ...`)."""
+    inc = load_range_ladder_incumbent(
+        incumbent_yaml_path(INCUMBENTS_DIR, "nonkyc", "XMR-USDT")
+    )
+    assert inc is not None
+    assert inc["buy_prices"] == [328.0, 324.0, 321.0, 318.0, 315.0, 312.0, 305.0]
+    assert inc["buy_weights"] == [0.5, 1.0, 1.0, 4.0, 3.5, 1.0, 0.5]
+    assert len(inc["sell_prices"]) == 9 and len(inc["sell_weights"]) == 9
+
+
+def test_load_live_kraken_xmr_usd_incumbent():
+    """The kraken incumbent is USD-quoted with the VALIDATED 5b/7s band."""
+    inc = load_range_ladder_incumbent(
+        incumbent_yaml_path(INCUMBENTS_DIR, "kraken", "XMR-USD")
+    )
+    assert inc is not None
+    assert inc["raw"]["trading_pair"] == "XMR-USD"
+    assert inc["buy_prices"] == [306.261, 300.004, 293.435, 286.865, 280.609]
+    assert inc["sell_prices"][0] == 334.415 and len(inc["sell_prices"]) == 7
+    assert max(inc["buy_prices"]) < min(inc["sell_prices"])
+
+
+def test_load_live_zano_incumbent():
+    inc = load_range_ladder_incumbent(
+        incumbent_yaml_path(INCUMBENTS_DIR, "nonkyc", "ZANO-USDT")
+    )
+    assert inc is not None
+    assert inc["buy_prices"][0] == 9.64156
+
+
+def test_loader_accepts_list_format(tmp_path):
+    """Lab-generated exports use YAML lists — both formats must load."""
+    p = tmp_path / "nonkyc__TEST-USDT.yml"
+    p.write_text(
+        "controller_name: range_inventory_ladder\n"
+        "buy_prices: [95.0, 90.0]\nbuy_amounts_pct: [40.0, 60.0]\n"
+        "sell_prices: [105.0, 110.0]\nsell_amounts_pct: [50.0, 50.0]\n"
+    )
+    inc = load_range_ladder_incumbent(p)
+    assert inc["buy_prices"] == [95.0, 90.0]
+    assert inc["sell_weights"] == [50.0, 50.0]
+
+
+def test_loader_rejects_length_mismatch(tmp_path):
+    p = tmp_path / "nonkyc__BAD-USDT.yml"
+    p.write_text(
+        "buy_prices: 95.0,90.0\nbuy_amounts_pct: 40.0\n"
+        "sell_prices: 105.0,110.0\nsell_amounts_pct: 50.0,50.0\n"
+    )
+    with pytest.raises(ValueError, match="length mismatch"):
+        load_range_ladder_incumbent(p)
 
 
 def test_missing_incumbent_returns_none():

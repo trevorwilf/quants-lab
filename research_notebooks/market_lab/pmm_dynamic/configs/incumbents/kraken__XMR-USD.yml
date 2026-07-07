@@ -1,0 +1,109 @@
+# ============================================================================
+#  range_inventory_ladder — KRAKEN XMR/USD controller config
+#  Validated band (walk-forward + conservative = CONFIRMED) + smooth SHAPE weights.
+#  Ported from the NonKYC template. Quote is USD, so all fund values are USD as-is.
+# ============================================================================
+
+# --- Identity -------------------------------------------------------------
+id: k_range_inventory_ladder_xmr_usd_V1    # Unique instance; namespaces state/diagnostic files.
+controller_name: range_inventory_ladder  # Must match your controller .py.
+controller_type: market_making
+
+# --- Market ---------------------------------------------------------------
+connector_name: kraken                   # Kraken spot connector (was: nonkyc).
+trading_pair: XMR-USD                     # BASE-QUOTE. Verify current price sits in the buy/sell
+                                          #   gap below (~$306–$334) before deploy; re-center if drifted.
+
+# --- Managed fund ---------------------------------------------------------
+ledger_funded_budgets: true              # Isolate this controller to the USD/XMR IT owns (wallet as
+                                          #   safety floor only). NOTE: on Kraken this pair spends USD
+                                          #   while DASH/EUR spends EUR, so the two are already isolated
+                                          #   by currency — but keep this true if you ever add another
+                                          #   USD-quoted Kraken ladder (e.g. AERO/USD) that WOULD share USD.
+total_amount_quote: 450                   # Seed (USD). BUY-ONLY start: claimed=0 -> quote seed = total
+                                          #   = $500 of buy fuel. Deliberately small — paper-validate,
+                                          #   then scale toward the cap. Set-once (not updatable).
+allow_initialize_with_unavailable_wallet_funds: true
+max_fund_value_quote: 10000               # HARD CAP (screener suggestion, USD). Compounds its OWN
+                                          #   proceeds up to here (~20x the $500 seed = headroom).
+use_wallet_balance: true
+claimed_base_value_quote: 361               # 0 base claimed -> starts BUY-ONLY, accumulates XMR.
+                                          #   ALT (if you already HOLD XMR on Kraken and want the sell
+                                          #   side live at seed): set this EQUAL to total_amount_quote
+                                          #   (e.g. both = 500) so quote seed = 0 -> SELL-ONLY start,
+                                          #   exactly like your NonKYC XMR config.
+
+# >>> Provenance & risk notes <<<
+# - BAND is validated: these rungs passed BOTH the walk-forward (kept 127% OOS, two-sided) and the
+#   conservative-fill check (kept 67%) in the screener — verdict CONFIRMED.
+# - WEIGHTS are a strategy CHOICE, not an optimizer fit: smooth shape in your NonKYC house style.
+#   The screener's free-mode weights (overfit-prone, validated by neither gate) are kept as a
+#   commented alternate below if you want to A/B them.
+# - XMR is an accumulate target: if price falls through $280.6 the ladder keeps buying and you END
+#   HOLDING XMR. That downside is intended here — size the cap to what you're willing to hold.
+# - Cap chain OK: 0 <= 500 <= 10000.
+
+# --- The ladder: VALIDATED rungs + SHAPE weights --------------------------
+# buy_prices highest->lowest; sell_prices lowest->highest; highest buy < lowest sell.
+# Buys BACK-load (accumulate the deepest dips); sells BACK-load (distribute near the top of the range).
+# This is the CONFIRMED band from the provenance note above (walk-forward
+# 127% OOS two-sided + conservative 67%) whose ~$306–$334 gap matches the
+# header. (A stale copy of the NonKYC XMR-USDT ladder was active here by
+# mistake — kept as ALTERNATE C below; the 5-buy/7-sell alternates A/B only
+# pair with THIS band.)
+buy_prices: 306.261,300.004,293.435,286.865,280.609
+buy_amounts_pct: 7.6,11.4,17.1,25.6,38.3
+sell_prices: 334.415,355.688,377.273,398.858,420.444,441.716,463.301
+sell_amounts_pct: 7.3,8.9,10.8,13.2,16.1,19.7,24.0
+# Shallower 3-rung buy-side variant of the same validated band:
+#buy_prices: 306.261,300.004,293.435
+#buy_amounts_pct: 7.6,11.4,17.1
+
+# ALTERNATE A — screener free-mode weights (the optimizer's raw output; in-sample, unvalidated):
+#buy_amounts_pct: 23.0,8.9,8.9,17.7,41.5
+#sell_amounts_pct: 10.3,5.1,10.3,10.3,43.4,10.3,10.3
+# ALTERNATE B — "distribute early" sells (front-load, like your DASH-NonKYC style):
+#sell_amounts_pct: 24.0,19.7,16.1,13.2,10.8,8.9,7.3
+# ALTERNATE C — the NonKYC XMR-USDT ladder that was pasted here from the
+# template (stale band drawn at nonkyc prices; NOT the validated Kraken band):
+#buy_prices: 328,324,321,318,315,312,305
+#buy_amounts_pct: 0.5,1,1,4,3.5,1,0.5
+#sell_prices: 331.5,335,340,345,350,355,360,370,380
+#sell_amounts_pct: 0.5,1,1,2,2,1,1,1,1
+
+# --- Refresh / re-center model --------------------------------------------
+event_refresh_enabled: true              # A fill on one side immediately refreshes the OPPOSITE ladder.
+executor_refresh_time: 43200             # GLOBAL refresh, 12h.
+buy_cooldown_time: 3600
+sell_cooldown_time: 3600
+
+# --- Order placement constraints ------------------------------------------
+min_order_quote: 1                       # Controller floor ($). Also confirm Kraken's own ordermin for
+                                          #   XMR/USD clears per-rung notional (your smallest rung ~$38).
+allow_partial_levels: true
+passive_order_placement: true            # Maker-only; never cross. Buys post below bid, sells above ask.
+
+# --- Unattended-run safety ------------------------------------------------
+max_session_duration_hours: 66000
+cancel_orders_on_session_end: true
+max_market_data_unavailable_seconds: 900
+cancel_orders_on_market_data_hard_pause: true
+
+# --- Diagnostics ----------------------------------------------------------
+diagnostic_log_enabled: true
+diagnostic_log_file_name: range_inventory_ladder_xmr_usd_diagnostic.jsonl
+diagnostic_heartbeat_interval_seconds: 300
+
+# --- State / control ------------------------------------------------------
+state_file_name: range_inventory_ladder_xmr_usd.json
+manual_kill_switch: false # false turns on the strategy, true turns the strategy off: Set true to halt the controller (emergency stop).
+
+# ============================================================================
+#  OPTIONAL fields (safe defaults; uncomment to use):
+# ============================================================================
+# fee_rate: 0.0025               # Fallback per-fill fee ONLY if the connector reports none. Kraken DOES
+#                                #   report fees, so this is normally moot. 0.0025 = Kraken base maker
+#                                #   tier; lower it to your actual 30-day-volume tier if you set it.
+# shared_account_quote_quota:    # Extra hard cap on buy-side USD. Not needed under ledger_funded_budgets.
+# post_refresh_settle_seconds: 0 # Pause after a refresh cancel wave to let balances settle.
+# reseed_fund_from_wallet_once: false  # One-shot: re-seed the managed fund from the CURRENT wallet.

@@ -1,44 +1,68 @@
-# Live range_inventory_ladder incumbent — nonkyc DASH-USDT.
-# Rungs/weights seeded from the Phase A prompt (live values, 2026-07).
-# Fund fields are PLACEHOLDERS — replace with the live YAML's values when
-# copying the actual controller config from the Trading Pod.
-id: nonkyc_dash_usdt_range_ladder_incumbent
+# ============================================================================
+#  range_inventory_ladder — NonKYC DASH/USDT controller config
+#  Optimized plateau-centre band + shape weights. Seeded as a NEW (buy-only) entry.
+# ============================================================================
+
+# --- Identity -------------------------------------------------------------
+id: range_inventory_ladder_dash_V1       # Unique instance name; namespaces state/diagnostic files.
 controller_name: range_inventory_ladder
 controller_type: market_making
+
+# --- Market ---------------------------------------------------------------
 connector_name: nonkyc
-trading_pair: DASH-USDT
-buy_prices:
-- 32.851
-- 32.112
-- 31.3395
-- 30.6005
-- 29.8615
-buy_amounts_pct:
-- 7.6
-- 11.4
-- 17.1
-- 25.6
-- 38.4
-sell_prices:
-- 36.1764
-- 38.7965
-- 41.3829
-- 43.9693
-- 46.5893
-sell_amounts_pct:
-- 39.9
-- 25.8
-- 16.6
-- 10.7
-- 6.9
-fee_rate: 0.002
+trading_pair: DASH-USDT                   # Current price ~ $33.59 (sits in the buy/sell gap).
+
+# --- Managed fund ---------------------------------------------------------
+ledger_funded_budgets: true              # Fund ongoing orders from THIS controller's OWN ledger,
+                                         #   wallet-floored. Isolates DASH from XMR/ZANO/SUN: after
+                                         #   seed, DASH spends only USDT/DASH IT owns. No quota needed.
+total_amount_quote: 200                 # Seed = 50% of the cap. You hold NO DASH, so this whole
+                                         #   amount seeds as USDT (buy-side fuel). Set-once.
+allow_initialize_with_unavailable_wallet_funds: true
+max_fund_value_quote: 2250               # HARD CAP (the screener's suggested cap). DASH compounds its
+                                         #   OWN proceeds up to here.
+use_wallet_balance: true                # Claim NO base from the wallet (you hold no DASH).
+claimed_base_value_quote: 65              # 0 base claimed -> starts buy-only, accumulates DASH.
+
+# >>> DASH on a SHARED NonKYC account <<<
+# - NEW position: starts BUY-ONLY. It posts buy rungs and ACCUMULATES DASH as price dips in; the
+#   sell side activates once it holds inventory. Won't match the 50/50 backtest until built up --
+#   the first stretch is buy-heavy by design.
+# - SEED reads the WALLET (not the ledger): total_amount_quote=1125 means DASH claims up to $1,125 of
+#   wallet USDT at first start. On a shared account, make sure only DASH's intended USDT is present
+#   when it seeds, or it can pull another controller's cash. AFTER seed, ledger funding isolates it.
+# - Cap chain OK: claimed 0 <= total 1125 <= max_fund 2250.
+
+# --- The ladder: OPTIMIZED rungs (plateau centre) + SHAPE weights ---------
+# Buy skew loads the DEEPEST dips (accumulate cheap); sell skew loads the FIRST bounce (distribute).
+# buy_prices highest->lowest; sell_prices lowest->highest; highest buy < lowest sell.
+buy_prices: 32.851,32.112,31.3395,30.6005,29.8615
+buy_amounts_pct: 7.6,11.4,17.1,25.6,38.4
+sell_prices: 36.1764,38.7965,41.3829,43.9693,46.5893
+sell_amounts_pct: 39.9,25.8,16.6,10.7,6.9
+
+# --- Refresh / re-center model --------------------------------------------
+event_refresh_enabled: true
+executor_refresh_time: 43200             # GLOBAL refresh, 12h.
+buy_cooldown_time: 3600
+sell_cooldown_time: 3600
+
+# --- Order placement constraints ------------------------------------------
 min_order_quote: 1
 allow_partial_levels: true
 passive_order_placement: true
-event_refresh_enabled: true
-executor_refresh_time: 43200
-buy_cooldown_time: 3600
-sell_cooldown_time: 3600
-total_amount_quote: 1000.0        # PLACEHOLDER — set from the live config
-max_fund_value_quote: 1000.0      # PLACEHOLDER — set from the live config
-claimed_base_value_quote: 500.0   # PLACEHOLDER — set from the live config
+
+# --- Unattended-run safety ------------------------------------------------
+max_session_duration_hours: 66000
+cancel_orders_on_session_end: true
+max_market_data_unavailable_seconds: 900
+cancel_orders_on_market_data_hard_pause: true
+
+# --- Diagnostics ----------------------------------------------------------
+diagnostic_log_enabled: true
+diagnostic_log_file_name: range_inventory_ladder_dash_usdt_diagnostic.jsonl
+diagnostic_heartbeat_interval_seconds: 300
+
+# --- State / control ------------------------------------------------------
+state_file_name: range_inventory_ladder_dash_usdt.json
+manual_kill_switch: false
