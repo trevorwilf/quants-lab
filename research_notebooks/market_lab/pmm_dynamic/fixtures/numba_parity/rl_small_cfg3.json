@@ -1,0 +1,31 @@
+{
+  "type": "range_ladder",
+  "size": "small",
+  "n_bars": 400,
+  "seed": 4230,
+  "anchor": 49.07996106109345,
+  "price_tick": 0.0001,
+  "gen": {
+    "n_buy": 6,
+    "n_sell": 4,
+    "buy_near_pct": 0.02,
+    "buy_far_pct": 0.18,
+    "sell_near_pct": 0.025,
+    "sell_far_pct": 0.22,
+    "buy_gamma": 1.0,
+    "sell_gamma": 1.0,
+    "k_buy": 0.0,
+    "k_sell": 3.0,
+    "min_weight_frac": 0.1
+  },
+  "dials": {
+    "fund": 1000.0,
+    "quote_frac": 0.5,
+    "fee": 0.002,
+    "slip": 0.001,
+    "max_fills_per_bar": 1,
+    "cooldown_bars": 2,
+    "body_only": true
+  },
+  "golden_source": "_run_ladder_reference (pure Python)"
+}

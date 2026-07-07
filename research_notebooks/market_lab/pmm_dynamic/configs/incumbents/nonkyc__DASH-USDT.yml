@@ -1,0 +1,44 @@
+# Live range_inventory_ladder incumbent — nonkyc DASH-USDT.
+# Rungs/weights seeded from the Phase A prompt (live values, 2026-07).
+# Fund fields are PLACEHOLDERS — replace with the live YAML's values when
+# copying the actual controller config from the Trading Pod.
+id: nonkyc_dash_usdt_range_ladder_incumbent
+controller_name: range_inventory_ladder
+controller_type: market_making
+connector_name: nonkyc
+trading_pair: DASH-USDT
+buy_prices:
+- 32.851
+- 32.112
+- 31.3395
+- 30.6005
+- 29.8615
+buy_amounts_pct:
+- 7.6
+- 11.4
+- 17.1
+- 25.6
+- 38.4
+sell_prices:
+- 36.1764
+- 38.7965
+- 41.3829
+- 43.9693
+- 46.5893
+sell_amounts_pct:
+- 39.9
+- 25.8
+- 16.6
+- 10.7
+- 6.9
+fee_rate: 0.002
+min_order_quote: 1
+allow_partial_levels: true
+passive_order_placement: true
+event_refresh_enabled: true
+executor_refresh_time: 43200
+buy_cooldown_time: 3600
+sell_cooldown_time: 3600
+total_amount_quote: 1000.0        # PLACEHOLDER — set from the live config
+max_fund_value_quote: 1000.0      # PLACEHOLDER — set from the live config
+claimed_base_value_quote: 500.0   # PLACEHOLDER — set from the live config

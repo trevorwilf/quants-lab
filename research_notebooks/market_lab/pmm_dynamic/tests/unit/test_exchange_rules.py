@@ -131,10 +131,49 @@ def test_check_order_size_below_min_after_step():
 
 
 def test_static_fee_resolution(rules_data):
-    """Nonkyc static fees resolve correctly."""
+    """Nonkyc static fees resolve correctly.
+
+    Changelog (range_ladder Phase A): maker updated 0.0010 → 0.0020 — the
+    old YAML value was wrong; 0.0020 was verified from live account trades
+    (BUY fills hold notional + fee: totalWithFee = price*qty*1.002).
+    """
     rules = resolve_pair_rules(rules_data, "nonkyc", "BTC-USDT")
-    assert rules.fees.maker_fee == 0.001
+    assert rules.fees.maker_fee == 0.002
     assert rules.fees.taker_fee == 0.002
+
+
+def test_kraken_block_parses(rules_data):
+    """Kraken connector block exists and pairs resolve (Kraken addendum)."""
+    assert "kraken" in rules_data["connectors"]
+    rules = resolve_pair_rules(rules_data, "kraken", "XMR-USDT")
+    assert rules.price_tick == 0.01
+    assert rules.amount_step == 0.00000001
+    assert rules.min_notional_quote == 0.5
+    assert rules.min_order_size_base == 0.015
+    assert rules.supports_post_only is True
+
+
+def test_kraken_base_tier_when_volume_unknown(rules_data):
+    """Tiered resolution returns base-tier maker when no tier is given."""
+    rules = resolve_pair_rules(rules_data, "kraken", "XMR-USDT")
+    assert rules.fees.maker_fee == 0.0025
+    assert rules.fees.taker_fee == 0.0040
+
+
+def test_kraken_named_tier_resolution(rules_data):
+    """A named Kraken tier resolves its own fees."""
+    rules = resolve_pair_rules(rules_data, "kraken", "XMR-USDT", tier="tier_250k")
+    assert rules.fees.maker_fee == 0.0010
+    assert rules.fees.taker_fee == 0.0020
+
+
+def test_kraken_xmr_usd_pair_override(rules_data):
+    """The USD-quoted Kraken pair resolves the same AssetPairs-derived rules."""
+    rules = resolve_pair_rules(rules_data, "kraken", "XMR-USD")
+    assert rules.price_tick == 0.01
+    assert rules.min_notional_quote == 0.5
+    assert rules.min_order_size_base == 0.015
+    assert rules.fees.maker_fee == 0.0025
 
 
 def test_tiered_fee_resolution_by_name(rules_data):

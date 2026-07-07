@@ -58,3 +58,18 @@ def test_pmm_dynamic_dispatch_still_creates_objective():
         strategy_name="pmm_dynamic", fixed_quote=100.0,
     )
     assert callable(obj)
+
+
+def test_range_ladder_dispatch_creates_objective():
+    candles = _make_candles()
+    pair_rules = PairRules(
+        price_tick=0.01, amount_step=0.00001, min_notional_quote=1.0,
+        fees=FeeConfig(0.002, 0.002),
+    )
+    obj = create_objective(
+        candles=candles, pair_rules=pair_rules, bar_interval_seconds=300,
+        dataset_hash="test", reference_price=100.0,
+        strategy_name="range_ladder", fixed_quote=100.0,
+        train_days=1.0, test_days=0.5, step_days=0.5,
+    )
+    assert callable(obj)

@@ -111,6 +111,30 @@ def run_simulation(
                 sim_start_idx=sim_start_idx, bar_index_offset=bar_index_offset,
             )
 
+    if _module_is_installable("pmm_lab.strategies.range_ladder"):
+        try:
+            from pmm_lab.strategies.range_ladder import (
+                RangeLadderConfig,
+                run_range_ladder_window,
+            )
+        except ImportError as e:
+            raise ImportError(
+                f"range_ladder module failed to import transitively: {e}"
+            ) from e
+        if isinstance(config, RangeLadderConfig):
+            if engine_config is None:
+                raise ValueError(
+                    "range_ladder config requires engine_config to be passed to "
+                    "run_simulation (the canonicalizer bundle has both; pass "
+                    "bundle.engine_config)."
+                )
+            # The ladder kernel ignores precomputed_signals (no indicator
+            # signals); the anchor is derived from bars before sim_start_idx.
+            return run_range_ladder_window(
+                config, pair_rules, candles,
+                sim_start_idx=sim_start_idx or 0,
+            )
+
     if _module_is_installable("pmm_lab.strategies.ema_regime_hold"):
         try:
             from pmm_lab.strategies.ema_regime_hold import (

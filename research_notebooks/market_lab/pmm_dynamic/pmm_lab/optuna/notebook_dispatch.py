@@ -29,6 +29,7 @@ def optimize_study_for_notebook(
     strict_parallel: bool = False,
     sampler_seed: int = 12345,
     n_startup_trials: int = 15,
+    pruner: Optional["optuna.pruners.BasePruner"] = None,
 ) -> optuna.Study:
     """Notebook entry point for optimization with safe dispatch.
 
@@ -60,6 +61,10 @@ def optimize_study_for_notebook(
         Base seed for the TPE sampler.
     n_startup_trials : int
         Number of random startup trials before TPE kicks in.
+    pruner : optuna.pruners.BasePruner, optional
+        Pruner override forwarded to create_study (None = MedianPruner,
+        the historical default). The range_ladder notebook passes a
+        HyperbandPruner per its Phase A spec.
 
     Returns
     -------
@@ -99,6 +104,7 @@ def optimize_study_for_notebook(
         storage_url=storage_url,
         seed=sampler_seed,
         n_startup_trials=n_startup_trials,
+        pruner=pruner,
     )
 
     return run_optimization_dispatch(

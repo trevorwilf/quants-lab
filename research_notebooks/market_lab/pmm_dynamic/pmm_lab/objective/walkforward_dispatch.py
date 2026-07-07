@@ -71,6 +71,16 @@ def _warmup_bars_for_config(config: Any) -> int:
     except ImportError as e:
         logger.warning("EMA config import failed in warmup calc: %s", e)
 
+    try:
+        from pmm_lab.strategies.range_ladder import (
+            ANCHOR_LOOKBACK_BARS, RangeLadderConfig,
+        )
+        if isinstance(config, RangeLadderConfig):
+            # No indicator warmup — only the 3-bar anchor median lookback.
+            return ANCHOR_LOOKBACK_BARS
+    except ImportError as e:
+        logger.warning("range_ladder config import failed in warmup calc: %s", e)
+
     return 200
 
 

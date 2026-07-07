@@ -55,7 +55,10 @@ connectors:
       supports_post_only: false
       fees:
         mode: static
-        maker_fee: 0.0010
+        # Maker 0.0020 verified from live account trades (2026-07): on BUY
+        # fills the exchange holds notional + fee as collateral
+        # (totalWithFee = price*qty*1.002). The previous 0.0010 was wrong.
+        maker_fee: 0.0020
         taker_fee: 0.0020
     pairs:
       BTC-USDT:
@@ -77,3 +80,87 @@ connectors:
         price_tick: 0.01
         amount_step: 0.001
         min_notional_quote: 1.0
+      # Ladder pairs — ticks estimated from live prices; symbol_metadata has
+      # no nonkyc tick/step (priceDecimals only). # TODO verify against /market/info
+      DASH-USDT:
+        price_tick: 0.01
+        amount_step: 0.001
+        min_notional_quote: 1.0
+      SUN-USDT:
+        price_tick: 0.0000001
+        amount_step: 1.0
+        min_notional_quote: 1.0
+      ZANO-USDT:
+        price_tick: 0.001
+        amount_step: 0.00000001   # quantity_step from quants_lab.symbol_metadata
+        min_notional_quote: 1.0
+
+  kraken:
+    default:
+      price_tick: 0.01
+      amount_step: 0.00000001
+      min_notional_quote: 0.5
+      min_order_size_base: 0.0
+      max_order_size_base: null
+      supports_post_only: true
+      fees:
+        # Kraken spot fee schedule. Base tier (index 0) is returned when the
+        # rolling volume/tier is unknown — resolve_pair_rules(tier=None).
+        # Source: quants_lab.symbol_metadata (AssetPairs, 2026-07) +
+        # Kraken /0/public/AssetPairs fees_maker/fees schedules.
+        mode: tiered
+        tier_basis: rolling_30d_volume_usd
+        tiers:
+          - name: base
+            min_volume_usd: 0
+            maker_fee: 0.0025
+            taker_fee: 0.0040
+          - name: tier_10k
+            min_volume_usd: 10000
+            maker_fee: 0.0020
+            taker_fee: 0.0035
+          - name: tier_50k
+            min_volume_usd: 50000
+            maker_fee: 0.0014
+            taker_fee: 0.0024
+          - name: tier_100k
+            min_volume_usd: 100000
+            maker_fee: 0.0012
+            taker_fee: 0.0022
+          - name: tier_250k
+            min_volume_usd: 250000
+            maker_fee: 0.0010
+            taker_fee: 0.0020
+          - name: tier_500k
+            min_volume_usd: 500000
+            maker_fee: 0.0008
+            taker_fee: 0.0018
+          - name: tier_1m
+            min_volume_usd: 1000000
+            maker_fee: 0.0006
+            taker_fee: 0.0016
+          - name: tier_2m5
+            min_volume_usd: 2500000
+            maker_fee: 0.0004
+            taker_fee: 0.0014
+          - name: tier_5m
+            min_volume_usd: 5000000
+            maker_fee: 0.0002
+            taker_fee: 0.0012
+          - name: tier_10m
+            min_volume_usd: 10000000
+            maker_fee: 0.0000
+            taker_fee: 0.0010
+    pairs:
+      # From quants_lab.symbol_metadata (source: AssetPairs): tick_size 0.01,
+      # quantity_step 1e-8 (lot_decimals 8), costmin 0.5, ordermin 0.015 XMR.
+      XMR-USDT:
+        price_tick: 0.01
+        amount_step: 0.00000001
+        min_notional_quote: 0.5
+        min_order_size_base: 0.015
+      XMR-USD:
+        price_tick: 0.01
+        amount_step: 0.00000001
+        min_notional_quote: 0.5
+        min_order_size_base: 0.015

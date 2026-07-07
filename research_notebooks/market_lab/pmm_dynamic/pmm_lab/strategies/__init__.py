@@ -15,6 +15,8 @@ _LAZY_ATTRS = {
     "BollingerStrategyConfig": ("pmm_lab.strategies.bollinger", "BollingerStrategyConfig"),
     "MACDBBStrategy": ("pmm_lab.strategies.macd_bb", "MACDBBStrategy"),
     "MACDBBStrategyConfig": ("pmm_lab.strategies.macd_bb", "MACDBBStrategyConfig"),
+    "RangeLadderStrategy": ("pmm_lab.strategies.range_ladder", "RangeLadderStrategy"),
+    "RangeLadderConfig": ("pmm_lab.strategies.range_ladder", "RangeLadderConfig"),
     "create_strategy": ("pmm_lab.strategies.factory", "create_strategy"),
     "available_strategies": ("pmm_lab.strategies.factory", "available_strategies"),
     "register_strategy": ("pmm_lab.strategies.factory", "register_strategy"),

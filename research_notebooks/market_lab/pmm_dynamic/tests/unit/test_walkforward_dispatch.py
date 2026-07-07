@@ -104,3 +104,52 @@ def test_dispatch_mr_without_engine_config_raises():
             bar_interval_seconds=60, dataset_hash="x",
             train_days=1.0, test_days=0.5, step_days=0.5,
         )
+
+
+def _range_ladder_bundle(bar_interval_seconds=60):
+    from pmm_lab.optuna.canonicalizer_range_ladder import canonicalize_range_ladder_params
+    raw_params = {
+        "n_buy": 4, "n_sell": 4,
+        "buy_near_pct": 0.02, "buy_far_pct": 0.15,
+        "sell_near_pct": 0.02, "sell_far_pct": 0.15,
+        "buy_gamma": 1.0, "sell_gamma": 1.0,
+        "k_buy": 0.5, "k_sell": 0.5,
+        "fund_quote": 1000.0, "quote_frac": 0.5,
+        "cooldown_time": 3600,
+    }
+    bundle, reject = canonicalize_range_ladder_params(
+        raw_params, _pair_rules(), 100.0, bar_interval_seconds=bar_interval_seconds,
+    )
+    assert bundle is not None, f"canonicalize rejected params: {reject}"
+    return bundle
+
+
+def test_dispatch_range_ladder_config():
+    """run_walk_forward_dispatch must work for the (signal-less) range_ladder."""
+    from pmm_lab.objective.walkforward_dispatch import run_walk_forward_dispatch
+
+    candles = _make_dummy_candles(6000)
+    bundle = _range_ladder_bundle()
+    result = run_walk_forward_dispatch(
+        candles=candles, config=bundle.strategy_config,
+        engine_config=bundle.engine_config,
+        pair_rules=_pair_rules(),
+        bar_interval_seconds=60, dataset_hash="rl_test",
+        train_days=1.0, test_days=0.5, step_days=0.5,
+        objective_version=1,
+    )
+    assert len(result.folds) >= 1
+    assert result.dataset_hash == "rl_test"
+
+
+def test_dispatch_range_ladder_without_engine_config_raises():
+    from pmm_lab.objective.walkforward_dispatch import run_walk_forward_dispatch
+    from pmm_lab.strategies.range_ladder import RangeLadderConfig
+
+    candles = _make_dummy_candles(3000)
+    with pytest.raises(ValueError, match="engine_config is required"):
+        run_walk_forward_dispatch(
+            candles=candles, config=RangeLadderConfig(), pair_rules=_pair_rules(),
+            bar_interval_seconds=60, dataset_hash="x",
+            train_days=1.0, test_days=0.5, step_days=0.5,
+        )

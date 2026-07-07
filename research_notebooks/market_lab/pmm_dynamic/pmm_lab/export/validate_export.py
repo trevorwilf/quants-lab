@@ -52,6 +52,10 @@ def validate_yaml_file(yaml_path: str, **kwargs) -> ValidationResult:
         return _validate_ema_regime_hold_mirror(config_dict)
     if controller_name == "mean_reversion_bb_rsi_v1":
         return _validate_mean_reversion_bb_rsi_mirror(config_dict)
+    if controller_name == "range_inventory_ladder":
+        return _validate_range_ladder_mirror(
+            config_dict, price_tick=kwargs.get("price_tick")
+        )
 
     # PMM Dynamic path (default)
     try:
@@ -60,6 +64,134 @@ def validate_yaml_file(yaml_path: str, **kwargs) -> ValidationResult:
         pass
 
     return _validate_mirror(config_dict, **kwargs)
+
+
+def _validate_range_ladder_mirror(
+    config_dict: Dict[str, Any],
+    price_tick: Optional[float] = None,
+) -> ValidationResult:
+    """Mirror validator for `range_inventory_ladder` YAMLs (range_ladder Phase A).
+
+    Checks: monotonic price ordering per side (buys highest→lowest, sells
+    lowest→highest), no cross-side overlap, per-side weights sum to 100±0.1,
+    every rung notional at the configured fund >= min_order_quote, dead zone
+    >= the fee floor (2 * 2 * fee_rate), and — when `price_tick` is provided —
+    all prices tick-quantized.
+    """
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    required = [
+        "id", "controller_name", "controller_type", "connector_name",
+        "trading_pair", "buy_prices", "buy_amounts_pct", "sell_prices",
+        "sell_amounts_pct", "fee_rate", "min_order_quote",
+        "allow_partial_levels", "passive_order_placement",
+        "event_refresh_enabled", "executor_refresh_time",
+        "buy_cooldown_time", "sell_cooldown_time", "total_amount_quote",
+        "max_fund_value_quote", "claimed_base_value_quote",
+    ]
+    for key in required:
+        if key not in config_dict:
+            errors.append(f"Missing required key: {key}")
+    if errors:
+        return ValidationResult(valid=False, mode="mirror", errors=errors, warnings=warnings)
+
+    if config_dict.get("controller_type") != "market_making":
+        errors.append(
+            f"controller_type must be 'market_making'; got "
+            f"{config_dict.get('controller_type')!r}"
+        )
+
+    buys = [float(x) for x in config_dict["buy_prices"]]
+    sells = [float(x) for x in config_dict["sell_prices"]]
+    buy_pct = [float(x) for x in config_dict["buy_amounts_pct"]]
+    sell_pct = [float(x) for x in config_dict["sell_amounts_pct"]]
+    fee_rate = float(config_dict["fee_rate"])
+    min_order_quote = float(config_dict["min_order_quote"])
+    total_quote = float(config_dict["total_amount_quote"])
+
+    if len(buys) != len(buy_pct):
+        errors.append(
+            f"buy_prices ({len(buys)}) and buy_amounts_pct ({len(buy_pct)}) "
+            f"length mismatch"
+        )
+    if len(sells) != len(sell_pct):
+        errors.append(
+            f"sell_prices ({len(sells)}) and sell_amounts_pct ({len(sell_pct)}) "
+            f"length mismatch"
+        )
+    if not buys or not sells:
+        errors.append("buy_prices and sell_prices must be non-empty")
+        return ValidationResult(valid=False, mode="mirror", errors=errors, warnings=warnings)
+
+    # Monotonic ordering per side
+    if any(buys[i] <= buys[i + 1] for i in range(len(buys) - 1)):
+        errors.append("buy_prices must be strictly descending (highest → lowest)")
+    if any(sells[i] >= sells[i + 1] for i in range(len(sells) - 1)):
+        errors.append("sell_prices must be strictly ascending (lowest → highest)")
+
+    # No cross-side overlap
+    if max(buys) >= min(sells):
+        errors.append(
+            f"cross-side overlap: max(buy_prices)={max(buys)} >= "
+            f"min(sell_prices)={min(sells)}"
+        )
+
+    # Weights sum to 100 ± 0.1 per side
+    for label, pct in (("buy", buy_pct), ("sell", sell_pct)):
+        s = sum(pct)
+        if abs(s - 100.0) > 0.1:
+            errors.append(f"{label}_amounts_pct sums to {s:.2f}, expected 100 ± 0.1")
+        if any(p <= 0 for p in pct):
+            errors.append(f"{label}_amounts_pct contains a non-positive weight")
+
+    # Every rung notional at the configured fund >= min_order_quote.
+    # Per-side capital is half the total fund (quote_frac 0.5 in Phase A).
+    side_capital = total_quote / 2.0
+    for label, pct in (("buy", buy_pct), ("sell", sell_pct)):
+        for i, p in enumerate(pct):
+            notional = side_capital * p / 100.0
+            if notional < min_order_quote:
+                errors.append(
+                    f"{label} rung {i} notional {notional:.4f} < min_order_quote "
+                    f"{min_order_quote} at total_amount_quote={total_quote}"
+                )
+
+    # Dead zone >= fee floor: 2 * (2 * fee_rate) around the band midpoint
+    mid = (max(buys) + min(sells)) / 2.0
+    dead_zone = (min(sells) - max(buys)) / mid
+    floor = 2.0 * (2.0 * fee_rate)
+    if dead_zone < floor:
+        errors.append(
+            f"dead zone {dead_zone:.6f} below fee floor {floor:.6f} "
+            f"(= 2 * 2 * fee_rate, fee_rate={fee_rate})"
+        )
+
+    # Tick quantization (only checkable when the caller supplies the tick)
+    if price_tick:
+        for label, prices in (("buy", buys), ("sell", sells)):
+            for p in prices:
+                ratio = p / price_tick
+                if abs(ratio - round(ratio)) > 1e-6:
+                    errors.append(
+                        f"{label} price {p} not quantized to tick {price_tick}"
+                    )
+    else:
+        warnings.append(
+            "price_tick not provided — tick-quantization check skipped"
+        )
+
+    # Frozen Phase A timing fields must be integers (repo-wide convention)
+    for key in ("executor_refresh_time", "buy_cooldown_time", "sell_cooldown_time"):
+        if not isinstance(config_dict[key], int):
+            errors.append(f"{key} must be an int (seconds); got {config_dict[key]!r}")
+
+    return ValidationResult(
+        valid=(len(errors) == 0),
+        mode="mirror",
+        errors=errors,
+        warnings=warnings,
+    )
 
 
 def _validate_ema_regime_hold_mirror(config_dict: Dict[str, Any]) -> ValidationResult:

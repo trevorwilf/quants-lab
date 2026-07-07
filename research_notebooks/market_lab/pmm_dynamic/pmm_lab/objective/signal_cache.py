@@ -93,6 +93,20 @@ def signal_cache_key(cfg: Any) -> tuple:
                 cfg.timestamp_mode, cfg.controller_compat,
             )
 
+    if _module_is_installable("pmm_lab.strategies.range_ladder"):
+        try:
+            from pmm_lab.strategies.range_ladder import RangeLadderConfig
+        except ImportError as e:
+            raise ImportError(
+                f"range_ladder module failed to import transitively: {e}"
+            ) from e
+        if isinstance(cfg, RangeLadderConfig):
+            # The ladder has NO indicator signals — compute_signals is a
+            # passthrough of close/timestamp. No config field affects it,
+            # so the key is just the type tag; dataset_key distinguishes
+            # candle arrays.
+            return ("range_ladder",)
+
     raise TypeError(
         f"signal_cache_key: unsupported config type {type(cfg).__name__}. "
         f"Add a branch for this type."
@@ -282,6 +296,23 @@ class SharedSignalCache:
                 signals = compute_ema_regime_hold_features(
                     candles, regime_candles, feature_cfg,
                 )
+                self.put(sig_key, effective_key, signals)
+                return signals
+
+        if _module_is_installable("pmm_lab.strategies.range_ladder"):
+            try:
+                from pmm_lab.strategies.range_ladder import (
+                    RangeLadderConfig, RangeLadderStrategy,
+                )
+            except ImportError as e:
+                raise ImportError(
+                    f"range_ladder module failed to import transitively: {e}"
+                ) from e
+            if isinstance(config, RangeLadderConfig):
+                # Signal-less strategy: the cache entry is a cheap
+                # passthrough (close/timestamp), kept so the multi-strategy
+                # cache contract holds uniformly.
+                signals = RangeLadderStrategy(config).compute_signals(candles)
                 self.put(sig_key, effective_key, signals)
                 return signals
 

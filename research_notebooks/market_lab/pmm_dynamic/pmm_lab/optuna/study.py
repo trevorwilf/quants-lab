@@ -15,6 +15,7 @@ def create_study(
     seed: int = 12345,
     storage_url: Optional[str] = None,
     n_startup_trials: int = 15,
+    pruner: Optional["optuna.pruners.BasePruner"] = None,
 ) -> optuna.Study:
     """Create or load an Optuna study.
 
@@ -28,6 +29,9 @@ def create_study(
         Override the storage URL. If None, uses get_storage_url().
     n_startup_trials : int
         Number of random trials before TPE kicks in.
+    pruner : optuna.pruners.BasePruner, optional
+        Override the pruner. Default: MedianPruner (historical behavior).
+        The range_ladder walk-forward notebook passes a HyperbandPruner.
     """
     if storage_url is None:
         storage_url = get_storage_url()
@@ -39,11 +43,12 @@ def create_study(
         warn_independent_sampling=False,
     )
 
-    pruner = optuna.pruners.MedianPruner(
-        n_startup_trials=n_startup_trials,
-        n_warmup_steps=1,
-        interval_steps=1,
-    )
+    if pruner is None:
+        pruner = optuna.pruners.MedianPruner(
+            n_startup_trials=n_startup_trials,
+            n_warmup_steps=1,
+            interval_steps=1,
+        )
 
     study = optuna.create_study(
         study_name=study_name,

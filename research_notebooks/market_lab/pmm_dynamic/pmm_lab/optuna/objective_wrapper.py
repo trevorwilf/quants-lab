@@ -122,6 +122,26 @@ def create_objective(
             signal_interval_seconds=bar_interval_seconds,
         )
 
+    if strategy_name == "range_ladder":
+        from pmm_lab.optuna.objective_wrapper_range_ladder import _create_range_ladder_objective
+        return _create_range_ladder_objective(
+            candles=candles,
+            pair_rules=pair_rules,
+            bar_interval_seconds=bar_interval_seconds,
+            dataset_hash=dataset_hash,
+            reference_price=reference_price,
+            train_days=train_days,
+            test_days=test_days,
+            step_days=step_days,
+            embargo_bars=embargo_bars,
+            objective_version=objective_version,
+            run_stress=run_stress,
+            lambda_mad=lambda_mad,
+            fixed_quote=fixed_quote,
+            strategy_search_space=strategy_search_space,
+            strategy_canonicalizer=strategy_canonicalizer,
+        )
+
     # Strategy dispatch: MACD-BB uses a separate objective path
     if strategy_name == "macd_bb":
         return _create_macd_bb_objective(

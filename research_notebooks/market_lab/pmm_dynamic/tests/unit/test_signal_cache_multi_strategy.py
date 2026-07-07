@@ -104,3 +104,30 @@ def test_signal_cache_key_unknown_type_raises():
         pass
     with pytest.raises(TypeError, match="unsupported config type"):
         signal_cache_key(UnknownConfig())
+
+
+def test_signal_cache_key_range_ladder_type_tag():
+    """range_ladder is signal-less: its key is just the type tag."""
+    from pmm_lab.strategies.range_ladder import RangeLadderConfig
+    cfg = RangeLadderConfig()
+    key = signal_cache_key(cfg)
+    assert key == ("range_ladder",)
+    assert key != signal_cache_key(MeanReversionBBRSIStrategyConfig())
+    assert key != signal_cache_key(EMARegimeHoldStrategyConfig())
+
+
+def test_signal_cache_get_or_compute_range_ladder(sample_candles_500, default_pair_rules):
+    """Signal-less strategy: passthrough entry is cached like any other."""
+    from pmm_lab.strategies.range_ladder import RangeLadderConfig
+    cache = SharedSignalCache()
+    cfg = RangeLadderConfig()
+    signals_a = cache.get_or_compute(cfg, "dev", sample_candles_500, default_pair_rules)
+    assert len(cache) == 1
+    assert signals_a.warmup_end == 0
+    assert np.array_equal(signals_a.data["close_price"], sample_candles_500["close"])
+    signals_b = cache.get_or_compute(cfg, "dev", sample_candles_500, default_pair_rules)
+    assert signals_b is signals_a, "second call must be a cache hit"
+    assert len(cache) == 1
+    # a different ladder config maps to the SAME key (no signal-affecting fields)
+    cfg2 = RangeLadderConfig(k_buy=2.0)
+    assert signal_cache_key(cfg2) == signal_cache_key(cfg)
