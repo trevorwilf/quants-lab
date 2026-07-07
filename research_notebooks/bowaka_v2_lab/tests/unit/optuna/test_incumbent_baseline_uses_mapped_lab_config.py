@@ -8,6 +8,11 @@ this test pins the mapped contract values so padding regressions are caught.
 CHANGELOG: 2026-06-12 prod re-mirror adopting optuna winner #3155 re-tuned the
 mapped values below (e.g. max_quote_age_seconds 15->104, max_spread_bps 100->94,
 stop_pct 0.025->0.1038, reward_risk_ratio 6.0->3.85, bankroll_fraction 0.80->0.70).
+2026-07-06 prod re-mirror adopting paper-deploy trial #3437 (applied live
+2026-06-17): max_quote_age_seconds 104->68, max_spread_bps 94->198, stop_pct
+0.1038->0.1896, soft 0.1183->0.1565, hard_gap 0.0453->0.2378, critical_gap
+0.1843->0.1054, reward_risk_ratio 3.85->2.35, bankroll_fraction 0.70->0.49
+(values printed by _incumbent_baseline_params on the regenerated contract).
 """
 from __future__ import annotations
 
@@ -32,15 +37,15 @@ def test_incumbent_maps_every_key_without_padding(caplog) -> None:
     with caplog.at_level("WARNING"):
         p = _incumbent_baseline_params(lab_config=cfg)
 
-    # Values pinned from the contract (optuna winner #3155, re-mirror 2026-06-12).
-    assert p["execution.max_quote_age_seconds"] == 104
-    assert p["execution.max_spread_bps"] == 94
-    assert p["exits.stop_pct"] == pytest.approx(0.10383796823643686)
-    assert p["exits.signal_fade.score_thresholds.soft"] == pytest.approx(0.11834737824481567)
-    assert p["exits.signal_fade.score_thresholds.hard_gap"] == pytest.approx(0.04533588415453149)
-    assert p["exits.signal_fade.score_thresholds.critical_gap"] == pytest.approx(0.1842737434556576)
-    assert p["exits.reward_risk_ratio"] == pytest.approx(3.8521554956584714)
-    assert p["sizing.equal_slice_bankroll_fraction"] == pytest.approx(0.7016473758770456)
+    # Values pinned from the contract (paper-deploy trial #3437, re-mirror 2026-07-06).
+    assert p["execution.max_quote_age_seconds"] == 68
+    assert p["execution.max_spread_bps"] == 198
+    assert p["exits.stop_pct"] == pytest.approx(0.1896328255554003)
+    assert p["exits.signal_fade.score_thresholds.soft"] == pytest.approx(0.156500767)
+    assert p["exits.signal_fade.score_thresholds.hard_gap"] == pytest.approx(0.2378113125)
+    assert p["exits.signal_fade.score_thresholds.critical_gap"] == pytest.approx(0.10544602779999995)
+    assert p["exits.reward_risk_ratio"] == pytest.approx(2.354271194833685)
+    assert p["sizing.equal_slice_bankroll_fraction"] == pytest.approx(0.4871237621044672)
     # No padding — not via the old WARNING, not via any side channel.
     assert "incumbent baseline padded" not in caplog.text
 

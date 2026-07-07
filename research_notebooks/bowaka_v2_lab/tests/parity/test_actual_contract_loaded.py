@@ -24,25 +24,29 @@ from bowaka_v2_lab import reference
 #   "#3155" updated from the regenerated contract; session/universe/scanner +
 #   sizing_mode/bankroll_fixed_dollars are unchanged. The live-only
 #   sizing.compounding block was preserved by the tuning (now modeled in the lab).
+# - 2026-07-06: prod re-mirror adopting PAPER-DEPLOY TRIAL #3437 (applied live
+#   2026-06-17, replacing #3155; also un-throttled max_concurrent 1 -> 22).
+#   The values below marked "#3437" updated from the regenerated contract;
+#   session/universe/scanner + sizing_mode/bankroll_fixed_dollars unchanged.
 _EXPECTED: dict[tuple[str, str], object] = {
     ("session", "scanner_start"): "09:45",
     ("session", "scanner_end"): "15:30",
     ("universe", "price_max"): 20.0,
     ("universe", "avg_dollar_volume_min"): 250000,
     ("scanner", "max_candidates_per_scan"): 25,
-    ("signals", "rvol_so_far_min"): 0.5008057683562838,            # #3155 (was 0.7)
-    ("signals", "projected_full_day_rvol_min"): 1.864062376763409,  # #3155 (was 0.5)
-    ("signals", "prior_atr_pct_min"): 0.10059887989166297,         # #3155 (was 0.06)
-    ("signals", "close_location_so_far_min"): 0.7610800219990064,   # #3155 (was 0.60)
+    ("signals", "rvol_so_far_min"): 2.180766810003851,             # #3437 (was 0.5008…)
+    ("signals", "projected_full_day_rvol_min"): 2.958226768828195,  # #3437 (was 1.864…)
+    ("signals", "prior_atr_pct_min"): 0.08001509346394585,         # #3437 (was 0.1006…)
+    ("signals", "close_location_so_far_min"): 0.6459022368108059,   # #3437 (was 0.7611…)
     ("sizing", "sizing_mode"): "equal_slice",
     ("sizing", "bankroll_fixed_dollars"): 90000,
-    ("sizing", "max_concurrent_positions"): 1,                     # #3155 (was 18)
-    ("sizing", "equal_slice_bankroll_fraction"): 0.7016473758770456,  # #3155 (was 0.80)
-    ("risk", "daily_loss_pct"): 0.09182164526340102,              # #3155 (was 0.03)
-    ("risk", "max_lots_per_symbol"): 4,                            # #3155 (was 3)
-    ("exits", "stop_pct"): 0.10383796823643686,                   # #3155 (was 0.025)
-    ("exits", "target_pct"): 0.4,                                  # #3155 (was 0.15)
-    ("exits", "max_hold_days"): 10,                                # #3155 (was 3)
+    ("sizing", "max_concurrent_positions"): 22,                    # #3437 (was 1)
+    ("sizing", "equal_slice_bankroll_fraction"): 0.4871237621044672,  # #3437 (was 0.7016…)
+    ("risk", "daily_loss_pct"): 0.02403648309498329,              # #3437 (was 0.0918…)
+    ("risk", "max_lots_per_symbol"): 3,                            # #3437 (was 4)
+    ("exits", "stop_pct"): 0.1896328255554003,                    # #3437 (was 0.1038…)
+    ("exits", "target_pct"): 0.4464470988,                         # #3437 (was 0.4)
+    ("exits", "max_hold_days"): 5,                                 # #3437 (was 10)
 }
 
 

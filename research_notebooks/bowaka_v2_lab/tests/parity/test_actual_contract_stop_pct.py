@@ -11,6 +11,8 @@ CHANGELOG:
   configs only — the mirror does NOT regenerate hand-tuned .workstation/.matrix
   overlays or the smoke fixture config (they legitimately lag at 0.025 until an
   operator rebuilds them from the refreshed base; see mirror_bowaka_v2_source.ps1).
+- 2026-07-06: prod re-mirror adopting paper-deploy trial #3437 (applied live
+  2026-06-17) set stop_pct to 0.1896328255554003.
 """
 from __future__ import annotations
 
@@ -32,8 +34,8 @@ _MIRROR_SOURCE = (
     / "bowaka_v2_config.yaml"
 )
 
-#: The contract value (optuna winner #3155, prod re-mirror 2026-06-12).
-_EXPECTED_STOP_PCT = 0.10383796823643686
+#: The contract value (paper-deploy trial #3437, prod re-mirror 2026-07-06).
+_EXPECTED_STOP_PCT = 0.1896328255554003
 
 #: Directories under ``configs/`` to ignore. ``quarantined/`` is the operator-
 #: maintained "do not use" lane. ``.ipynb_checkpoints/`` is JupyterLab's local

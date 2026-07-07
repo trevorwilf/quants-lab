@@ -44,11 +44,11 @@ execution:
     min_pct_below_signal_price: -0.03
   quote_gate:
     enabled: true
-    max_quote_age_seconds: 104
-    max_spread_pct: 0.0094
+    max_quote_age_seconds: 68
+    max_spread_pct: 0.0198
     require_bid_ask_positive: true
 exits:
-  max_hold_days: 10
+  max_hold_days: 5
   signal_fade:
     enabled: true
     eval_time: '15:45'
@@ -59,15 +59,15 @@ exits:
     marketable_limit_offset_pct: 0.005
     order_style: marketable_limit
     score_thresholds:
-      critical: 0.3479570058550048
-      hard: 0.16368326239934716
-      soft: 0.11834737824481567
+      critical: 0.4997581073
+      hard: 0.3943120795
+      soft: 0.156500767
     telemetry_time: '16:05'
-  stop_pct: 0.10383796823643686
-  target_pct: 0.4
+  stop_pct: 0.1896328255554003
+  target_pct: 0.4464470988
   time_stop:
     enabled: true
-    exit_time: '15:30'
+    exit_time: '15:15'
 historical_features:
   atr_days: 14
   ema_days: 10
@@ -95,11 +95,11 @@ risk:
     max_position_as_adv_frac: 0.01
   - max_adv_dollars: null
     max_position_as_adv_frac: 0.015
-  daily_loss_pct: 0.09182164526340102
-  max_gross_exposure_pct: 0.8514247129819498
-  max_lots_per_symbol: 4
-  max_stopouts_per_day: 4
-  max_total_entries_per_day: 14
+  daily_loss_pct: 0.02403648309498329
+  max_gross_exposure_pct: 0.713019169077437
+  max_lots_per_symbol: 3
+  max_stopouts_per_day: 7
+  max_total_entries_per_day: 15
   shadow:
     adv_tier_caps:
     - max_adv_dollars: 250000
@@ -115,7 +115,7 @@ risk:
     daily_loss_pct: 0.01
     max_gross_exposure_pct: 0.4
     max_total_entries_per_day: 4
-  stop_trading_after_consecutive_stopouts: 8
+  stop_trading_after_consecutive_stopouts: 7
   strategy_slice_loss_pct: 0.025
 scanner:
   alpaca_chunk_size: 200
@@ -152,20 +152,20 @@ session:
 signals:
   avg_dollar_volume_max: null
   avg_dollar_volume_min: 250000
-  close_location_so_far_min: 0.7610800219990064
-  current_return_pct_max: 0.669154070921699
-  ema_distance_min: -0.09521486779053155
-  ema_slope_min: -0.016531812911964736
-  gap_pct_max: 0.5654580996264799
+  close_location_so_far_min: 0.6459022368108059
+  current_return_pct_max: 0.6809040495280265
+  ema_distance_min: -0.0328508989291792
+  ema_slope_min: -0.012319899344748711
+  gap_pct_max: 0.38569051045725955
   price_max: 20.0
   price_min: 1.0
-  prior_atr_pct_min: 0.10059887989166297
-  projected_full_day_rvol_max: 7.7244183934472925
-  projected_full_day_rvol_min: 1.864062376763409
-  range_expansion_so_far_max: 6.857143221871794
-  range_expansion_so_far_min: 0.9583765582056394
-  rvol_so_far_max: 9.681223842518941
-  rvol_so_far_min: 0.5008057683562838
+  prior_atr_pct_min: 0.08001509346394585
+  projected_full_day_rvol_max: 4.389998623160714
+  projected_full_day_rvol_min: 2.958226768828195
+  range_expansion_so_far_max: 3.435850844675855
+  range_expansion_so_far_min: 2.3313429453194527
+  rvol_so_far_max: 15.063383404911255
+  rvol_so_far_min: 2.180766810003851
 sizing:
   bankroll_fixed_dollars: 90000
   compounding:
@@ -173,12 +173,12 @@ sizing:
     cap_multiple: 4.0
     enabled: true
     floor_fraction: 0.5
-  equal_slice_bankroll_fraction: 0.7016473758770456
-  max_concurrent_positions: 1
+  equal_slice_bankroll_fraction: 0.4871237621044672
+  max_concurrent_positions: 22
   max_per_trade_dollars: null
   min_order_notional: 500
   sizing_mode: equal_slice
-  target_risk_dollars: 162.43463574557632
+  target_risk_dollars: 960.0976463800389
 source_filename: bowaka_v2_config.yaml
 source_manifest:
   bowaka_intraday_scanner.py:
@@ -191,8 +191,8 @@ source_manifest:
     bytes: 22771
     sha256: 0073a68a32334812d239ae6afe57b9d98e03b5676ca72379c40333660df32840
   bowaka_v2_config.yaml:
-    bytes: 12878
-    sha256: 3be75f9040eec40dbdd355df0711e1559bd07a2d2e286bb175f48d8dad710fac
+    bytes: 13367
+    sha256: c1c457e3aab3c18ab36cb7978d666588093507d1776840787c409e9ce84da48d
   bowaka_v2_features.py:
     bytes: 22027
     sha256: 5e252097c2e807d2889cbfa8ceb834d06fae1192f0f044973db3bfe3f5d7c6e1
@@ -208,8 +208,8 @@ source_manifest:
   bowaka_v2_strategy.py:
     bytes: 79337
     sha256: 5679b544166fdcb1cf3ca482b3ce6a10b6d260c3da1ea16da186b40e49e6292c
-source_manifest_hash: 7e31c4a6ff24c64de48c8ebe7c1a1a0d6543156712449e815fbd45255e93d929
-source_sha256: 3be75f9040eec40dbdd355df0711e1559bd07a2d2e286bb175f48d8dad710fac
+source_manifest_hash: c4fc2ae8f0923d375cd040a995df9cd1c699e3b74365e8c1e077bc5a6d68f01e
+source_sha256: c1c457e3aab3c18ab36cb7978d666588093507d1776840787c409e9ce84da48d
 universe:
   allowed_exchanges:
   - NASDAQ
