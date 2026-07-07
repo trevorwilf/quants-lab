@@ -274,6 +274,19 @@ papermill range_ladder_optuna_walkforward.ipynb out_xmr_refine_a2.ipynb \
 #  have zero recent train touches and would prune even the identity trial)
 ```
 
+## Post-ship fix: versioned study names (2026-07-07)
+
+Re-running the A.1/A.2 notebook resumed the OLD Phase A study
+(`..._range_ladder_v1`, `load_if_exists=True`) whose persisted trials carry
+the pre-refactor `fold_detail` schema — an old-format trial topped the mixed
+ranked list and crashed the report (`KeyError: 'ann_pnl_pct'`), and old
+trials were competing without ever facing the new gates. Study names are now
+schema- and policy-versioned
+(`..._range_ladder_v2_{GATE_MODE}_{OBJECTIVE_MODE}`, refine stages
+likewise), so each policy/objective combo gets its own fresh study; old v1
+studies remain untouched in storage. The report fold table is additionally
+key-tolerant (`n/a` for fields missing from older trials).
+
 ## Test results (A.1 + A.2)
 
 - New tests: 44 across `test_range_ladder_gate_policy.py`,
