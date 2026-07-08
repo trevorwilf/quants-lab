@@ -37,6 +37,13 @@
             data, and notebook 10 (same config + lake) reuses this matrix with no
             launch-time rebuild. Clears the stale flag. (Set explicit dates in the config
             to freeze the window; IR is retired -- pass -Configs to rebuild it.)
+    STEP 5  Notebook-10 READINESS check (scripts/check_nb10_ready.py in the lab):
+            proves the study would clear every launch gate NOW -- contract parity
+            (catches a re-mirrored contract with an un-reconciled hand-tuned study
+            config, the 2026-07-07 OptunaParityError), stale-flag, matrix freshness
+            over the auto-anchored fold-val sessions, Optuna storage. FAIL -> writes
+            NB10_NOT_READY.flag with the reasons (cleared on the next passing check);
+            the lake/matrices are still fine -- this is an early warning, not a rollback.
 
 .NOTES
   REGISTRATION (mandatory shape -- Docker Desktop is per-user, so the task MUST
@@ -70,6 +77,7 @@ $repo      = $PSScriptRoot
 $ts        = Get-Date -Format "yyyyMMdd_HHmmss"
 $hostLog   = Join-Path $repo "scheduled_weekly_refresh_$ts.log"
 $staleFlag = Join-Path $repo "MATRICES_STALE.flag"
+$readyFlag = Join-Path $repo "NB10_NOT_READY.flag"
 
 function Log([string]$m) {
     $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $m
@@ -93,6 +101,10 @@ Log "=== scheduled_weekly_refresh start (DryRun=$DryRun LookbackDays=$LookbackDa
 if (Test-Path -LiteralPath $staleFlag) {
     $age = [int]((Get-Date) - (Get-Item -LiteralPath $staleFlag).LastWriteTime).TotalHours
     Log "WARNING: MATRICES_STALE.flag present (${age}h old) -- a prior run refreshed the lake but did NOT rebuild matrices. They are stale until a rebuild succeeds."
+}
+if (Test-Path -LiteralPath $readyFlag) {
+    $age = [int]((Get-Date) - (Get-Item -LiteralPath $readyFlag).LastWriteTime).TotalHours
+    Log "WARNING: NB10_NOT_READY.flag present (${age}h old) -- the last readiness check found a launch gate that would refuse notebook 10 (see the flag file). This run re-checks at STEP 5."
 }
 
 # --- container up? ---------------------------------------------------------
@@ -194,6 +206,29 @@ if ($rc -ne 0) {
     exit $rc
 }
 if (Test-Path -LiteralPath $staleFlag) { Remove-Item -LiteralPath $staleFlag -Force; Log "Cleared stale-marker (matrices rebuilt)." }
+
+# --- STEP 5: notebook-10 readiness check ------------------------------------
+# Proves nb10 would clear every launch gate NOW (contract parity, stale flag,
+# matrix freshness over the auto-anchored fold-val window, Optuna storage) so a
+# blocker surfaces Friday night in this log -- not at study launch days later.
+Log "STEP 5: notebook-10 readiness check (scripts/check_nb10_ready.py)..."
+$readyCmd = "cd /quants-lab/research_notebooks/bowaka_v2_lab && " +
+            "PYTHONPATH=src:../bowaka_common/src MARKET_DATA_ROOT=/opt/market_data_cache " +
+            "$Python scripts/check_nb10_ready.py"
+$prevEAP2 = $ErrorActionPreference
+$ErrorActionPreference = "Continue"   # native stderr must not kill the wrapper (2026-07-01 incident class)
+$readyOut = (docker exec $Container bash -lc $readyCmd 2>&1 | Out-String).Trim()
+$readyRc  = $LASTEXITCODE
+$ErrorActionPreference = $prevEAP2
+$readyOut -split "`n" | ForEach-Object { Log ("  " + $_.Trim()) }
+if ($readyRc -eq 0) {
+    if (Test-Path -LiteralPath $readyFlag) { Remove-Item -LiteralPath $readyFlag -Force; Log "Cleared NB10_NOT_READY.flag." }
+    Log "notebook 10 is READY to launch."
+} else {
+    Set-Content -LiteralPath $readyFlag -Value "check_nb10_ready FAILED $ts (rc=$readyRc). Lake + matrices refreshed OK, but a launch gate would refuse notebook 10:`n$readyOut"
+    Log "WARNING: notebook 10 NOT READY (rc=$readyRc) -- wrote $readyFlag. The lake/matrices are fine; fix the gate failure above (e.g. reconcile the study config to a re-mirrored contract) before launching."
+}
+
 Log "=== scheduled_weekly_refresh DONE -- lake refreshed + matrices rebuilt ==="
 exit 0
 

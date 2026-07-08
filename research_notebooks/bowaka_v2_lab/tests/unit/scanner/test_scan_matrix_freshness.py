@@ -86,9 +86,11 @@ def test_matching_code_hashes_pass(tmp_path):
 
 
 def test_dataset_hash_drift_raises(tmp_path, monkeypatch):
+    """Legacy manifest (no components): composite comparison still gates."""
     store, root = _mk_store(tmp_path, {"dataset_hash": "built-against-old-lake"})
     monkeypatch.setattr(
-        _sm, "_expected_manifest_dataset_hash", lambda manifest, cfg: "current-lake",
+        _sm, "_expected_manifest_lineage",
+        lambda manifest, cfg: {"dataset_hash": "current-lake"},
     )
     with pytest.raises(OptunaStudyInvalidError, match="dataset_hash drift"):
         assert_scan_matrix_fresh(
@@ -102,12 +104,102 @@ def test_dataset_hash_match_passes_and_caches(tmp_path, monkeypatch):
 
     def _fake(manifest, cfg):
         calls.append(1)
-        return "same"
+        return {"dataset_hash": "same"}
 
-    monkeypatch.setattr(_sm, "_expected_manifest_dataset_hash", _fake)
+    monkeypatch.setattr(_sm, "_expected_manifest_lineage", _fake)
     assert_scan_matrix_fresh(_CFG, store, root, required_sessions=[_dt.date(2026, 1, 5)])
     assert_scan_matrix_fresh(_CFG, store, root, required_sessions=[_dt.date(2026, 1, 6)])
     assert len(calls) == 1  # second call served from the per-process cache
+
+
+# --- 2026-07-07 incident: component-wise lake-state comparison --------------
+
+_BUILT_COMPONENTS = {
+    "lake_manifest_hash": "lmh-1",
+    "feed": "sip",
+    "adjustment": "split_adjusted",
+    "symbol_universe_hash": "suh-1",
+    "daily_partitions_hash": "dph-1",
+    "minute_partitions_hash": "mph-1",
+    "quote_partitions_hash": "qph-1",
+    "assets_snapshot_id": "asn-1",
+    "corp_actions_hash": "cah-1",
+    "lab_config_hash": "config-AT-BUILD",
+    "date_range": "2026-01-01..2026-02-01",
+}
+
+
+def test_strategy_config_edit_does_not_trip_component_freshness(tmp_path, monkeypatch):
+    """The 2026-07-07 phantom-drift case: reconciling strategy-contract fields
+    changes lab_config_hash (and thus the composite dataset_hash) but ZERO
+    lake state — the component-aware gate must PASS without a rebuild."""
+    store, root = _mk_store(tmp_path, {
+        "dataset_hash": "composite-old-config",
+        "dataset_lineage_components": dict(_BUILT_COMPONENTS),
+    })
+    expected = dict(_BUILT_COMPONENTS)
+    expected["lab_config_hash"] = "config-AFTER-RECONCILE"
+    expected["date_range"] = "2026-01-02..2026-02-01"   # re-anchored window, same lake
+    monkeypatch.setattr(
+        _sm, "_expected_manifest_lineage",
+        lambda manifest, cfg: {
+            "dataset_hash": "composite-new-config", "components": expected,
+        },
+    )
+    assert_scan_matrix_fresh(
+        _CFG, store, root, required_sessions=[_dt.date(2026, 1, 5)],
+    )
+
+
+def test_lake_component_drift_raises_and_names_component(tmp_path, monkeypatch):
+    store, root = _mk_store(tmp_path, {
+        "dataset_hash": "composite-1",
+        "dataset_lineage_components": dict(_BUILT_COMPONENTS),
+    })
+    expected = dict(_BUILT_COMPONENTS)
+    expected["daily_partitions_hash"] = "dph-2"     # the lake actually changed
+    monkeypatch.setattr(
+        _sm, "_expected_manifest_lineage",
+        lambda manifest, cfg: {"dataset_hash": "composite-2", "components": expected},
+    )
+    with pytest.raises(OptunaStudyInvalidError, match="daily_partitions_hash"):
+        assert_scan_matrix_fresh(
+            _CFG, store, root, required_sessions=[_dt.date(2026, 1, 5)],
+        )
+
+
+def test_corp_actions_drift_raises(tmp_path, monkeypatch):
+    """Survivorship data changing is real drift (the CA-backfill footgun)."""
+    store, root = _mk_store(tmp_path, {
+        "dataset_hash": "composite-1",
+        "dataset_lineage_components": dict(_BUILT_COMPONENTS),
+    })
+    expected = dict(_BUILT_COMPONENTS)
+    expected["corp_actions_hash"] = "cah-2"
+    monkeypatch.setattr(
+        _sm, "_expected_manifest_lineage",
+        lambda manifest, cfg: {"dataset_hash": "composite-2", "components": expected},
+    )
+    with pytest.raises(OptunaStudyInvalidError, match="corp_actions_hash"):
+        assert_scan_matrix_fresh(
+            _CFG, store, root, required_sessions=[_dt.date(2026, 1, 5)],
+        )
+
+
+def test_manifest_stores_lineage_components_roundtrip():
+    """ScanMatrixManifest.to_dict carries the new field (build-side plumb)."""
+    from bowaka_v2_lab.scanner.scan_matrix import ScanMatrixManifest
+
+    m = ScanMatrixManifest(
+        matrix_id="x", matrix_version=1, config_input_hash="c",
+        dataset_hash="d", feed="sip", scope="validation",
+        created_at_utc="t", reserved_system_gib=1.0, max_optuna_workers=1,
+        sessions=[], columns={},
+        dataset_lineage_components={"daily_partitions_hash": "dph-1"},
+    )
+    assert m.to_dict()["dataset_lineage_components"] == {
+        "daily_partitions_hash": "dph-1",
+    }
 
 
 def test_allow_stale_env_downgrades_to_warning(tmp_path, monkeypatch, caplog):

@@ -114,6 +114,11 @@ class ScanMatrixManifest:
     columns: dict[str, list[str]]
     bowaka_lab_version: str = "0.1.0"
     code_hashes: dict[str, str] = field(default_factory=dict)
+    # Component hashes of the dataset lineage (2026-07-07): lets the runtime
+    # freshness gate compare LAKE-STATE identity component-by-component instead
+    # of the composite dataset_hash, which also embeds lab_config_hash — a
+    # strategy-field config edit must NOT read as "the lake changed".
+    dataset_lineage_components: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -130,6 +135,7 @@ class ScanMatrixManifest:
             "columns": dict(self.columns),
             "bowaka_lab_version": self.bowaka_lab_version,
             "code_hashes": dict(self.code_hashes),
+            "dataset_lineage_components": dict(self.dataset_lineage_components),
         }
 
 
@@ -1138,6 +1144,9 @@ def build_scan_matrix(
         lab_config_hash=lab_config_hash,
     )
     dataset_hash_v = str(lineage.get("dataset_hash") or "")
+    lineage_components = {
+        str(k): str(v) for k, v in (lineage.get("components") or {}).items()
+    }
 
     input_hash = compute_matrix_input_hash(
         cfg, plan, {scope: sessions},
@@ -1164,6 +1173,7 @@ def build_scan_matrix(
         code_hashes=_source_file_hashes(
             Path(__file__).resolve().parents[1]
         ),
+        dataset_lineage_components=lineage_components,
     )
     (store_root / "manifest.json").write_text(
         json.dumps(manifest.to_dict(), indent=2), encoding="utf-8",
@@ -1199,10 +1209,33 @@ def _high_risk_symbol_idxs(
     return sorted(bad)
 
 
-def _expected_manifest_dataset_hash(
+#: Lineage components that describe the LAKE'S state (data identity). The
+#: runtime freshness gate compares exactly these between the build-time
+#: manifest and a fresh re-derivation. Deliberately EXCLUDED:
+#:   - ``lab_config_hash`` — strategy-field edits (e.g. reconciling a config
+#:     to a re-mirrored contract) do not change any matrix feature; config
+#:     compatibility is enforced separately by ``config_input_hash`` (which
+#:     excludes trial-tuned sections by design).
+#:   - ``date_range`` — window coverage is enforced by the required-sessions
+#:     check; a narrower re-anchored window over the same lake is not drift.
+_LAKE_STATE_COMPONENT_KEYS: tuple[str, ...] = (
+    "lake_manifest_hash",
+    "feed",
+    "adjustment",
+    "symbol_universe_hash",
+    "daily_partitions_hash",
+    "minute_partitions_hash",
+    "quote_partitions_hash",
+    "assets_snapshot_id",
+    "corp_actions_hash",
+    "trades_partitions_hash",
+)
+
+
+def _expected_manifest_lineage(
     manifest: Mapping[str, Any], cfg: Mapping[str, Any],
-) -> str:
-    """Re-derive the dataset_hash from the current lake state for comparison.
+) -> Mapping[str, Any]:
+    """Re-derive the dataset lineage from the current lake state for comparison.
 
     Reproduces the BUILD's symbol resolution (see :func:`_resolve_lineage_symbols`)
     rather than reading raw ``universe.symbols``: a screener config has no
@@ -1210,7 +1243,7 @@ def _expected_manifest_dataset_hash(
     verifier must reproduce that union (probed from the manifest's session list)
     or every screener matrix false-positives on ``dataset_hash_drift``.
 
-    Returns ``""`` when the lineage cannot be rebuilt (e.g. lake unreachable)
+    Returns ``{}`` when the lineage cannot be rebuilt (e.g. lake unreachable)
     so the caller falls back to a tautology check.
     """
     from ..config.hashing import canonical_strategy_hash
@@ -1244,8 +1277,99 @@ def _expected_manifest_dataset_hash(
             lab_config_hash=lab_config_hash,
         )
     except Exception:  # noqa: BLE001
-        return ""
+        return {}
+    return lineage
+
+
+def _expected_manifest_dataset_hash(
+    manifest: Mapping[str, Any], cfg: Mapping[str, Any],
+) -> str:
+    """Composite expected dataset_hash (legacy comparison path)."""
+    lineage = _expected_manifest_lineage(manifest, cfg)
     return str(lineage.get("dataset_hash") or "")
+
+
+def _dataset_drift(
+    manifest: Mapping[str, Any], expected_lineage: Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Compare the manifest's recorded dataset identity to a re-derivation.
+
+    Returns ``None`` when fresh, else ``{"drifted": [...], "message": str}``.
+
+    Manifests with ``dataset_lineage_components`` (builds since 2026-07-07)
+    are compared component-wise over :data:`_LAKE_STATE_COMPONENT_KEYS` —
+    a strategy-config edit changes ``lab_config_hash`` (and therefore the
+    composite ``dataset_hash``) but no matrix feature, and must not read as
+    "the lake changed" (2026-07-07 phantom-drift incident: 30 contract
+    leaves reconciled → spurious multi-hour rebuild). When the stored
+    ``lab_config_hash`` AND ``date_range`` both match the re-derivation, the
+    composite is additionally cross-checked so on-disk manifest tampering
+    stays detectable. Legacy manifests fall back to the composite comparison.
+    """
+    manifest_components = {
+        str(k): str(v)
+        for k, v in (manifest.get("dataset_lineage_components") or {}).items()
+    }
+    expected_components = {
+        str(k): str(v)
+        for k, v in (expected_lineage.get("components") or {}).items()
+    }
+    manifest_dataset_hash = str(manifest.get("dataset_hash") or "")
+    expected_hash = str(expected_lineage.get("dataset_hash") or "")
+
+    if manifest_components and expected_components:
+        drifted = sorted(
+            k for k in _LAKE_STATE_COMPONENT_KEYS
+            if k in manifest_components and k in expected_components
+            and manifest_components[k] != expected_components[k]
+        )
+        if drifted:
+            detail = "; ".join(
+                f"{k}: built={manifest_components[k][:12]}… vs "
+                f"lake={expected_components[k][:12]}…"
+                for k in drifted
+            )
+            return {
+                "drifted": drifted,
+                "message": (
+                    f"lake-state drift on {drifted}: the lake changed since "
+                    f"the matrix was built (weekly refresh without a matrix "
+                    f"rebuild?). {detail}"
+                ),
+            }
+        config_unchanged = all(
+            manifest_components.get(k) == expected_components.get(k)
+            for k in ("lab_config_hash", "date_range")
+            if k in manifest_components and k in expected_components
+        )
+        if (config_unchanged and expected_hash and manifest_dataset_hash
+                and expected_hash != manifest_dataset_hash):
+            return {
+                "drifted": ["dataset_hash"],
+                "message": (
+                    f"manifest dataset_hash {manifest_dataset_hash[:12]}… does "
+                    f"not match the re-derived {expected_hash[:12]}… although "
+                    "every lineage component matches — the manifest was edited "
+                    "on disk (or the hash implementation drifted)."
+                ),
+            }
+        return None
+
+    # Legacy manifest (pre-components) — composite comparison. The composite
+    # also embeds lab_config_hash, so a strategy-config edit fires this too.
+    if expected_hash and manifest_dataset_hash and expected_hash != manifest_dataset_hash:
+        return {
+            "drifted": ["dataset_hash"],
+            "message": (
+                f"dataset_hash drift: manifest={manifest_dataset_hash[:12]}… vs "
+                f"current lake={expected_hash[:12]}… — the lake changed since "
+                "the matrix was built (weekly refresh without a matrix "
+                "rebuild?), OR strategy-config fields changed (this legacy "
+                "manifest predates component hashes; the composite hash also "
+                "covers the config — a rebuild refreshes the manifest format)."
+            ),
+        }
+    return None
 
 
 # 2026-07-01 stale-matrix incident (study fbe6b208): the store carried a
@@ -1385,14 +1509,12 @@ def assert_scan_matrix_fresh(
             return
 
     # (4) dataset drift vs the CURRENT lake (the expensive one — cached).
-    manifest_dataset_hash = str(manifest.get("dataset_hash") or "")
-    expected = _expected_manifest_dataset_hash(manifest, cfg)
-    if expected and manifest_dataset_hash and expected != manifest_dataset_hash:
-        _fail(
-            f"dataset_hash drift: manifest={manifest_dataset_hash[:12]}… vs "
-            f"current lake={expected[:12]}… — the lake changed since the matrix "
-            "was built (weekly refresh without a matrix rebuild?)."
-        )
+    # Component-wise for manifests built since 2026-07-07 (a strategy-config
+    # edit must not read as lake drift), composite for legacy manifests —
+    # see _dataset_drift.
+    drift = _dataset_drift(manifest, _expected_manifest_lineage(manifest, cfg))
+    if drift is not None:
+        _fail(drift["message"])
         return
 
     _FRESHNESS_VALIDATED.add(cache_key)
@@ -1488,19 +1610,19 @@ def verify_scan_matrix(
     issues: list[dict[str, Any]] = []
     sampled = 0
 
-    # (1) Dataset-hash drift detection.
+    # (1) Dataset-drift detection. Same comparison semantics as the runtime
+    # gate (assert_scan_matrix_fresh) — see _dataset_drift: component-wise
+    # over the lake-state keys (strategy-config edits do not drift the
+    # matrix; manifest tampering caught via the composite cross-check),
+    # composite dataset_hash for legacy manifests.
     manifest_dataset_hash = str(manifest.get("dataset_hash") or "")
-    expected_hash = _expected_manifest_dataset_hash(manifest, cfg)
-    if expected_hash and manifest_dataset_hash and expected_hash != manifest_dataset_hash:
+    drift = _dataset_drift(manifest, _expected_manifest_lineage(manifest, cfg))
+    if drift is not None:
         issues.append({
             "kind": "dataset_hash_drift",
+            "drifted_components": drift["drifted"],
             "manifest_dataset_hash": manifest_dataset_hash,
-            "recomputed_dataset_hash": expected_hash,
-            "explanation": (
-                "The lake's recomputed dataset_hash does not match the value "
-                "recorded in the manifest. The matrix was built against a "
-                "different lake state — rebuild required."
-            ),
+            "explanation": drift["message"],
         })
 
     if not sessions:
