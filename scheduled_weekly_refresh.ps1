@@ -44,6 +44,13 @@
             over the auto-anchored fold-val sessions, Optuna storage. FAIL -> writes
             NB10_NOT_READY.flag with the reasons (cleared on the next passing check);
             the lake/matrices are still fine -- this is an early warning, not a rollback.
+    STEP 6  Launch the weekly notebook-10 study: fires the ON-DEMAND scheduled task
+            'bowaka_v2 weekly study run' (run_weekly_study.ps1 -- stops xmrig, runs
+            papermill 10_optuna_walkforward.ipynb with notebook defaults to a dated
+            notebooks/runs/ copy, restarts xmrig when done). A separate task because
+            THIS task's 8h ExecutionTimeLimit would kill the 15-30h study if it ran
+            as a child process. Only fired when STEP 5 reported READY; skipped (with
+            a loud log line) otherwise.
 
 .NOTES
   REGISTRATION (mandatory shape -- Docker Desktop is per-user, so the task MUST
@@ -227,6 +234,28 @@ if ($readyRc -eq 0) {
 } else {
     Set-Content -LiteralPath $readyFlag -Value "check_nb10_ready FAILED $ts (rc=$readyRc). Lake + matrices refreshed OK, but a launch gate would refuse notebook 10:`n$readyOut"
     Log "WARNING: notebook 10 NOT READY (rc=$readyRc) -- wrote $readyFlag. The lake/matrices are fine; fix the gate failure above (e.g. reconcile the study config to a re-mirrored contract) before launching."
+}
+
+# --- STEP 6: launch the weekly notebook-10 study (detached aux task) ---------
+# Fired ONLY when STEP 5 reported READY. The aux task (run_weekly_study.ps1)
+# stops xmrig, papermills nb10 to a dated notebooks/runs/ copy (open it in
+# Jupyter mid-run -- papermill saves after every cell), and restarts xmrig when
+# the run ends. It must be its own scheduled task: this wrapper's 8h
+# ExecutionTimeLimit kills its whole process tree, and the study needs 15-30h.
+$studyTask = "bowaka_v2 weekly study run"
+if ($readyRc -eq 0) {
+    if (Get-ScheduledTask -TaskName $studyTask -ErrorAction SilentlyContinue) {
+        try {
+            Start-ScheduledTask -TaskName $studyTask
+            Log "STEP 6: launched '$studyTask' (detached; log: run_weekly_study_<ts>.log; executed notebook lands in research_notebooks/bowaka_v2_lab/notebooks/runs/)."
+        } catch {
+            Log "WARNING: could not start '$studyTask': $($_.Exception.Message) -- run it by hand: Start-ScheduledTask -TaskName '$studyTask'"
+        }
+    } else {
+        Log "WARNING: scheduled task '$studyTask' is NOT registered -- weekly study NOT launched. Register it (see the footer of run_weekly_study.ps1)."
+    }
+} else {
+    Log "STEP 6: SKIPPED (notebook 10 not ready) -- no study launched, xmrig untouched."
 }
 
 Log "=== scheduled_weekly_refresh DONE -- lake refreshed + matrices rebuilt ==="

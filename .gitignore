@@ -227,3 +227,10 @@ research_notebooks/bowaka_common/*.egg-info/
 
 
 docs/audits/
+
+# Weekly headless notebook-10 runs (papermill outputs; open in Jupyter)
+research_notebooks/bowaka_v2_lab/notebooks/runs/
+# Weekly automation host logs + breadcrumb flags
+run_weekly_study_*.log
+WEEKLY_STUDY_FAILED.flag
+NB10_NOT_READY.flag

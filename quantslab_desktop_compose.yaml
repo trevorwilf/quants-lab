@@ -160,9 +160,10 @@ services:
           # overlay is reset on every recreate, so reinstall them on startup -> the conda env
           # self-heals (matching the persistent ql_market_data / ql_scan_matrix volumes).
           # Without these, the scan-matrix build (exchange-calendars), Alpaca backfills
-          # (alpaca-py), reports (matplotlib) + logging (structlog) break after a recreate.
+          # (alpaca-py), reports (matplotlib) + logging (structlog), the weekly headless
+          # notebook-10 run (papermill) + CMA-ES refine studies (cmaes) break after a recreate.
           conda run --no-capture-output -n quants-lab pip install --quiet --no-cache-dir \
-            alpaca-py exchange-calendars matplotlib structlog || \
+            alpaca-py exchange-calendars matplotlib structlog papermill cmaes || \
             echo "WARN: lab runtime dep install failed -- build/backfills/reports may break."
 
           exec conda run --no-capture-output -n quants-lab \
