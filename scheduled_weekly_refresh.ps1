@@ -48,9 +48,10 @@
             'bowaka_v2 weekly study run' (run_weekly_study.ps1 -- stops xmrig, runs
             papermill 10_optuna_walkforward.ipynb with notebook defaults to a dated
             notebooks/runs/ copy, restarts xmrig when done). A separate task because
-            THIS task's 8h ExecutionTimeLimit would kill the 15-30h study if it ran
-            as a child process. Only fired when STEP 5 reported READY; skipped (with
-            a loud log line) otherwise.
+            THIS task's ExecutionTimeLimit would kill the 20-60h study if it ran
+            as a child process (both tasks now carry a 100h limit -- the 2026-07-10
+            run was killed at the old 8h limit mid-refresh, a ~9h week). Only fired
+            when STEP 5 reported READY; skipped (with a loud log line) otherwise.
 
 .NOTES
   REGISTRATION (mandatory shape -- Docker Desktop is per-user, so the task MUST
@@ -240,8 +241,9 @@ if ($readyRc -eq 0) {
 # Fired ONLY when STEP 5 reported READY. The aux task (run_weekly_study.ps1)
 # stops xmrig, papermills nb10 to a dated notebooks/runs/ copy (open it in
 # Jupyter mid-run -- papermill saves after every cell), and restarts xmrig when
-# the run ends. It must be its own scheduled task: this wrapper's 8h
-# ExecutionTimeLimit kills its whole process tree, and the study needs 15-30h.
+# the run ends. It must be its own scheduled task: this wrapper's
+# ExecutionTimeLimit kills its whole process tree at expiry, and the study
+# needs 20-60h (both tasks now carry a 100h limit).
 $studyTask = "bowaka_v2 weekly study run"
 if ($readyRc -eq 0) {
     if (Get-ScheduledTask -TaskName $studyTask -ErrorAction SilentlyContinue) {
@@ -266,13 +268,14 @@ exit 0
 # interactive user 'trevo' with Docker Desktop running -- do NOT use SYSTEM or
 # 'run whether user is logged on or not' (no Docker engine in that session, so
 # every `docker exec` fails). Register via the ScheduledTasks module (avoids
-# schtasks /TR quoting issues + pins the pwsh path + sets an 8h time limit so
-# the 6h Alpaca-retry window can't be truncated):
+# schtasks /TR quoting issues + pins the pwsh path + sets a 100h time limit --
+# the old 8h limit KILLED the 2026-07-10 run mid-refresh, a ~9h week, before
+# the matrix rebuild / readiness / study-launch steps could run):
 #
 #   $pwsh = (Get-Command pwsh).Source
 #   $act  = New-ScheduledTaskAction -Execute $pwsh -Argument '-NoProfile -ExecutionPolicy Bypass -File "E:\tradingsoftware\quants-lab\scheduled_weekly_refresh.ps1"'
 #   $trg  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Friday -At 6:30pm
 #   $prn  = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-#   $set  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 8) -StartWhenAvailable -WakeToRun -DontStopOnIdleEnd
+#   $set  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 100) -StartWhenAvailable -WakeToRun -DontStopOnIdleEnd
 #   Register-ScheduledTask -TaskName "bowaka_v2 weekly data refresh" -Action $act -Trigger $trg -Principal $prn -Settings $set -Force
 # ---------------------------------------------------------------------------

@@ -8,8 +8,8 @@
   Started by scheduled_weekly_refresh.ps1 STEP 6 via the ON-DEMAND scheduled task
   'bowaka_v2 weekly study run'. It MUST run as its own scheduled task, not as a
   child of the weekly wrapper: Task Scheduler kills the whole process tree of a
-  task at its ExecutionTimeLimit (the wrapper's is 8h), which would murder this
-  15-30h study mid-run and leave xmrig stopped. The aux task carries a 72h limit
+  task at its ExecutionTimeLimit, which would murder this 20-60h study mid-run
+  and leave xmrig stopped. The aux task carries a 100h limit
   and RunLevel Highest (xmrig typically runs elevated for MSR/huge-pages access;
   a non-elevated task could not stop it). Safe to fire by hand any time:
       Start-ScheduledTask -TaskName "bowaka_v2 weekly study run"
@@ -124,7 +124,7 @@ if ($xmrigWasRunning) {
     Log "xmrig stopped."
 }
 
-# --- STEP 3: papermill (blocking; the aux task allows 72h) ---------------------
+# --- STEP 3: papermill (blocking; the aux task allows 100h) --------------------
 $null = New-Item -ItemType Directory -Force -Path (Join-Path $repo "research_notebooks\bowaka_v2_lab\notebooks\runs")
 $inner = @"
 set -euo pipefail
@@ -173,12 +173,12 @@ exit 0
 
 # ------------------------------------------------------------------------------
 # REGISTER the on-demand aux task (one-time; RunLevel Highest so an elevated
-# xmrig can be stopped; 72h limit for the 15-30h study + sweep):
+# xmrig can be stopped; 100h limit for the 20-60h study + sweep):
 #
 #   $pwsh = (Get-Command pwsh).Source
 #   $act  = New-ScheduledTaskAction -Execute $pwsh -Argument '-NoProfile -ExecutionPolicy Bypass -File "E:\tradingsoftware\quants-lab\run_weekly_study.ps1"'
 #   $prn  = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
-#   $set  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 72) -DontStopOnIdleEnd -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+#   $set  = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 100) -DontStopOnIdleEnd -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 #   Register-ScheduledTask -TaskName "bowaka_v2 weekly study run" -Action $act -Principal $prn -Settings $set -Force
 #
 # (No trigger: STEP 6 of scheduled_weekly_refresh.ps1 starts it, or run it by
