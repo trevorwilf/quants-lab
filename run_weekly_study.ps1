@@ -25,8 +25,12 @@
     STEP 3  papermill 10_optuna_walkforward.ipynb — NOTEBOOK DEFAULTS (5000
             trials + Top-N finalist sweep) -> dated output notebook
             research_notebooks/bowaka_v2_lab/notebooks/runs/10_optuna_walkforward_<ts>.ipynb
-            papermill saves the output notebook AFTER EVERY CELL, so you can
-            open the dated copy in Jupyter MID-RUN and watch results appear.
+            papermill saves the output notebook AFTER EVERY CELL and autosaves
+            a long-running cell's partial output every ~30s
+            (--autosave-cell-every 30), so you can open the dated copy in
+            Jupyter MID-RUN and watch results appear (Reload Notebook from
+            Disk to refresh; treat it read-only). --log-output additionally
+            streams cell prints into run_weekly_study_<ts>.log for tailing.
             All normal artifacts (reports, deployable YAMLs, the Postgres
             study) are produced exactly as in a manual run.
     STEP 4  FINALLY: restart xmrig from $XmrigDir — only if STEP 2 stopped it —
@@ -130,10 +134,11 @@ $inner = @"
 set -euo pipefail
 export MARKET_DATA_ROOT=/opt/market_data_cache
 cd $labDir
-/opt/conda/envs/quants-lab/bin/papermill "$nbIn" "$nbOut" -k python3 --cwd "$labDir"
+/opt/conda/envs/quants-lab/bin/papermill "$nbIn" "$nbOut" -k python3 --cwd "$labDir" --log-output --autosave-cell-every 30
 "@
 $inner = $inner -replace "`r", ""
 Log "Launching papermill: $nbIn -> $nbOut (notebook defaults; open the dated copy in Jupyter to watch progress)"
+Log "Watch live: http://127.0.0.1:8888/lab/tree/$nbOutRel  (READ-ONLY: use File > Reload Notebook from Disk to refresh; do NOT save from Jupyter -- papermill owns the file). Long cells autosave partial output every ~30s; cell prints also stream into this log."
 $code = 1
 try {
     # 2026-07-01 incident class: native stderr in a pipeline under EAP='Stop'
