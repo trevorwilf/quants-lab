@@ -162,6 +162,12 @@ CANONICAL_REJECTION_REASONS: frozenset[str] = frozenset({
     # ``entries_blocked`` because an open lot is in
     # :attr:`ProtectionState.UNPROTECTED_VIOLATION`.
     "entries_blocked_by_protection",
+    # Prod 2026-06-09 ``sizing.compounding`` overlay — all new entries are
+    # refused while ``base + gross_realized <= floor_fraction * base`` (open
+    # lots still exit). Lab-only, like the realism reasons above; missing from
+    # this set it degraded 10 trials in the 2026-07-11 weekly study
+    # (DEGRADED_FOLDS_PRESENT).
+    "compounding_floor_halt",
 })
 
 
