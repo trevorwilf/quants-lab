@@ -95,6 +95,11 @@ def _setup(config_path: str):
         full_start=wr._to_date(bt["start_date"]), full_end=wr._to_date(bt["end_date"]),
         train_months=int(wf.get("train_months", 6)), val_months=int(wf.get("val_months", 1)),
         final_holdout_months=int(wf.get("final_holdout_months", 1)),
+        # Must mirror the runner's plan EXACTLY (walkforward_runner.py L16
+        # step_months threading) — a drifted plan changes n_splits and the
+        # fold-count check in _is_valid then rejects every study trial
+        # (n_splits=15 vs the study's 3 in the 2026-07-12 salvage run).
+        step_months=(int(wf["step_months"]) if wf.get("step_months") else None),
     )
     feed = str(md.get("feed", "iex"))
     lake_root = resolve_lake_root(cfg)
