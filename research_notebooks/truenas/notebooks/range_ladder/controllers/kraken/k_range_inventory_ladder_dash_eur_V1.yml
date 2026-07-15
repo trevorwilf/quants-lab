@@ -1,0 +1,95 @@
+# ============================================================================
+#  range_inventory_ladder — KRAKEN DASH/EUR controller config
+#  Validated band (walk-forward + conservative = CONFIRMED) + smooth SHAPE weights.
+#  Ported from the NonKYC template.
+#  ** UNITS: quote is EUR. Every *_quote value below is in EUR, not USD. **
+# ============================================================================
+
+# --- Identity -------------------------------------------------------------
+id: k_range_inventory_ladder_dash_eur_V1   # Distinct id (NOT your NonKYC dash_V1) so state/diagnostic
+                                          #   files don't collide with the NonKYC DASH controller.
+controller_name: range_inventory_ladder
+controller_type: market_making
+
+# --- Market ---------------------------------------------------------------
+connector_name: kraken                    # Kraken spot connector (was: nonkyc).
+trading_pair: DASH-EUR                     # BASE-QUOTE, EUR-quoted. Verify current DASH/EUR sits in the
+                                          #   buy/sell gap (~€28.5–€30.7) before deploy; if DASH has
+                                          #   rallied above the band, re-center first or the inner sell
+                                          #   rung will be in-the-money (passive can't post below ask).
+
+# --- Managed fund (ALL VALUES IN EUR) -------------------------------------
+ledger_funded_budgets: true              # Isolate to the EUR/DASH this controller owns. On Kraken this
+                                          #   pair spends EUR while XMR/USD spends USD, so they can't
+                                          #   contaminate each other's buy fuel.
+total_amount_quote: 250                   # Seed (EUR). BUY-ONLY start: claimed=0 -> quote seed = total
+                                          #   = €250 of buy fuel. Small on purpose — paper-validate
+                                          #   first. Set-once (not updatable).
+allow_initialize_with_unavailable_wallet_funds: true
+max_fund_value_quote: 650                 # HARD CAP, EUR. Screener's cap was ~$700 USD; €650 ≈ $700 at
+                                          #   ~1.08 EUR/USD. Refine to your preferred EUR ceiling (or I
+                                          #   can pull a live EUR/USD rate and set it exactly).
+use_wallet_balance: true
+claimed_base_value_quote: 0               # 0 base claimed -> starts BUY-ONLY, accumulates DASH.
+                                          #   ALT: hold DASH already and want the sell side live at
+                                          #   seed? Set this EQUAL to total_amount_quote (sell-only start).
+
+# >>> Provenance & risk notes <<<
+# - BAND is validated: rungs passed BOTH gates — walk-forward (kept 61% OOS, two-sided) and
+#   conservative fills (kept 74%) — verdict CONFIRMED. Of the Kraken CONFIRMED set this was the
+#   cleanest grid (lowest ending inventory, ~26%), i.e. mostly realized round-trips, not bags.
+# - WEIGHTS are a strategy CHOICE in your NonKYC house style, NOT an optimizer fit. Free-mode weights
+#   kept as a commented alternate below.
+# - US trader note: this pair settles in EUR — you must fund the Kraken account with EUR, and PnL
+#   accrues in EUR. If you'd rather avoid a EUR balance, run XMR/USD (and other USD pairs) instead.
+# - Cap chain OK: 0 <= 250 <= 650.
+
+# --- The ladder: VALIDATED rungs + SHAPE weights (prices in EUR) ----------
+# buy_prices highest->lowest; sell_prices lowest->highest; highest buy < lowest sell.
+# Buys BACK-load (accumulate deepest dips); sells BACK-load (distribute near top of range).
+buy_prices: 28.5191,28.0852,27.6803,27.2753,26.8704
+buy_amounts_pct: 7.6,11.4,17.1,25.6,38.3
+sell_prices: 30.6884,32.4527,34.246,36.0104,37.7747,39.5391,41.3035
+sell_amounts_pct: 7.3,8.9,10.8,13.2,16.1,19.7,24.0
+
+# ALTERNATE A — screener free-mode weights (raw optimizer output; in-sample, unvalidated):
+#buy_amounts_pct: 52.3,4.0,16.2,16.2,11.3
+#sell_amounts_pct: 14.6,14.6,7.3,3.6,14.6,19.0,26.3
+# ALTERNATE B — "distribute early" sells (front-load, matching your DASH-NonKYC config):
+#sell_amounts_pct: 24.0,19.7,16.1,13.2,10.8,8.9,7.3
+
+# --- Refresh / re-center model --------------------------------------------
+event_refresh_enabled: true
+executor_refresh_time: 43200             # GLOBAL refresh, 12h.
+buy_cooldown_time: 3600
+sell_cooldown_time: 3600
+
+# --- Order placement constraints ------------------------------------------
+min_order_quote: 1                       # Controller floor (€). Also confirm Kraken's ordermin for
+                                          #   DASH/EUR clears per-rung notional (smallest rung ~€19).
+allow_partial_levels: true
+passive_order_placement: true
+
+# --- Unattended-run safety ------------------------------------------------
+max_session_duration_hours: 66000
+cancel_orders_on_session_end: true
+max_market_data_unavailable_seconds: 900
+cancel_orders_on_market_data_hard_pause: true
+
+# --- Diagnostics ----------------------------------------------------------
+diagnostic_log_enabled: true
+diagnostic_log_file_name: range_inventory_ladder_dash_eur_diagnostic.jsonl
+diagnostic_heartbeat_interval_seconds: 300
+
+# --- State / control ------------------------------------------------------
+state_file_name: range_inventory_ladder_dash_eur.json
+manual_kill_switch: true        # false turns on the strategy, true turns the strategy off; Set true to halt the controller (emergency stop).
+
+# ============================================================================
+#  OPTIONAL fields (safe defaults; uncomment to use):
+# ============================================================================
+# fee_rate: 0.0025               # Fallback fee ONLY if connector reports none. Kraken reports fees, so
+#                                #   normally moot. 0.0025 = Kraken base maker tier.
+# shared_account_quote_quota:    # Extra hard cap on buy-side EUR. Not needed under ledger_funded_budgets.
+# post_refresh_settle_seconds: 0
+# reseed_fund_from_wallet_once: false

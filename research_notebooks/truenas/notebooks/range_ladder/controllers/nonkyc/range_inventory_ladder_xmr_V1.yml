@@ -1,0 +1,122 @@
+# ============================================================================
+#  range_inventory_ladder — NonKYC XMR/USDT controller config
+#  Fixed buy-band + sell-band ladder over a self-contained managed fund.
+#  Comments below are drawn from the controller's own config-class definitions.
+# ============================================================================
+
+# --- Identity -------------------------------------------------------------
+id: range_inventory_ladder_xmr_V1        # Unique name for THIS config instance. Also namespaces
+                                         #   the state/diagnostic files and the executors it spawns.
+controller_name: range_inventory_ladder  # Which controller class to load (must match the .py).
+controller_type: market_making          # Hummingbot controller category.
+
+# --- Market ---------------------------------------------------------------
+connector_name: nonkyc                   # Exchange connector (spot only).
+trading_pair: XMR-USDT                   # Market to trade (BASE-QUOTE).
+fee_rate: 0.002
+
+# --- Managed fund (the capital the strategy owns and compounds) -----------
+ledger_funded_budgets: true              # Fund new orders from THIS controller's OWN managed-fund
+                                         #   ledger (the USDT/XMR it owns, minus what it has resting),
+                                         #   bounded by the live wallet only as a SAFETY FLOOR -- NOT
+                                         #   from the raw shared wallet balance. This is what isolates
+                                         #   XMR from DASH on a shared account: XMR can only ever spend
+                                         #   USDT IT earned, never DASH's deposit. No quota needed.
+                                         #   Set false for the legacy raw-wallet-funded behavior.
+total_amount_quote: 408                  # Initial managed fund in quote terms. SET EQUAL to
+                                         #   claimed_base_value_quote so the QUOTE seed = total - claimed
+                                         #   = $0: XMR claims only its XMR and grabs ZERO USDT at seed.
+                                         #   CRITICAL now that there is no quota -- it stops the seed
+                                         #   from reaching into DASH's $500. Set-once (not updatable).
+allow_initialize_with_unavailable_wallet_funds: true
+                                         # Allow first-time init even if some wallet funds are
+                                         #   already reserved/unavailable.
+max_fund_value_quote: 10000               # HARD CAP on total deployable fund VALUE (quote). XMR can
+                                         #   only compound its OWN proceeds up to this ceiling; it is
+                                         #   not a claim on the wallet. (~15x the $340 seed = headroom.)
+use_wallet_balance: true                 # Claim starting BASE inventory (XMR) from the wallet on
+                                         #   first start (so the sell side has something to ladder).
+claimed_base_value_quote: 350            # Claim your ~1.092 XMR (~$341 @ ~$312) as the sell-side
+                                         #   inventory. Claims up to this VALUE of XMR (≈ all you hold).
+                                         #   Set-once. Exact-amount alt: claimed_base_amount: 1.092
+
+# >>> How this fund behaves on a SHARED NonKYC account (ledger_funded_budgets: true) <<<
+# - At seed: claims ~1.092 XMR and $0 USDT (total == claimed). XMR's ledger owns ~$0 quote, so it
+#   starts SELL-ONLY -- it literally cannot buy because it owns no USDT, and it ignores the $500 you
+#   deposit for DASH (a deposit raises the wallet but NOT this controller's owned ledger).
+# - As XMR SELLS: the proceeds are booked into THIS controller's own ledger (owned_quote grows), so on
+#   the next cycle XMR re-buys the dips using the USDT IT JUST EARNED -- automatically, no quota edit.
+#   It still never touches DASH's $500, because that money was never booked into XMR's ledger.
+# - Growth is capped at max_fund_value_quote; XMR compounds only its OWN money, up to that ceiling.
+# NOTE: if this bot is RESUMING an existing state file, the seed already happened and the two seed
+#   values above are inert -- the live ledger holds the real owned XMR/USDT. They are set correctly
+#   here anyway so any future clean re-seed stays safe.
+
+# --- The ladder: fixed price rungs + per-rung weights ---------------------
+# Weights are RELATIVE (normalized internally) and stay welded to their price rung.
+# buy_prices must be highest->lowest; sell_prices lowest->highest; highest buy < lowest sell.
+
+buy_prices: 327.01,324.01,321.01,318,315,312,305.01          # Fixed buy rungs (passive: only live below the bid).
+buy_amounts_pct: 0.5,1, 1, 4, 3.5, 1, 0.5         # Buy-rung weights (heaviest at 318/315).
+sell_prices: 328.59,331.5,334.99,339.99,344.99,349.99,354.99,359.99,369.99,379.99 # Fixed sell rungs (passive: only live above ask).
+sell_amounts_pct: 0.25,0.5,1,1,2,2,1,1,1,1             # Sell-rung weights (heaviest at 345/350).
+
+# Alternate ranges from the GEOMETRIC-GRID 3-month backtest (~21%). NOTE: that 21% was a pure
+# two-sided grid sim, NOT this explicit ladder model -- it does not transfer directly. Validate
+# in this controller (paper mode) before trusting it.
+#buy_prices: 320,310,300,292
+#buy_amounts_pct: 1.5,4,4,2
+#sell_prices: 333,346,360,372,386,400
+#sell_amounts_pct: 1,1.5,2.5,2.5,1.5,1
+
+# --- Refresh / re-center model --------------------------------------------
+# event_refresh_enabled=true: a fill on one side IMMEDIATELY refreshes the OPPOSITE ladder
+# (deploys the new proceeds) and resets that side's cooldown; each side re-centers only after
+# ITS cooldown lapses with no fill; executor_refresh_time is a GLOBAL periodic refresh of both.
+# Set false to revert to the legacy per-executor-age refresh.
+event_refresh_enabled: true
+executor_refresh_time: 43200             # GLOBAL refresh interval, seconds (43200 = 12h). Fires
+                                         #   independent of fills/cooldowns; refreshes BOTH ladders.
+#cooldown_time: 3600                     # Legacy per-level cooldown AND the fallback default for the
+                                         #   two split timers below. Unused here since both are set.
+buy_cooldown_time: 3600                  # After a buy fill, seconds of NO further buy fill before the
+                                         #   BUY ladder re-centers once (1h). Re-arms on the next buy.
+sell_cooldown_time: 3600                 # Same, for the SELL ladder.
+
+# --- Order placement constraints ------------------------------------------
+min_order_quote: 1                       # Minimum order notional (quote) to place any level. Rungs
+                                         #   below this are skipped; small budgets compress to the
+                                         #   nearest-to-price rung.
+allow_partial_levels: true               # Let the last remaining budget/inventory partially fill a level.
+passive_order_placement: true            # Only post passive maker orders outside the spread
+                                         #   (buys below bid, sells above ask). Never cross.
+
+# --- Unattended-run safety ------------------------------------------------
+max_session_duration_hours: 66000        # Max unattended run before wind-down (~2750 days).
+cancel_orders_on_session_end: true       # Cancel active orders when that duration is reached.
+max_market_data_unavailable_seconds: 900 # Missing-market-data window before a hard pause (900 = 15m).
+cancel_orders_on_market_data_hard_pause: true  # Cancel active orders on that hard pause.
+
+# --- Diagnostics ----------------------------------------------------------
+diagnostic_log_enabled: true             # Write a dedicated JSONL diagnostic log for later review.
+diagnostic_log_file_name: range_inventory_ladder_xmr_usdt_diagnostic.jsonl   # Its filename.
+diagnostic_heartbeat_interval_seconds: 300     # How often to emit a full heartbeat event (5 min).
+
+# --- State / control ------------------------------------------------------
+state_file_name: range_inventory_ladder_xmr_usdt.json   # Persisted managed-fund ledger + timers.
+                                         #   Resuming this file resumes the current fund baseline;
+                                         #   rename (and bump `id`) to start a clean ledger.
+manual_kill_switch: false                # Set true to halt the controller (emergency stop).
+
+# ============================================================================
+#  OPTIONAL fields (not set above; all have safe defaults). Uncomment to use:
+# ============================================================================
+# fee_rate: 0.002                # Fallback per-fill fee used ONLY when the connector reports no fee.
+#                                #   NonKYC sends no fee field, so this keeps the ledger accurate.
+#                                #   Default 0.002 (0.2%) already matches your NonKYC maker fee.
+# shared_account_quote_quota:    # Optional EXTRA hard cap on buy-side USDT. NOT needed under
+#                                #   ledger_funded_budgets (the ledger already isolates this
+#                                #   controller); leave unset unless you want a belt-and-suspenders cap.
+# recycle_max_latency_seconds: 60  # (legacy mode only) directional recycle-window length.
+# post_refresh_settle_seconds: 0   # Pause after a refresh cancel wave to let balances settle.
+# reseed_fund_from_wallet_once: false  # One-shot: re-seed the managed fund from the CURRENT wallet.

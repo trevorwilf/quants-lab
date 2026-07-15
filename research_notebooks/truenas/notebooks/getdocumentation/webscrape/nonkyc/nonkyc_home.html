@@ -1,0 +1,2003 @@
+<html lang="en"><head><style data-tippy-stylesheet="">.tippy-box[data-animation=fade][data-state=hidden]{opacity:0}[data-tippy-root]{max-width:calc(100vw - 10px)}.tippy-box{position:relative;background-color:#333;color:#fff;border-radius:4px;font-size:14px;line-height:1.4;white-space:normal;outline:0;transition-property:transform,visibility,opacity}.tippy-box[data-placement^=top]>.tippy-arrow{bottom:0}.tippy-box[data-placement^=top]>.tippy-arrow:before{bottom:-7px;left:0;border-width:8px 8px 0;border-top-color:initial;transform-origin:center top}.tippy-box[data-placement^=bottom]>.tippy-arrow{top:0}.tippy-box[data-placement^=bottom]>.tippy-arrow:before{top:-7px;left:0;border-width:0 8px 8px;border-bottom-color:initial;transform-origin:center bottom}.tippy-box[data-placement^=left]>.tippy-arrow{right:0}.tippy-box[data-placement^=left]>.tippy-arrow:before{border-width:8px 0 8px 8px;border-left-color:initial;right:-7px;transform-origin:center left}.tippy-box[data-placement^=right]>.tippy-arrow{left:0}.tippy-box[data-placement^=right]>.tippy-arrow:before{left:-7px;border-width:8px 8px 8px 0;border-right-color:initial;transform-origin:center right}.tippy-box[data-inertia][data-state=visible]{transition-timing-function:cubic-bezier(.54,1.5,.38,1.11)}.tippy-arrow{width:16px;height:16px;color:#333}.tippy-arrow:before{content:"";position:absolute;border-color:transparent;border-style:solid}.tippy-content{position:relative;padding:5px 9px;z-index:1}</style><style type="text/css">.swal-icon--error{border-color:#f27474;-webkit-animation:animateErrorIcon .5s;animation:animateErrorIcon .5s}.swal-icon--error__x-mark{position:relative;display:block;-webkit-animation:animateXMark .5s;animation:animateXMark .5s}.swal-icon--error__line{position:absolute;height:5px;width:47px;background-color:#f27474;display:block;top:37px;border-radius:2px}.swal-icon--error__line--left{-webkit-transform:rotate(45deg);transform:rotate(45deg);left:17px}.swal-icon--error__line--right{-webkit-transform:rotate(-45deg);transform:rotate(-45deg);right:16px}@-webkit-keyframes animateErrorIcon{0%{-webkit-transform:rotateX(100deg);transform:rotateX(100deg);opacity:0}to{-webkit-transform:rotateX(0deg);transform:rotateX(0deg);opacity:1}}@keyframes animateErrorIcon{0%{-webkit-transform:rotateX(100deg);transform:rotateX(100deg);opacity:0}to{-webkit-transform:rotateX(0deg);transform:rotateX(0deg);opacity:1}}@-webkit-keyframes animateXMark{0%{-webkit-transform:scale(.4);transform:scale(.4);margin-top:26px;opacity:0}50%{-webkit-transform:scale(.4);transform:scale(.4);margin-top:26px;opacity:0}80%{-webkit-transform:scale(1.15);transform:scale(1.15);margin-top:-6px}to{-webkit-transform:scale(1);transform:scale(1);margin-top:0;opacity:1}}@keyframes animateXMark{0%{-webkit-transform:scale(.4);transform:scale(.4);margin-top:26px;opacity:0}50%{-webkit-transform:scale(.4);transform:scale(.4);margin-top:26px;opacity:0}80%{-webkit-transform:scale(1.15);transform:scale(1.15);margin-top:-6px}to{-webkit-transform:scale(1);transform:scale(1);margin-top:0;opacity:1}}.swal-icon--warning{border-color:#f8bb86;-webkit-animation:pulseWarning .75s infinite alternate;animation:pulseWarning .75s infinite alternate}.swal-icon--warning__body{width:5px;height:47px;top:10px;border-radius:2px;margin-left:-2px}.swal-icon--warning__body,.swal-icon--warning__dot{position:absolute;left:50%;background-color:#f8bb86}.swal-icon--warning__dot{width:7px;height:7px;border-radius:50%;margin-left:-4px;bottom:-11px}@-webkit-keyframes pulseWarning{0%{border-color:#f8d486}to{border-color:#f8bb86}}@keyframes pulseWarning{0%{border-color:#f8d486}to{border-color:#f8bb86}}.swal-icon--success{border-color:#a5dc86}.swal-icon--success:after,.swal-icon--success:before{content:"";border-radius:50%;position:absolute;width:60px;height:120px;background:#fff;-webkit-transform:rotate(45deg);transform:rotate(45deg)}.swal-icon--success:before{border-radius:120px 0 0 120px;top:-7px;left:-33px;-webkit-transform:rotate(-45deg);transform:rotate(-45deg);-webkit-transform-origin:60px 60px;transform-origin:60px 60px}.swal-icon--success:after{border-radius:0 120px 120px 0;top:-11px;left:30px;-webkit-transform:rotate(-45deg);transform:rotate(-45deg);-webkit-transform-origin:0 60px;transform-origin:0 60px;-webkit-animation:rotatePlaceholder 4.25s ease-in;animation:rotatePlaceholder 4.25s ease-in}.swal-icon--success__ring{width:80px;height:80px;border:4px solid hsla(98,55%,69%,.2);border-radius:50%;box-sizing:content-box;position:absolute;left:-4px;top:-4px;z-index:2}.swal-icon--success__hide-corners{width:5px;height:90px;background-color:#fff;padding:1px;position:absolute;left:28px;top:8px;z-index:1;-webkit-transform:rotate(-45deg);transform:rotate(-45deg)}.swal-icon--success__line{height:5px;background-color:#a5dc86;display:block;border-radius:2px;position:absolute;z-index:2}.swal-icon--success__line--tip{width:25px;left:14px;top:46px;-webkit-transform:rotate(45deg);transform:rotate(45deg);-webkit-animation:animateSuccessTip .75s;animation:animateSuccessTip .75s}.swal-icon--success__line--long{width:47px;right:8px;top:38px;-webkit-transform:rotate(-45deg);transform:rotate(-45deg);-webkit-animation:animateSuccessLong .75s;animation:animateSuccessLong .75s}@-webkit-keyframes rotatePlaceholder{0%{-webkit-transform:rotate(-45deg);transform:rotate(-45deg)}5%{-webkit-transform:rotate(-45deg);transform:rotate(-45deg)}12%{-webkit-transform:rotate(-405deg);transform:rotate(-405deg)}to{-webkit-transform:rotate(-405deg);transform:rotate(-405deg)}}@keyframes rotatePlaceholder{0%{-webkit-transform:rotate(-45deg);transform:rotate(-45deg)}5%{-webkit-transform:rotate(-45deg);transform:rotate(-45deg)}12%{-webkit-transform:rotate(-405deg);transform:rotate(-405deg)}to{-webkit-transform:rotate(-405deg);transform:rotate(-405deg)}}@-webkit-keyframes animateSuccessTip{0%{width:0;left:1px;top:19px}54%{width:0;left:1px;top:19px}70%{width:50px;left:-8px;top:37px}84%{width:17px;left:21px;top:48px}to{width:25px;left:14px;top:45px}}@keyframes animateSuccessTip{0%{width:0;left:1px;top:19px}54%{width:0;left:1px;top:19px}70%{width:50px;left:-8px;top:37px}84%{width:17px;left:21px;top:48px}to{width:25px;left:14px;top:45px}}@-webkit-keyframes animateSuccessLong{0%{width:0;right:46px;top:54px}65%{width:0;right:46px;top:54px}84%{width:55px;right:0;top:35px}to{width:47px;right:8px;top:38px}}@keyframes animateSuccessLong{0%{width:0;right:46px;top:54px}65%{width:0;right:46px;top:54px}84%{width:55px;right:0;top:35px}to{width:47px;right:8px;top:38px}}.swal-icon--info{border-color:#c9dae1}.swal-icon--info:before{width:5px;height:29px;bottom:17px;border-radius:2px;margin-left:-2px}.swal-icon--info:after,.swal-icon--info:before{content:"";position:absolute;left:50%;background-color:#c9dae1}.swal-icon--info:after{width:7px;height:7px;border-radius:50%;margin-left:-3px;top:19px}.swal-icon{width:80px;height:80px;border-width:4px;border-style:solid;border-radius:50%;padding:0;position:relative;box-sizing:content-box;margin:20px auto}.swal-icon:first-child{margin-top:32px}.swal-icon--custom{width:auto;height:auto;max-width:100%;border:none;border-radius:0}.swal-icon img{max-width:100%;max-height:100%}.swal-title{color:rgba(0,0,0,.65);font-weight:600;text-transform:none;position:relative;display:block;padding:13px 16px;font-size:27px;line-height:normal;text-align:center;margin-bottom:0}.swal-title:first-child{margin-top:26px}.swal-title:not(:first-child){padding-bottom:0}.swal-title:not(:last-child){margin-bottom:13px}.swal-text{font-size:16px;position:relative;float:none;line-height:normal;vertical-align:top;text-align:left;display:inline-block;margin:0;padding:0 10px;font-weight:400;color:rgba(0,0,0,.64);max-width:calc(100% - 20px);overflow-wrap:break-word;box-sizing:border-box}.swal-text:first-child{margin-top:45px}.swal-text:last-child{margin-bottom:45px}.swal-footer{text-align:right;padding-top:13px;margin-top:13px;padding:13px 16px;border-radius:inherit;border-top-left-radius:0;border-top-right-radius:0}.swal-button-container{margin:5px;display:inline-block;position:relative}.swal-button{background-color:#7cd1f9;color:#fff;border:none;box-shadow:none;border-radius:5px;font-weight:600;font-size:14px;padding:10px 24px;margin:0;cursor:pointer}.swal-button:not([disabled]):hover{background-color:#78cbf2}.swal-button:active{background-color:#70bce0}.swal-button:focus{outline:none;box-shadow:0 0 0 1px #fff,0 0 0 3px rgba(43,114,165,.29)}.swal-button[disabled]{opacity:.5;cursor:default}.swal-button::-moz-focus-inner{border:0}.swal-button--cancel{color:#555;background-color:#efefef}.swal-button--cancel:not([disabled]):hover{background-color:#e8e8e8}.swal-button--cancel:active{background-color:#d7d7d7}.swal-button--cancel:focus{box-shadow:0 0 0 1px #fff,0 0 0 3px rgba(116,136,150,.29)}.swal-button--danger{background-color:#e64942}.swal-button--danger:not([disabled]):hover{background-color:#df4740}.swal-button--danger:active{background-color:#cf423b}.swal-button--danger:focus{box-shadow:0 0 0 1px #fff,0 0 0 3px rgba(165,43,43,.29)}.swal-content{padding:0 20px;margin-top:20px;font-size:medium}.swal-content:last-child{margin-bottom:20px}.swal-content__input,.swal-content__textarea{-webkit-appearance:none;background-color:#fff;border:none;font-size:14px;display:block;box-sizing:border-box;width:100%;border:1px solid rgba(0,0,0,.14);padding:10px 13px;border-radius:2px;transition:border-color .2s}.swal-content__input:focus,.swal-content__textarea:focus{outline:none;border-color:#6db8ff}.swal-content__textarea{resize:vertical}.swal-button--loading{color:transparent}.swal-button--loading~.swal-button__loader{opacity:1}.swal-button__loader{position:absolute;height:auto;width:43px;z-index:2;left:50%;top:50%;-webkit-transform:translateX(-50%) translateY(-50%);transform:translateX(-50%) translateY(-50%);text-align:center;pointer-events:none;opacity:0}.swal-button__loader div{display:inline-block;float:none;vertical-align:baseline;width:9px;height:9px;padding:0;border:none;margin:2px;opacity:.4;border-radius:7px;background-color:hsla(0,0%,100%,.9);transition:background .2s;-webkit-animation:swal-loading-anim 1s infinite;animation:swal-loading-anim 1s infinite}.swal-button__loader div:nth-child(3n+2){-webkit-animation-delay:.15s;animation-delay:.15s}.swal-button__loader div:nth-child(3n+3){-webkit-animation-delay:.3s;animation-delay:.3s}@-webkit-keyframes swal-loading-anim{0%{opacity:.4}20%{opacity:.4}50%{opacity:1}to{opacity:.4}}@keyframes swal-loading-anim{0%{opacity:.4}20%{opacity:.4}50%{opacity:1}to{opacity:.4}}.swal-overlay{position:fixed;top:0;bottom:0;left:0;right:0;text-align:center;font-size:0;overflow-y:auto;background-color:rgba(0,0,0,.4);z-index:10000;pointer-events:none;opacity:0;transition:opacity .3s}.swal-overlay:before{content:" ";display:inline-block;vertical-align:middle;height:100%}.swal-overlay--show-modal{opacity:1;pointer-events:auto}.swal-overlay--show-modal .swal-modal{opacity:1;pointer-events:auto;box-sizing:border-box;-webkit-animation:showSweetAlert .3s;animation:showSweetAlert .3s;will-change:transform}.swal-modal{width:478px;opacity:0;pointer-events:none;background-color:#fff;text-align:center;border-radius:5px;position:static;margin:20px auto;display:inline-block;vertical-align:middle;-webkit-transform:scale(1);transform:scale(1);-webkit-transform-origin:50% 50%;transform-origin:50% 50%;z-index:10001;transition:opacity .2s,-webkit-transform .3s;transition:transform .3s,opacity .2s;transition:transform .3s,opacity .2s,-webkit-transform .3s}@media (max-width:500px){.swal-modal{width:calc(100% - 20px)}}@-webkit-keyframes showSweetAlert{0%{-webkit-transform:scale(1);transform:scale(1)}1%{-webkit-transform:scale(.5);transform:scale(.5)}45%{-webkit-transform:scale(1.05);transform:scale(1.05)}80%{-webkit-transform:scale(.95);transform:scale(.95)}to{-webkit-transform:scale(1);transform:scale(1)}}@keyframes showSweetAlert{0%{-webkit-transform:scale(1);transform:scale(1)}1%{-webkit-transform:scale(.5);transform:scale(.5)}45%{-webkit-transform:scale(1.05);transform:scale(1.05)}80%{-webkit-transform:scale(.95);transform:scale(.95)}to{-webkit-transform:scale(1);transform:scale(1)}}</style><title>NonKYC Cryptocurrency Exchange</title><link rel="stylesheet" type="text/css" href="/min/production.min.css?v=644c46759730dcc5d14f462ff0498f7048908f78"><link rel="stylesheet" type="text/css" id="themer" href="/themes/dark.css"><script>
+
+		localStorage.setItem("theme", "dark");
+	
+		var webTheme = 'dark';
+	
+	</script><link rel="manifest" href="/nonkyc.webmanifest"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="application-name" content="NonKYC"><meta name="apple-mobile-web-app-title" content="NonKYC"><meta name="theme-color" content="#172A3F"><meta name="msapplication-navbutton-color" content="#172A3F"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="msapplication-starturl" content="/"><meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"><meta http-equiv="Cache-control" content="no-cache, no-store, must-revalidate"><meta http-equiv="Pragma" content="no-cache"><meta name="keywords" content="blockchain, bitcoin, altcoin, ethereum, trading, wallet, miner, digital currency, decentralized, market, buy, sell, invest, crypto, market cap, volume, liquidity, order book, market maker, bid, ask, spread, margin trading, stop loss, leverage, nonkyc" data-shuvi-head="true"><meta name="description" content="NonKYC cryptocurrency exchange - Buy and sell cryptocurrencies like Bitcoin, Ethereum, and more on our secure and user-friendly platform. Start trading today." data-shuvi-head="true"><meta property="og:url" content="https://nonkyc.io" data-shuvi-head="true"><meta property="og:type" content="website" data-shuvi-head="true"><meta property="og:title" content="NonKYC cryptocurrency exchange - Buy and sell cryptocurrencies like Bitcoin, Ethereum, and more on our secure and user-friendly platform. Start trading today." data-shuvi-head="true"><meta property="og:site_name" content="NonKYC" data-shuvi-head="true"><meta property="og:image" content="https://nonkyc.io/icon-192x192.webp" data-shuvi-head="true"><meta property="twitter:title" content="NonKYC cryptocurrency exchange - Buy and sell cryptocurrencies like Bitcoin, Ethereum, and more on our secure and user-friendly platform. Start trading today." data-shuvi-head="true"><meta property="twitter:site" content="NonKYC" data-shuvi-head="true"><meta property="twitter:image" content="https://nonkyc.io/icon-192x192.webp" data-shuvi-head="true"><meta property="twitter:card" content="summary_large_image" data-shuvi-head="true"><meta property="twitter:image:src" content="https://nonkyc.io/icon-192x192.webp" data-shuvi-head="true"><meta name="HandheldFriendly" content="true"><meta name="MobileOptimized" content="390"><link rel="apple-touch-startup-image" href="/images/nonkyc-startup.png"><link rel="apple-touch-icon" href="/icon-192x192.webp"><link rel="icon" href="/favicon.ico" type="image/x-icon"><link rel="canonical" href="https://nonkyc.io/"><link rel="stylesheet" type="text/css" href="/css/mainoverrides.css?v=644c4675"><script>
+		var timezone = 'UTC';
+		var timeformat = '24h';
+
+		if (localStorage.getItem('timezone')) {
+			timezone = localStorage.getItem('timezone');
+		}
+
+		if (localStorage.getItem('timeformat')) {
+			timeformat = localStorage.getItem('timeformat');
+		}
+
+		const formatTime = (timestamp, type = "date/time", utc) => {
+			try {
+				if (typeof timestamp !== 'number' || !isFinite(timestamp)) {
+					console.warn('Invalid timestamp passed to formatTime:', timestamp);
+					return 'N/A';
+				}
+
+				const date = new Date(timestamp);
+
+				if (isNaN(date.getTime())) {
+					console.warn('Generated Invalid Date object:', date);
+					return '';
+				}
+
+				const timezone = localStorage.getItem('timezone') || 'UTC';
+				const timeformat = localStorage.getItem('timeformat') || '24h';
+
+				const options = {
+					year: 'numeric',
+					month: '2-digit',
+					day: '2-digit',
+					hour: '2-digit',
+					minute: '2-digit',
+					second: '2-digit',
+					hour12: timeformat !== '24h',
+					timeZone: utc ? 'UTC' : timezone
+				};
+
+				const formattedDate = date.toLocaleString('en-GB', options);
+				const [datePart, timePart] = formattedDate.split(', ');
+				const [day, month, year] = datePart.split('/');
+
+				if (type === 'date') return `${year}-${month}-${day}`;
+				if (type === 'time') {
+					if (timeformat === '12h') {
+						const [time, period] = timePart.split(' ');
+						return `${time} ${period?.toUpperCase() || ''}`;
+					}
+					return timePart;
+				}
+
+				if (timeformat === '12h') {
+					const [time, period] = timePart.split(' ');
+					return `${year}-${month}-${day}, ${time} ${period?.toUpperCase() || ''}`;
+				}
+				return `${year}-${month}-${day}, ${timePart}`;
+			} catch (err) {
+				console.error('formatTime error:', { timestamp, err });
+				return 'Invalid Date';
+			}
+		};
+
+		window.formatTime = formatTime;
+
+				function getTimezones() {
+			const timezones = [
+				"America/Anchorage",
+				"America/Juneau",
+				"America/Los_Angeles",
+				"America/Phoenix",
+				"America/Vancouver",
+				"America/Denver",
+				"America/Mexico_City",
+				"America/El_Salvador",
+				"America/Bogota",
+				"America/Chicago",
+				"America/Lima",
+				"America/Caracas",
+				"America/New_York",
+				"America/Santiago",
+				"America/Toronto",
+				"America/Buenos_Aires",
+				"America/Sao_Paulo",
+				"UTC",
+				"Africa/Casablanca",
+				"Europe/Dublin",
+				"Africa/Lagos",
+				"Europe/Lisbon",
+				"Europe/London",
+				"Africa/Tunis",
+				"Europe/Amsterdam",
+				"Europe/Belgrade",
+				"Europe/Berlin",
+				"Europe/Bratislava",
+				"Europe/Brussels",
+				"Europe/Budapest",
+				"Europe/Copenhagen",
+				"Africa/Johannesburg",
+				"Europe/Luxembourg",
+				"Europe/Madrid",
+				"Europe/Malta",
+				"Europe/Oslo",
+				"Europe/Paris",
+				"Europe/Prague",
+				"Europe/Rome",
+				"Europe/Stockholm",
+				"Europe/Vienna",
+				"Europe/Warsaw",
+				"Europe/Zagreb",
+				"Europe/Athens",
+				"Asia/Bahrain",
+				"Europe/Bucharest",
+				"Africa/Cairo",
+				"Europe/Helsinki",
+				"Europe/Istanbul",
+				"Asia/Jerusalem",
+				"Asia/Kuwait",
+				"Europe/Moscow",
+				"Africa/Nairobi",
+				"Asia/Nicosia",
+				"Asia/Qatar",
+				"Europe/Riga",
+				"Asia/Riyadh",
+				"Europe/Tallinn",
+				"Europe/Vilnius",
+				"Asia/Tehran",
+				"Asia/Dubai",
+				"Asia/Muscat",
+				"Asia/Ashgabat",
+				"Asia/Karachi",
+				"Asia/Colombo",
+				"Asia/Dhaka",
+				"Asia/Bangkok",
+				"Asia/Jakarta",
+				"Asia/Hong_Kong",
+				"Asia/Kuala_Lumpur",
+				"Asia/Manila",
+				"Australia/Perth",
+				"Asia/Shanghai",
+				"Asia/Singapore",
+				"Asia/Taipei",
+				"Asia/Seoul",
+				"Asia/Tokyo",
+				"Australia/Adelaide",
+				"Australia/Brisbane",
+				"Australia/Sydney",
+				"Pacific/Norfolk",
+				"Pacific/Chatham",
+				"Pacific/Auckland",
+			];
+
+			const now = new Date();
+
+			return timezones.map((timezone) => {
+				const offsetParts = new Intl.DateTimeFormat("en-US", {
+					timeZone: timezone,
+					timeZoneName: "shortOffset",
+				})
+					.formatToParts(now)
+					.find((part) => part.type === "timeZoneName");
+
+				const offset = offsetParts
+					? offsetParts.value.replace(/GMT/, "").replace("UTC", "UTC")
+					: "";
+
+				return {
+					id: timezone,
+					label: `(UTC${offset}) ${timezone.split("/").pop().replace("_", " ")}`,
+				};
+			});
+		}
+
+		const timezonesArray = getTimezones();
+
+	</script><script type="application/ld+json">
+		{
+		   "@context": "http://schema.org",
+		   "@type": "Organization",
+		   "name": "NonKYC",
+		   "url": "https://nonkyc.io",
+		   "description": "A cryptocurrency exchange platform",
+		   "supportedCurrency": [
+			  {"@type": "MonetaryAmount", "name": "ErgoPad", "currency": "ERGOPAD"},
+			  {"@type": "MonetaryAmount", "name": "FREE Coin", "currency": "FREE"},
+			  {"@type": "MonetaryAmount", "name": "ErgOne", "currency": "ERGONE"},
+			  {"@type": "MonetaryAmount", "name": "PaideiaDAO", "currency": "PAI"},
+			  {"@type": "MonetaryAmount", "name": "Bitcoin Atom", "currency": "BCA"},
+			  {"@type": "MonetaryAmount", "name": "Nevocoin", "currency": "NEVO"},
+			  {"@type": "MonetaryAmount", "name": "Russellcoin", "currency": "RC"},
+			  {"@type": "MonetaryAmount", "name": "PEPErg", "currency": "PEPERG"},
+			  {"@type": "MonetaryAmount", "name": "Frencoin", "currency": "FREN"},
+			  {"@type": "MonetaryAmount", "name": "GreasyCEX", "currency": "GCX"},
+			  {"@type": "MonetaryAmount", "name": "TabbyPOS", "currency": "EPOS"},
+			  {"@type": "MonetaryAmount", "name": "Ergo", "currency": "ERG"},
+			  {"@type": "MonetaryAmount", "name": "Ferritecoin", "currency": "FEC"},
+			  {"@type": "MonetaryAmount", "name": "Reaction", "currency": "RTC"},
+			  {"@type": "MonetaryAmount", "name": "PEPEPOW", "currency": "PEPEW"},
+			  {"@type": "MonetaryAmount", "name": "Reddcoin", "currency": "RDD"},
+			  {"@type": "MonetaryAmount", "name": "ALPHpaca", "currency": "PACA"},
+			  {"@type": "MonetaryAmount", "name": "Alf", "currency": "ALF"},
+			  {"@type": "MonetaryAmount", "name": "Wrapped Ycash", "currency": "WRY"},
+			  {"@type": "MonetaryAmount", "name": "Ycash", "currency": "YEC"},
+			  {"@type": "MonetaryAmount", "name": "Jekyll", "currency": "JEKYLL"},
+			  {"@type": "MonetaryAmount", "name": "Ayin", "currency": "AYIN"},
+			  {"@type": "MonetaryAmount", "name": "Paprikacoin", "currency": "PAPRY"},
+			  {"@type": "MonetaryAmount", "name": "FiuryCoin", "currency": "FIURY"},
+			  {"@type": "MonetaryAmount", "name": "DragonX", "currency": "DRGX"},
+			  {"@type": "MonetaryAmount", "name": "VEIL", "currency": "VEIL"},
+			  {"@type": "MonetaryAmount", "name": "Hush", "currency": "HUSH"},
+			  {"@type": "MonetaryAmount", "name": "Alephium", "currency": "ALPH"},
+			  {"@type": "MonetaryAmount", "name": "Metrix", "currency": "MRX"},
+			  {"@type": "MonetaryAmount", "name": "Lunarium", "currency": "XLN"},
+			  {"@type": "MonetaryAmount", "name": "BlockChainCoinX", "currency": "XCCX"},
+			  {"@type": "MonetaryAmount", "name": "Ultichain", "currency": "ULTI"},
+			  {"@type": "MonetaryAmount", "name": "PayPal USD", "currency": "PYUSD"},
+			  {"@type": "MonetaryAmount", "name": "Lyncoin", "currency": "LCN"},
+			  {"@type": "MonetaryAmount", "name": "Novo", "currency": "NOVO"},
+			  {"@type": "MonetaryAmount", "name": "CyberConnect", "currency": "CYBER"},
+			  {"@type": "MonetaryAmount", "name": "TrueUSD", "currency": "TUSD"},
+			  {"@type": "MonetaryAmount", "name": "FSOCIETY", "currency": "FSC"},
+			  {"@type": "MonetaryAmount", "name": "Kylacoin", "currency": "KCN"},
+			  {"@type": "MonetaryAmount", "name": "Reversed Bitcoin", "currency": "RVB"},
+			  {"@type": "MonetaryAmount", "name": "Wownero", "currency": "WOW"},
+			  {"@type": "MonetaryAmount", "name": "HORSEMANIA", "currency": "HMC"},
+			  {"@type": "MonetaryAmount", "name": "Babacoin", "currency": "BBC"},
+			  {"@type": "MonetaryAmount", "name": "Skol", "currency": "SKOL"},
+			  {"@type": "MonetaryAmount", "name": "MateableCoin", "currency": "MTBC"},
+			  {"@type": "MonetaryAmount", "name": "Oliocoin", "currency": "OLIO"},
+			  {"@type": "MonetaryAmount", "name": "AirTor Protocol", "currency": "ATOR"},
+			  {"@type": "MonetaryAmount", "name": "Gamepass Network", "currency": "GPN"},
+			  {"@type": "MonetaryAmount", "name": "Verus Coin", "currency": "VRSC"},
+			  {"@type": "MonetaryAmount", "name": "Ryo Currency ", "currency": "RYO"},
+			  {"@type": "MonetaryAmount", "name": "Pitbull Token", "currency": "PIT"},
+			  {"@type": "MonetaryAmount", "name": "Satoxcoin", "currency": "SATOX"},
+			  {"@type": "MonetaryAmount", "name": "Neoxa", "currency": "NEOX"},
+			  {"@type": "MonetaryAmount", "name": "Bitnet", "currency": "BTN"},
+			  {"@type": "MonetaryAmount", "name": "Lovely Inu finance", "currency": "LOVELY"},
+			  {"@type": "MonetaryAmount", "name": "Particl", "currency": "PART"},
+			  {"@type": "MonetaryAmount", "name": "Love Hate Inu", "currency": "LHINU"},	  
+			  {"@type": "MonetaryAmount", "name": "Dash 2 Trade", "currency": "D2T"},
+			  {"@type": "MonetaryAmount", "name": "Veritaseum", "currency": "VERI"},
+			  {"@type": "MonetaryAmount", "name": "Aave", "currency": "AAVE"},
+			  {"@type": "MonetaryAmount", "name": "Maker", "currency": "MKR"},
+			  {"@type": "MonetaryAmount", "name": "ApeCoin", "currency": "APE"},
+			  {"@type": "MonetaryAmount", "name": "Curve DAO", "currency": "CRV"},
+			  {"@type": "MonetaryAmount", "name": "Compound", "currency": "COMP"},
+			  {"@type": "MonetaryAmount", "name": "Neurai", "currency": "XNA"},
+			  {"@type": "MonetaryAmount", "name": "Mbrocoin", "currency": "MBRO"},
+			  {"@type": "MonetaryAmount", "name": "SafeMineCoin", "currency": "SMCN"},
+			  {"@type": "MonetaryAmount", "name": "Sun Tzu", "currency": "TZU"},
+			  {"@type": "MonetaryAmount", "name": "Hotbit Token", "currency": "HTB"},
+			  {"@type": "MonetaryAmount", "name": "Kiirocoin", "currency": "KIIRO"},
+			  {"@type": "MonetaryAmount", "name": "Arbitrum", "currency": "ARB"},
+			  {"@type": "MonetaryAmount", "name": "Ghost", "currency": "GHOST"},
+			  {"@type": "MonetaryAmount", "name": "Verge", "currency": "XVG"},
+			  {"@type": "MonetaryAmount", "name": "Ravencoin", "currency": "RVN"},
+			  {"@type": "MonetaryAmount", "name": "DigiByte", "currency": "DGB"},
+			  {"@type": "MonetaryAmount", "name": "BeamBots Token", "currency": "BB"},
+			  {"@type": "MonetaryAmount", "name": "Scala", "currency": "XLA"},
+			  {"@type": "MonetaryAmount", "name": "Nephrite", "currency": "NPH"},
+			  {"@type": "MonetaryAmount", "name": "BEAMX", "currency": "BEAMX"},	  
+			  {"@type": "MonetaryAmount", "name": "Pepe 2.0", "currency": "PEPE2"},
+			  {"@type": "MonetaryAmount", "name": "Dash", "currency": "DASH"},
+			  {"@type": "MonetaryAmount", "name": "Raptoreum", "currency": "RTM"},
+			  {"@type": "MonetaryAmount", "name": "Haven Protocol", "currency": "XHV"},
+			  {"@type": "MonetaryAmount", "name": "Cyberyen", "currency": "CY"},
+			  {"@type": "MonetaryAmount", "name": "Zephyr Protocol", "currency": "ZEPH"},
+			  {"@type": "MonetaryAmount", "name": "PIVX", "currency": "PIVX"},
+			  {"@type": "MonetaryAmount", "name": "GemLink", "currency": "GLINK"},
+			  {"@type": "MonetaryAmount", "name": "0xMonero", "currency": "0XMR"},
+			  {"@type": "MonetaryAmount", "name": "Incognito", "currency": "PRV"},
+			  {"@type": "MonetaryAmount", "name": "Render", "currency": "RNDR"},
+			  {"@type": "MonetaryAmount", "name": "Karate Combat", "currency": "KARATE"},
+			  {"@type": "MonetaryAmount", "name": "ArQmA", "currency": "ARQ"},
+			  {"@type": "MonetaryAmount", "name": "Equilibria", "currency": "XEQ"},
+			  {"@type": "MonetaryAmount", "name": "FourCoin", "currency": "FOUR"},
+			  {"@type": "MonetaryAmount", "name": "$LAMBO", "currency": "LAMBO"},
+			  {"@type": "MonetaryAmount", "name": "Dejitaru Tsuka", "currency": "TSUKA"},
+			  {"@type": "MonetaryAmount", "name": "Ben", "currency": "BEN"},
+			  {"@type": "MonetaryAmount", "name": "Zano", "currency": "ZANO"},
+			  {"@type": "MonetaryAmount", "name": "BEAM", "currency": "BEAM"},
+			  {"@type": "MonetaryAmount", "name": "Pepe", "currency": "PEPE"},
+			  {"@type": "MonetaryAmount", "name": "Radiant", "currency": "RXD"},	  
+			  {"@type": "MonetaryAmount", "name": "Txbit", "currency": "TXBIT"},
+			  {"@type": "MonetaryAmount", "name": "Noso", "currency": "NOSO"},
+			  {"@type": "MonetaryAmount", "name": "MeowCoin", "currency": "MEWC"},
+			  {"@type": "MonetaryAmount", "name": "Binance USD", "currency": "BUSD"},
+			  {"@type": "MonetaryAmount", "name": "USD Coin", "currency": "USDC"},
+			  {"@type": "MonetaryAmount", "name": "Shiba Inu", "currency": "SHIB"},
+			  {"@type": "MonetaryAmount", "name": "Dai", "currency": "DAI"},
+			  {"@type": "MonetaryAmount", "name": "Chainlink", "currency": "LINK"},
+			  {"@type": "MonetaryAmount", "name": "LEO Token", "currency": "LEO"},
+			  {"@type": "MonetaryAmount", "name": "Toncoin", "currency": "TON"},
+			  {"@type": "MonetaryAmount", "name": "ImmutableX", "currency": "IMX"},
+			  {"@type": "MonetaryAmount", "name": "Uniswap", "currency": "UNI"},
+			  {"@type": "MonetaryAmount", "name": "NONKYC", "currency": "NKYC"},
+			  {"@type": "MonetaryAmount", "name": "Tether USDT", "currency": "USDT"},
+			  {"@type": "MonetaryAmount", "name": "Binance Coin", "currency": "BNB"},
+			  {"@type": "MonetaryAmount", "name": "Bitcoin Cash", "currency": "BCH"},
+			  {"@type": "MonetaryAmount", "name": "TRON", "currency": "TRX"},
+			  {"@type": "MonetaryAmount", "name": "Dogecoin", "currency": "DOGE"},
+			  {"@type": "MonetaryAmount", "name": "Polygon", "currency": "MATIC"},
+			  {"@type": "MonetaryAmount", "name": "Flux", "currency": "FLUX"},
+			  {"@type": "MonetaryAmount", "name": "Nexa", "currency": "NEXA"},
+			  {"@type": "MonetaryAmount", "name": "Dynex", "currency": "DNX"},
+			  {"@type": "MonetaryAmount", "name": "XRP", "currency": "XRP"},	  
+			  {"@type": "MonetaryAmount", "name": "Conceal", "currency": "CCX"},
+			  {"@type": "MonetaryAmount", "name": "Ethereum", "currency": "ETH"},
+			  {"@type": "MonetaryAmount", "name": "Dero", "currency": "DERO"},
+			  {"@type": "MonetaryAmount", "name": "Firo", "currency": "FIRO"},
+			  {"@type": "MonetaryAmount", "name": "Pirate Chain", "currency": "ARRR"},
+			  {"@type": "MonetaryAmount", "name": "PRivaCY Coin", "currency": "PRCY"},
+			  {"@type": "MonetaryAmount", "name": "Kaspa", "currency": "KAS"},
+			  {"@type": "MonetaryAmount", "name": "Monero", "currency": "XMR"},
+			  {"@type": "MonetaryAmount", "name": "Litecoin", "currency": "LTC"},
+			  {"@type": "MonetaryAmount", "name": "Bitcoin", "currency": "BTC"},
+			  {"@type": "MonetaryAmount", "name": "Binance Nonkyc No KYC non kyc", "exchange": "Binance"},
+			  {"@type": "MonetaryAmount", "name": "Coinbase Nonkyc No KYC non kyc", "exchange": "Coinbase"},
+			  {"@type": "MonetaryAmount", "name": "Kraken Nonkyc No KYC non kyc", "exchange": "Kraken"},
+			  {"@type": "MonetaryAmount", "name": "Bitfinex Nonkyc No KYC non kyc", "exchange": "Bitfinex"},
+			  {"@type": "MonetaryAmount", "name": "Bittrex Nonkyc No KYC non kyc", "exchange": "Bittrex"},
+			  {"@type": "MonetaryAmount", "name": "Poloniex Nonkyc No KYC non kyc", "exchange": "Poloniex"},
+			  {"@type": "MonetaryAmount", "name": "Huobi Nonkyc No KYC non kyc", "exchange": "Huobi"},
+			  {"@type": "MonetaryAmount", "name": "OKEx Nonkyc No KYC non kyc", "exchange": "OKEx"},
+			  {"@type": "MonetaryAmount", "name": "Bitstamp Nonkyc No KYC non kyc", "exchange": "Bitstamp"},
+			  {"@type": "MonetaryAmount", "name": "Gemini Nonkyc No KYC non kyc", "exchange": "Gemini"},
+			  {"@type": "MonetaryAmount", "name": "KuCoin Nonkyc No KYC non kyc", "exchange": "KuCoin"},
+			  {"@type": "MonetaryAmount", "name": "BitFlyer Nonkyc No KYC non kyc", "exchange": "BitFlyer"},
+			  {"@type": "MonetaryAmount", "name": "Binance.US  Nonkyc No KYC non kyc", "exchange": "Binance.US"},
+			  {"@type": "MonetaryAmount", "name": "Coinmama Nonkyc No KYC non kyc", "exchange": "Coinmama"},
+			  {"@type": "MonetaryAmount", "name": "Gate.io  Nonkyc No KYC non kyc", "exchange": "Gate.io"},
+			  {"@type": "MonetaryAmount", "name": "BitMart Nonkyc No KYC non kyc", "exchange": "BitMart"},
+			  {"@type": "MonetaryAmount", "name": "Liquid Nonkyc No KYC non kyc", "exchange": "Liquid"},
+			  {"@type": "MonetaryAmount", "name": "BitZ Nonkyc No KYC non kyc", "exchange": "BitZ"},
+			  {"@type": "MonetaryAmount", "name": "EXMO Nonkyc No KYC non kyc", "exchange": "EXMO"},
+			  {"@type": "MonetaryAmount", "name": "CoinEx Nonkyc No KYC non kyc", "exchange": "CoinEx"},
+			  {"@type": "MonetaryAmount", "name": "WazirX Nonkyc No KYC non kyc", "exchange": "WazirX"},
+			  {"@type": "MonetaryAmount", "name": "Upbit Nonkyc No KYC non kyc", "exchange": "Upbit"},
+			  {"@type": "MonetaryAmount", "name": "FTX Nonkyc No KYC non kyc", "exchange": "FTX"},
+			  {"@type": "MonetaryAmount", "name": "Crypto.com  Exchange Nonkyc No KYC non kyc", "exchange": "Crypto.com  Exchange"},
+			  {"@type": "MonetaryAmount", "name": "Changelly Nonkyc No KYC non kyc", "exchange": "Changelly"},
+			  {"@type": "MonetaryAmount", "name": "Bithumb Nonkyc No KYC non kyc", "exchange": "Bithumb"},
+			  {"@type": "MonetaryAmount", "name": "ZB.COM  Nonkyc No KYC non kyc", "exchange": "ZB.COM"},
+			  {"@type": "MonetaryAmount", "name": "OKCoin Nonkyc No KYC non kyc", "exchange": "OKCoin"},
+			  {"@type": "MonetaryAmount", "name": "LATOKEN Nonkyc No KYC non kyc", "exchange": "LATOKEN"},
+			  {"@type": "MonetaryAmount", "name": "HitBTC Nonkyc No KYC non kyc", "exchange": "HitBTC"},
+			  {"@type": "MonetaryAmount", "name": "BitMax (AscendEX) Nonkyc No KYC non kyc", "exchange": "BitMax (AscendEX)"},
+			  {"@type": "MonetaryAmount", "name": "Coinone Nonkyc No KYC non kyc", "exchange": "Coinone"},
+			  {"@type": "MonetaryAmount", "name": "Bybit Nonkyc No KYC non kyc", "exchange": "Bybit"},
+			  {"@type": "MonetaryAmount", "name": "Coincheck Nonkyc No KYC non kyc", "exchange": "Coincheck"},
+			  {"@type": "MonetaryAmount", "name": "ProBit Nonkyc No KYC non kyc", "exchange": "ProBit"},
+			  {"@type": "MonetaryAmount", "name": "Luno Nonkyc No KYC non kyc", "exchange": "Luno"},
+			  {"@type": "MonetaryAmount", "name": "eToroX Nonkyc No KYC non kyc", "exchange": "eToroX"},
+			  {"@type": "MonetaryAmount", "name": "Hotbit Nonkyc No KYC non kyc", "exchange": "Hotbit"},
+			  {"@type": "MonetaryAmount", "name": "KuMEX (KuCoin Futures) Nonkyc No KYC non kyc", "exchange": "KuMEX (KuCoin Futures)"},
+			  {"@type": "MonetaryAmount", "name": "BitBay Nonkyc No KYC non kyc", "exchange": "BitBay"},
+			  {"@type": "MonetaryAmount", "name": "Deribit Nonkyc No KYC non kyc", "exchange": "Deribit"},
+			  {"@type": "MonetaryAmount", "name": "Bitso Nonkyc No KYC non kyc", "exchange": "Bitso"},
+		   ]
+		}
+		</script><style> @-webkit-keyframes loadingoverlay_animation__rotate_right { to { -webkit-transform : rotate(360deg); transform : rotate(360deg); } } @keyframes loadingoverlay_animation__rotate_right { to { -webkit-transform : rotate(360deg); transform : rotate(360deg); } } @-webkit-keyframes loadingoverlay_animation__rotate_left { to { -webkit-transform : rotate(-360deg); transform : rotate(-360deg); } } @keyframes loadingoverlay_animation__rotate_left { to { -webkit-transform : rotate(-360deg); transform : rotate(-360deg); } } @-webkit-keyframes loadingoverlay_animation__fadein { 0% { opacity   : 0; -webkit-transform : scale(0.1, 0.1); transform : scale(0.1, 0.1); } 50% { opacity   : 1; } 100% { opacity   : 0; -webkit-transform : scale(1, 1); transform : scale(1, 1); } } @keyframes loadingoverlay_animation__fadein { 0% { opacity   : 0; -webkit-transform : scale(0.1, 0.1); transform : scale(0.1, 0.1); } 50% { opacity   : 1; } 100% { opacity   : 0; -webkit-transform : scale(1, 1); transform : scale(1, 1); } } @-webkit-keyframes loadingoverlay_animation__pulse { 0% { -webkit-transform : scale(0, 0); transform : scale(0, 0); } 50% { -webkit-transform : scale(1, 1); transform : scale(1, 1); } 100% { -webkit-transform : scale(0, 0); transform : scale(0, 0); } } @keyframes loadingoverlay_animation__pulse { 0% { -webkit-transform : scale(0, 0); transform : scale(0, 0); } 50% { -webkit-transform : scale(1, 1); transform : scale(1, 1); } 100% { -webkit-transform : scale(0, 0); transform : scale(0, 0); } } </style><link rel="preload" href="https://code.tidio.co/widget-v4/fonts/inter_UcCo3FwrK3iLTcviYwYZ8UA3.woff2" as="font" type="font/woff2" crossorigin=""></head><body class="drawer drawer--left detected-linux" id="mainbody" style="background-color: #092737;">
+
+  
+  
+
+
+
+
+  
+  
+    <div purpose="page-wrap" style="margin-top: 45px; height: auto !important; min-height: calc(100vh + 196px); position: relative;">
+    
+      <header id="mainheader" class="navbar navbar-expand-sm navbar-dark flex-column flex-md-row justify-content-between" purpose="page-header" style="display: flex; background-color: #092737; border-bottom: 1px solid rgba(0, 0, 0, 0.4); margin-top: 0px; margin-bottom: 0px; position: fixed; width: 100%; z-index: 9999; top:0; padding: 0px 10px;"><div class="nav-items-wrapper">
+        
+        <a class="navbar-brand mr-0 d-none d-sm-block" style="cursor: pointer; padding-bottom:0px; padding-top:0px;" href="/"><span style="display:flex;align-items:center;"><img style="width: 32px; height: 32px; display:inline; margin-right:10px;" width="32" height="32" class="logo" alt="NonKYC logo" src="/images/nonkyclogoicon.png"><span style="font-family: Josefin Sans; color: #FFFF66; font-size: 28px; padding: 0px; margin: 0px; font-weight:400; margin-top: -5px;">nonkyc</span></span></a>
+        <a class="navbar-brand mr-0 d-block d-md-none" style="cursor: pointer; padding-bottom:0px; padding-top:0px;" href="/"><span style="font-family: Josefin Sans; color: #FFFF66; font-size: 28px; padding: 0px; margin: 0px; font-weight:400;">nonkyc</span></a>
+        
+
+
+					<div class="navbar-dinamyc-items">
+						
+						
+								
+											<div class="nav-item">
+												<a class="nav-link" href="/markets">Markets</a>
+											</div>
+											
+											<div class="nav-item">
+												<a class="nav-link" href="/markets?tab=l">Liquidity Pools</a>
+											</div>
+											
+											<div class="nav-item">
+												<a class="nav-link" href="/faucet">Faucets</a>
+											</div>
+											
+											<div class="nav-item">
+												<a class="nav-link" href="/faq">FAQ❓</a>
+											</div>
+											
+											<div class="nav-item">
+												<a class="nav-link" href="https://perp.nonkyc.io/" target='"_blank"'>🔥 DEX / PERP 🔥</a>
+											</div>
+											
+											<div class="nav-item">
+												<a class="nav-link" href="/createticket">Support🙋‍♂️</a>
+											</div>
+											
+											<div class="nav-item">
+												<a class="nav-link" href="/listing">List Asset💰</a>
+											</div>
+											
+
+						
+								</div>
+        </div>
+    
+        <div class="navbar-nav flex-row" style="z-index: 999999; align-items: center;">
+          
+          
+          
+          <a class="d-none d-sm-block" style="margin-right:30px; color: #fff;" href="/login">Log in</a>
+          <a class="btn btn-info nav-item nav-link ml-2 ml-md-0 mr-2 d-none d-sm-block" style="color: #172A3F; background-color: #FFFF66; border-color: #FFFF66; padding-top: 4px; padding-bottom: 4px; margin: auto;" href="/signup"> Sign up </a>
+
+          <a class="nav-item nav-link ml-2 ml-md-0 mr-2 d-none d-sm-block languageselect" id="">
+          	<svg fill="currentColor" style="display:inline; width: 22px; height: 22px;margin-right: -10px; margin-top:-8px;" xmlns="http://www.w3.org/2000/svg" viewbox="0 0 640 512"><path fill="currentColor" d="M448 164C459 164 468 172.1 468 184V188H528C539 188 548 196.1 548 208C548 219 539 228 528 228H526L524.4 232.5C515.5 256.1 501.9 279.1 484.7 297.9C485.6 298.4 486.5 298.1 487.4 299.5L506.3 310.8C515.8 316.5 518.8 328.8 513.1 338.3C507.5 347.8 495.2 350.8 485.7 345.1L466.8 333.8C462.4 331.1 457.1 328.3 453.7 325.3C443.2 332.8 431.8 339.3 419.8 344.7L416.1 346.3C406 350.8 394.2 346.2 389.7 336.1C385.2 326 389.8 314.2 399.9 309.7L403.5 308.1C409.9 305.2 416.1 301.1 422 298.3L409.9 286.1C402 278.3 402 265.7 409.9 257.9C417.7 250 430.3 250 438.1 257.9L452.7 272.4L453.3 272.1C465.7 259.9 475.8 244.7 483.1 227.1H376C364.1 227.1 356 219 356 207.1C356 196.1 364.1 187.1 376 187.1H428V183.1C428 172.1 436.1 163.1 448 163.1L448 164zM160 233.2L179 276H140.1L160 233.2zM0 128C0 92.65 28.65 64 64 64H576C611.3 64 640 92.65 640 128V384C640 419.3 611.3 448 576 448H64C28.65 448 0 419.3 0 384V128zM320 384H576V128H320V384zM178.3 175.9C175.1 168.7 167.9 164 160 164C152.1 164 144.9 168.7 141.7 175.9L77.72 319.9C73.24 329.1 77.78 341.8 87.88 346.3C97.97 350.8 109.8 346.2 114.3 336.1L123.2 315.1H196.8L205.7 336.1C210.2 346.2 222 350.8 232.1 346.3C242.2 341.8 246.8 329.1 242.3 319.9L178.3 175.9z"></path></svg><div style="font-size:10px; margin-top:-9px; margin-bottom: -10px; text-align:center; width:22px; white-space:nowrap;">en</div>
+          </a>
+
+          <div class="nav-item d-none d-sm-block" style="width: 30px; margin-right:10px; font-size:18px;">
+            <a onclick="showQr()" class="nav-link download-app" id="header-lang-menu-link" data-toggle="dropdown" aria-haspopup="true"><i class="fa fa-download" aria-hidden="true"></i></a>
+          </div>
+          
+          <div class="nav-item d-none d-sm-block" style="width: 30px; margin-right:10px; font-size:18px;">
+            <a onclick="toggleTheme()" class="nav-link themeselector" id="header-lang-menu-link" data-toggle="dropdown" aria-haspopup="true"><i class="far fa-sun" aria-hidden="true"></i></a>
+          </div>
+          
+          
+
+		  <div role="banner" class="d-block d-md-none" style="z-index: 999999;">
+			<div class="drawer-toggle drawer-hamburger" style="background-color: #092737; padding:4px; padding-left:7px; padding-right:7px; padding-bottom:3px;">
+			  <span class="drawer-hamburger-icon2" style="padding:0px;"><img id="hamburgerlogo" alt="logo" src="/images/logo-yellow-header-micon.png" style="height:35px; width:31px;"></span>
+			</div>
+			<nav class="drawer-nav" role="navigation"><ul class="drawer-menu"><li style="text-align:center; font-size:13px; color:#fff; background-color:#000; margin-top:0px; padding-top:12px; margin-bottom:0px; padding-bottom:12px;"> Login or Create Account </li>
+
+
+				  <hr style="margin-top: 0.5rem; margin-bottom: 0.5rem; background-color: #222;"><li>
+				  	<a class="drawer-menu-item" href="/markets">
+				  		<svg style="width: 22px; height: 22px; display: inline; padding-left:3px; padding-right:3px;" xmlns="http://www.w3.org/2000/svg" viewbox="0 0 448 512"><path d="M160 80C160 53.49 181.5 32 208 32H240C266.5 32 288 53.49 288 80V432C288 458.5 266.5 480 240 480H208C181.5 480 160 458.5 160 432V80zM0 272C0 245.5 21.49 224 48 224H80C106.5 224 128 245.5 128 272V432C128 458.5 106.5 480 80 480H48C21.49 480 0 458.5 0 432V272zM400 96C426.5 96 448 117.5 448 144V432C448 458.5 426.5 480 400 480H368C341.5 480 320 458.5 320 432V144C320 117.5 341.5 96 368 96H400z"></path></svg> Markets
+				  	</a>
+				  </li>
+
+				  <hr style="margin-top: 0.5rem; margin-bottom: 0.5rem; background-color: #222;"><li>
+				  	<a class="drawer-menu-item" href="/signup">
+				  		<svg style="width: 22px; height: 22px; display: inline; padding-left:3px; padding-right:3px;" xmlns="http://www.w3.org/2000/svg" viewbox="0 0 640 512"><path d="M223.1 256c70.7 0 128-57.31 128-128s-57.3-128-128-128C153.3 0 96 57.31 96 128S153.3 256 223.1 256zM274.7 304H173.3C77.61 304 0 381.7 0 477.4C0 496.5 15.52 512 34.66 512h286.4c-1.246-5.531-1.43-11.31-.2832-17.04l14.28-71.41c1.943-9.723 6.676-18.56 13.68-25.56l45.72-45.72C363.3 322.4 321.2 304 274.7 304zM371.4 420.6c-2.514 2.512-4.227 5.715-4.924 9.203l-14.28 71.41c-1.258 6.289 4.293 11.84 10.59 10.59l71.42-14.29c3.482-.6992 6.682-2.406 9.195-4.922l125.3-125.3l-72.01-72.01L371.4 420.6zM629.5 255.7l-21.1-21.11c-14.06-14.06-36.85-14.06-50.91 0l-38.13 38.14l72.01 72.01l38.13-38.13C643.5 292.5 643.5 269.7 629.5 255.7z"></path></svg> Sign Up
+				  	</a>
+				  </li>
+
+				  <hr style="margin-top: 0.5rem; margin-bottom: 0.5rem; background-color: #222;"><li>
+				  	<a class="drawer-menu-item" href="/login">
+				  	<svg style="width: 22px; height: 22px; display: inline; padding-left:3px; padding-right:3px;" xmlns="http://www.w3.org/2000/svg" viewbox="0 0 512 512"><path d="M344.7 238.5l-144.1-136C193.7 95.97 183.4 94.17 174.6 97.95C165.8 101.8 160.1 110.4 160.1 120V192H32.02C14.33 192 0 206.3 0 224v64c0 17.68 14.33 32 32.02 32h128.1v72c0 9.578 5.707 18.25 14.51 22.05c8.803 3.781 19.03 1.984 26-4.594l144.1-136C354.3 264.4 354.3 247.6 344.7 238.5zM416 32h-64c-17.67 0-32 14.33-32 32s14.33 32 32 32h64c17.67 0 32 14.33 32 32v256c0 17.67-14.33 32-32 32h-64c-17.67 0-32 14.33-32 32s14.33 32 32 32h64c53.02 0 96-42.98 96-96V128C512 74.98 469 32 416 32z"></path></svg> Log In
+				  	</a>
+				  </li>
+
+				  <hr style="margin-top: 0.5rem; margin-bottom: 0.5rem; background-color: #222;"><li>
+				  	<a class="drawer-menu-item" href="/createticket">
+				  	<svg style="width: 22px; height: 22px; display: inline; padding-left:3px; padding-right:3px;" xmlns="http://www.w3.org/2000/svg" viewbox="0 0 512 512"><path d="M256 48C141.1 48 48 141.1 48 256v64c0 26.5 21.5 48 48 48h48c17.7 0 32-14.3 32-32V224c0-17.7-14.3-32-32-32H112.6C129.8 135.4 187.4 96 256 96s126.2 39.4 143.4 96H368c-17.7 0-32 14.3-32 32v112c0 17.7 14.3 32 32 32h64c17.7 0 32-14.3 32-32v-80c0-114.9-93.1-208-208-208zm80 352h-67.1c-9.4 0-17.6 6.6-19.5 15.8c-2.8 13.7-14.9 24.2-29.4 24.2h-36c-17.7 0-32 14.3-32 32s14.3 32 32 32h36c41.4 0 77.2-28.6 86.9-68.2H336c17.7 0 32-14.3 32-32s-14.3-32-32-32z"></path></svg> Support
+				  	</a>
+				  </li>
+
+				  <hr style="margin-top: 0.5rem; margin-bottom: 0.5rem; background-color: #222;"><li>
+				  	<a class="drawer-menu-item" href="https://nonkyc.io/download/latestAPK">
+				  	<i class="fa fa-download" aria-hidden="true"></i> Download App
+				  	</a>
+				  </li>
+
+			  </ul></nav></div>
+		  
+          <a class="nav-item d-block d-md-none languageselect" id="" style="position: absolute; top: 5px; right: 47px;">
+          	<svg fill="#ddd" style="display:inline; width: 26px; height: 26px;" xmlns="http://www.w3.org/2000/svg" viewbox="0 0 640 512"><path fill="#ddd" d="M448 164C459 164 468 172.1 468 184V188H528C539 188 548 196.1 548 208C548 219 539 228 528 228H526L524.4 232.5C515.5 256.1 501.9 279.1 484.7 297.9C485.6 298.4 486.5 298.1 487.4 299.5L506.3 310.8C515.8 316.5 518.8 328.8 513.1 338.3C507.5 347.8 495.2 350.8 485.7 345.1L466.8 333.8C462.4 331.1 457.1 328.3 453.7 325.3C443.2 332.8 431.8 339.3 419.8 344.7L416.1 346.3C406 350.8 394.2 346.2 389.7 336.1C385.2 326 389.8 314.2 399.9 309.7L403.5 308.1C409.9 305.2 416.1 301.1 422 298.3L409.9 286.1C402 278.3 402 265.7 409.9 257.9C417.7 250 430.3 250 438.1 257.9L452.7 272.4L453.3 272.1C465.7 259.9 475.8 244.7 483.1 227.1H376C364.1 227.1 356 219 356 207.1C356 196.1 364.1 187.1 376 187.1H428V183.1C428 172.1 436.1 163.1 448 163.1L448 164zM160 233.2L179 276H140.1L160 233.2zM0 128C0 92.65 28.65 64 64 64H576C611.3 64 640 92.65 640 128V384C640 419.3 611.3 448 576 448H64C28.65 448 0 419.3 0 384V128zM320 384H576V128H320V384zM178.3 175.9C175.1 168.7 167.9 164 160 164C152.1 164 144.9 168.7 141.7 175.9L77.72 319.9C73.24 329.1 77.78 341.8 87.88 346.3C97.97 350.8 109.8 346.2 114.3 336.1L123.2 315.1H196.8L205.7 336.1C210.2 346.2 222 350.8 232.1 346.3C242.2 341.8 246.8 329.1 242.3 319.9L178.3 175.9z"></path></svg><div style="font-size:10px; margin-top:-5px; margin-bottom: -10px; text-align:center; width:28px; white-space:nowrap; color:#ddd;">en</div>
+          </a>
+
+          <div class="nav-item d-block d-md-none" style="position: absolute; top: 6px; right: 10px;">
+            <a onclick="toggleTheme()" class="nav-link themeselector" id="header-lang-menu-link" data-toggle="dropdown" aria-haspopup="true" style="font-size:30px;"><i class="far fa-sun" aria-hidden="true"></i></a>
+          </div>
+          
+          
+        </div>
+      </header><div id="homepage" class="detected-linux"><div purpose="full-page-hero" class="d-flex flex-column justify-content-center position-relative" style="padding-top: 20px; padding-bottom: 25px; color: rgb(76, 149, 209); opacity: 1; background-color: rgb(9, 39, 55); min-height: 935px;"><div class="d-flex flex-column justify-content-center position-relative" style="padding-top: 20px; padding-bottom: 25px; color: rgb(255, 255, 102); background-color: rgb(9, 39, 55);"><div id="homebackimage" style="z-index: 1; position: absolute; inset: 0px; height: 100%; overflow: hidden;"><div style='background: url("/images/Crypto-Investing.jpg") center center / cover no-repeat rgb(9, 39, 55); width: 100%; height: 100%; filter: opacity(0.25); background-blend-mode: multiply;'></div></div> <div class="container text-center" style="z-index: 10; color: rgb(255, 255, 255);"><div class="mx-auto" style="display: flex;"><div style="margin: auto; display: flex; align-items: center; gap: 20px;"><img id="homepagelogo2" alt="NonKYC" src="/images/nonkyclogoicon.png" width="132" height="132" style="display: inline; margin-right: 20px; filter: drop-shadow(rgba(0, 0, 0, 0.75) 0px 0.2rem 0.25rem);"><span style='text-shadow: rgba(0, 0, 0, 0.5) 0.12rem 0.12rem; font-family: "Josefin sans"; color: rgb(255, 255, 102); font-size: 115px; margin-top: -20px; font-weight: 300;'>nonkyc</span></div></div> <h2 class="display-5 pb-0 pt-4" style='text-shadow: rgb(51, 51, 51) 1px 1px; font-family: "Josefin Sans";'>Trade with privacy at NonKYC</h2> <span style="text-shadow: rgb(51, 51, 51) 1px 1px;">Exchanging Crypto. Protecting Identity.</span> <div class="input-group" style="max-width: 350px; margin: 50px auto auto;"><input type="email" id="goregisteremail" placeholder="Email address" autocomplete="email" class="form-control"><div class="input-group-append"><button id="goregisterbtn" class="btn btn-success" style="padding-top: 0px; padding-bottom: 0px;"><span class="button-text">Register Now</span></button></div></div></div></div> <section class="py-5" style="background: rgb(9, 39, 55); color: rgb(255, 255, 255);"><div class="container"><h3 class="text-center mb-4" style="color: rgb(255, 255, 102); font-weight: 700;">
+          Trending on NonKYC
+        </h3> <div id="highlights"><div class="row"><div class="col-sm mb-4"><div class="card h-100" style="background: rgb(15, 53, 74); border: 1px solid rgba(255, 255, 102, 0.25);"><div class="card-body"><h5 class="card-title" style="color: rgb(255, 255, 102); font-weight: 700;">Highlighted</h5> <div id="mhighlightedassets">
+    <div style="display:flex;align-items:center;margin:6px 0;width:100%;">
+      <img src="https://images.nonkyc.io/coin/32a8c31a-e311-4cd8-ad95-090a93e37a93-w50-h50.webp" alt="" style="width:30px;height:30px;margin-right:6px;border-radius:6px;"><div style="flex:1.8;overflow:hidden;min-width:0;">
+        <a href="/asset/QORT" style="text-decoration:none;color:#fff;display:block;overflow:hidden;">
+          
+          
+          <span style="font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            QORT
+            
+          </span>
+
+          
+          <br><span style="opacity:.75;font-size:11px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                   Qortal
+                 </span>
+        </a>
+      </div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-right:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          $0.1304
+        </span>
+      </div>
+
+      
+      <div style="width:1px;height:18px;background:rgba(255,255,255,.10);margin:0 6px;"></div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-left:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          $1.29M
+        </span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;margin:6px 0;width:100%;">
+      <img src="https://images.nonkyc.io/coin/7a99a05e-1ddf-4980-9362-3238fe6b385c-w50-h50.webp" alt="" style="width:30px;height:30px;margin-right:6px;border-radius:6px;"><div style="flex:1.8;overflow:hidden;min-width:0;">
+        <a href="/asset/ARRR" style="text-decoration:none;color:#fff;display:block;overflow:hidden;">
+          
+          
+          <span style="font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            ARRR
+            
+          </span>
+
+          
+          <br><span style="opacity:.75;font-size:11px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                   Pirate Chain
+                 </span>
+        </a>
+      </div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-right:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          $0.1836
+        </span>
+      </div>
+
+      
+      <div style="width:1px;height:18px;background:rgba(255,255,255,.10);margin:0 6px;"></div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-left:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          $36M
+        </span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;margin:6px 0;width:100%;">
+      <img src="https://images.nonkyc.io/coin/62738f37-7a38-483a-9132-c4769fd3d6b5-w50-h50.webp" alt="" style="width:30px;height:30px;margin-right:6px;border-radius:6px;"><div style="flex:1.8;overflow:hidden;min-width:0;">
+        <a href="/asset/XMR" style="text-decoration:none;color:#fff;display:block;overflow:hidden;">
+          
+          
+          <span style="font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            XMR
+            
+          </span>
+
+          
+          <br><span style="opacity:.75;font-size:11px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                   Monero
+                 </span>
+        </a>
+      </div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-right:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          $317.8479
+        </span>
+      </div>
+
+      
+      <div style="width:1px;height:18px;background:rgba(255,255,255,.10);margin:0 6px;"></div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-left:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          $5.86B
+        </span>
+      </div>
+    </div></div></div></div></div> <div class="col-sm mb-4"><div class="card h-100" style="background: rgb(15, 53, 74); border: 1px solid rgba(255, 255, 102, 0.25);"><div class="card-body"><h5 class="card-title" style="color: rgb(255, 255, 102); font-weight: 700;">Top Gainers</h5> <div id="mtopgainers">
+    <div style="display:flex;align-items:center;margin:6px 0;width:100%;">
+      <img src="https://images.nonkyc.io/coin/25fe2365-7e8b-43c6-8f35-c1bcae6a25f4-w50-h50.webp" alt="" style="width:30px;height:30px;margin-right:6px;border-radius:6px;"><div style="flex:1.8;overflow:hidden;min-width:0;">
+        <a href="/market/MEWC_USDT" style="text-decoration:none;color:#fff;display:block;overflow:hidden;">
+          
+          
+          <span style="font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            MEWC
+            <span style="opacity:.8;font-size:13px;margin-left:2px;">/USDT</span>
+          </span>
+
+          
+          <br><span style="opacity:.75;font-size:11px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                   MeowCoin
+                 </span>
+        </a>
+      </div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-right:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#42d18b;font-weight:700;">
+          +17.86%
+        </span>
+      </div>
+
+      
+      <div style="width:1px;height:18px;background:rgba(255,255,255,.10);margin:0 6px;"></div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-left:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          6.9K
+        </span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;margin:6px 0;width:100%;">
+      <img src="https://images.nonkyc.io/coin/2b7fa8c2-6c7b-4f8d-8802-6917b151f3e4-w50-h50.webp" alt="" style="width:30px;height:30px;margin-right:6px;border-radius:6px;"><div style="flex:1.8;overflow:hidden;min-width:0;">
+        <a href="/market/ALGO_USDT" style="text-decoration:none;color:#fff;display:block;overflow:hidden;">
+          
+          
+          <span style="font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            ALGO
+            <span style="opacity:.8;font-size:13px;margin-left:2px;">/USDT</span>
+          </span>
+
+          
+          <br><span style="opacity:.75;font-size:11px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                   Algorand
+                 </span>
+        </a>
+      </div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-right:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#42d18b;font-weight:700;">
+          +6.75%
+        </span>
+      </div>
+
+      
+      <div style="width:1px;height:18px;background:rgba(255,255,255,.10);margin:0 6px;"></div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-left:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          696K
+        </span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;margin:6px 0;width:100%;">
+      <img src="https://images.nonkyc.io/coin/c9c37ba7-e082-4225-920e-77ae58b3eb44-w50-h50.webp" alt="" style="width:30px;height:30px;margin-right:6px;border-radius:6px;"><div style="flex:1.8;overflow:hidden;min-width:0;">
+        <a href="/market/SEI_USDT" style="text-decoration:none;color:#fff;display:block;overflow:hidden;">
+          
+          
+          <span style="font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            SEI
+            <span style="opacity:.8;font-size:13px;margin-left:2px;">/USDT</span>
+          </span>
+
+          
+          <br><span style="opacity:.75;font-size:11px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                   Sei
+                 </span>
+        </a>
+      </div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-right:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#42d18b;font-weight:700;">
+          +5.20%
+        </span>
+      </div>
+
+      
+      <div style="width:1px;height:18px;background:rgba(255,255,255,.10);margin:0 6px;"></div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-left:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          147.1K
+        </span>
+      </div>
+    </div></div></div></div></div> <div class="col-sm mb-4"><div class="card h-100" style="background: rgb(15, 53, 74); border: 1px solid rgba(255, 255, 102, 0.25);"><div class="card-body"><h5 class="card-title" style="color: rgb(255, 255, 102); font-weight: 700;">Most Traded</h5> <div id="mtopvolumes">
+    <div style="display:flex;align-items:center;margin:6px 0;width:100%;">
+      <img src="https://images.nonkyc.io/coin/9cfa4780-4658-4086-99f8-82e628fa70ce-w50-h50.webp" alt="" style="width:30px;height:30px;margin-right:6px;border-radius:6px;"><div style="flex:1.8;overflow:hidden;min-width:0;">
+        <a href="/market/BTC_USDT" style="text-decoration:none;color:#fff;display:block;overflow:hidden;">
+          
+          
+          <span style="font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            BTC
+            <span style="opacity:.8;font-size:13px;margin-left:2px;">/USDT</span>
+          </span>
+
+          
+          <br><span style="opacity:.75;font-size:11px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                   Bitcoin
+                 </span>
+        </a>
+      </div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-right:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          2.43M
+        </span>
+      </div>
+
+      
+      <div style="width:1px;height:18px;background:rgba(255,255,255,.10);margin:0 6px;"></div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-left:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          $66,836.51
+        </span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;margin:6px 0;width:100%;">
+      <img src="https://images.nonkyc.io/coin/62738f37-7a38-483a-9132-c4769fd3d6b5-w50-h50.webp" alt="" style="width:30px;height:30px;margin-right:6px;border-radius:6px;"><div style="flex:1.8;overflow:hidden;min-width:0;">
+        <a href="/market/XMR_USDT" style="text-decoration:none;color:#fff;display:block;overflow:hidden;">
+          
+          
+          <span style="font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            XMR
+            <span style="opacity:.8;font-size:13px;margin-left:2px;">/USDT</span>
+          </span>
+
+          
+          <br><span style="opacity:.75;font-size:11px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                   Monero
+                 </span>
+        </a>
+      </div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-right:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          1.42M
+        </span>
+      </div>
+
+      
+      <div style="width:1px;height:18px;background:rgba(255,255,255,.10);margin:0 6px;"></div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-left:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          $317.88
+        </span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;margin:6px 0;width:100%;">
+      <img src="https://images.nonkyc.io/coin/815d81c3-8a65-46b8-9377-c52582696ca8-w50-h50.webp" alt="" style="width:30px;height:30px;margin-right:6px;border-radius:6px;"><div style="flex:1.8;overflow:hidden;min-width:0;">
+        <a href="/market/USDC_USDT" style="text-decoration:none;color:#fff;display:block;overflow:hidden;">
+          
+          
+          <span style="font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            USDC
+            <span style="opacity:.8;font-size:13px;margin-left:2px;">/USDT</span>
+          </span>
+
+          
+          <br><span style="opacity:.75;font-size:11px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                   USD Coin
+                 </span>
+        </a>
+      </div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-right:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          1.43M
+        </span>
+      </div>
+
+      
+      <div style="width:1px;height:18px;background:rgba(255,255,255,.10);margin:0 6px;"></div>
+
+      
+      
+      <div style="flex:0 0 auto;text-align:right;padding-left:6px;min-width:80px;">
+        <span style="font-family:monospace;font-size:12px;display:inline-block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          $1
+        </span>
+      </div>
+    </div></div></div></div></div></div></div> <div class="text-center mt-4"><a href="/markets" onmouseover="this.style.backgroundColor='#FFFF66';this.style.color='#092737';this.style.transform='translateY(-2px) scale(1.03)';this.style.boxShadow='0 6px 16px rgba(0,0,0,0.45)';" onmouseout="this.style.background='transparent';this.style.color='#FFFF66';this.style.transform='';this.style.boxShadow='0 0 0 rgba(0,0,0,0)';" style="display: inline-block; padding: 12px 28px; font-weight: 700; font-size: 16px; color: rgb(255, 255, 102); background: transparent; border: 2px solid rgb(255, 255, 102); border-radius: 50px; text-decoration: none; box-shadow: rgba(0, 0, 0, 0) 0px 0px 0px; transition: 0.25s ease-in-out;"><i class="fa fa-line-chart" style="margin-right: 8px;"></i>
+    View All Markets
+  </a></div></div></section><section id="privacysection" class="py-5" style="position: relative; background: rgb(9, 39, 55); color: rgb(255, 255, 255); overflow: hidden;"><div aria-hidden="true" style="position: absolute; inset: -20%; pointer-events: none;"></div> <div class="container position-relative"><div class="row align-items-center gy-4"><div class="col-md-6"><div style="display: inline-block; padding: 0.35rem 0.6rem; border: 1px solid rgba(255, 255, 102, 0.35); color: rgb(255, 255, 102); border-radius: 999px; font-size: 0.85rem; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;">
+          Why NonKYC is the Best Crypto Exchange
+        </div> <h2 class="mt-3 mb-3" style="font-weight: 800; line-height: 1.1;">
+          Privacy, Security, Performance — all in one exchange.
+        </h2> <p class="mb-3" style="opacity: 0.95;">
+          At NonKYC, we redefine cryptocurrency trading by prioritizing your privacy, security, and success. Trade a wide array of digital assets, from privacy-focused coins like Monero to leading cryptocurrencies such as Bitcoin, Ethereum, and Dogecoin. Our platform is designed to empower both novice and experienced traders, offering a seamless, secure, and intuitive experience that helps you navigate the dynamic world of crypto with confidence.
+        </p> <p class="mb-4" style="opacity: 0.95;">
+          We are committed to delivering unparalleled performance, robust security, and exceptional customer support. Whether you're diversifying your portfolio or exploring new opportunities in the crypto market, NonKYC equips you with the tools and resources to achieve your financial goals.
+        </p> <div class="d-flex flex-wrap" style="gap: 0.75rem;"><a href="/signup" class="btn" style="background: rgb(255, 255, 102); color: rgb(9, 39, 55); font-weight: 800; border: none;">
+            Create a free account
+          </a> <a href="/markets" class="btn btn-outline-light" style="border-color: rgba(255, 255, 255, 0.35);">
+            Explore Markets
+          </a></div></div> <div class="col-md-6"><div class="p-3 p-md-4" style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; box-shadow: rgba(0, 0, 0, 0.25) 0px 10px 35px; backdrop-filter: blur(3px);"><div><picture><source srcset="/images/crypto-grid.webp" type="image/webp"><img src="/images/crypto-grid.png" alt="Crypto Markets Grid" onerror="this.onerror=null;this.src='/images/CoinGeckoLogoLarge.webp';" style="width: 100%; height: auto; border-radius: 12px; box-shadow: rgba(0, 0, 0, 0.25) 0px 8px 24px;"></source></picture></div></div></div></div></div></section><section class="py-5" style="background: rgb(9, 39, 55); color: rgb(255, 255, 255);"><div class="container"><div class="text-center mb-4"><h3 style="font-weight: 800; margin-bottom: 0.25rem;">Built to perform. Designed for privacy.</h3> <div class="small" style="opacity: 0.85;">Lightning-Fast Performance • Uncompromising Security • 24/7 Dedicated Support</div></div> <div class="row g-3 g-md-4"><div class="col-md-4"><div class="h-100 p-4" style="background: linear-gradient(rgba(255, 255, 102, 0.08), rgba(255, 255, 102, 0) 60%); border: 1px solid rgba(255, 255, 102, 0.25); border-radius: 16px;"><div class="d-inline-flex align-items-center justify-content-center mb-3" style="width: 64px; height: 64px; border-radius: 999px; background: rgb(255, 255, 102); color: rgb(9, 39, 55); box-shadow: rgba(255, 255, 102, 0.35) 0px 6px 20px;"><i class="fa fa-bolt" style="font-size: 28px;"></i></div> <h4 style="font-weight: 800;">Lightning-Fast Performance</h4> <p class="mb-0" style="opacity: 0.95;">
+            Our exchange runs on state-of-the-art servers, optimized for speed and reliability. With advanced DDoS mitigation and cutting-edge infrastructure, we ensure uninterrupted trading and maximum uptime, even during peak market activity.
+          </p></div></div> <div class="col-md-4"><div class="h-100 p-4" style="background: linear-gradient(rgba(76, 149, 209, 0.1), rgba(76, 149, 209, 0) 60%); border: 1px solid rgba(76, 149, 209, 0.25); border-radius: 16px;"><div class="d-inline-flex align-items-center justify-content-center mb-3" style="width: 64px; height: 64px; border-radius: 999px; background: rgb(255, 255, 102); color: rgb(9, 39, 55); box-shadow: rgba(255, 255, 102, 0.35) 0px 6px 20px;"><i class="fa fa-lock" style="font-size: 26px;"></i></div> <h4 style="font-weight: 800;">Uncompromising Security</h4> <p class="mb-0" style="opacity: 0.95;">
+            Your peace of mind is our priority. NonKYC employs industry-leading security measures, including cold storage for assets, two-factor authentication, real-time encrypted backups, and secure wallet management.
+          </p></div></div> <div class="col-md-4"><div class="h-100 p-4" style="background: linear-gradient(rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 60%); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 16px;"><div class="d-inline-flex align-items-center justify-content-center mb-3" style="width: 64px; height: 64px; border-radius: 999px; background: rgb(255, 255, 102); color: rgb(9, 39, 55); box-shadow: rgba(255, 255, 102, 0.35) 0px 6px 20px;"><i class="fa fa-life-ring" style="font-size: 26px;"></i></div> <h4 style="font-weight: 800;">24/7 Dedicated Support</h4> <p class="mb-0" style="opacity: 0.95;">
+            Our world-class support team is available around the clock, every day of the year. Whether you have a question about a trade or need assistance with your account, we’re ready with prompt, personalized solutions.
+          </p></div></div></div> <div class="text-center mt-4"><a href="/signup" class="btn" style="color: rgb(9, 39, 55); background-color: rgb(255, 255, 102); border-color: rgb(255, 255, 102); font-weight: 800; padding: 0.65rem 1.1rem; border-radius: 999px;">
+        Get started now
+      </a></div></div></section><section class="py-5" style="background: rgb(7, 30, 42); color: rgb(255, 255, 255);"><div class="container"><div class="row align-items-center"><div class="col-md-6 text-center mb-4 mb-md-0"><img src="/images/NonKyc_S21.webp" alt="NonKYC Mobile App" style="max-width: 400px; width: 100%; height: auto; border-radius: 20px; box-shadow: rgba(0, 0, 0, 0.35) 0px 10px 30px;"></div> <div class="col-md-6"><h3 style="color: rgb(255, 255, 102); font-weight: 500;"> Trade anywhere with the NonKYC App </h3> <p class="mt-2">Scan the QR code to download the app instantly, or visit the dedicated page for all download options.</p> <div class="d-flex align-items-center gap-3 mt-3" style="gap: 16px;"><img src="/images/nonkyc-qr.svg" alt="Download QR" width="132" height="132" style="background: rgb(255, 255, 255); padding: 8px; border-radius: 12px;"><div><a href="/downloads" class="btn" style="background: rgb(255, 255, 102); color: rgb(9, 39, 55); font-weight: 700;"> Mobile App Page </a> <div class="small mt-2" style="opacity: 0.85;"> Get the latest version. Download now! </div></div></div></div></div></div></section><section style="background: rgb(33, 37, 41); color: rgb(255, 255, 255);"><div class="container" style="padding-top: 40px; padding-bottom: 40px;"><h4 class="text-center" style="color: rgb(255, 255, 102); font-weight: 700; letter-spacing: 0.3px; margin-bottom: 22px;">
+      Trusted by leading platforms
+    </h4> <div class="row justify-content-center" style="row-gap: 16px;"><div class="col-6 col-sm-4 col-md-2 d-flex justify-content-center"><a href="https://coinpaprika.com/exchanges/nonkycio/" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; width: 180px; height: 72px; padding: 6px; border: 1px solid rgba(255, 255, 102, 0.18); border-radius: 12px; background: rgb(15, 53, 74); overflow: hidden; text-decoration: none; transition: transform 0.2s, box-shadow 0.2s;"><img src="/images/coinpaprika.webp" alt="CoinPaprika" loading="lazy" onmouseover="this.style.transform='scale(1.04)'; this.style.opacity='1'; this.parentNode.style.transform='translateY(-2px)'; this.parentNode.style.boxShadow='0 10px 20px rgba(0,0,0,.25)';" onmouseout="this.style.transform='scale(1)'; this.style.opacity='.95'; this.parentNode.style.transform='translateY(0)'; this.parentNode.style.boxShadow='none';" style="max-width: 100%; max-height: 38px; width: auto; height: auto; object-fit: contain; opacity: 0.95; transition: transform 0.2s, opacity 0.2s;"></a></div> <div class="col-6 col-sm-4 col-md-2 d-flex justify-content-center"><a href="https://www.coingecko.com/en/exchanges/nonkyc-io/" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; width: 180px; height: 72px; padding: 6px; border: 1px solid rgba(255, 255, 102, 0.18); border-radius: 12px; background: rgb(15, 53, 74); overflow: hidden; text-decoration: none; transition: transform 0.2s, box-shadow 0.2s;"><img src="/images/CoinGeckoLogoLarge.webp" alt="CoinGecko" loading="lazy" onmouseover="this.style.transform='scale(1.04)'; this.style.opacity='1'; this.parentNode.style.transform='translateY(-2px)'; this.parentNode.style.boxShadow='0 10px 20px rgba(0,0,0,.25)';" onmouseout="this.style.transform='scale(1)'; this.style.opacity='.95'; this.parentNode.style.transform='translateY(0)'; this.parentNode.style.boxShadow='none';" style="max-width: 100%; max-height: 38px; width: auto; height: auto; object-fit: contain; opacity: 0.95; transition: transform 0.2s, opacity 0.2s;"></a></div> <div class="col-6 col-sm-4 col-md-2 d-flex justify-content-center"><a href="https://coinmarketcap.com/exchanges/nonkyc/" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; width: 180px; height: 72px; padding: 6px; border: 1px solid rgba(255, 255, 102, 0.18); border-radius: 12px; background: rgb(15, 53, 74); overflow: hidden; text-decoration: none; transition: transform 0.2s, box-shadow 0.2s;"><img src="/images/cmclogowhite.webp" alt="CoinMarketCap" loading="lazy" onmouseover="this.style.transform='scale(1.04)'; this.style.opacity='1'; this.parentNode.style.transform='translateY(-2px)'; this.parentNode.style.boxShadow='0 10px 20px rgba(0,0,0,.25)';" onmouseout="this.style.transform='scale(1)'; this.style.opacity='.95'; this.parentNode.style.transform='translateY(0)'; this.parentNode.style.boxShadow='none';" style="max-width: 100%; max-height: 38px; width: auto; height: auto; object-fit: contain; opacity: 0.95; transition: transform 0.2s, opacity 0.2s;"></a></div> <div class="col-6 col-sm-4 col-md-2 d-flex justify-content-center"><a href="https://coincodex.com/exchange/nonkyc.io/" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; width: 180px; height: 72px; padding: 6px; border: 1px solid rgba(255, 255, 102, 0.18); border-radius: 12px; background: rgb(15, 53, 74); overflow: hidden; text-decoration: none; transition: transform 0.2s, box-shadow 0.2s;"><img src="/images/coincodex-light.webp" alt="CoinCodex" loading="lazy" onmouseover="this.style.transform='scale(1.04)'; this.style.opacity='1'; this.parentNode.style.transform='translateY(-2px)'; this.parentNode.style.boxShadow='0 10px 20px rgba(0,0,0,.25)';" onmouseout="this.style.transform='scale(1)'; this.style.opacity='.95'; this.parentNode.style.transform='translateY(0)'; this.parentNode.style.boxShadow='none';" style="max-width: 100%; max-height: 38px; width: auto; height: auto; object-fit: contain; opacity: 0.95; transition: transform 0.2s, opacity 0.2s;"></a></div> <div class="col-6 col-sm-4 col-md-2 d-flex justify-content-center"><a href="https://www.livecoinwatch.com/exchange/nonkyc" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; width: 180px; height: 72px; padding: 6px; border: 1px solid rgba(255, 255, 102, 0.18); border-radius: 12px; background: rgb(15, 53, 74); overflow: hidden; text-decoration: none; transition: transform 0.2s, box-shadow 0.2s;"><img src="/images/live-coin-watch.svg" alt="LiveCoinWatch" loading="lazy" onmouseover="this.style.transform='scale(1.04)'; this.style.opacity='1'; this.parentNode.style.transform='translateY(-2px)'; this.parentNode.style.boxShadow='0 10px 20px rgba(0,0,0,.25)';" onmouseout="this.style.transform='scale(1)'; this.style.opacity='.95'; this.parentNode.style.transform='translateY(0)'; this.parentNode.style.boxShadow='none';" style="max-width: 100%; max-height: 38px; width: auto; height: auto; object-fit: contain; opacity: 0.95; transition: transform 0.2s, opacity 0.2s;"></a></div> <div class="col-6 col-sm-4 col-md-2 d-flex justify-content-center"><a href="https://blockspot.io/exchange/nonkyc-io/" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; justify-content: center; width: 180px; height: 72px; padding: 6px; border: 1px solid rgba(255, 255, 102, 0.18); border-radius: 12px; background: rgb(15, 53, 74); overflow: hidden; text-decoration: none; transition: transform 0.2s, box-shadow 0.2s;"><img src="/images/blockspot_300x80.png" alt="BlockSpot" loading="lazy" onmouseover="this.style.transform='scale(1.04)'; this.style.opacity='1'; this.parentNode.style.transform='translateY(-2px)'; this.parentNode.style.boxShadow='0 10px 20px rgba(0,0,0,.25)';" onmouseout="this.style.transform='scale(1)'; this.style.opacity='.95'; this.parentNode.style.transform='translateY(0)'; this.parentNode.style.boxShadow='none';" style="max-width: 100%; max-height: 38px; width: auto; height: auto; object-fit: contain; opacity: 0.95; transition: transform 0.2s, opacity 0.2s;"></a></div></div></div></section><span parasails-component="toast-alert"></span></div></div>
+
+
+<script type="text/javascript"> (function (){  var unescape = function unescapeHtmlEntitiesDeepLite(r){if("function"!=typeof Array.isArray||"function"!=typeof Array.prototype.forEach||"function"!=typeof Array.prototype.map||"function"!=typeof Object.keys)throw Error("Unsupported browser: Missing support for `Array.isArray`, `Array.prototype.forEach`, `Array.prototype.map`, or `Object.keys`!  (Sails' built-in HTML-unescaping for exposed locals supports IE9 and up.)");return function t(r){if(null===r)return r;if(r===!0||r===!1)return r;if("number"==typeof r)return r;if("string"==typeof r){var e=/&(?:amp|lt|gt|quot|#39|#96);/g,o=RegExp(e.source);if(""===r)return r;if(o.test(r)){var n={"&amp;":"&","&lt;":"<","&gt;":">","&quot;":'"',"&#39;":"'","&#96;":"`"};return r=r.replace(e,function(r){return n[r]})}return r}return Array.isArray(r)?r=r.map(function(r){return t(r)}):(Object.keys(r).forEach(function(e){r[e]=t(r[e],e)}),r)}(r)}; window.SAILS_LOCALS = { _csrf: unescape('dfXFtFVo-e-l4IqPOnRqT3oD2eKTaiKJlzeg'),_environment: unescape('production'), };  })(); </script><footer class="nonkyc-shared-footer nsf" id="footer" purpose="page-footer" style="position: relative; z-index: 1; margin-bottom: 48px;"><div class="nsf-row">
+				<div class="nsf-container nsf-center">
+					<div class="nsf-lists">
+						<ul><li>
+								<h5 class="footer-toggle">
+									Services
+									<svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></h5>
+								<ul><li><a href="/liquiditypools">Liquidity Pools</a></li>
+									<li><a href="/listing">List Asset</a></li>
+									<li><a href="/marketmaking">Market Making</a></li>
+									<li><a href="/marketmakingpaid">Market Making Paid</a></li>
+									<li><a href="/prepaidcard">Prepaid Card</a></li>
+									
+								</ul></li>
+							
+								<li>
+									<h5 class="footer-toggle">
+										API
+										<svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></h5>
+									<ul><li><a href="https://api.nonkyc.io">Rest API</a></li>
+										<li><a href="/wsapi">Websocket API</a></li>
+										<li><a href="https://github.com/NonKYCExchange" target="_blank" rel="noopener noreferrer">GitHub Repositories</a></li>
+									</ul></li>
+							
+							<li>
+								<h5 class="footer-toggle">
+									Resources
+									<svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></h5>
+								<ul><li><a href="/systemstatus">System Status</a></li>
+									<li><a href="/fees">Fees</a></li>
+									
+									
+
+									<li><a rel="noopener" href="https://hackenproof.com/programs/nonkyc-dot-io" target="_new">Bug Bounty</a></li>
+									
+									<li><a href="/downloads">Mobile App</a></li>
+								</ul></li>
+							<li>
+								<h5 class="footer-toggle">
+									Info
+									<svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></h5>
+								<ul><li><a href="/mediakit">Media Kit</a></li>
+									<li><a href="/legal/terms">Terms</a></li>
+									<li><a href="/legal/privacy">Privacy</a></li>
+									<li><a href="/referralprogram">Referral Program</a></li>
+									<li><a href="/faq">FAQ</a></li>
+								</ul></li>
+							<li>
+								<h5 class="footer-toggle">
+									Exchange Aggregators
+									<svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></h5>
+								<ul><li><a rel="noopener" href="https://www.coingecko.com/en/exchanges/nonkyc-io/" target="_new">CoinGecko</a></li>
+									<li><a rel="noopener" href="https://coinmarketcap.com/exchanges/nonkyc/" target="_new">CoinMarketCap</a></li>
+									<li><a rel="noopener" href="https://coinpaprika.com/exchanges/nonkycio/" target="_new">CoinPaprika</a></li>
+									<li><a rel="noopener" href="https://coincodex.com/exchange/nonkyc.io/" target="_new">CoinCodex</a></li> 
+									<li><a rel="noopener" href="https://blockspot.io/exchange/nonkyc.io/" target="_new">Blockspot.io</a></li>
+									<li><a rel="noopener" href="https://www.livecoinwatch.com/exchange/nonkyc" target="_new">LiveCoinWatch</a></li>
+									<li><a rel="noopener" href="https://www.coincarp.com/exchange/nonkyc/markets/" target="_new">CoinCarp</a></li>
+								</ul></li>
+							<li>
+								<h5 class="footer-toggle">
+									Token Aggregators
+									<svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></h5>
+								<ul><li><a rel="noopener" href="https://www.coingecko.com/en/coins/nkyc-token" target="_new">CoinGecko</a></li>
+									<li><a rel="noopener" href="https://coinmarketcap.com/currencies/nonkyc-io-exchange/" target="_new">CoinMarketCap</a></li> 
+									<li><a rel="noopener" href="https://coinpaprika.com/coin/nkyc-nkyc/" target="_new">CoinPaprika</a></li>									
+									<li><a rel="noopener" href="https://coincodex.com/crypto/nkyc-token/" target="_new">CoinCodex</a></li>	
+									<li><a rel="noopener" href="https://coincheckup.com/coins/nkyc-token" target="_new">CoinCheckup</a></li>
+									<li><a rel="noopener" href="https://www.coincarp.com/currencies/nonkyc/price/" target="_new">CoinCarp</a></li>
+								</ul></li>
+							<li>
+								<h5 class="footer-toggle">
+									Company
+									<svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></h5>
+								<ul><li><a href="/about">About Us</a></li>
+									<li><a href="/news">NonKYC News</a></li>
+									<li><a href="/legal/aml">AML</a></li>
+									<li><a href="/allreserves">All Reserves</a></li>
+									<li><a href="/insurance-fund">Insurance Fund</a></li>
+									<li><a href="/verification-search">NonKYC Verify</a></li>
+
+									<li class="d-block d-md-none"><a rel="noopener" href="https://x.com/nonkyc_exchange" target="_new">X.com</a></li>
+									<li class="d-block d-md-none"><a rel="noopener" href="https://t.me/nonkyc" target="_new">Telegram</a></li>
+									
+									<li class="d-none d-sm-block">
+
+										<div class="a2a_kit a2a_kit_size_32 a2a_default_style" style="height: 28px; margin-top:3px;">
+											<a class="" style="display: inline; padding-right:5px;" rel="noopener" href="https://x.com/nonkyc_exchange" target="_new">
+											<span class="a2a_svg a2a_s__default a2a_s_x" style="background-color:#000;"><svg alt="X" focusable="false" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24"><path fill="#FFF" d="M18.244 2H21l-6.47 7.39L22 22h-6.8l-4.6-6.04L5.2 22H2l6.89-7.87L2 2h6.8l4.18 5.5zm-1.19 18h1.64L7.03 4h-1.7z"></path></svg></span>
+											</a>
+											<a class="" style="display: inline; padding-right:5px;" rel="noopener" href="https://t.me/nonkyc" target="_new">
+												<span class="a2a_svg a2a_s__default a2a_s_telegram" style="background-color: rgb(44, 165, 224);"><svg alt="Telegram" focusable="false" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewbox="0 0 32 32"><path fill="#FFF" d="M25.515 6.896L6.027 14.41c-1.33.534-1.322 1.276-.243 1.606l5 1.56 1.72 5.66c.226.625.115.873.77.873.506 0 .73-.235 1.012-.51l2.43-2.363 5.056 3.734c.93.514 1.602.25 1.834-.863l3.32-15.638c.338-1.363-.52-1.98-1.41-1.577z"></path></svg></span>										
+											</a>
+											<a class="" style="display: inline; padding-right:5px;" rel="noopener" href="https://discord.gg/GzB2TJpctv" target="_new">
+												<span class="a2a_svg a2a_s__default a2a_s_reddit" style="">
+													<svg width="28" height="28" alt="Discord" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewbox="0 0 172 172"><g fill="none" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><path d="M0,172v-172h172v172z" fill="#7e61ab"></path><g fill="#ffffff"><path d="M143.33333,43c0,0 -16.42958,-12.857 -35.83333,-14.33333l-1.74867,3.49733c17.544,4.29283 25.59217,10.44542 33.99867,18.00267c-14.49458,-7.39958 -28.80642,-14.33333 -53.75,-14.33333c-24.94358,0 -39.25542,6.93375 -53.75,14.33333c8.4065,-7.55725 17.98117,-14.38708 33.99867,-18.00267l-1.74867,-3.49733c-20.35692,1.92425 -35.83333,14.33333 -35.83333,14.33333c0,0 -18.35025,26.60625 -21.5,78.83333c18.49717,21.33158 46.58333,21.5 46.58333,21.5l5.87308,-7.82958c-9.96883,-3.46508 -21.22767,-9.6535 -30.95642,-20.83708c11.60283,8.77917 29.11458,17.91667 57.33333,17.91667c28.21875,0 45.7305,-9.1375 57.33333,-17.91667c-9.72875,11.18358 -20.98758,17.372 -30.95642,20.83708l5.87308,7.82958c0,0 28.08617,-0.16842 46.58333,-21.5c-3.14975,-52.22708 -21.5,-78.83333 -21.5,-78.83333zM62.70833,107.5c-6.92658,0 -12.54167,-6.41775 -12.54167,-14.33333c0,-7.91558 5.61508,-14.33333 12.54167,-14.33333c6.92658,0 12.54167,6.41775 12.54167,14.33333c0,7.91558 -5.61508,14.33333 -12.54167,14.33333zM109.29167,107.5c-6.92658,0 -12.54167,-6.41775 -12.54167,-14.33333c0,-7.91558 5.61508,-14.33333 12.54167,-14.33333c6.92658,0 12.54167,6.41775 12.54167,14.33333c0,7.91558 -5.61508,14.33333 -12.54167,14.33333z"></path></g></g></svg></span>
+																						
+											</a>
+										</div>
+									
+									</li>	
+									
+									
+								</ul></li>
+
+						</ul></div>
+				</div>
+
+			</div>
+			
+
+			
+			<div class="nsf-bottom d-block d-md-none" style="position: sticky; z-index:99999; bottom:0px; ">
+				<div class="nsf-center" style="display: flex; flex-direction: row; margin: auto; font-size:11px; max-width:100%;">
+
+					<div style="flex:1; display: inline-block; text-align:left; overflow: visible; white-space: nowrap;">
+						<span style="" class="connectionStatus">
+							<svg style="margin-top:-3px;" width="16" height="12" viewbox="0 0 16 12" fill="none" xmlns="http://www.w3.org/2000/svg"><rect y="9.667" width="1.67" height="2.5" fill="#00C186"></rect><rect x="4.44446" y="5.667" width="1.66667" height="6.67" fill="#00C186"></rect><rect x="8.88892" y="3" width="1.66667" height="10.83" fill="#00C186"></rect><rect x="13.3333" width="1.66667" height="15" fill="#00C186"></rect></svg><span style="margin-left:5px; color: #00C186;">Stable Connection</span>
+						</span><br></div>
+
+					
+					<div style="flex:1;  display: inline-block; text-align:right; overflow: visible; white-space: nowrap; font-size:14px; line-height:20px;">
+						
+						
+							<span style="" class="emailSupportButton"><a href="/createticket"><i class="fa fa-envelope" style="color: #007bff;" aria-hidden="true"></i> Support Ticket</a></span><br></div>
+
+				</div>
+				
+				<div style="margin: auto; font-size:11px; max-width:100%; text-align:center;">
+						<span>© <span>2023 - 2026</span><a href="https://nonkyc.io"> NonKyc.io</a></span>
+				</div>
+
+				
+			</div>
+			
+		</footer><div class="nsf-bottom d-none d-sm-block" style="position: sticky; z-index:99999; bottom:0px; ">
+		<div class="nsf-center" style="display: flex; flex-direction: row; margin: auto; font-size:13px; max-width:100%;">
+
+			<div style="flex:1; width:33%; display: inline-block; text-align:left; white-space: nowrap; overflow: visible;">
+				<span style="margin-right:20px;" class="connectionStatus">
+					<svg style="margin-top:-3px;" width="16" height="12" viewbox="0 0 16 12" fill="none" xmlns="http://www.w3.org/2000/svg"><rect y="9.667" width="1.67" height="2.5" fill="#00C186"></rect><rect x="4.44446" y="5.667" width="1.66667" height="6.67" fill="#00C186"></rect><rect x="8.88892" y="3" width="1.66667" height="10.83" fill="#00C186"></rect><rect x="13.3333" width="1.66667" height="15" fill="#00C186"></rect></svg><span style="margin-left:5px; color: #00C186;">Stable Connection</span>
+				</span>
+				<span style="margin-right:20px;" class="currentServerTime">2026-04-04, 04:29:57 UTC</span>
+			</div>
+			
+			<div style="flex:1; width:34%; display: inline-block; text-align:center; white-space: nowrap; overflow: visible;">
+				<span>© <span>2023 - 2026</span><a href="https://nonkyc.io"> NonKyc.io</a></span>
+			</div>
+			
+			<div style="flex:1;  width:33%; display: inline-block; text-align:right; white-space: nowrap; overflow: visible;">
+				<i data-toggle="tooltip" title="" class="fa fa-area-chart" aria-hidden="true" data-original-title="24hr Exchange Volume"></i> <span style="margin-right:20px;" class="exchangeVolume">$14,869,676</span>
+				<i data-toggle="tooltip" title="" class="fa fa-user" aria-hidden="true" data-original-title="Users Online"></i> <span style="margin-right:20px;" class="currentUsersOnline">35791</span>
+				
+				
+					<span style="margin-right:0px;" class="emailSupportButton"><a href="/createticket"><i class="fa fa-envelope" aria-hidden="true"></i> <span style="color: #93979e">Support Ticket</span></a></span>
+				
+			</div>
+
+		</div>
+	</div>
+
+
+    </div>
+
+	
+
+
+
+    
+
+
+	<script>
+
+
+	
+		
+		window.receiveTradeNotifications = false;
+		
+	
+	
+
+		// Self-XSS Warning
+	
+		console.log( "%cSTOP! DANGER!", "color:#f00;font-size:xx-large" );
+		console.log( "%cThis browser feature is intended for developers. " +
+						"If you have been told to copy and paste or write something here to enable " +
+						"a feature, they are scammers.  If you paste or write data, you will give scammers access to your account.",
+						"font-size:large;" );
+				
+		// footer stuff
+		
+		function toggleFooterItem(event) {
+			event.currentTarget.parentNode.classList.toggle('active');
+		}
+		var el = document.getElementsByClassName('footer-toggle');
+		for (var i = 0; i < el.length; i++) {
+			if (el[i].addEventListener) {
+				el[i].addEventListener('click', toggleFooterItem, false);
+			} else {
+				el[i].attachEvent('onclick', toggleFooterItem);
+			}
+		}
+				
+
+		
+	</script><script>!function(e,i,s){if("undefined"!=typeof module&&module.exports)module.exports=s();else if("function"==typeof define&&define.amd)define(i,s);else e[i]=s()}(this,"bowser",function(){var e=true;function i(i){function s(e){var s=i.match(e);return s&&s.length>1&&s[1]||""}function o(e){var s=i.match(e);return s&&s.length>1&&s[2]||""}var r=s(/(ipod|iphone|ipad)/i).toLowerCase(),n=/like android/i.test(i),t=!n&&/android/i.test(i),a=/nexus\s*[0-6]\s*/i.test(i),d=!a&&/nexus\s*[0-9]+/i.test(i),l=/CrOS/.test(i),f=/silk/i.test(i),m=/sailfish/i.test(i),v=/tizen/i.test(i),p=/(web|hpw)os/i.test(i),c=/windows phone/i.test(i),u=/SamsungBrowser/i.test(i),h=!c&&/windows/i.test(i),w=!r&&!f&&/macintosh/i.test(i),b=!t&&!m&&!v&&!p&&/linux/i.test(i),g=o(/edg([ea]|ios)\/(\d+(\.\d+)?)/i),k=s(/version\/(\d+(\.\d+)?)/i),x=/tablet/i.test(i)&&!/tablet pc/i.test(i),y=!x&&/[^-]mobi/i.test(i),S=/xbox/i.test(i),B;if(/opera/i.test(i))B={name:"Opera",opera:e,version:k||s(/(?:opera|opr|opios)[\s\/](\d+(\.\d+)?)/i)};else if(/opr\/|opios/i.test(i))B={name:"Opera",opera:e,version:s(/(?:opr|opios)[\s\/](\d+(\.\d+)?)/i)||k};else if(/SamsungBrowser/i.test(i))B={name:"Samsung Internet for Android",samsungBrowser:e,version:k||s(/(?:SamsungBrowser)[\s\/](\d+(\.\d+)?)/i)};else if(/coast/i.test(i))B={name:"Opera Coast",coast:e,version:k||s(/(?:coast)[\s\/](\d+(\.\d+)?)/i)};else if(/yabrowser/i.test(i))B={name:"Yandex Browser",yandexbrowser:e,version:k||s(/(?:yabrowser)[\s\/](\d+(\.\d+)?)/i)};else if(/ucbrowser/i.test(i))B={name:"UC Browser",ucbrowser:e,version:s(/(?:ucbrowser)[\s\/](\d+(?:\.\d+)+)/i)};else if(/mxios/i.test(i))B={name:"Maxthon",maxthon:e,version:s(/(?:mxios)[\s\/](\d+(?:\.\d+)+)/i)};else if(/epiphany/i.test(i))B={name:"Epiphany",epiphany:e,version:s(/(?:epiphany)[\s\/](\d+(?:\.\d+)+)/i)};else if(/puffin/i.test(i))B={name:"Puffin",puffin:e,version:s(/(?:puffin)[\s\/](\d+(?:\.\d+)?)/i)};else if(/sleipnir/i.test(i))B={name:"Sleipnir",sleipnir:e,version:s(/(?:sleipnir)[\s\/](\d+(?:\.\d+)+)/i)};else if(/k-meleon/i.test(i))B={name:"K-Meleon",kMeleon:e,version:s(/(?:k-meleon)[\s\/](\d+(?:\.\d+)+)/i)};else if(c){B={name:"Windows Phone",osname:"Windows Phone",windowsphone:e};if(g){B.msedge=e;B.version=g}else{B.msie=e;B.version=s(/iemobile\/(\d+(\.\d+)?)/i)}}else if(/msie|trident/i.test(i))B={name:"Internet Explorer",msie:e,version:s(/(?:msie |rv:)(\d+(\.\d+)?)/i)};else if(l)B={name:"Chrome",osname:"Chrome OS",chromeos:e,chromeBook:e,chrome:e,version:s(/(?:chrome|crios|crmo)\/(\d+(\.\d+)?)/i)};else if(/edg([ea]|ios)/i.test(i))B={name:"Microsoft Edge",msedge:e,version:g};else if(/vivaldi/i.test(i))B={name:"Vivaldi",vivaldi:e,version:s(/vivaldi\/(\d+(\.\d+)?)/i)||k};else if(m)B={name:"Sailfish",osname:"Sailfish OS",sailfish:e,version:s(/sailfish\s?browser\/(\d+(\.\d+)?)/i)};else if(/seamonkey\//i.test(i))B={name:"SeaMonkey",seamonkey:e,version:s(/seamonkey\/(\d+(\.\d+)?)/i)};else if(/firefox|iceweasel|fxios/i.test(i)){B={name:"Firefox",firefox:e,version:s(/(?:firefox|iceweasel|fxios)[ \/](\d+(\.\d+)?)/i)};if(/\((mobile|tablet);[^\)]*rv:[\d\.]+\)/i.test(i)){B.firefoxos=e;B.osname="Firefox OS"}}else if(f)B={name:"Amazon Silk",silk:e,version:s(/silk\/(\d+(\.\d+)?)/i)};else if(/phantom/i.test(i))B={name:"PhantomJS",phantom:e,version:s(/phantomjs\/(\d+(\.\d+)?)/i)};else if(/slimerjs/i.test(i))B={name:"SlimerJS",slimer:e,version:s(/slimerjs\/(\d+(\.\d+)?)/i)};else if(/blackberry|\bbb\d+/i.test(i)||/rim\stablet/i.test(i))B={name:"BlackBerry",osname:"BlackBerry OS",blackberry:e,version:k||s(/blackberry[\d]+\/(\d+(\.\d+)?)/i)};else if(p){B={name:"WebOS",osname:"WebOS",webos:e,version:k||s(/w(?:eb)?osbrowser\/(\d+(\.\d+)?)/i)};/touchpad\//i.test(i)&&(B.touchpad=e)}else if(/bada/i.test(i))B={name:"Bada",osname:"Bada",bada:e,version:s(/dolfin\/(\d+(\.\d+)?)/i)};else if(v)B={name:"Tizen",osname:"Tizen",tizen:e,version:s(/(?:tizen\s?)?browser\/(\d+(\.\d+)?)/i)||k};else if(/qupzilla/i.test(i))B={name:"QupZilla",qupzilla:e,version:s(/(?:qupzilla)[\s\/](\d+(?:\.\d+)+)/i)||k};else if(/chromium/i.test(i))B={name:"Chromium",chromium:e,version:s(/(?:chromium)[\s\/](\d+(?:\.\d+)?)/i)||k};else if(/chrome|crios|crmo/i.test(i))B={name:"Chrome",chrome:e,version:s(/(?:chrome|crios|crmo)\/(\d+(\.\d+)?)/i)};else if(t)B={name:"Android",version:k};else if(/safari|applewebkit/i.test(i)){B={name:"Safari",safari:e};if(k)B.version=k}else if(r){B={name:"iphone"==r?"iPhone":"ipad"==r?"iPad":"iPod"};if(k)B.version=k}else if(/googlebot/i.test(i))B={name:"Googlebot",googlebot:e,version:s(/googlebot\/(\d+(\.\d+))/i)||k};else B={name:s(/^(.*)\/(.*) /),version:o(/^(.*)\/(.*) /)};if(!B.msedge&&/(apple)?webkit/i.test(i)){if(/(apple)?webkit\/537\.36/i.test(i)){B.name=B.name||"Blink";B.blink=e}else{B.name=B.name||"Webkit";B.webkit=e}if(!B.version&&k)B.version=k}else if(!B.opera&&/gecko\//i.test(i)){B.name=B.name||"Gecko";B.gecko=e;B.version=B.version||s(/gecko\/(\d+(\.\d+)?)/i)}if(!B.windowsphone&&(t||B.silk)){B.android=e;B.osname="Android"}else if(!B.windowsphone&&r){B[r]=e;B.ios=e;B.osname="iOS"}else if(w){B.mac=e;B.osname="macOS"}else if(S){B.xbox=e;B.osname="Xbox"}else if(h){B.windows=e;B.osname="Windows"}else if(b){B.linux=e;B.osname="Linux"}function O(e){switch(e){case"NT":return"NT";case"XP":return"XP";case"NT 5.0":return"2000";case"NT 5.1":return"XP";case"NT 5.2":return"2003";case"NT 6.0":return"Vista";case"NT 6.1":return"7";case"NT 6.2":return"8";case"NT 6.3":return"8.1";case"NT 10.0":return"10";default:return undefined}}var T="";if(B.windows)T=O(s(/Windows ((NT|XP)( \d\d?.\d)?)/i));else if(B.windowsphone)T=s(/windows phone (?:os)?\s?(\d+(\.\d+)*)/i);else if(B.mac){T=s(/Mac OS X (\d+([_\.\s]\d+)*)/i);T=T.replace(/[_\s]/g,".")}else if(r){T=s(/os (\d+([_\s]\d+)*) like mac os x/i);T=T.replace(/[_\s]/g,".")}else if(t)T=s(/android[ \/-](\d+(\.\d+)*)/i);else if(B.webos)T=s(/(?:web|hpw)os\/(\d+(\.\d+)*)/i);else if(B.blackberry)T=s(/rim\stablet\sos\s(\d+(\.\d+)*)/i);else if(B.bada)T=s(/bada\/(\d+(\.\d+)*)/i);else if(B.tizen)T=s(/tizen[\/\s](\d+(\.\d+)*)/i);if(T)B.osversion=T;var P=!B.windows&&T.split(".")[0];if(x||d||"ipad"==r||t&&(3==P||P>=4&&!y)||B.silk)B.tablet=e;else if(y||"iphone"==r||"ipod"==r||t||a||B.blackberry||B.webos||B.bada)B.mobile=e;if(B.msedge||B.msie&&B.version>=10||B.yandexbrowser&&B.version>=15||B.vivaldi&&B.version>=1||B.chrome&&B.version>=20||B.samsungBrowser&&B.version>=4||B.firefox&&B.version>=20||B.safari&&B.version>=6||B.opera&&B.version>=10||B.ios&&B.osversion&&B.osversion.split(".")[0]>=6||B.blackberry&&B.version>=10.1||B.chromium&&B.version>=20)B.a=e;else if(B.msie&&B.version<10||B.chrome&&B.version<20||B.firefox&&B.version<20||B.safari&&B.version<6||B.opera&&B.version<10||B.ios&&B.osversion&&B.osversion.split(".")[0]<6||B.chromium&&B.version<20)B.c=e;else B.x=e;return B}var s=i("undefined"!==typeof navigator?navigator.userAgent||"":"");s.test=function(e){for(var i=0;i<e.length;++i){var o=e[i];if("string"===typeof o)if(o in s)return true}return false};function o(e){return e.split(".").length}function r(e,i){var s=[],o;if(Array.prototype.map)return Array.prototype.map.call(e,i);for(o=0;o<e.length;o++)s.push(i(e[o]));return s}function n(e){var i=Math.max(o(e[0]),o(e[1]));var s=r(e,function(e){var s=i-o(e);e+=new Array(s+1).join(".0");return r(e.split("."),function(e){return new Array(20-e.length).join("0")+e}).reverse()});while(--i>=0)if(s[0][i]>s[1][i])return 1;else if(s[0][i]===s[1][i]){if(0===i)return 0}else return-1}function t(e,o,r){var t=s;if("string"===typeof o){r=o;o=void 0}if(void 0===o)o=false;if(r)t=i(r);var a=""+t.version;for(var d in e)if(e.hasOwnProperty(d))if(t[d]){if("string"!==typeof e[d])throw new Error("Browser version in the minVersion map should be a string: "+d+": "+String(e));return n([a,e[d]])<0}return o}function a(e,i,s){return!t(e,i,s)}s.isUnsupportedBrowser=t;s.compareVersions=n;s.check=a;s._detect=i;s.detect=i;return s});</script><script>
+		var io;
+	</script><script src="/i18n/i18njs.en.js?v=644c4675"></script><script src="/min/production.min.js?v=644c46759730dcc5d14f462ff0498f7048908f78"></script><script>
+	
+	mySwal = function() {
+	  swal(arguments[0]);
+	  if (arguments[0].showCloseButton) {
+		closeButton = document.createElement('button');
+		closeButton.className = 'swal2-close';
+		closeButton.onclick = function() { swal.close(); };
+		closeButton.textContent = '×';
+		modal = document.querySelector('.swal-modal');
+		modal.appendChild(closeButton);
+	  }
+	}
+
+	// theme stuff
+		
+	function checkTheme()
+	{
+	
+		var theme = localStorage.getItem('theme') || 'dark';
+		
+		var sessiontheme = "dark";
+
+		if (theme && theme != sessiontheme)
+		{
+		
+			localStorage.setItem('theme', sessiontheme);	
+			
+			toggleTheme();
+
+		}
+
+	}
+
+	function toggleTheme()
+	{
+
+		var theme = localStorage.getItem('theme') || 'dark';
+
+		if (!theme || theme == 'dark')
+		{
+			localStorage.setItem('theme', 'light');	
+			
+			var tlink = document.getElementById("themer");
+			tlink.setAttribute("href", '/themes/light.css');
+			
+			io.socket.get('/api/v1/settheme', {theme: 'light'}, function gotResponse(data, jwRes) {});
+
+			var list = document.getElementsByClassName("themeselector");
+			if (list && list.length > 0) {
+				for (let i = 0; i < list.length; i++)
+				{
+					list[i].innerHTML = '<i class="far fa-moon" aria-hidden="true"></i>';
+				}
+			}
+
+						
+			if (window.tvWidget)
+				window.tvWidget.changeTheme('Light')
+			
+			if (window.klineChartInstance)
+				window.klineChartInstance.setTheme('light')
+				
+			$("#mainbody").css({"background-color": "#fcfcfc"});
+				
+		}
+		else
+		{
+			localStorage.setItem('theme', 'dark');	
+			
+			var tlink = document.getElementById("themer");
+			tlink.setAttribute("href", '/themes/dark.css');
+			
+			io.socket.get('/api/v1/settheme', {theme: 'dark'}, function gotResponse(data, jwRes) {});
+
+			var list = document.getElementsByClassName("themeselector");
+			if (list && list.length > 0) {
+				for (let i = 0; i < list.length; i++)
+				{
+					list[i].innerHTML = '<i class="far fa-sun" aria-hidden="true"></i>';
+				}
+			}
+
+			if (window.tvWidget)
+				window.tvWidget.changeTheme('Dark');
+			
+			if (window.klineChartInstance)
+				window.klineChartInstance.setTheme('dark');
+				
+
+			$("#mainbody").css({"background-color": "#092737"});
+
+								
+		}
+	
+	}
+
+	// User
+	
+	$(document).ready(function() {
+
+		lightbox.option({
+		  'resizeDuration': 200,
+		  'imageFadeDuration': 200,
+		  'showImageNumberLabel': false,
+		  'disableScrolling': true
+		})
+		
+		checkTheme();
+		
+		
+
+	});
+
+function showQr() {
+  window.location.href = "https://nonkyc.io/downloads";
+}
+</script><script>
+
+		var audio1 = new Audio('/sounds/send_im.mp3');
+		var audio2 = new Audio('/sounds/join_chat.mp3');
+		var audio3 = new Audio('/sounds/left_chat.mp3');
+
+		PlayChatSound = function () {
+			//var audio = new Audio('/sounds/send_im.mp3');
+			audio1.loop = false;
+			audio1.play(); 
+		}
+
+		PlayRingSound = function () {
+			//var audio = new Audio('/sounds/join_chat.mp3');
+			audio2.loop = false;
+			audio2.play(); 
+		}
+
+		PlayLeftSound = function () {
+			//var audio = new Audio('/sounds/left_chat.mp3');
+			audio3.loop = false;
+			audio3.play(); 
+		}
+		
+		setTimeout(function(){
+		
+			window.scrollTo(0, 0);
+			
+		},100);
+    
+    	var currentServerTime = 0;
+    	var currentRevision = "";
+    	var requestTime = Date.now();
+    	
+    	window.languageLocale = '';
+    	window.languageKey = '';
+    	window.lanugageSuggest = '';
+    	
+		window.setLanguageLocale = (value) => {
+
+			window.languageLocale = value;
+	
+			let text = JSON.stringify({id: window.languageKey, locale: window.languageLocale, suggest: window.languageSuggest});
+			swal.setActionValue(text);
+
+		}
+		
+		window.setLanguageKey = (value) => {
+
+			window.languageKey = value;
+	
+			let text = JSON.stringify({id: window.languageKey, locale: window.languageLocale, suggest: window.languageSuggest});
+			swal.setActionValue(text);
+
+		}
+    	
+		window.setLanguageSuggest = (value) => {
+
+			window.languageSuggest = value;
+	
+			let text = JSON.stringify({id: window.languageKey, locale: window.languageLocale, suggest: window.languageSuggest});
+			swal.setActionValue(text);
+
+		}
+			
+    	function doTranslate(handle, e) {
+
+
+			var currentLocale = "en";
+			if (currentLocale == '') currentLocale = 'en';
+				
+			var id = handle.id;
+			var val = $(handle).text();
+			
+			window.setLanguageKey(id);
+			window.setLanguageLocale(currentLocale);
+			
+			io.socket.get('/api/v1/geti18english?id=' + id, function gotResponse(data, jwRes) {
+
+				if (jwRes.statusCode == 200)
+				{
+
+					var htmlcode = `<div>
+										<div>English: </div>
+										<div style="border:1px solid #444; padding:3px;">` + data.en + `</div>
+										<div>Current (` + currentLocale + `): </div>
+										<div style="border:1px solid #444; padding:3px;">` + val + `</div>
+										<div>Suggested Update  (` + currentLocale + `): </div>
+										<textarea onInput="window.setLanguageSuggest(this.value)" style="width:100%" id='swallang_update'></textarea>
+										<div>Pending Reviews: </div>`;
+							
+					if (data.pending)	
+					{		
+						for (let i = 0; i < data.pending.length; i++)
+						{
+							htmlcode += `<div style="border:1px solid #444; padding:3px;">` + data.pending[i].newtranslation + ` ` + (data.pending[i].isApproved==true?'<i style="color:green;" class="fa fa-check" aria-hidden="true"></i>':'') + `</div>`;
+						}	
+					}	
+										
+					htmlcode += `</div>`;
+							
+					var frag = document.createRange().createContextualFragment('<div style="text-align:left;">' + htmlcode + '</div>');
+
+
+					let wrapper = document.createElement('div');
+					wrapper.appendChild(frag);
+
+					const el = wrapper.firstChild;
+
+					const swaltext = "Update Translation - (" + currentLocale + ")";
+
+
+					swal({
+					  text: swaltext,
+					  content: el,
+					  buttons: {
+						cancel: "Cancel",
+						confirm: {
+							text: "Send Update",
+							value: true,
+						},
+					  }
+					})
+					.then((value) => {
+
+						if (value != null)
+						{
+						
+							io.socket.get('/api/v1/dolangsuggest', JSON.parse(value), function gotResponse(data, jwRes) {
+							
+							
+							});
+
+
+							swal("Thank You!", "Your suggested language change will be reviewed by our staff.", "success");
+
+						}
+
+					});
+				
+				
+				}
+			
+			
+			});
+    	
+    	}
+    
+		$(document).ready(function() {
+		
+			$('.drawer-hamburger').on('click', function() {
+		
+				$('#hamburgerlogo').addClass('busy-camera-icon');
+			
+				setTimeout(function() {
+			
+					$('#hamburgerlogo').removeClass('busy-camera-icon');
+			
+				},300);
+		
+			});
+		
+		
+		
+			$('.languageselect').off('click');
+			$('.languageselect').on('click', function() {
+
+			
+				var currentLocale = "en";
+				if (currentLocale == '') currentLocale = 'en';
+			
+				var htmlcode = `<div>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'en'?' active':'') + `" style="margin:2px;" data-lang="en" id="languageRegion-en" >English</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'de'?' active':'') + `" style="margin:2px;" data-lang="de" id="languageRegion-de" >Deutsche</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'id'?' active':'') + `" style="margin:2px;" data-lang="id" id="languageRegion-id" >Bahasa Indonesia</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'es'?' active':'') + `" style="margin:2px;" data-lang="es" id="languageRegion-es" >Español</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'fr'?' active':'') + `" style="margin:2px;" data-lang="fr" id="languageRegion-fr" >Français</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ph'?' active':'') + `" style="margin:2px;" data-lang="ph" id="languageRegion-ph" >Filipino</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'it'?' active':'') + `" style="margin:2px;" data-lang="it" id="languageRegion-it" >Italiano</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'pl'?' active':'') + `" style="margin:2px;" data-lang="pl" id="languageRegion-pl" >Polski</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'pt-BR'?' active':'') + `" style="margin:2px;" data-lang="pt-BR" id="languageRegion-pt-BR" >Português (Brasil)</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'pt-PT'?' active':'') + `" style="margin:2px;" data-lang="pt-PT" id="languageRegion-pt-PT" >Português (Portugal)</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ro'?' active':'') + `" style="margin:2px;" data-lang="ro" id="languageRegion-ro" >Română</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'sv'?' active':'') + `" style="margin:2px;" data-lang="sv" id="languageRegion-sv" >Svenska</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'sk'?' active':'') + `" style="margin:2px;" data-lang="sk" id="languageRegion-sk" >Slovenčina</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'sl'?' active':'') + `" style="margin:2px;" data-lang="sl" id="languageRegion-sl" >Slovenščina</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'vi'?' active':'') + `" style="margin:2px;" data-lang="vi" id="languageRegion-vi" >Tiếng Việt</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'tr'?' active':'') + `" style="margin:2px;" data-lang="tr" id="languageRegion-tr" >Türkçe</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'lv'?' active':'') + `" style="margin:2px;" data-lang="lv" id="languageRegion-lv" >latviešu valoda</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'el'?' active':'') + `" style="margin:2px;" data-lang="el" id="languageRegion-el" >Ελληνικά</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ru'?' active':'') + `" style="margin:2px;" data-lang="ru" id="languageRegion-ru" >Русский</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'uk-UA'?' active':'') + `" style="margin:2px;" data-lang="uk-UA" id="languageRegion-uk-UA" >Українська</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'bg'?' active':'') + `" style="margin:2px;" data-lang="bg" id="languageRegion-bg" >български</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ar'?' active':'') + `" style="margin:2px;" data-lang="ar" id="languageRegion-ar" >العربية</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'th'?' active':'') + `" style="margin:2px;" data-lang="th" id="languageRegion-th" >ภาษาไทย</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'bn'?' active':'') + `" style="margin:2px;" data-lang="bn" id="languageRegion-bn" >বাংলা</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ko'?' active':'') + `" style="margin:2px;" data-lang="ko" id="languageRegion-ko" >한국어</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ja'?' active':'') + `" style="margin:2px;" data-lang="ja" id="languageRegion-ja" >日本語</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'zh-CN'?' active':'') + `" style="margin:2px;" data-lang="zh-CN" id="languageRegion-zh-CN" >简体中文</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'zh-TW'?' active':'') + `" style="margin:2px;" data-lang="zh-TW" id="languageRegion-zh-TW" >繁體中文 (台灣)</button>				  
+							</div>`;
+	
+
+				  var frag = document.createRange().createContextualFragment('<div style="text-align:left;" id="settingscontent">' + htmlcode + '</div>');
+		  
+				  let wrapper = document.createElement('div');
+				  wrapper.appendChild(frag);
+	  
+				  const el = wrapper.firstChild;
+		  
+				  const swaltext = "Select Language and Region";
+				  
+				  setTimeout(function() {
+				  
+				  	$('.setregionbtn').off('click');
+				  	$('.setregionbtn').on('click', function() {
+				  	
+				  		$('.setregionbtn').removeClass('active');
+				  		$(this).addClass('active');
+
+						window.location = location.protocol + '//' + location.host + location.pathname + "?lang=" + $(this).data('lang');
+
+				  	});
+				  
+				  },100);
+				  
+
+				  swal({
+					  text: swaltext,
+					  content: el,
+					  buttons: {
+					  },
+				  });
+
+				$(".swal-modal .swal-text").html(`
+					  <ul class="nav poptabs">
+						<li class="nav-item">
+						  <a id='settingslanguage' class="nav-link poptabs-link active languageselect" aria-current="page">Language</a>
+						</li>
+
+						<li class="nav-item">
+						  <a id='settingstime' class="nav-link poptabs-link">Time</a>
+						</li>
+					  </ul>
+					`);
+
+										$("#settingslanguage").off('click');
+					$("#settingslanguage").on('click', function() {
+  
+					  $(".poptabs-link").removeClass('active');
+					  $(this).addClass('active');
+  
+					var htmlcode = `<div>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'en'?' active':'') + `" style="margin:2px;" data-lang="en" id="languageRegion-en" >English</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'de'?' active':'') + `" style="margin:2px;" data-lang="de" id="languageRegion-de" >Deutsche</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'id'?' active':'') + `" style="margin:2px;" data-lang="id" id="languageRegion-id" >Bahasa Indonesia</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'es'?' active':'') + `" style="margin:2px;" data-lang="es" id="languageRegion-es" >Español</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'fr'?' active':'') + `" style="margin:2px;" data-lang="fr" id="languageRegion-fr" >Français</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ph'?' active':'') + `" style="margin:2px;" data-lang="ph" id="languageRegion-ph" >Filipino</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'it'?' active':'') + `" style="margin:2px;" data-lang="it" id="languageRegion-it" >Italiano</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'pl'?' active':'') + `" style="margin:2px;" data-lang="pl" id="languageRegion-pl" >Polski</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'pt-BR'?' active':'') + `" style="margin:2px;" data-lang="pt-BR" id="languageRegion-pt-BR" >Português (Brasil)</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'pt-PT'?' active':'') + `" style="margin:2px;" data-lang="pt-PT" id="languageRegion-pt-PT" >Português (Portugal)</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ro'?' active':'') + `" style="margin:2px;" data-lang="ro" id="languageRegion-ro" >Română</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'sv'?' active':'') + `" style="margin:2px;" data-lang="sv" id="languageRegion-sv" >Svenska</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'sk'?' active':'') + `" style="margin:2px;" data-lang="sk" id="languageRegion-sk" >Slovenčina</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'sl'?' active':'') + `" style="margin:2px;" data-lang="sl" id="languageRegion-sl" >Slovenščina</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'vi'?' active':'') + `" style="margin:2px;" data-lang="vi" id="languageRegion-vi" >Tiếng Việt</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'tr'?' active':'') + `" style="margin:2px;" data-lang="tr" id="languageRegion-tr" >Türkçe</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'lv'?' active':'') + `" style="margin:2px;" data-lang="lv" id="languageRegion-lv" >latviešu valoda</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'el'?' active':'') + `" style="margin:2px;" data-lang="el" id="languageRegion-el" >Ελληνικά</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ru'?' active':'') + `" style="margin:2px;" data-lang="ru" id="languageRegion-ru" >Русский</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'uk-UA'?' active':'') + `" style="margin:2px;" data-lang="uk-UA" id="languageRegion-uk-UA" >Українська</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'bg'?' active':'') + `" style="margin:2px;" data-lang="bg" id="languageRegion-bg" >български</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ar'?' active':'') + `" style="margin:2px;" data-lang="ar" id="languageRegion-ar" >العربية</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'th'?' active':'') + `" style="margin:2px;" data-lang="th" id="languageRegion-th" >ภาษาไทย</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'bn'?' active':'') + `" style="margin:2px;" data-lang="bn" id="languageRegion-bn" >বাংলা</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ko'?' active':'') + `" style="margin:2px;" data-lang="ko" id="languageRegion-ko" >한국어</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'ja'?' active':'') + `" style="margin:2px;" data-lang="ja" id="languageRegion-ja" >日本語</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'zh-CN'?' active':'') + `" style="margin:2px;" data-lang="zh-CN" id="languageRegion-zh-CN" >简体中文</button>
+								<button class="setregionbtn btn btn-outline-primary` + (currentLocale == 'zh-TW'?' active':'') + `" style="margin:2px;" data-lang="zh-TW" id="languageRegion-zh-TW" >繁體中文 (台灣)</button>				  
+							</div>`;
+  
+					  $("#settingscontent").html(htmlcode);
+  
+					  $('.setregionbtn').off('click');
+						$('.setregionbtn').on('click', function() {
+						
+							$('.setregionbtn').removeClass('active');
+							$(this).addClass('active');
+  
+						  window.location = location.protocol + '//' + location.host + location.pathname + "?lang=" + $(this).data('lang');
+  
+						});
+  
+					});
+
+				  	$("#settingstime").off('click');
+					$("#settingstime").on('click', function() {
+					  $(".poptabs-link").removeClass('active');
+					  $(this).addClass('active');
+  
+					  var htmlcode = `
+							<div class="w-100">
+								<div class="timeAndColors-wrapper">
+									<div class="w-100">
+										<div class="input-label mb-2" style="color: var(--text_color_2);">Select Timezone:</div>
+										<select id="timezoneSelector"></select>	 
+									</div>
+									<div class="w-100">
+										<div class="input-label mb-2" style="color: var(--text_color_2);">Select Time Format:</div>
+										<select id="timeformatSelector" style="margin-top: 30px"></select>
+									</div>
+								</div>
+							
+							</div>`;
+
+					  $("#settingscontent").html(htmlcode);
+							
+						
+						var selectizeControl = $('#timezoneSelector').selectize({
+							preload: true,
+							valueField: "id",
+							labelField: "label",
+							searchField: ['id', 'label'],
+							options: timezonesArray,
+							render: {
+									item: function (item, escape) {
+											return `<div>` + escape(item.label) + `</div>`;
+									},
+									option: function (item, escape) {
+											return `<div>` + escape(item.label) + `</div>`;
+									},
+							},
+							onLoad: function() {
+									this.setValue({id: timezone});
+							},
+							onFocus: function() {
+									// this.clear(true);
+							},
+							onItemAdd: (value, item) => {
+								if (value !== timezone) {
+									localStorage.setItem('timezone', value);
+	
+									window.location = location.protocol + '//' + location.host + location.pathname;
+								}
+							}
+						})[0].selectize;
+
+						var selectizeControlFormat = $('#timeformatSelector').selectize({
+							preload: true,
+							valueField: "id",
+							labelField: "id",
+							searchField: ['id'],
+							options: [{id: "12h"}, {id: "24h"}],
+							render: {
+									item: function (item, escape) {
+											return `<div>` + escape(item.id) + `</div>`;
+									},
+									option: function (item, escape) {
+											return `<div>` + escape(item.id) + `</div>`;
+									},
+							},
+							onLoad: function() {
+									this.setValue({id: timeformat});
+							},
+							onFocus: function() {
+									// this.clear(true);
+							},
+							onItemAdd: (value, item) => {
+								if (value !== timeformat) {
+									localStorage.setItem('timeformat', value);
+	
+									window.location = location.protocol + '//' + location.host + location.pathname;
+								}
+							}
+						})[0].selectize;
+						
+						if (timezone) {
+							selectizeControl.setValue(timezone);
+						}
+
+						if (timeformat) {
+							selectizeControlFormat.setValue(timeformat);
+						}
+					});
+
+			
+			});
+		
+
+			$('[data-toggle="tooltip"]').tooltip();
+		
+  			if (screen.width < 768)
+  			{
+				$('.drawer').drawer();
+				//$(".drawer-menu").niceScroll();
+				
+				$('.drawer-menu-item').on('click', function(e) {
+					e.preventDefault();
+					$('.drawer').drawer('close');
+					var hreflink = $(this).attr("href");
+					$('.drawer').on('drawer.closed', function(){
+						window.location = hreflink;
+					});
+				});
+				
+			}
+			
+			io.socket.get('/api/v2/getservertime', function gotResponse(data, jwRes) {
+	
+				if (jwRes.statusCode == 200)
+				{
+
+					if (data.timestamp_unix)
+					{
+					
+						currentServerTime = data.timestamp_unix;
+						
+						$('.currentServerTime').html(data.timestamp_human);
+					
+					}
+					
+					if (data.revision)
+					{
+						currentRevision = data.revision;
+					}
+					
+					if (data.users_online)
+					{
+						$('.currentUsersOnline').html(data.users_online);
+					}
+
+					if (data.exchange_volume)
+					{
+						$('.exchangeVolume').html("$" + parseInt(data.exchange_volume).toLocaleString());
+					}
+					
+				}
+	
+			});
+				
+			setInterval(function(){
+			
+				requestTime = Date.now();
+			
+				io.socket.get('/api/v2/getservertime', function gotResponse(data, jwRes) {
+		
+					if (jwRes.statusCode == 200)
+					{
+					
+
+						if (data.timestamp_unix)
+						{
+					  
+						  	currentServerTime = data.timestamp_unix;
+
+							let selectedTimezone = timezonesArray.find((item) => item.id === timezone)?.label?.replace(`(`, ``)?.replace(`)`, ``);
+
+							if (selectedTimezone !== "UTC") {
+								selectedTimezone = selectedTimezone.split(" ")[0];
+							}
+
+						  $('.currentServerTime').html(`${formatTime(currentServerTime * 1000)} ${selectedTimezone}`);
+						
+						}
+						
+						if (data.revision)
+						{
+						
+							if (currentRevision == "") 
+							{
+								currentRevision = data.revision
+							}
+							else
+							{
+							
+								 if (currentRevision !=  data.revision)
+								 {
+								 
+									toastr["error"]("A new update has been released.  Please hard refresh your browser (Shift + Refresh).", "New Update", {
+									  "closeButton": true,
+									  "debug": false,
+									  "newestOnTop": true,
+									  "progressBar": false,
+									  "positionClass": "toast-top-right",
+									  "preventDuplicates": true,
+									  "onclick": null,
+									  "showDuration": "300",
+									  "hideDuration": "1000",
+									  "timeOut": "5000000",
+									  "extendedTimeOut": "1000",
+									  "showEasing": "swing",
+									  "hideEasing": "linear",
+									  "showMethod": "fadeIn",
+									  "hideMethod": "fadeOut"
+									});
+								 
+								 }
+								
+							}
+							
+						}
+
+						let roundTripTime = data.unix_microsec - requestTime;
+
+						if (roundTripTime < 300)
+						{
+				
+							$('.connectionStatus').html(`<svg style="margin-top:-3px;" width="16" height="12" viewBox="0 0 16 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+								<rect y="9.667" width="1.67" height="2.5" fill="#00C186"></rect>
+								<rect x="4.44446" y="5.667" width="1.66667" height="6.67" fill="#00C186"></rect>
+								<rect x="8.88892" y="3" width="1.66667" height="10.83" fill="#00C186"></rect>
+								<rect x="13.3333" width="1.66667" height="15" fill="#00C186"></rect>
+							</svg><span style="margin-left:10px; color: #00C186;">Stable Connection</span>`);
+
+						}
+						else if (roundTripTime < 600)
+						{
+				
+							$('.connectionStatus').html(`<svg style="margin-top:-3px;" width="16" height="12" viewBox="0 0 16 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+								<rect y="9.667" width="1.67" height="2.5" fill="#00C186"></rect>
+								<rect x="4.44446" y="5.667" width="1.66667" height="6.67" fill="#00C186"></rect>
+								<rect x="8.88892" y="3" width="1.66667" height="10.83" fill="#00C186"></rect>
+								<rect x="13.3333" width="1.66667" height="15" fill="grey"></rect>
+							</svg><span style="margin-left:10px; color: #00C186;">Stable Connection</span>`);
+
+						}
+						else if (roundTripTime < 900)
+						{
+				
+							$('.connectionStatus').html(`<svg style="margin-top:-3px;" width="16" height="12" viewBox="0 0 16 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+								<rect y="9.667" width="1.67" height="2.5" fill="#FFFF00"></rect>
+								<rect x="4.44446" y="5.667" width="1.66667" height="6.67" fill="#FFFF00"></rect>
+								<rect x="8.88892" y="3" width="1.66667" height="10.83" fill="grey"></rect>
+								<rect x="13.3333" width="1.66667" height="15" fill="grey"></rect>
+							</svg><span style="margin-left:10px; color: #FFFF00;">Slow Connection</span>`);
+
+						}
+						else if (roundTripTime >= 900)
+						{
+				
+							$('.connectionStatus').html(`<svg style="margin-top:-3px;" width="16" height="12" viewBox="0 0 16 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+								<rect y="9.667" width="1.67" height="2.5" fill="#FF0000"></rect>
+								<rect x="4.44446" y="5.667" width="1.66667" height="6.67" fill="grey"></rect>
+								<rect x="8.88892" y="3" width="1.66667" height="10.83" fill="grey"></rect>
+								<rect x="13.3333" width="1.66667" height="15" fill="grey"></rect>
+							</svg><span style="margin-left:10px;">Unstable Connection</span>`);
+
+						}
+
+						
+						if (data.users_online)
+						{
+					
+							$('.currentUsersOnline').html(data.users_online);
+
+						}
+
+						if (data.exchange_volume)
+						{
+							$('.exchangeVolume').html("$" + parseInt(data.exchange_volume).toLocaleString());
+						}
+					
+					}
+		
+				});
+			
+			}, 60000);
+			
+			setInterval(function(){
+			
+				if (currentServerTime > 0)
+				{
+
+					currentServerTime++;
+					  
+					let selectedTimezone = timezonesArray.find((item) => item.id === timezone)?.label?.replace(`(`, ``)?.replace(`)`, ``);
+
+					if (selectedTimezone !== "UTC") {
+						selectedTimezone = selectedTimezone.split(" ")[0];
+					}
+					  
+					 $('.currentServerTime').html(`${formatTime(currentServerTime * 1000)} ${selectedTimezone}`);
+				
+				}
+			
+			}, 1000);
+			
+			
+		});
+
+	function showErrorSwal(htmlcode) {
+			$("body").addClass("swal-open");
+		
+			let frag = document.createRange().createContextualFragment('<div style="text-align:left;">' + htmlcode + '</div>');
+
+			let wrapper = document.createElement('div');
+			wrapper.appendChild(frag);
+
+			const el = wrapper.firstChild;
+
+			swal({
+				title: window.geti18n('Error'),
+				content: el,
+				icon: 'error'
+			}).then(() => $("body").removeClass("swal-open"));
+		}
+
+		function showSuccessSwal(htmlcode, callback = null) {
+			$("body").addClass("swal-open");
+
+			let frag = document.createRange().createContextualFragment('<div style="text-align:left; width: 350px;">' + htmlcode + '</div>');
+
+			let wrapper = document.createElement('div');
+			wrapper.appendChild(frag);
+
+			const el = wrapper.firstChild;
+
+			swal({
+				title: window.geti18n('Success'),
+				content: el,
+				icon: 'success'
+			}).then(() => {
+				$("body").removeClass("swal-open")
+				callback?.()
+			});
+
+		}
+    
+    (function(){
+
+      var cookieConsent = new CookieConsent({privacyPolicyUrl: "/legal/privacy"})
+
+    
+    
+      if (typeof bowser !== 'undefined') {
+        // --------------------------------------------------------------------
+        // Additional compatibility tips:
+        //
+        // • The browser/OS compatibility below is determined by the needs of Vue.js and Bootstrap.js.
+        // • All browsers on Windows XP are probably unsupported (because of compatibility issues with modern SSL certs)
+        // • See https://getbootstrap.com/docs/4.0/getting-started/browsers-devices/
+        // • See also https://github.com/vuejs/vue/tree/0e5306658ad7b83c553a6a3eeedb15f9066ab063#browser-compatibility
+        // • For more info, see:
+        //    - https://github.com/lancedikson/bowser/blob/1fb99ced0e8834fd9662604bad7e0f0c3eba2786/test/test.js#L110-L123
+        //    - https://github.com/lancedikson/bowser/tree/1fb99ced0e8834fd9662604bad7e0f0c3eba2786#rendering-engine-flags
+        // --------------------------------------------------------------------
+        var LATEST_SUPPORTED_VERSION_BY_OS = {
+          iOS: '10',//« earliest version to eliminate rare bug where `window.location` doesn't exist momentarily after doing a server-side redirect
+          Android: '5.1'
+        };
+        var LATEST_SUPPORTED_VERSION_BY_USER_AGENT = {
+          msedge: '16',
+          msie: '11',
+          safari: '10',//« earliest version to eliminate rare bug where `window.location` doesn't exist momentarily after doing a server-side redirect
+          firefox: '28',//« earliest version to support both ES5 (for Vue.js) and unprefixed flexbox (for Bootstrap 4)
+          chrome: '29',//« earliest version to support both ES5 (for Vue.js) and unprefixed flexbox (for Bootstrap 4)
+          opera: '17',//« earliest version to support both ES5 (for Vue.js) and unprefixed flexbox (for Bootstrap 4)
+        };
+        var LATEST_SUPPORTED_VERSION_BY_BROWSER_NAME = {
+          'microsoft edge': LATEST_SUPPORTED_VERSION_BY_USER_AGENT.msedge,
+          'internet explorer': LATEST_SUPPORTED_VERSION_BY_USER_AGENT.msie,
+          'safari': LATEST_SUPPORTED_VERSION_BY_USER_AGENT.safari,
+          'firefox': LATEST_SUPPORTED_VERSION_BY_USER_AGENT.firefox,
+          'chrome': LATEST_SUPPORTED_VERSION_BY_USER_AGENT.chrome,
+          'opera': LATEST_SUPPORTED_VERSION_BY_USER_AGENT.opera
+        };
+        var isUnsupportedBrowser = (
+          bowser.isUnsupportedBrowser(LATEST_SUPPORTED_VERSION_BY_USER_AGENT, window.navigator.userAgent)
+        );
+        var isUnsupportedOS = (
+          LATEST_SUPPORTED_VERSION_BY_OS[bowser.osname] &&
+          bowser.compareVersions([bowser.osversion, LATEST_SUPPORTED_VERSION_BY_OS[bowser.osname]]) < 0
+        );
+        if (isUnsupportedBrowser || isUnsupportedOS) {
+          document.body.innerHTML =
+          '<div class="container browser-warning-message text-center">'+
+          '  <a href="https://nonkyc.io/contact">'+
+          '<img style="display: block; height: 75px; width: auto; margin: 0 auto 15px;" alt="Logo" src="/images/logo.png" "/>'+ 
+          '</a>'+
+          '  <h5 class="card-title">This '+(isUnsupportedBrowser ? 'browser' : 'operating system')+' is not supported.</h5>'+
+          '  <p style="max-width: 500px; margin-left: auto; margin-right: auto;">'+
+          '    This app does not currently support '+(
+            isUnsupportedBrowser?
+            '<strong>'+bowser.name+'</strong> for versions lower than <strong>v'+ LATEST_SUPPORTED_VERSION_BY_BROWSER_NAME[bowser.name.toLowerCase()]+'</strong>. '+
+            'To continue, please upgrade your browser to the newest version, or download the <a href="https://www.google.com/chrome">latest version of Google Chrome</a>.'+
+            '  </p>'+
+            '  <a class="btn btn-primary" style="padding: 5px 10px" href="https://www.google.com/chrome">Download Chrome</a>'
+            :
+            '<strong>'+bowser.osname+'</strong> for versions lower than <strong>v'+ LATEST_SUPPORTED_VERSION_BY_OS[bowser.osname]+'</strong>. '+
+            'To continue, please use a different device, or <a href="'+(bowser.osname === 'iOS' ? 'https://support.apple.com/en-us/HT204204' : 'https://support.google.com/android/?hl=en#topic=7313011')+'">upgrade this device\'s software</a> to the latest compatible version.'+
+            '  </p>'+
+            '  <a class="btn btn-primary" style="padding: 5px 10px" href="/contact">Need help?</a>'
+          )+
+          '</div>';Notific
+          document.body.style.padding = '75px 0';
+        }
+      }
+    })();//†
+    
+    </script><script>
+  // Toggle visibility of FAQ answers and rotate arrow
+  function toggleAnswer(element) {
+    const answer = element.nextElementSibling;
+    const arrow = element.querySelector('.arrow');
+    answer.style.display = (answer.style.display === "none" || answer.style.display === "") ? "block" : "none";
+    arrow.style.transform = (answer.style.display === "block") ? "rotate(90deg)" : "rotate(0deg)";
+  }
+</script><script>
+  
+</script><script data-cfasync="false" src="https://code.tidio.co/rb65xh978rkixv1jmq30n2a4smkptcd2.js" async=""></script><button class="mobile-chat-icon" aria-label="Open chat" title="Open chat" type="button">
+      <svg id="ic_bubble" width="64" height="64" viewbox="0 0 24 24" aria-hidden="true" fill="#FFFF66"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"></path><path d="M0 0h24v24H0z" fill="none"></path></svg></button>
+
+    <style>
+      /* Mobile-only: show the icon; hide it on desktop so Tidio default stays */
+      .mobile-chat-icon{
+        position: fixed; right: 16px; bottom: 16px;
+        background: transparent; border: 0; padding: 0; margin: 0;
+        line-height: 0; cursor: pointer;
+        z-index: 2147483647; /* on top */
+      }
+      /* Optional: tweak icon size via width/height on the <svg> */
+      .mobile-chat-icon #ic_bubble{ display:block; }
+      @media (min-width: 768px){
+        .mobile-chat-icon{ display: none; } /* keep default Tidio on desktop */
+      }
+    </style><script>
+      (function () {
+        // Treat <768px as "mobile"
+        var isMobile = function () { return window.matchMedia('(max-width: 767.98px)').matches; };
+
+        function applyTidioVisibility(){
+          if (!window.tidioChatApi) return;
+          if (isMobile()) {
+            // Hide Tidio's default launcher on mobile; we use our icon instead
+            window.tidioChatApi.hide();
+          } else {
+            // Show default launcher on desktop
+            window.tidioChatApi.show();
+          }
+        }
+
+        function onTidioReady(){
+          applyTidioVisibility();
+
+          // Re-apply on orientation/resize
+          var t;
+          window.addEventListener('resize', function(){
+            clearTimeout(t);
+            t = setTimeout(applyTidioVisibility, 150);
+          });
+
+          // When chat closes on mobile, re-hide the default launcher
+          window.tidioChatApi.on('close', function(){
+            if (isMobile()) window.tidioChatApi.hide();
+          });
+
+          // Open chat on icon tap
+          var btn = document.querySelector('.mobile-chat-icon');
+          if (btn) {
+            btn.addEventListener('click', function () {
+              window.tidioChatApi.show();
+              window.tidioChatApi.open();
+            });
+          }
+        }
+
+        // Wait for Tidio to be ready
+        if (window.tidioChatApi && window.tidioChatApi.on) {
+          window.tidioChatApi.on('ready', onTidioReady);
+        } else {
+          document.addEventListener('tidioChat-ready', onTidioReady);
+        }
+      })();
+    </script><style>
+	.menu-group-summary{
+	display:flex; align-items:center; gap:.5rem;
+	width:100%; padding:10px 12px; cursor:pointer;
+	text-decoration:none; color:inherit; user-select:none;
+	}
+	.menu-group-summary .caret{ margin-left:auto; transition:transform .2s ease; }
+	.menu-group-summary[aria-expanded="true"] .caret{ transform:rotate(180deg); }
+	.menu-group-summary:hover{ background:rgba(0,0,0,.05); }
+
+	.menu-group-summary.sub{ padding-left:36px; font-size:.95em; opacity:.95; }
+
+	.drawer-menu .collapse{ padding-left:0; }
+	.drawer-menu .submenu{ list-style:none; margin:0; padding:6px 0 10px 32px; }
+
+	.drawer-menu .submenu > li > a.drawer-menu-item{
+	display:flex; align-items:center; gap:.5rem;
+	padding:8px 12px; border-radius:8px; text-decoration:none; color:inherit;
+	}
+	.drawer-menu .submenu > li > a.drawer-menu-item:hover{
+	background:rgba(0,0,0,.05);
+	}
+
+	.drawer-menu .drawer-menu-item.is-active{
+	background:rgba(255,255,102,.18);
+	box-shadow:inset 0 0 0 1px rgba(255,255,102,.35);
+	}
+
+	.admin-dd{ max-height:70vh; overflow:auto; }
+
+	.dd-section-toggle{
+	  display:flex; align-items:center; gap:.5rem;
+	  padding:.375rem 1.5rem; cursor:pointer; text-decoration:none; color:inherit;
+	}
+	.dd-section-toggle:hover{ background:rgba(0,0,0,.05); }
+
+	.dd-section-toggle .caret{ margin-left:auto; transition:transform .2s ease; }
+	.dd-section-toggle .caret.rotate {
+      transform: rotate(180deg);
+	}
+
+	.admin-dd .dropdown-item.is-active{ font-weight:600; }
+
+	.admin-dd .collapse .dropdown-item{ padding-left:2.25rem; }
+
+	.mobile-drawer{
+	  position: fixed;
+	  top: 0; left: 0; right: 0; bottom: 0;
+	  z-index: 1000000;
+	  overflow-y: auto;
+	  -webkit-overflow-scrolling: touch;
+	  background: #eee;
+	}
+</style><script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"2fb59eedb28049c79d72490a0c17cb66","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9e6d931c4bb9f474',t:'MTc3NTI3Njk5Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><iframe height="1" width="1" style="position: absolute; top: 0px; left: 0px; border: none; visibility: hidden;"></iframe>
+
+
+<div id="cookieConsentModal" style="position: fixed; z-index: 999999;"><div class="cookie-consent-modal"><div class="modal-content-wrap right"><div class="modal-content"><div class="modal-header"><h3 class="modal-title">Cookie settings</h3></div><div class="modal-body">We use cookies to personalize content and analyze access to our website. You can choose whether you only accept cookies that are necessary for the functioning of the website or whether you also want to allow tracking cookies. For more information, please refer to our <a href="/legal/privacy">privacy policy</a>.</div><div class="modal-footer"><div class="buttons"><button class="btn-accept-necessary btn btn-secondary">Only accept technically necessary cookies</button><button class="btn-accept-all btn btn-primary">Accept all cookies</button></div></div></div></div></div></div><div id="lightboxOverlay" tabindex="-1" class="lightboxOverlay" style="display: none;"></div><div id="lightbox" tabindex="-1" class="lightbox" style="display: none;"><div class="lb-outerContainer"><div class="lb-container"><img class="lb-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" alt=""><div class="lb-nav"><a class="lb-prev" aria-label="Previous image" href=""></a><a class="lb-next" aria-label="Next image" href=""></a></div><div class="lb-loader"><a class="lb-cancel"></a></div></div></div><div class="lb-dataContainer"><div class="lb-data"><div class="lb-details"><span class="lb-caption"></span><span class="lb-number"></span></div><div class="lb-closeContainer"><a class="lb-close"></a></div></div></div></div><iframe id="tidio-chat-code" title="Tidio Chat code" style="display: none;"></iframe><div id="tidio-chat" class="needsclick" style="z-index: 999999999 !important; position: fixed;"></div></body></html>

@@ -1,0 +1,62 @@
+# ============================================================================
+#  range_inventory_ladder — NonKYC ZANO/USDT controller config
+#  Optimized band + shape weights. PROBE ONLY: thin book ($963), most-bagged of the four.
+# ============================================================================
+
+# --- Identity -------------------------------------------------------------
+id: range_inventory_ladder_zano_V1
+controller_name: range_inventory_ladder
+controller_type: market_making
+
+# --- Market ---------------------------------------------------------------
+connector_name: nonkyc
+trading_pair: ZANO-USDT                    # Current price ~ $10.01.
+fee_rate: 0.002
+
+# --- Managed fund ---------------------------------------------------------
+ledger_funded_budgets: true
+total_amount_quote: 267                   # Seed = 50% of cap; all USDT (you hold no ZANO). Set-once.
+allow_initialize_with_unavailable_wallet_funds: true
+max_fund_value_quote: 500                  # HARD CAP. Kept SMALL on purpose -- ZANO's book is only
+                                          #   ~$963 deep at +/-2%, so do not size this up.
+use_wallet_balance: true
+claimed_base_value_quote: 266               # Buy-only start, accumulate ZANO.
+
+# >>> ZANO is a PROBE <<<
+# - Thinnest book of the four ($963) and was the most bagged (64% endinv, optimized to 41%). Its
+#   optimized SELL spacing is tight (2.6%) on that thin book -- the riskiest combo here. Keep the cap
+#   at $500, treat fills as the experiment, and PAPER-VALIDATE that real fills match before scaling.
+# - Same shared-account seed behavior as the others (seed reads the wallet; ledger isolates after).
+# - Cap chain OK: 0 <= 250 <= 500.
+
+# --- The ladder: OPTIMIZED rungs + SHAPE weights --------------------------
+buy_prices: 9.64156,9.27111,8.91068,8.54024,8.16979
+buy_amounts_pct: 9.7,13.3,18.2,24.8,34.0
+sell_prices: 10.2723,10.5326,10.7929,11.0532,11.3136
+sell_amounts_pct: 15.3,17.4,19.7,22.3,25.3
+
+# --- Refresh / re-center model --------------------------------------------
+event_refresh_enabled: true
+executor_refresh_time: 43200
+buy_cooldown_time: 3600
+sell_cooldown_time: 3600
+
+# --- Order placement constraints ------------------------------------------
+min_order_quote: 1
+allow_partial_levels: true
+passive_order_placement: true
+
+# --- Unattended-run safety ------------------------------------------------
+max_session_duration_hours: 66000
+cancel_orders_on_session_end: true
+max_market_data_unavailable_seconds: 900
+cancel_orders_on_market_data_hard_pause: true
+
+# --- Diagnostics ----------------------------------------------------------
+diagnostic_log_enabled: true
+diagnostic_log_file_name: range_inventory_ladder_zano_usdt_diagnostic.jsonl
+diagnostic_heartbeat_interval_seconds: 300
+
+# --- State / control ------------------------------------------------------
+state_file_name: range_inventory_ladder_zano_usdt.json
+manual_kill_switch: false

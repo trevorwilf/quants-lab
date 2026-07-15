@@ -234,3 +234,7 @@ research_notebooks/bowaka_v2_lab/notebooks/runs/
 run_weekly_study_*.log
 WEEKLY_STUDY_FAILED.flag
 NB10_NOT_READY.flag
+
+
+_scratch_oscillator/*
+range_ladder/controllers/*

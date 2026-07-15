@@ -1,0 +1,48 @@
+# .gitignore for research_notebooks/truenas/
+#
+# This folder is a LOCAL STAGING MIRROR of the TrueNAS Gluetun Jupyter share
+# (see README.md). Trevor copies the *whole* Jupyter tree down here, which drags
+# along ~350 MB of data caches, run artifacts, and personal financial exports
+# that must NOT enter git history.
+#
+# Intent: track only SOURCE — engine `.py`, notebooks (`.ipynb`), `.md` notes,
+# and small hand-authored configs (e.g. controllers/*.yml). Everything bulky,
+# regenerated, or personal is ignored below.
+#
+# Already handled by the repo-root .gitignore (not repeated here):
+#   __pycache__/ , .ipynb_checkpoints , .Trash-0/
+
+# --- Market-data caches (~137 MB of .npz OHLCV cache) ---
+_ladder_cache/
+*.npz
+
+# --- Raw per-pair OHLCV/trade CSV extracts (~100 MB; re-pullable from notebooks) ---
+# These are exchange data dumps named <PAIR>_<exchange>.csv, NOT the small report
+# CSVs (ladder_report_*.csv, *final_summary*.csv) which stay tracked.
+# Add new raw-extract pair prefixes here as they appear.
+ETH-USDT_*.csv
+SOL-USDT_*.csv
+xmr_usdt_*.csv
+
+# --- Regenerated run artifacts & diagnostics (large, reproducible) ---
+artifacts/
+**/artifacts/
+diagnostics/
+**/diagnostics/
+
+# --- Archives / compressed dumps ---
+*.zip
+*.gz
+
+# --- Personal / financial data — must NEVER be committed ---
+# Quarantine folder: all personal-financial-holdings data was moved into
+# notebooks/_private/ (tax backups, wallet histories, a balances notebook,
+# db_backup, raw exchange CSV extracts, and the getdocumentation raw API dumps +
+# generated docs that embed real, incompletely-redacted trade data). Originals
+# live on the TrueNAS server; the generated docs regenerate via the scraper.
+notebooks/_private/
+_private/
+
+# Belt-and-suspenders (in case such files reappear outside _private/):
+logs/backup/
+*.xlsx

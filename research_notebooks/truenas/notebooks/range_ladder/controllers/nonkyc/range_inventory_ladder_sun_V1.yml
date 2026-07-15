@@ -1,0 +1,61 @@
+# ============================================================================
+#  range_inventory_ladder — NonKYC SUN/USDT controller config
+#  Optimized band + shape weights. Small experiment (smallest profit of the four).
+# ============================================================================
+
+# --- Identity -------------------------------------------------------------
+id: range_inventory_ladder_sun_V1
+controller_name: range_inventory_ladder
+controller_type: market_making
+
+# --- Market ---------------------------------------------------------------
+connector_name: nonkyc
+trading_pair: SUN-USDT                      # Current price ~ $0.017055.
+fee_rate: 0.002
+
+# --- Managed fund ---------------------------------------------------------
+ledger_funded_budgets: true
+total_amount_quote: 221                    # Seed = 50% of cap; all USDT (you hold no SUN). Set-once.
+allow_initialize_with_unavailable_wallet_funds: true
+max_fund_value_quote: 700                   # HARD CAP (screener suggestion). $6.2k book is OK.
+use_wallet_balance: true
+claimed_base_value_quote: 190                # Buy-only start, accumulate SUN.
+
+# >>> SUN is a small experiment <<<
+# - Smallest backtested profit of the four (+28% / +$282 on $1k). Buy weights front-load HARD
+#   (44% on the nearest rung) because its deep buy rungs filled only ~once/yr -- loading them would
+#   strand capital. Healthy spacing (2% buys / 8.4% sells). Paper-validate before scaling.
+# - Same shared-account seed behavior (seed reads the wallet; ledger isolates after).
+# - Cap chain OK: 0 <= 350 <= 700.
+
+# --- The ladder: OPTIMIZED rungs + SHAPE weights --------------------------
+buy_prices: 0.0167139,0.0163557,0.0160146,0.0156735,0.0153324
+buy_amounts_pct: 44.3,26.1,15.3,9.0,5.3
+sell_prices: 0.017387,0.018487,0.0203358,0.0227514,0.024184
+sell_amounts_pct: 15.3,17.4,19.7,22.3,25.3
+
+# --- Refresh / re-center model --------------------------------------------
+event_refresh_enabled: true
+executor_refresh_time: 43200
+buy_cooldown_time: 3600
+sell_cooldown_time: 3600
+
+# --- Order placement constraints ------------------------------------------
+min_order_quote: 1
+allow_partial_levels: true
+passive_order_placement: true
+
+# --- Unattended-run safety ------------------------------------------------
+max_session_duration_hours: 66000
+cancel_orders_on_session_end: true
+max_market_data_unavailable_seconds: 900
+cancel_orders_on_market_data_hard_pause: true
+
+# --- Diagnostics ----------------------------------------------------------
+diagnostic_log_enabled: true
+diagnostic_log_file_name: range_inventory_ladder_sun_usdt_diagnostic.jsonl
+diagnostic_heartbeat_interval_seconds: 300
+
+# --- State / control ------------------------------------------------------
+state_file_name: range_inventory_ladder_sun_usdt.json
+manual_kill_switch: false

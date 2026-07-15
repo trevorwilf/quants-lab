@@ -1,0 +1,45 @@
+# range_inventory_ladder config exported by pmm_lab (range_ladder Phase A)
+# anchor_price: 326.11 (deploy-time median-3 close; rung
+#   prices are absolute — re-export if price has drifted since tuning)
+# Fund fields are PLACEHOLDERS sized from the study's FUND_USD:
+#   total_amount_quote        — total quote capital the ladder may deploy
+#   max_fund_value_quote      — hard cap on fund value claimed by the bot
+#   claimed_base_value_quote  — base inventory (quote-valued) claimed at start
+#   Review against the live account before deploying.
+# Timing fields are FROZEN Phase A live values (refresh/cooldowns are
+# not modeled by the bar-path sim — Phase B tunes them).
+# Selected under gate policy: {'mode': 'strict', 'endinv_gate_pct': 75.0, 'endinv_penalty': 20.0, 'cons_floor_ann_pct': 0.0, 'max_dd_pct': 60.0, 'min_trades_per_month': 6.0, 'min_side_fills_per_fold': 3, 'min_rung_touches_train': 8, 'touch_lookback_days': 270.0}
+# objective_mode: median_ann; search_mode: generative
+# fill-frequency constraints: min_rung_touches_train=8 (lookback 270d), min_trades_per_month=6, min_side_fills_per_fold=3
+id: nonkyc_xmr_usdt_range_ladder
+controller_name: range_inventory_ladder
+controller_type: market_making
+connector_name: nonkyc
+trading_pair: XMR-USDT
+buy_prices:
+- 322.3
+- 311.47
+- 304.91
+buy_amounts_pct:
+- 78.5
+- 13.7
+- 7.8
+sell_prices:
+- 328.53
+- 332.19
+- 340.5
+sell_amounts_pct:
+- 75.9
+- 16.5
+- 7.6
+fee_rate: 0.002
+min_order_quote: 1.0
+allow_partial_levels: true
+passive_order_placement: true
+event_refresh_enabled: true
+executor_refresh_time: 43200
+buy_cooldown_time: 3600
+sell_cooldown_time: 3600
+total_amount_quote: 1000.0
+max_fund_value_quote: 1000.0
+claimed_base_value_quote: 500.0
