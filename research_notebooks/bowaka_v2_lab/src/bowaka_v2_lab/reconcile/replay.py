@@ -242,7 +242,7 @@ def run_lab_parity_session(lab_cfg: Any, session_date: Any, *, run_dir: Path | s
         # the run is not refused for consuming a synthetic universe.
         from bowaka_common.marketdata import MarketDataStore
 
-        from ..universe.builder import build_pit_universe
+        from ..universe.builder import build_pit_universe, eligible_symbols
 
         md = cfg.get("market_data") or {}
         from ..data.lineage import _coerce_lake_root, resolve_lake_root
@@ -250,7 +250,17 @@ def run_lab_parity_session(lab_cfg: Any, session_date: Any, *, run_dir: Path | s
             _coerce_lake_root(resolve_lake_root(cfg)),
             vendor=md.get("vendor", "alpaca"),
         )
-        universe = {session: build_pit_universe(session, cfg, store)}
+        universe_records = build_pit_universe(session, cfg, store)
+        universe = {session: universe_records}
+        # The scanner needs prior-day baselines for the symbols it actually scans
+        # — the PIT-eligible universe. ``resolve_symbols(cfg)`` is EMPTY for a
+        # PIT-universe config (no explicit ``universe.symbols`` list), so the
+        # daily cache built above covers nothing and every scan is rejected with
+        # ``no_baselines`` (→ 0 lab candidates, breaking reconciliation). Rebuild
+        # the daily baseline cache for the eligible universe.
+        uni_symbols = eligible_symbols(universe_records)
+        if uni_symbols:
+            daily_cache = resolve_daily_cache(cfg, uni_symbols, session)
     else:
         # No lake — fixture / smoke path. A synthetic universe is only legal in
         # smoke_fixture mode, so drop the run to that mode for the fixture path.
