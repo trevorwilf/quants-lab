@@ -82,8 +82,15 @@ from .replay import (
     ReplayResult, replay_paper_session, load_paper_session,
     run_lab_parity_session, build_reconcile_rows,
 )
+from .openalgo_adapter import (
+    AdaptResult, adapt_openalgo_logs, synth_from_closure,
+    session_from_candidate_id, is_closure,
+)
 
 __all__ = [
+    # openalgo -> reconciler paper-logs adapter
+    "AdaptResult", "adapt_openalgo_logs", "synth_from_closure",
+    "session_from_candidate_id", "is_closure",
     # Phase 7
     "CANDIDATE_FIELDS", "DECISION_FIELDS", "ORDER_FIELDS", "FILL_FIELDS",
     "validate_paper_record",

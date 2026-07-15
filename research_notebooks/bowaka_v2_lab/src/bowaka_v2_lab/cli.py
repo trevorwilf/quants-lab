@@ -652,6 +652,21 @@ def build_parser() -> argparse.ArgumentParser:
                      help="output directory for reconciliation_report.{md,json}")
     rec.set_defaults(func=_cmd_reconcile)
 
+    ap = sub.add_parser(
+        "adapt-paper-logs",
+        help="Convert openalgo bowaka_v2 live/paper logs into the reconciler's "
+             "per-session paper-logs layout (feeds `reconcile`).",
+    )
+    ap.add_argument("--openalgo-data-dir", required=True,
+                    help="openalgo strategies/scripts/data/bowaka_v2 directory "
+                         "(holds candidate_events.jsonl / entry_decisions.jsonl / "
+                         "trade_ledger.jsonl)")
+    ap.add_argument("--out-root", required=True,
+                    help="output paper-logs root; one YYYY-MM-DD/ dir per session")
+    ap.add_argument("--sessions", nargs="*", default=None,
+                    help="optional subset of YYYY-MM-DD sessions to emit (default: all)")
+    ap.set_defaults(func=_cmd_adapt_paper_logs)
+
     # Speedup report §6.4 / matrix doc §12 — scan-matrix builder + verifier.
     sm = sub.add_parser(
         "scan-matrix",
@@ -926,6 +941,22 @@ def _cmd_promotion_gate(args: argparse.Namespace) -> int:
     }
     print(json.dumps(out, indent=2, sort_keys=True))
     return 0 if (out["p0_passed"] and bundle_status == "ok") else 1
+
+
+def _cmd_adapt_paper_logs(args: argparse.Namespace) -> int:
+    """Convert openalgo bowaka_v2 live/paper logs into the reconciler layout.
+
+    Exit codes: 0 = one or more sessions written; 2 = no sessions found (nothing
+    to reconcile). Reads only the three JSONL logs — never touches the live bot.
+    """
+    from .reconcile.openalgo_adapter import adapt_openalgo_logs
+
+    res = adapt_openalgo_logs(
+        args.openalgo_data_dir, args.out_root, sessions=args.sessions,
+    )
+    payload = {"command": "adapt-paper-logs", "status": "ok", **res.to_dict()}
+    print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+    return 0 if res.sessions else 2
 
 
 def _cmd_reconcile_multi(args: argparse.Namespace) -> int:
