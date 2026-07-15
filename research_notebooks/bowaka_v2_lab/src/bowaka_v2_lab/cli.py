@@ -965,7 +965,10 @@ def _cmd_reconcile_multi(args: argparse.Namespace) -> int:
     Exit codes: 0 = all thresholds pass; 1 = a threshold failed;
     2 = REAL_LOGS_DEFERRED or BELOW_MIN_SESSIONS (deferred, not a defect).
     """
-    from .reconcile.orchestrator import run_reconciliation
+    from .reconcile.orchestrator import (
+        render_reconcile_report_md,
+        run_reconciliation,
+    )
 
     cfg: dict = {}
     if args.config:
@@ -977,16 +980,24 @@ def _cmd_reconcile_multi(args: argparse.Namespace) -> int:
         or "data/paper_logs"
     )
     report = run_reconciliation(paper_logs_root=paper_logs_root, cfg=cfg)
+    out = Path(args.out) if args.out else (
+        Path("artifacts") / "reconcile" / "reconciliation_report.json"
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "command": "reconcile", "status": report.status,
         "n_sessions": report.n_sessions, "aggregate": dict(report.aggregate),
         "passes_all_thresholds": report.passes_all_thresholds,
         "failing_metrics": report.failing_metrics, "thresholds": dict(report.thresholds),
     }
-    out = Path(args.out) if args.out else (
-        Path("artifacts") / "reconcile" / "reconciliation_report.json"
-    )
-    out.parent.mkdir(parents=True, exist_ok=True)
+    # Emit the markdown gate artifact next to the JSON whenever a REAL
+    # reconciliation ran (>=1 session). The promotion gate
+    # (suitability._has_paper_recon_artifact) detects reconciliation_report.md;
+    # a 0-session REAL_LOGS_DEFERRED run writes only the JSON so it can't spoof it.
+    if report.n_sessions > 0:
+        md_path = out.parent / "reconciliation_report.md"
+        md_path.write_text(render_reconcile_report_md(report), encoding="utf-8")
+        payload["report_md"] = str(md_path)
     out.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str),
                    encoding="utf-8")
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))

@@ -243,6 +243,54 @@ def run_reconciliation(
     )
 
 
+def render_reconcile_report_md(report: ReconcileReport) -> str:
+    """Render a multi-session :class:`ReconcileReport` as markdown.
+
+    This is the human-readable + promotion-gate artifact for the multi-session
+    path (``promotion.suitability._has_paper_recon_artifact`` detects
+    ``reconciliation_report.md``). The single-session path has its own renderer;
+    this one summarises the session-weighted aggregate + a per-session table.
+    """
+    lines: list[str] = ["# Bowaka v2 — Paper-vs-Lab Reconciliation", ""]
+    verdict = "PASS" if report.passes_all_thresholds else "FAIL"
+    lines.append(f"- **Status:** {report.status}")
+    lines.append(f"- **Sessions reconciled:** {report.n_sessions}")
+    lines.append(f"- **Verdict:** {verdict}")
+    failing = ", ".join(report.failing_metrics) if report.failing_metrics else "none"
+    lines.append(f"- **Failing metrics:** {failing}")
+    lines += ["", "## Aggregate metrics (session-weighted)", ""]
+    lines.append("| Metric | Value | Threshold | Pass |")
+    lines.append("|--------|-------|-----------|------|")
+    agg = dict(report.aggregate or {})
+    for metric, thr in report.thresholds.items():
+        val = agg.get(metric)
+        val_s = f"{val:.4f}" if isinstance(val, (int, float)) else "—"
+        ok = "PASS" if (isinstance(val, (int, float)) and val >= thr) else "FAIL"
+        lines.append(f"| {metric} | {val_s} | {thr:.2f} | {ok} |")
+    mae = agg.get("fill_price_mae_bps")
+    if isinstance(mae, (int, float)):
+        lines.append(f"| fill_price_mae_bps | {mae:.3f} | — | — |")
+    if report.per_session:
+        lines += ["", "## Per-session", ""]
+        lines.append(
+            "| Session | n_paper | n_sim | cand_recall | gate | entry_dec | "
+            "fill | fill_mae_bps | exit_reason | pnl_sign |"
+        )
+        lines.append(
+            "|---------|---------|-------|-------------|------|-----------|"
+            "------|--------------|-------------|----------|"
+        )
+        for r in report.per_session:
+            lines.append(
+                f"| {r.session_date} | {r.n_paper_candidates} | {r.n_sim_candidates} | "
+                f"{r.candidate_recall:.3f} | {r.gate_match:.3f} | {r.entry_decision_match:.3f} | "
+                f"{r.fill_match:.3f} | {r.fill_price_mae_bps:.2f} | {r.exit_reason_match:.3f} | "
+                f"{r.daily_pnl_sign_match:.3f} |"
+            )
+    lines.append("")
+    return "\n".join(lines)
+
+
 __all__ = [
     "DEFAULT_THRESHOLDS",
     "DEFAULT_MIN_SESSIONS",
@@ -250,4 +298,5 @@ __all__ = [
     "ReconcileReport",
     "aggregate_metrics",
     "run_reconciliation",
+    "render_reconcile_report_md",
 ]
